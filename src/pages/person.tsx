@@ -3,7 +3,7 @@ import { pb } from '../lib/pocketbase';
 import Modal from '../components/modal';
 import { 
   Search, Plus, Edit, Trash2, Users, UserCheck, 
-  UserX, ArrowRight, ChevronLeft, ChevronRight, Filter 
+  UserX, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 
 interface Person {

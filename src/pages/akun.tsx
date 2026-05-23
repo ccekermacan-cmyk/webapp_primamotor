@@ -3,7 +3,7 @@ import { pb } from '../lib/pocketbase';
 import Modal from '../components/modal';
 import { 
   User, Mail, Shield, Camera, Edit3, Lock, 
-  Eye, ChevronLeft, ChevronRight, DollarSign, Calendar, Briefcase 
+  Eye, ChevronLeft, ChevronRight, DollarSign, Calendar,
 } from 'lucide-react';
 
 interface UserData {

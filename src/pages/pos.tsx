@@ -1,5 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useState, useEffect, useMemo } from 'react';
 import { pb } from '../lib/pocketbase';
 import Modal from '../components/modal';
 import { 
@@ -67,7 +66,7 @@ export default function MenuPage() {
   const [personOptions, setPersonOptions] = useState<DropdownItem[]>([]);
   const [cashflowAccounts, setCashflowAccounts] = useState<DropdownItem[]>([]);
   const [mechanics, setMechanics] = useState<UserKaryawan[]>([]);
-  const [personMap, setPersonMap] = useState<Record<string, string>>({});
+  const [personMap] = useState<Record<string, string>>({});
   
   const [loading, setLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -335,7 +334,6 @@ export default function MenuPage() {
 
       const selectedPersonRecordId = personOptions.find(p => p.id_lama === formBayar.personIdLama)?.id || '';
       const selectedPersonName = personMap[formBayar.personIdLama] || 'Umum';
-      const isOnline = selectedPersonName.toLowerCase().includes('online');
 
       // Jika dalam Mode Edit, kembalikan stok lama dan bersihkan relasi (log_stock, cashflow, ongkos)
       if (isEditing) {
@@ -918,7 +916,7 @@ export default function MenuPage() {
                         {editSession && editSession.menuId && menuFiles.length === 0 && (
                           <div className="w-full text-[9px] font-black text-slate-400 mb-1 uppercase tracking-widest">File Lama (Server):</div>
                         )}
-                        {editSession && editSession.menuId && menuFiles.length === 0 && showDetailHistory?.file?.map((filename) => {
+                        {editSession && editSession.menuId && menuFiles.length === 0 && showDetailHistory?.file?.map((filename: string) => {
                            const isVid = isVideo(filename);
                            return (
                              <div key={filename} className="w-12 h-12 bg-slate-200 rounded-lg overflow-hidden relative shadow-sm border border-slate-300">
@@ -1220,7 +1218,7 @@ export default function MenuPage() {
              </div> 
 
              <div className="flex gap-2"> 
-               <button onClick={() => { const printContents = document.getElementById('thermal-receipt-58mm')?.innerHTML; if (printContents) { const originalBody = document.body.innerHTML; document.body.innerHTML = printContents; window.print(); window.location.reload(); } }} className="flex-1 py-4 bg-slate-900 text-white rounded-2xl font-black text-xs">CETAK NOTA (PRINT 58MM)</button> 
+               <button onClick={() => { const printContents = document.getElementById('thermal-receipt-58mm')?.innerHTML; if (printContents) { document.body.innerHTML = printContents; window.print(); window.location.reload(); window.location.reload(); } }} className="flex-1 py-4 bg-slate-900 text-white rounded-2xl font-black text-xs">CETAK NOTA (PRINT 58MM)</button> 
                <button onClick={() => setShowReceiptPrint(null)} className="py-4 px-6 bg-slate-100 text-slate-500 font-bold rounded-2xl text-xs">LEWATI</button> 
              </div> 
            </div> 
