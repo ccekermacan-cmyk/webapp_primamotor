@@ -128,6 +128,7 @@ export default function MenuPage() {
     });
 
   const [isPaymentFormOpen, setIsPaymentFormOpen] = useState(true);
+  const [isCartOpen, setIsCartOpen] = useState(false);
 
   const [dialog, setDialog] = useState<{show: boolean, title: string, message: string, type: 'alert' | 'confirm', onConfirm?: () => void}>({
     show: false, title: '', message: '', type: 'alert'
@@ -444,7 +445,8 @@ export default function MenuPage() {
       setCart([]);
       setMenuFiles([]);
       setEditSession(null);
-      setFormBayar(prev => ({ 
+      setIsCartOpen(false); // Tutup panel keranjang di mobile setelah sukses
+      setFormBayar(prev => ({
         ...prev, nominalBayar: 0, mekanikList: [{ idLama: '', ongkos: 0 }], 
         noteMenu: '', note: '' ,marketplace: '', adminFee: 0, cashback: 0
       }));
@@ -592,9 +594,10 @@ export default function MenuPage() {
     <div className="flex h-full bg-slate-100 overflow-hidden font-sans"> 
       
       {/* --- PANEL KIRI --- */} 
-      <div className="flex-1 flex flex-col p-8 overflow-hidden"> 
+      {/* Tambahkan pt-24 khusus mobile agar tidak tertimpa tombol hamburger */}
+      <div className="flex-1 flex flex-col p-4 md:p-8 pt-24 md:pt-8 overflow-hidden w-full"> 
          
-        {/* Nav Tabs */} 
+        {/* Nav Tabs */}
         <div className="mb-6 shrink-0 flex items-center bg-white p-2 rounded-[2.5rem] shadow-sm border overflow-x-auto no-scrollbar"> 
           <div className="flex gap-2 px-2"> 
             {menuOptions.map(m => ( 
@@ -713,10 +716,34 @@ export default function MenuPage() {
         </div> 
       </div> 
 
+      {/* --- FLOATING Tombol Buka Keranjang (Khusus Mobile) --- */}
+      <button 
+        onClick={() => setIsCartOpen(true)}
+        className="md:hidden fixed bottom-6 right-6 z-20 p-4 bg-blue-600 text-white rounded-full shadow-2xl shadow-blue-500/50 flex items-center justify-center"
+      >
+        <div className="relative">
+          <ShoppingCart size={24} />
+          {totalQtyKeranjang > 0 && (
+            <span className="absolute -top-2 -right-3 bg-rose-500 text-white text-[10px] font-black w-5 h-5 flex items-center justify-center rounded-full border-2 border-blue-600">
+              {totalQtyKeranjang}
+            </span>
+          )}
+        </div>
+      </button>
+
+      {/* OVERLAY KERANJANG MOBILE */}
+      {isCartOpen && (
+        <div className="fixed inset-0 bg-slate-900/50 z-40 md:hidden backdrop-blur-sm" onClick={() => setIsCartOpen(false)} />
+      )}
+
       {/* --- PANEL NOTA / KASIR BILLING (KANAN) --- */}
-      <div className="w-[480px] bg-slate-50 border-l border-slate-200 flex flex-col shadow-[-20px_0_60px_rgba(0,0,0,0.02)] z-30 overflow-hidden relative"> 
+      <div className={`fixed inset-y-0 right-0 w-full sm:w-[480px] md:w-[480px] bg-slate-50 border-l border-slate-200 flex flex-col shadow-2xl md:shadow-[-20px_0_60px_rgba(0,0,0,0.02)] z-50 md:z-30 overflow-hidden md:relative transform transition-transform duration-300 ${isCartOpen ? 'translate-x-0' : 'translate-x-full md:translate-x-0'}`}> 
         {cart.length === 0 ? ( 
-          <div className="h-full flex flex-col items-center justify-center p-10 text-center space-y-6"> 
+          <div className="h-full flex flex-col items-center justify-center p-10 text-center space-y-6 relative"> 
+            {/* Tombol Tutup Khusus Mobile (Nota Kosong) */}
+            <button onClick={() => setIsCartOpen(false)} className="md:hidden absolute top-6 left-6 p-3 bg-white text-slate-500 rounded-full shadow-sm border border-slate-100">
+              <ChevronRight size={20} />
+            </button>
             <div className="w-40 h-40 bg-white rounded-full flex items-center justify-center shadow-sm"> 
               <ShoppingCart size={64} className="text-slate-200" /> 
             </div> 
@@ -730,14 +757,19 @@ export default function MenuPage() {
             {/* HEADER KERANJANG */}
             <div className="p-6 bg-white border-b border-slate-200 shrink-0 shadow-sm z-10"> 
               <div className="flex items-center justify-between"> 
-                <div> 
-                  <h2 className="text-xl font-black text-slate-800 tracking-tight flex items-center gap-2">
-                    <Receipt size={20} className="text-blue-500"/> Rincian Nota
-                  </h2> 
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Kategori: {selectedMenu} {editSession && <span className="text-rose-500 bg-rose-50 px-2 py-0.5 rounded ml-1">(EDIT)</span>}</p> 
-                </div> 
-                <button onClick={() => { setCart([]); setEditSession(null); setMenuFiles([]); }} className="text-[10px] font-black text-rose-500 bg-rose-50 hover:bg-rose-100 transition-colors px-4 py-2.5 rounded-xl uppercase">Kosongkan</button> 
-              </div> 
+                <div className="flex items-center gap-3">
+                  <button onClick={() => setIsCartOpen(false)} className="md:hidden p-2 bg-slate-100 text-slate-500 rounded-full hover:bg-slate-200">
+                    <ChevronRight size={20} />
+                  </button>
+                  <div> 
+                    <h2 className="text-xl font-black text-slate-800 tracking-tight flex items-center gap-2">
+                      <Receipt size={20} className="text-blue-500"/> Rincian Nota
+                    </h2> 
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Kategori: {selectedMenu} {editSession && <span className="text-rose-500 bg-rose-50 px-2 py-0.5 rounded ml-1">(EDIT)</span>}</p> 
+                  </div> 
+                </div>
+                <button onClick={() => { setCart([]); setEditSession(null); setMenuFiles([]); }} className="text-[10px] font-black text-rose-500 bg-rose-50 hover:bg-rose-100 transition-colors px-4 py-2.5 rounded-xl uppercase shrink-0">Kosongkan</button> 
+              </div>
             </div> 
 
             {/* AREA DAFTAR ITEM (SCROLLABLE) */}

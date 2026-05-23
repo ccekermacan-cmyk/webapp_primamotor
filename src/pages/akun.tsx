@@ -261,9 +261,10 @@ export default function AkunPage() {
   if (loading) return <div className="flex h-full items-center justify-center font-bold text-slate-400">Memuat Profil...</div>;
 
   return (
-    <div className="max-w-4xl mx-auto p-8 space-y-8">
+    // Tambahkan p-4 agar di HP tidak terlalu rapat ke pinggir
+    <div className="max-w-4xl mx-auto p-4 md:p-8 space-y-6"> 
       {/* 1. SECTION PROFILE - CENTERED FOCUS */}
-      <div className="bg-white rounded-[2.5rem] shadow-2xl shadow-slate-200/50 border border-white overflow-hidden relative group">
+      <div className="bg-white rounded-[2rem] md:rounded-[2.5rem] shadow-xl shadow-slate-200/50 border border-white overflow-hidden relative group">
         <div 
           className="h-32 transition-all duration-1000 ease-in-out" 
           style={headerStyle} // <--- Ganti dengan state dinamis
@@ -290,8 +291,8 @@ export default function AkunPage() {
             </span>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full mt-8">
-            <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-100 text-left">
+          <div className="grid grid-cols-1 gap-3 w-full mt-6 px-4">
+            <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-2xl border border-slate-100 text-left">
               <div className="p-2 bg-white rounded-xl shadow-sm text-blue-500"><Mail size={20} /></div>
               <div>
                 <p className="text-[10px] font-black text-slate-400 uppercase">Email Address</p>
@@ -337,7 +338,7 @@ export default function AkunPage() {
                 <div 
                   key={item.id}
                   onClick={() => { setSelectedGaji(item); setModalType('verifyPassword'); }}
-                  className="group flex items-center justify-between p-4 bg-slate-50 border border-slate-100 rounded-3xl hover:bg-white hover:border-emerald-200 hover:shadow-lg transition-all cursor-pointer"
+                  className="group flex items-center justify-between p-3 bg-slate-50 border border-slate-100 rounded-2xl hover:bg-white hover:border-emerald-200 hover:shadow-lg transition-all cursor-pointer"
                 >
                   <div className="flex items-center gap-4">
                     <div className="p-3 bg-white text-emerald-600 rounded-2xl shadow-sm"><Calendar size={20} /></div>
@@ -382,7 +383,7 @@ export default function AkunPage() {
         <form onSubmit={handleUpdateProfile} className="space-y-6 max-h-[80vh] overflow-y-auto pr-2 custom-scrollbar">
           
           {/* Data Diri Dasar */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="col-span-2">
               <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Full Name</label>
               <input type="text" value={formData.name || ''} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full mt-1 p-3 bg-slate-50 rounded-2xl outline-none border focus:border-blue-500 font-bold text-slate-700" />
@@ -489,7 +490,7 @@ export default function AkunPage() {
           return (
             <div className="space-y-6">
               {/* Header Gaji Bersih */}
-              <div className="bg-slate-900 p-8 rounded-[2rem] text-center text-white shadow-xl shadow-slate-900/20 relative overflow-hidden">
+              <div className="bg-slate-900 p-6 md:p-8 rounded-[2rem] text-center text-white shadow-xl shadow-slate-900/20 relative overflow-hidden">
                 <div className="absolute -top-10 -right-10 w-32 h-32 bg-white/5 rounded-full blur-2xl" />
                 <p className="text-[10px] font-black uppercase tracking-widest text-emerald-400 mb-1">Total Bersih (T1 - T2 - T3)</p>
                 <h3 className="text-4xl font-black tracking-tighter text-white">
