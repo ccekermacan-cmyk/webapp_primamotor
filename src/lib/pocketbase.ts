@@ -1,9 +1,14 @@
 import PocketBase from 'pocketbase';
 
-// Pastikan VITE_PB_URL di Vercel tidak memiliki trailing slash (/) di akhir
+// VITE_PB_URL akan diisi di Vercel. Jika kosong, ia pakai localhost.
 const pbUrl = import.meta.env.VITE_PB_URL || 'http://127.0.0.1:8090';
 
 export const pb = new PocketBase(pbUrl);
 
-// Tambahkan ini agar tidak terjadi masalah dengan authStore di Vercel
-pb.autoCancellation(false);
+// Fungsi untuk membypass halaman peringatan Ngrok Free
+pb.beforeSend = function (url, reqOpts) {
+    reqOpts.headers = Object.assign({}, reqOpts.headers, {
+        'ngrok-skip-browser-warning': 'true',
+    });
+    return { url, reqOpts };
+};
