@@ -22,9 +22,7 @@ export default function App() {
   return (
     <Router>
       <Routes>
-        <Route path="/login" element={
-          isAuthenticated ? <Navigate to="/" replace /> : <Login setAuth={setIsAuthenticated} />
-        } />
+        <Route path="/login" element={<Login setAuth={...} />} />
         
         <Route element={<ProtectedRoute><Layout setAuth={setIsAuthenticated} /></ProtectedRoute>}>
           <Route path="/" element={<Pos />} />
