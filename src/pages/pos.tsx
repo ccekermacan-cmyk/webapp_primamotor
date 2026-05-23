@@ -1,3 +1,4 @@
+import { useNavigate, useLocation } from 'react-router-dom'; // Ini yang menyebabkan error ReferenceError
 import { useState, useEffect, useMemo } from 'react';
 import { pb } from '../lib/pocketbase';
 import Modal from '../components/modal';
@@ -1218,7 +1219,7 @@ export default function MenuPage() {
              </div> 
 
              <div className="flex gap-2"> 
-               <button onClick={() => { const printContents = document.getElementById('thermal-receipt-58mm')?.innerHTML; if (printContents) { document.body.innerHTML = printContents; window.print(); window.location.reload(); window.location.reload(); } }} className="flex-1 py-4 bg-slate-900 text-white rounded-2xl font-black text-xs">CETAK NOTA (PRINT 58MM)</button> 
+               <button onClick={() => { const printContents = document.getElementById('thermal-receipt-58mm')?.innerHTML; if (printContents) { document.body.innerHTML = printContents; window.print(); window.location.reload(); } }} className="flex-1 py-4 bg-slate-900 text-white rounded-2xl font-black text-xs">CETAK NOTA (PRINT 58MM)</button> 
                <button onClick={() => setShowReceiptPrint(null)} className="py-4 px-6 bg-slate-100 text-slate-500 font-bold rounded-2xl text-xs">LEWATI</button> 
              </div> 
            </div> 

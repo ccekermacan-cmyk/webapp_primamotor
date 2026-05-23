@@ -12,6 +12,7 @@ import Settings from './pages/settings';
 import Person from './pages/person';
 
 export default function App() {
+  // Gunakan pb.authStore.isValid
   const [isAuthenticated, setIsAuthenticated] = useState(pb.authStore.isValid);
 
   const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
@@ -22,7 +23,9 @@ export default function App() {
   return (
     <Router>
       <Routes>
-        <Route path="/login" element={<Login setAuth={...} />} />
+        <Route path="/login" element={
+          isAuthenticated ? <Navigate to="/" replace /> : <Login setAuth={setIsAuthenticated} />
+        } />
         
         <Route element={<ProtectedRoute><Layout setAuth={setIsAuthenticated} /></ProtectedRoute>}>
           <Route path="/" element={<Pos />} />
