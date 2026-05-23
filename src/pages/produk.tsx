@@ -140,12 +140,11 @@ export default function Produk() {
 
   const handleOpenCopy = (prod: Produk, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
-    const copyData = { ...prod };
     
-    // Hapus id sistem agar menjadi produk baru
-    delete copyData.id;
-    delete copyData.created;
-    delete copyData.updated;
+    // Pisahkan id, created, dan updated agar tidak ikut tersalin menggunakan destructuring
+    const { id, created, updated, ...restData } = prod;
+    
+    const copyData: Partial<Produk> = { ...restData };
     
     // Set ID lama dengan raw format (tanpa 0 di depan)
     copyData.id_lama = generateRawRandomId();
