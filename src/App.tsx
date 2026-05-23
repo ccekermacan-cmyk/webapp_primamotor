@@ -1,6 +1,6 @@
+import { pb } from './lib/pocketbase';
 import { useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { isUserValid } from './lib/pocketbase';
 
 import Layout from './components/layout';
 import Login from './pages/login';
@@ -12,7 +12,8 @@ import Settings from './pages/settings';
 import Person from './pages/person';
 
 export default function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(isUserValid());
+  // Gunakan pb.authStore.isValid
+  const [isAuthenticated, setIsAuthenticated] = useState(pb.authStore.isValid);
 
   const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
     if (!isAuthenticated) return <Navigate to="/login" replace />;

@@ -3,10 +3,9 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { pb } from '../lib/pocketbase';
 import Modal from '../components/modal';
 import { 
-  Search, ShoppingCart, Package, ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
-  Trash2, Plus, Receipt, Layers, User, CreditCard, Printer, Share2, X,
-  ArrowRight, Banknote, Calendar, History, Sparkles, CheckCircle2,
-  Box, DollarSign, Wallet, AlertTriangle, Info, Users, Wrench, Edit
+  Search, ShoppingCart, ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
+  Trash2, Plus, Receipt, Layers, Printer, Share2, X,
+  ArrowRight, Calendar, History, Sparkles, DollarSign, Wallet, AlertTriangle, Info, Wrench, Edit
 } from 'lucide-react';
 
 // --- INTERFACES ---
@@ -36,6 +35,7 @@ interface CartItem extends Produk {
 interface HistoryMenu {
   id: string; created_at: string; created: string; jenis: string; person: string; payment: string; 
   qty: number; text: string; tempo: string; marketplace: string; cashback: number; admin: number; operator: string; ref: string; person_baru: string;
+  file: string[]; // Tambahkan ini
 }
 
 interface LogStockDetail {
