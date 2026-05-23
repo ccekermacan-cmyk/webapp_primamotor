@@ -1,0 +1,15 @@
+/* src/index.css */
+@import "tailwindcss";
+
+/* Anda bisa menambahkan custom variable di block @theme ini jika diperlukan nanti */
+@theme {
+  --color-brand-red: #dc2626; /* Contoh warna merah untuk PRIMA MOTOR */
+}
+
+/* Base styling */
+@layer base {
+  body {
+    /* Menggunakan variable warna bawaan Tailwind v4 untuk background */
+    background-color: var(--color-gray-100); 
+  }
+}
