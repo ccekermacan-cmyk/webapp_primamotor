@@ -130,6 +130,13 @@ export default function MenuPage() {
       cashback: 0
     });
 
+  const isOnlinePerson = useMemo(() => {
+  const selectedPerson = personOptions.find(p => p.id_lama === formBayar.personIdLama);
+  const personText = (selectedPerson?.text_1 || '').toLowerCase();
+  const personId = formBayar.personIdLama.toLowerCase();
+  return personId.includes('online1') || personText.includes('online');
+  }, [formBayar.personIdLama, personOptions]);
+
   const [isPaymentFormOpen, setIsPaymentFormOpen] = useState(true);
   const [isCartOpen, setIsCartOpen] = useState(false);
 
@@ -291,17 +298,23 @@ export default function MenuPage() {
       if (searchTerm) {
         const terms = searchTerm.trim().split(/\s+/);
         terms.forEach((t, i) => {
-          // Pencegahan Error Pencarian: Sesuaikan target kolom dengan koleksi yang aktif
           if (menuLower === 'overview') {
             conditions.push(`(id_lama ~ {:t${i}} || jenis ~ {:t${i}} || person ~ {:t${i}} || text ~ {:t${i}} || payment ~ {:t${i}})`);
           } else if (menuLower.includes('gaji')) {
             conditions.push(`(person ~ {:t${i}} || id_lama ~ {:t${i}})`);
           } else {
-            conditions.push(`(id_lama ~ {:t${i}} || kategori ~ {:t${i}} || merk ~ {:t${i}} || jenis ~ {:t${i}} || keterangan ~ {:t${i}} || tipe ~ {:t${i}} || varian ~ {:t${i}})`);
+            const numericId = parseInt(t, 10);
+            const isNumeric = !isNaN(numericId) && numericId.toString() === t.replace(/^0+/, '');
+            if (isNumeric) {
+              conditions.push(`(id_lama ~ {:t${i}} || id_lama = {:id${i}} || kategori ~ {:t${i}} || merk ~ {:t${i}} || jenis ~ {:t${i}} || keterangan ~ {:t${i}} || tipe ~ {:t${i}} || varian ~ {:t${i}})`);
+              params[`id${i}`] = numericId.toString();
+            } else {
+              conditions.push(`(id_lama ~ {:t${i}} || kategori ~ {:t${i}} || merk ~ {:t${i}} || jenis ~ {:t${i}} || keterangan ~ {:t${i}} || tipe ~ {:t${i}} || varian ~ {:t${i}})`);
+            }
+            params[`t${i}`] = t;
           }
-          params[`t${i}`] = t;
         });
-      }
+      } // ← TAMBAHKAN KURUNG TUTUP INI
       const filterStr = conditions.length > 0 ? pb.filter(conditions.join(' && '), params) : '';
 
       if (menuLower === 'overview') {
@@ -309,8 +322,13 @@ export default function MenuPage() {
         setHistoryMenu(res.items);
         setTotalPages(res.totalPages);
       } else if (menuLower.includes('gaji')) {
-        const res = await pb.collection('gaji').getList<Gaji>(page, perPage, { sort: '-created_at', filter: filterStr, $autoCancel: false });
-        setHistoryGaji(res.items);
+        // Ambil dari koleksi menu dengan jenis = gaji
+        const res = await pb.collection('menu').getList<HistoryMenu>(page, perPage, { 
+          sort: '-created_at', 
+          filter: filterStr ? `jenis = 'gaji' && (${filterStr})` : `jenis = 'gaji'`,
+          $autoCancel: false 
+        });
+        setHistoryMenu(res.items);
         setTotalPages(res.totalPages);
       } else {
         let baseFilter = 'stok_3 > 0';
@@ -327,6 +345,17 @@ export default function MenuPage() {
     const timer = setTimeout(() => { setSearchTerm(searchInput); setPage(1); }, 500);
     return () => clearTimeout(timer);
   }, [searchInput]);
+
+  useEffect(() => {
+    if (isOnlinePerson) {
+      setFormBayar(prev => ({
+        ...prev,
+        marketplace: prev.marketplace || 'Shopee',
+        adminFee: prev.adminFee || 0,
+        cashback: prev.cashback || 0
+      }));
+    }
+  }, [isOnlinePerson]);
 
   useEffect(() => { fetchData(); }, [page, searchTerm, selectedMenu]);
 
@@ -409,6 +438,18 @@ export default function MenuPage() {
       return;
     }
 
+      // Validasi untuk online person
+    if (isOnlinePerson) {
+      if (!formBayar.marketplace.trim()) {
+        setDialog({ show: true, title: 'Validasi Gagal', message: 'Marketplace wajib diisi untuk pelanggan online.', type: 'alert' });
+        return;
+      }
+      if (formBayar.adminFee <= 0) {
+        setDialog({ show: true, title: 'Validasi Gagal', message: 'Admin fee wajib diisi (minimal 0).', type: 'alert' });
+        return;
+      }
+    }
+
     const menuLower = selectedMenu.toLowerCase();
 
     // 2. Validasi Catatan (Service & Pembelian)
@@ -429,6 +470,30 @@ export default function MenuPage() {
         return;
       }
     }
+
+    // ========== TAMBAHAN VALIDASI BARU ==========
+    // 1. Validasi keranjang tidak boleh kosong
+    if (cart.length === 0) {
+      setDialog({ show: true, title: 'Validasi Gagal', message: 'Isi keranjang dengan item terlebih dahulu!', type: 'alert' });
+      return;
+    }
+
+    // 2. Validasi khusus service: data mekanik harus lengkap (kedua field terisi)
+    if (selectedMenu.toLowerCase().includes('service')) {
+      // Cek setiap mekanik yang dipilih (idLama tidak kosong) harus punya ongkos > 0
+      const invalidMechanics = formBayar.mekanikList.some(mek => mek.idLama && mek.ongkos <= 0);
+      if (invalidMechanics) {
+        setDialog({ show: true, title: 'Validasi Gagal', message: 'Mohon isi data mekanik service dengan lengkap (nama mekanik dan ongkos > 0).', type: 'alert' });
+        return;
+      }
+      // Cek jika ada mekanik dengan ongkos > 0 tapi idLama kosong
+      const missingName = formBayar.mekanikList.some(mek => mek.ongkos > 0 && !mek.idLama);
+      if (missingName) {
+        setDialog({ show: true, title: 'Validasi Gagal', message: 'Pilih nama mekanik untuk ongkos yang diisi.', type: 'alert' });
+        return;
+      }
+    }
+    // ========== AKHIR TAMBAHAN ==========
 
     // Jika lolos semua validasi, buka modal review
     setShowCheckoutReview(true);
@@ -808,7 +873,7 @@ export default function MenuPage() {
                       
                       <div className="relative z-10"> 
                         <div className="flex justify-between items-start mb-4"> 
-                          <span className="text-[10px] font-black bg-slate-100 text-slate-500 px-3 py-1.5 rounded-xl tracking-tighter">#{p.id_lama}</span> 
+                          <span className="text-[10px] font-black bg-slate-100 text-slate-500 px-3 py-1.5 rounded-xl tracking-tighter">#{formatIdLamaDisplay(p.id_lama)}</span>
                           <div className={`px-3 py-1.5 rounded-xl font-black text-[10px] uppercase ${p.stok_3 > 5 ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}> 
                             SISA: {p.stok_3} {p.unit} 
                           </div> 
@@ -870,32 +935,36 @@ export default function MenuPage() {
               ))} 
 
               {/* LIST GAJI */} 
-              {selectedMenu.toLowerCase().includes('gaji') && Object.entries(groupedGaji).map(([date, items]) => ( 
+              {selectedMenu.toLowerCase().includes('gaji') && Object.entries(groupedHistory).map(([date, items]) => (
                 <div key={date} className="space-y-4"> 
                   <div className="flex items-center gap-4 px-4"> 
-                    <span className="bg-emerald-100 text-emerald-600 px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest">{date}</span> 
-                    <div className="h-[1px] flex-1 bg-emerald-100" /> 
+                    <span className="bg-teal-100 text-teal-600 px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest">{date}</span> 
+                    <div className="h-[1px] flex-1 bg-teal-100" /> 
                   </div> 
                   <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6"> 
-                    {items.map(g => ( 
-                      <div key={g.id} className="bg-white p-6 rounded-[2.5rem] border border-emerald-100 shadow-sm hover:shadow-xl transition-all h-48 flex flex-col justify-between"> 
-                        <div className="flex justify-between"> 
-                          <span className="text-[10px] font-black text-emerald-500 uppercase">Slip Penggajian</span> 
-                          <DollarSign className="text-emerald-500" size={18} /> 
+                    {items.map(item => ( 
+                      <div key={item.id} onClick={() => loadHistorySubDetails(item)} className="bg-white p-6 rounded-[2.5rem] border border-teal-100 shadow-sm hover:shadow-xl transition-all cursor-pointer group h-48 flex flex-col justify-between"> 
+                        <div className="flex justify-between items-start"> 
+                          <span className="text-[10px] font-black bg-teal-50 text-teal-600 px-2 py-0.5 rounded-md uppercase tracking-widest">GAJI</span>
+                          <div className="p-2 bg-slate-50 rounded-xl text-slate-300 group-hover:text-teal-500 transition-colors"><History size={16} /></div> 
                         </div> 
                         <div> 
-                          <h4 className="font-black text-slate-800 text-base uppercase leading-none mb-1">{g.person}</h4> 
-                          <p className="text-2xl font-black text-slate-900 tracking-tighter">Rp {g.pokok?.toLocaleString('id-ID')}</p> 
+                          <h4 className="font-black text-slate-800 text-base uppercase leading-none mb-1 truncate">{item.person}</h4> 
+                          <p className="text-xs font-bold text-slate-500 mt-1">Operator: {item.operator || '-'}</p>
+                          <p className="text-xs font-bold text-slate-400 line-clamp-2 italic mt-2">"{item.text || 'Tanpa deskripsi'}"</p> 
                         </div> 
-                        <p className="text-[10px] font-black text-slate-300 flex items-center gap-1 uppercase tracking-widest"><Calendar size={12}/> {g.created_at}</p> 
-                      </div> 
+                        <div className="flex justify-between items-center border-t border-slate-100 pt-4"> 
+                          <span className="text-[10px] font-black text-slate-300 flex items-center gap-1"><Calendar size={12}/> {item.created_at}</span> 
+                          <div className="font-black text-slate-700 bg-slate-100 px-3 py-1 rounded-lg text-xs">{item.qty} Item</div> 
+                        </div> 
+                      </div>
                     ))} 
                   </div> 
                 </div> 
-              ))} 
-            </div> 
-          )} 
-        </div> 
+                ))}
+              </div>
+            )}
+          </div> 
 
         <div className="mt-auto flex justify-between items-center bg-white p-4 rounded-[2rem] border border-slate-200 shadow-xl shrink-0"> 
           <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest ml-6">Halaman {page} / {totalPages}</p> 
@@ -978,7 +1047,7 @@ export default function MenuPage() {
                     </button> 
 
                     <div className="pr-10 mb-3"> 
-                      <h4 className="font-bold text-slate-800 text-sm leading-snug">{getFullLabel(item)}</h4> 
+                      <h4 className="font-bold text-slate-800 text-sm leading-snug">{formatIdLamaDisplay(item.id_lama)} - {getFullLabel(item)}</h4>
                       
                       {/* UI HARGA CORET & INDIKATOR DINAMIS */}
                       <div className="flex items-center gap-2 mt-1"> 
@@ -1138,6 +1207,35 @@ export default function MenuPage() {
                     </div> 
                   )}
 
+                  {isOnlinePerson && (
+                    <div className="space-y-3 pt-2 border-t border-slate-100">
+                      <div className="grid grid-cols-3 gap-3">
+                        <div className="space-y-1">
+                          <label className="text-[9px] font-black text-slate-400 uppercase">Marketplace</label>
+                          <input list="marketplaceOptions" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold" 
+                            value={formBayar.marketplace} onChange={e => setFormBayar({...formBayar, marketplace: e.target.value})} required />
+                          <datalist id="marketplaceOptions">
+                            <option value="Shopee" />
+                            <option value="Tokopedia" />
+                            <option value="Lazada" />
+                            <option value="Blibli" />
+                            <option value="Bukalapak" />
+                          </datalist>
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[9px] font-black text-slate-400 uppercase">Admin Fee</label>
+                          <input type="number" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold" 
+                            value={formBayar.adminFee} onChange={e => setFormBayar({...formBayar, adminFee: Number(e.target.value)})} required />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[9px] font-black text-slate-400 uppercase">Cashback</label>
+                          <input type="number" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold" 
+                            value={formBayar.cashback} onChange={e => setFormBayar({...formBayar, cashback: Number(e.target.value)})} />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Form Mekanik (Servis Saja) */}
                   {selectedMenu.toLowerCase().includes('service') && (
                     <div className="p-4 bg-blue-50/50 border border-blue-100 rounded-2xl space-y-3"> 
@@ -1275,9 +1373,13 @@ export default function MenuPage() {
                 <p><span className="text-slate-400 w-24 inline-block">qty:</span> {totalQtyKeranjang}</p> 
                 <p><span className="text-slate-400 w-24 inline-block">operator:</span> {operatorName}</p> 
                 <p><span className="text-slate-400 w-24 inline-block">created_at:</span> {editSession ? editSession.createdAt : 'Waktu Generate Auto'}</p> 
-                <p><span className="text-slate-400 w-24 inline-block">marketplace:</span> {(personMap[formBayar.personIdLama] || '').toLowerCase().includes('online') ? 'Online Store' : '-'}</p> 
-                <p><span className="text-slate-400 w-24 inline-block">cashback:</span> {(personMap[formBayar.personIdLama] || '').toLowerCase().includes('online') ? '5000' : '0'}</p> 
-                <p><span className="text-slate-400 w-24 inline-block">admin:</span> {(personMap[formBayar.personIdLama] || '').toLowerCase().includes('online') ? '2500' : '0'}</p> 
+                {isOnlinePerson && (
+                <>
+                <p><span className="text-slate-400 w-24 inline-block">marketplace:</span> {formBayar.marketplace || '-'}</p>
+                <p><span className="text-slate-400 w-24 inline-block">admin:</span> {formBayar.adminFee || 0}</p>
+                <p><span className="text-slate-400 w-24 inline-block">cashback:</span> {formBayar.cashback || 0}</p>
+                  </>
+                )}
              </div>
 
              {/* 2. KOLEKSI CASHFLOW */}
@@ -1353,6 +1455,14 @@ export default function MenuPage() {
                 {personMap[showDetailHistory.person] ? personMap[showDetailHistory.person] : (showDetailHistory.person || 'PELANGGAN UMUM')}
               </h3>
               <p className="text-xs font-bold text-slate-400 mt-2">Operator: {showDetailHistory.operator || 'System'} | Tgl: {showDetailHistory.created_at}</p>
+
+              {showDetailHistory.marketplace && (
+                <div className="mt-2 text-[10px] text-slate-400 flex gap-3 justify-center">
+                  <span>Marketplace: {showDetailHistory.marketplace}</span>
+                  <span>Admin: {showDetailHistory.admin}</span>
+                  <span>Cashback: {showDetailHistory.cashback}</span>
+                </div>
+              )}
 
               {/* BAGIAN LABA KOTOR (HANYA LEVEL 1) */}
               {userLevel === '1' && (
@@ -1480,49 +1590,37 @@ export default function MenuPage() {
                  <p className="text-[9px]">HP/WA: 081-XXXX-XXXX</p> 
                </div> 
                <div className="py-2 border-b border-dashed text-[10px] space-y-0.5">
-                <p>Nota: {showReceiptPrint.id}</p>
-                <p>Waktu: {showReceiptPrint.timestamp}</p>
-                <p>Pelanggan: {showReceiptPrint.customer}</p>
-                <p>Kasir: {operatorName}</p>
-                <p>Jenis Transaksi: {showReceiptPrint.jenis || '-'}</p>
-                {showReceiptPrint.mechanics && showReceiptPrint.mechanics.length > 0 && (
-                  <div>
-                    <p className="font-bold mt-1">Ongkos Mekanik:</p>
-                    {showReceiptPrint.mechanics.map((m, idx) => (
-                      <p key={idx} className="ml-1">- {m.name}: Rp {m.ongkos.toLocaleString('id-ID')}</p>
-                    ))}
-                  </div>
-                )}
-              </div>
-               <div className="py-2 border-b border-dashed text-[10px] space-y-2"> 
-                 {showReceiptPrint.items.map((item: any) => ( 
-                   <div key={item.id}> 
-                     <p className="font-bold uppercase">{getFullLabel(item)}</p> 
-                     <div className="flex justify-between text-[9px] text-slate-500"> 
-                       <span>{item.qty} x Rp {item.priceSelected?.toLocaleString('id-ID')}</span> 
-                       <span className="font-mono text-slate-800">Rp {(item.priceSelected * item.qty)?.toLocaleString('id-ID')}</span> 
-                     </div> 
-                   </div> 
-                 ))} 
-               </div> 
-               <div className="py-2 space-y-1 text-[10px]"> 
-                 <div className="flex justify-between font-bold"><span>TOTAL:</span><span>Rp {showReceiptPrint.total?.toLocaleString('id-ID')}</span></div> 
-                 <div className="flex justify-between text-[9px]"><span>BAYAR:</span><span>Rp {showReceiptPrint.cash?.toLocaleString('id-ID')}</span></div> 
-                 <div className="flex justify-between text-[9px]"><span>KEMBALI:</span><span>Rp {showReceiptPrint.change?.toLocaleString('id-ID')}</span></div> 
-               </div> 
-               <div className="text-center pt-4 border-t border-dashed text-[9px] text-slate-400 mt-2"> 
-                 <p>Terima Kasih Atas Kunjungan Anda</p> 
-                 <p>Barang Yang Sudah Dibeli Tidak Dapat Ditukar/Dikembalikan</p> 
-               </div> 
-             </div> 
+                  <p>Nota: {showReceiptPrint.id}</p>
+                  <p>Waktu: {showReceiptPrint.timestamp}</p>
+                  <p>Pelanggan: {showReceiptPrint.customer}</p>
+                  <p>Kasir: {operatorName}</p>
+                  <p>Jenis Transaksi: {showReceiptPrint.jenis || '-'}</p>
+                  {showReceiptPrint.mechanics && showReceiptPrint.mechanics.length > 0 && (
+                    <div>
+                      <p className="font-bold mt-1">Ongkos Mekanik:</p>
+                      {showReceiptPrint.mechanics.map((m, idx) => (
+                        <p key={idx} className="ml-1">- {m.name}: Rp {m.ongkos.toLocaleString('id-ID')}</p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="py-2 border-b border-dashed text-[10px] space-y-2">
+                  {/* items */}
+                </div>
+                <div className="py-2 space-y-1 text-[10px]">
+                 <div className="flex justify-between font-bold"><span>TOTAL:</span><span>Rp {showReceiptPrint.total?.toLocaleString('id-ID')}</span></div>
+                 <div className="flex justify-between text-[9px]"><span>BAYAR:</span><span>Rp {showReceiptPrint.cash?.toLocaleString('id-ID')}</span></div>
+                 <div className="flex justify-between text-[9px]"><span>KEMBALI:</span><span>Rp {showReceiptPrint.change?.toLocaleString('id-ID')}</span></div>
+               </div>
+             </div> {/* <-- TAMBAHAN 1: Tutup div id="thermal-receipt-58mm" di sini */}
 
              <div className="flex gap-2"> 
                <button onClick={() => { const printContents = document.getElementById('thermal-receipt-58mm')?.innerHTML; if (printContents) { document.body.innerHTML = printContents; window.print(); window.location.reload(); } }} className="flex-1 py-4 bg-slate-900 text-white rounded-2xl font-black text-xs">CETAK NOTA (PRINT 58MM)</button> 
                <button onClick={() => setShowReceiptPrint(null)} className="py-4 px-6 bg-slate-100 text-slate-500 font-bold rounded-2xl text-xs">LEWATI</button> 
              </div> 
            </div> 
-         )} 
-      </Modal> 
+         )} {/* <-- TAMBAHAN 2: Ganti } menjadi )} */}
+      </Modal>
 
       {/* DIALOG BOX POPUP ALERT / CONFIRMATION */} 
       <Modal isOpen={dialog.show} onClose={() => setDialog(prev => ({ ...prev, show: false }))} title={dialog.title}> 

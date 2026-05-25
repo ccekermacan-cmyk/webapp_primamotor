@@ -351,6 +351,11 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
                         {`${prod.kategori} ${prod.merk} ${prod.jenis} ${prod.varian} ${prod.keterangan || ''} ${prod.tipe || ''}`.trim()}
                       </h3>
                     </div>
+                    <div className="text-right">
+                      <span className="inline-block px-2 py-1 bg-orange-100 text-orange-600 text-xs font-bold rounded-lg">
+                        {prod.unit || '-'}
+                      </span>
+                    </div>
                   </div>
                   
                   <div className="grid grid-cols-2 gap-4 mt-4 p-4 bg-gray-50 rounded-xl mb-4">
@@ -420,19 +425,67 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
             </div>
 
             <div>
-              <div className="overflow-hidden border border-gray-200 rounded-2xl">
+            <div className="bg-white p-4 rounded-2xl border border-gray-200 mb-4">
+              <div className="flex justify-between items-center">
+                <span className="text-sm font-bold text-gray-600">Harga Beli (Modal)</span>
+                <span className="text-lg font-black text-gray-800">Rp {selectedProduct.beli?.toLocaleString('id-ID') || 0}</span>
+              </div>
+            </div>
+            <div className="overflow-hidden border border-gray-200 rounded-2xl">
                 <table className="w-full text-left text-sm">
                   <thead className="bg-gray-100 text-gray-600">
-                    <tr><th className="px-4 py-3">Tier</th><th className="px-4 py-3 text-center">Minimum</th><th className="px-4 py-3 text-right">Harga</th></tr>
+                    <tr><th className="px-4 py-3">Tier</th><th className="px-4 py-3 text-center">Minimum</th><th className="px-4 py-3 text-right">Harga</th><th className="px-4 py-3 text-right">Profit</th></tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    <tr><td className="px-4 py-3 font-medium">Tier 1 (Grosir)</td><td className="px-4 py-3 text-center font-bold text-blue-600">&ge; {selectedProduct.min_1 || 0}</td><td className="px-4 py-3 text-right font-bold">Rp {selectedProduct.sell_1?.toLocaleString('id-ID') || 0}</td></tr>
-                    <tr><td className="px-4 py-3 font-medium">Tier 2</td><td className="px-4 py-3 text-center font-bold text-blue-600">&ge; {selectedProduct.min_2 || 0}</td><td className="px-4 py-3 text-right font-bold">Rp {selectedProduct.sell_2?.toLocaleString('id-ID') || 0}</td></tr>
-                    <tr><td className="px-4 py-3 font-medium">Tier 3</td><td className="px-4 py-3 text-center font-bold text-blue-600">&ge; {selectedProduct.min_3 || 0}</td><td className="px-4 py-3 text-right font-bold">Rp {selectedProduct.sell_3?.toLocaleString('id-ID') || 0}</td></tr>
-                    <tr><td className="px-4 py-3 font-medium">Tier 4</td><td className="px-4 py-3 text-center text-gray-400">-</td><td className="px-4 py-3 text-right font-bold">Rp {selectedProduct.sell_4?.toLocaleString('id-ID') || 0}</td></tr>
-                    <tr className="bg-orange-50/30"><td className="px-4 py-3 font-bold text-purple-600">Tier 5 (Pelanggan)</td><td className="px-4 py-3 text-center">-</td><td className="px-4 py-3 text-right font-black text-purple-600">Rp {selectedProduct.sell_5?.toLocaleString('id-ID') || 0}</td></tr>
-                    <tr className="bg-blue-50/30"><td className="px-4 py-3 font-bold text-blue-600">Tier 6 (Default Ecer)</td><td className="px-4 py-3 text-center">-</td><td className="px-4 py-3 text-right font-black text-blue-600">Rp {selectedProduct.sell_6?.toLocaleString('id-ID') || 0}</td></tr>
-                  </tbody>
+                <tr>
+                  <td className="px-4 py-3 font-medium">Tier 1 (Grosir Besar)</td>
+                  <td className="px-4 py-3 text-center font-bold text-blue-600">&ge; {selectedProduct.min_1 || 0}</td>
+                  <td className="px-4 py-3 text-right font-bold">Rp {selectedProduct.sell_1?.toLocaleString('id-ID') || 0}</td>
+                  <td className="px-4 py-3 text-right text-xs font-bold text-emerald-600">
+                    {selectedProduct.beli && selectedProduct.sell_1 ? ((selectedProduct.sell_1 - selectedProduct.beli) / selectedProduct.beli * 100).toFixed(1) + '%' : '-'}
+                  </td>
+                </tr>
+                <tr>
+                  <td className="px-4 py-3 font-medium">Tier 2 (Grosir Sedang)</td>
+                  <td className="px-4 py-3 text-center font-bold text-blue-600">&ge; {selectedProduct.min_2 || 0}</td>
+                  <td className="px-4 py-3 text-right font-bold">Rp {selectedProduct.sell_2?.toLocaleString('id-ID') || 0}</td>
+                  <td className="px-4 py-3 text-right text-xs font-bold text-emerald-600">
+                    {selectedProduct.beli && selectedProduct.sell_2 ? ((selectedProduct.sell_2 - selectedProduct.beli) / selectedProduct.beli * 100).toFixed(1) + '%' : '-'}
+                  </td>
+                </tr>
+                <tr>
+                  <td className="px-4 py-3 font-medium">Tier 3 (Grosir Kecil)</td>
+                  <td className="px-4 py-3 text-center font-bold text-blue-600">&ge; {selectedProduct.min_3 || 0}</td>
+                  <td className="px-4 py-3 text-right font-bold">Rp {selectedProduct.sell_3?.toLocaleString('id-ID') || 0}</td>
+                  <td className="px-4 py-3 text-right text-xs font-bold text-emerald-600">
+                    {selectedProduct.beli && selectedProduct.sell_3 ? ((selectedProduct.sell_3 - selectedProduct.beli) / selectedProduct.beli * 100).toFixed(1) + '%' : '-'}
+                  </td>
+                </tr>
+                <tr>
+                  <td className="px-4 py-3 font-medium">Tier 4</td>
+                  <td className="px-4 py-3 text-center text-gray-400">-</td>
+                  <td className="px-4 py-3 text-right font-bold">Rp {selectedProduct.sell_4?.toLocaleString('id-ID') || 0}</td>
+                  <td className="px-4 py-3 text-right text-xs font-bold text-emerald-600">
+                    {selectedProduct.beli && selectedProduct.sell_4 ? ((selectedProduct.sell_4 - selectedProduct.beli) / selectedProduct.beli * 100).toFixed(1) + '%' : '-'}
+                  </td>
+                </tr>
+                <tr className="bg-orange-50/30">
+                  <td className="px-4 py-3 font-bold text-purple-600">Tier 5 (Pelanggan)</td>
+                  <td className="px-4 py-3 text-center text-gray-400">-</td>
+                  <td className="px-4 py-3 text-right font-black text-purple-600">Rp {selectedProduct.sell_5?.toLocaleString('id-ID') || 0}</td>
+                  <td className="px-4 py-3 text-right text-xs font-bold text-emerald-600">
+                    {selectedProduct.beli && selectedProduct.sell_5 ? ((selectedProduct.sell_5 - selectedProduct.beli) / selectedProduct.beli * 100).toFixed(1) + '%' : '-'}
+                  </td>
+                </tr>
+                <tr className="bg-blue-50/30">
+                  <td className="px-4 py-3 font-bold text-blue-600">Tier 6 (Default Ecer)</td>
+                  <td className="px-4 py-3 text-center text-gray-400">-</td>
+                  <td className="px-4 py-3 text-right font-black text-blue-600">Rp {selectedProduct.sell_6?.toLocaleString('id-ID') || 0}</td>
+                  <td className="px-4 py-3 text-right text-xs font-bold text-emerald-600">
+                    {selectedProduct.beli && selectedProduct.sell_6 ? ((selectedProduct.sell_6 - selectedProduct.beli) / selectedProduct.beli * 100).toFixed(1) + '%' : '-'}
+                  </td>
+                </tr>
+              </tbody>
                 </table>
               </div>
             </div>
@@ -637,32 +690,94 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
 
             <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100 space-y-4">
               <h4 className="font-bold text-blue-700 text-sm border-b border-blue-200 pb-2">Skema Harga (Tiering)</h4>
-              <div><label className="text-xs font-bold text-gray-500">Harga Beli Dasar (Modal)</label><input type="number" name="beli" value={formData.beli ?? ''} onChange={handleInputChange} className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-blue-400 outline-none mb-4"/></div>
+              <div><label className="text-xs font-bold text-gray-500">Harga Beli Dasar (Modal)</label><input type="number" name="beli" value={formData.beli ?? ''} onChange={handleInputChange} disabled={isReadOnly} className={`w-full p-2 border rounded-lg outline-none mb-4 ${isReadOnly ? 'bg-gray-100 text-gray-500' : 'focus:ring-2 focus:ring-blue-400'}`}/></div>
               
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Tier 1 */}
                 <div className="bg-white p-3 rounded-lg border">
-                  <label className="text-xs font-bold text-gray-500">Min 1 Qty</label><input type="number" name="min_1" value={formData.min_1 ?? ''} onChange={handleInputChange} className="w-full p-2 border-b outline-none mb-2"/>
-                  <label className="text-xs font-bold text-gray-500">Sell 1</label><input type="number" name="sell_1" value={formData.sell_1 ?? ''} onChange={handleInputChange} className="w-full p-2 border rounded-md outline-none bg-gray-50"/>
+                  <label className="text-xs font-bold text-gray-500 block mb-1">Min 1 Qty</label>
+                  <input type="number" name="min_1" value={formData.min_1 ?? ''} onChange={handleInputChange} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-orange-400 mb-3" />
+                  <label className="text-xs font-bold text-gray-500 block mb-1">Sell 1</label>
+                  <div className="flex items-center gap-2">
+                    <input type="number" name="sell_1" value={formData.sell_1 ?? ''} onChange={handleInputChange} className="flex-1 p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-orange-400 bg-gray-50" />
+                    {formData.beli && formData.sell_1 && formData.beli > 0 && (
+                      <span className="text-[10px] font-bold text-emerald-600 whitespace-nowrap">
+                        +{((formData.sell_1 - formData.beli) / formData.beli * 100).toFixed(1)}%
+                      </span>
+                    )}
+                  </div>
                 </div>
+
+                {/* Tier 2 */}
                 <div className="bg-white p-3 rounded-lg border">
-                  <label className="text-xs font-bold text-gray-500">Min 2 Qty</label><input type="number" name="min_2" value={formData.min_2 ?? ''} onChange={handleInputChange} className="w-full p-2 border-b outline-none mb-2"/>
-                  <label className="text-xs font-bold text-gray-500">Sell 2</label><input type="number" name="sell_2" value={formData.sell_2 ?? ''} onChange={handleInputChange} className="w-full p-2 border rounded-md outline-none bg-gray-50"/>
+                  <label className="text-xs font-bold text-gray-500 block mb-1">Min 2 Qty</label>
+                  <input type="number" name="min_2" value={formData.min_2 ?? ''} onChange={handleInputChange} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-orange-400 mb-3" />
+                  <label className="text-xs font-bold text-gray-500 block mb-1">Sell 2</label>
+                  <div className="flex items-center gap-2">
+                    <input type="number" name="sell_2" value={formData.sell_2 ?? ''} onChange={handleInputChange} className="flex-1 p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-orange-400 bg-gray-50" />
+                    {formData.beli && formData.sell_2 && formData.beli > 0 && (
+                      <span className="text-[10px] font-bold text-emerald-600 whitespace-nowrap">
+                        +{((formData.sell_2 - formData.beli) / formData.beli * 100).toFixed(1)}%
+                      </span>
+                    )}
+                  </div>
                 </div>
+
+                {/* Tier 3 */}
                 <div className="bg-white p-3 rounded-lg border">
-                  <label className="text-xs font-bold text-gray-500">Min 3 Qty</label><input type="number" name="min_3" value={formData.min_3 ?? ''} onChange={handleInputChange} className="w-full p-2 border-b outline-none mb-2"/>
-                  <label className="text-xs font-bold text-gray-500">Sell 3</label><input type="number" name="sell_3" value={formData.sell_3 ?? ''} onChange={handleInputChange} className="w-full p-2 border rounded-md outline-none bg-gray-50"/>
+                  <label className="text-xs font-bold text-gray-500 block mb-1">Min 3 Qty</label>
+                  <input type="number" name="min_3" value={formData.min_3 ?? ''} onChange={handleInputChange} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-orange-400 mb-3" />
+                  <label className="text-xs font-bold text-gray-500 block mb-1">Sell 3</label>
+                  <div className="flex items-center gap-2">
+                    <input type="number" name="sell_3" value={formData.sell_3 ?? ''} onChange={handleInputChange} className="flex-1 p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-orange-400 bg-gray-50" />
+                    {formData.beli && formData.sell_3 && formData.beli > 0 && (
+                      <span className="text-[10px] font-bold text-emerald-600 whitespace-nowrap">
+                        +{((formData.sell_3 - formData.beli) / formData.beli * 100).toFixed(1)}%
+                      </span>
+                    )}
+                  </div>
                 </div>
+
+                {/* Tier 4 */}
                 <div className="bg-white p-3 rounded-lg border">
-                  <label className="text-xs font-bold text-gray-500">-</label><div className="h-10"></div>
-                  <label className="text-xs font-bold text-gray-500">Sell 4</label><input type="number" name="sell_4" value={formData.sell_4 ?? ''} onChange={handleInputChange} className="w-full p-2 border rounded-md outline-none bg-gray-50"/>
+                  <div className="h-8"></div> {/* Spacer untuk menyamakan tinggi dengan yang punya label Min */}
+                  <label className="text-xs font-bold text-gray-500 block mb-1">Sell 4</label>
+                  <div className="flex items-center gap-2">
+                    <input type="number" name="sell_4" value={formData.sell_4 ?? ''} onChange={handleInputChange} className="flex-1 p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-orange-400 bg-gray-50" />
+                    {formData.beli && formData.sell_4 && formData.beli > 0 && (
+                      <span className="text-[10px] font-bold text-emerald-600 whitespace-nowrap">
+                        +{((formData.sell_4 - formData.beli) / formData.beli * 100).toFixed(1)}%
+                      </span>
+                    )}
+                  </div>
                 </div>
-                <div className="bg-white p-3 rounded-lg border border-purple-200">
-                  <label className="text-xs font-bold text-purple-500">Pelanggan</label><div className="h-10"></div>
-                  <label className="text-xs font-bold text-purple-600">Sell 5</label><input type="number" name="sell_5" value={formData.sell_5 ?? ''} onChange={handleInputChange} className="w-full p-2 border border-purple-300 rounded-md outline-none bg-purple-50 font-bold text-purple-700"/>
+
+                {/* Tier 5 (Pelanggan) - Warna ungu */}
+                <div className="bg-purple-50 p-3 rounded-lg border border-purple-200">
+                  <div className="h-8"></div>
+                  <label className="text-xs font-bold text-purple-600 block mb-1">Sell 5 (Pelanggan)</label>
+                  <div className="flex items-center gap-2">
+                    <input type="number" name="sell_5" value={formData.sell_5 ?? ''} onChange={handleInputChange} className="flex-1 p-2 border border-purple-300 rounded-lg outline-none focus:ring-2 focus:ring-purple-400 bg-purple-100 font-bold text-purple-700" />
+                    {formData.beli && formData.sell_5 && formData.beli > 0 && (
+                      <span className="text-[10px] font-bold text-emerald-600 whitespace-nowrap">
+                        +{((formData.sell_5 - formData.beli) / formData.beli * 100).toFixed(1)}%
+                      </span>
+                    )}
+                  </div>
                 </div>
-                <div className="bg-white p-3 rounded-lg border border-blue-200">
-                  <label className="text-xs font-bold text-blue-500">Ecer (Default)</label><div className="h-10"></div>
-                  <label className="text-xs font-bold text-blue-600">Sell 6</label><input type="number" name="sell_6" value={formData.sell_6 ?? ''} onChange={handleInputChange} className="w-full p-2 border border-blue-300 rounded-md outline-none bg-blue-50 font-bold text-blue-700"/>
+
+                {/* Tier 6 (Default Ecer) - Warna biru */}
+                <div className="bg-blue-50 p-3 rounded-lg border border-blue-200">
+                  <div className="h-8"></div>
+                  <label className="text-xs font-bold text-blue-600 block mb-1">Sell 6 (Default Ecer)</label>
+                  <div className="flex items-center gap-2">
+                    <input type="number" name="sell_6" value={formData.sell_6 ?? ''} onChange={handleInputChange} className="flex-1 p-2 border border-blue-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-400 bg-blue-100 font-bold text-blue-700" />
+                    {formData.beli && formData.sell_6 && formData.beli > 0 && (
+                      <span className="text-[10px] font-bold text-emerald-600 whitespace-nowrap">
+                        +{((formData.sell_6 - formData.beli) / formData.beli * 100).toFixed(1)}%
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
