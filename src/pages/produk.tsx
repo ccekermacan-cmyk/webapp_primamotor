@@ -79,32 +79,36 @@ export default function Produk() {
   // FETCH DATA & PENCARIAN (REVISI MULTI-WORD)
   // ==========================================
   const fetchProducts = async () => {
-    try {
-      setLoading(true);
-      let filterQuery = '';
-      
-      if (searchTerm) {
-        // 1. Pecah pencarian berdasarkan spasi
-        // Contoh: "water pump vario" -> ["water", "pump", "vario"]
-        const terms = searchTerm.trim().toLowerCase().split(/\s+/);
-        
-        const bindings: any = {};
-        
-        // 2. Loop setiap kata, buat aturan bahwa KATA TERSEBUT HARUS ADA di salah satu kolom
-        const conditions = terms.map((t, i) => {
-          bindings[`t${i}`] = t;
-          return `(id_lama ~ {:t${i}} || kategori ~ {:t${i}} || merk ~ {:t${i}} || jenis ~ {:t${i}} || varian ~ {:t${i}} || keterangan ~ {:t${i}} || tipe ~ {:t${i}})`;
-        });
+  try {
+    setLoading(true);
+    let filterQuery = '';
+    
+    if (searchTerm) {
+      const terms = searchTerm.trim().toLowerCase().split(/\s+/);
+      const bindings: any = {};
+      const conditions: string[] = [];
 
-        // 3. Gabungkan dengan && (AND)
-        // Artinya: Semua kata yang diketik harus match, tidak peduli urutannya
-        filterQuery = pb.filter(conditions.join(' && '), bindings);
-      }
+      terms.forEach((term, idx) => {
+        const isNumeric = /^\d+$/.test(term);
+        if (isNumeric) {
+          // Hilangkan leading zero, lalu cari dengan operator = (eksak) karena ID unik
+          const numericId = parseInt(term, 10);
+          conditions.push(`id_lama = {:t${idx}}`);
+          bindings[`t${idx}`] = numericId.toString(); // binding sebagai string
+        } else {
+          conditions.push(`(id_lama ~ {:t${idx}} || kategori ~ {:t${idx}} || merk ~ {:t${idx}} || jenis ~ {:t${idx}} || varian ~ {:t${idx}} || keterangan ~ {:t${idx}} || tipe ~ {:t${idx}})`);
+          bindings[`t${idx}`] = term;
+        }
+      });
+
+      filterQuery = pb.filter(conditions.join(' && '), bindings);
+      console.log("Filter Query:", filterQuery); // Debug: lihat hasil filter
+    }
 
       const result = await pb.collection('produk').getList<Produk>(page, perPage, {
-        sort: '-created',
+        sort: 'id_lama',     // ascending sesuai ID string (alfabetis, tapi ID angka akan terurut secara numerik jika panjangnya sama)
         filter: filterQuery,
-        $autoCancel: false, // Tambahkan ini
+        $autoCancel: false,
       });
       
       setProducts(result.items);
@@ -344,7 +348,7 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
                         ID: {formatIdLamaDisplay(prod.id_lama)}
                       </span>
                       <h3 className="font-bold text-gray-800 text-lg leading-tight group-hover:text-orange-600 line-clamp-2">
-                        {`${prod.kategori} ${prod.jenis} ${prod.varian} ${prod.keterangan || ''} ${prod.tipe || ''}`.trim()}
+                        {`${prod.kategori} ${prod.merk} ${prod.jenis} ${prod.varian} ${prod.keterangan || ''} ${prod.tipe || ''}`.trim()}
                       </h3>
                     </div>
                   </div>
@@ -404,7 +408,7 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
                   ID: {formatIdLamaDisplay(selectedProduct.id_lama)}
                 </p>
                 <h3 className="font-bold text-gray-900 text-lg leading-tight">
-                  {`${selectedProduct.kategori} ${selectedProduct.jenis} ${selectedProduct.varian} ${selectedProduct.keterangan || ''} ${selectedProduct.tipe || ''}`.trim()}
+                  {`${selectedProduct.kategori} ${selectedProduct.merk} ${selectedProduct.jenis} ${selectedProduct.varian} ${selectedProduct.keterangan || ''} ${selectedProduct.tipe || ''}`.trim()}
                 </h3>
               </div>
             </div>

@@ -391,8 +391,14 @@ export default function MenuPage() {
 
   const totalBelanja = cartWithTierPrice.reduce((sum, item) => sum + (item.priceSelected * item.qty), 0);
   const totalQtyKeranjang = cart.reduce((sum, item) => sum + item.qty, 0);
+  const totalOngkos = useMemo(() => {
+  if (!selectedMenu.toLowerCase().includes('service')) return 0;
+  return formBayar.mekanikList.reduce((sum, mek) => sum + (mek.ongkos || 0), 0);
+}, [formBayar.mekanikList, selectedMenu]);
 
-  useEffect(() => { setFormBayar(prev => ({ ...prev, nominalBayar: totalBelanja })); }, [totalBelanja]);
+  const grandTotal = totalBelanja + totalOngkos;
+
+  useEffect(() => { setFormBayar(prev => ({ ...prev, nominalBayar: grandTotal })); }, [grandTotal]);
 
   // --- 5. GUARDS & INTERACTION HANDLERS --
   // --- CHECKOUT SAFETY GUARD ---
@@ -440,9 +446,10 @@ export default function MenuPage() {
   };
 
   const addToCart = (prod: Produk) => {
+    const isPembelian = selectedMenu.toLowerCase().includes('pembelian');
     const existing = cart.find(c => c.id === prod.id);
     const currentQty = existing ? existing.qty : 0;
-    if (currentQty + 1 > prod.stok_3) {
+    if (!isPembelian && currentQty + 1 > prod.stok_3) {
       setDialog({ show: true, title: 'Batas Stok Realtime', message: `Sisa pasokan fisik untuk barang ini hanya tersisa ${prod.stok_3} ${prod.unit}.`, type: 'alert' });
       return;
     }
@@ -451,17 +458,14 @@ export default function MenuPage() {
   };
 
   const updateQty = (id: string, delta: number, maxStok: number) => {
+    const isPembelian = selectedMenu.toLowerCase().includes('pembelian');
     const item = cart.find(c => c.id === id);
     if (!item) return;
-
     const newQty = item.qty + delta;
-
-    if (newQty > maxStok) {
+    if (!isPembelian && newQty > maxStok) {
       setDialog({ show: true, title: 'Kapasitas Stok Habis', message: `Maksimal gudang (${maxStok} unit).`, type: 'alert' });
       return;
     }
-
-    // Jika qty mencapai 0 atau di bawahnya, hapus item dari keranjang
     if (newQty <= 0) {
       setCart(prev => prev.filter(c => c.id !== id));
     } else {
@@ -555,7 +559,7 @@ export default function MenuPage() {
           id_lama: '',
           created_at: timestamp,
           operator: operatorName,
-          nominal: totalBelanja,
+          nominal: grandTotal,
           jenis: selectedMenu,
           mutasi: (menuLower.includes('penjualan') || menuLower.includes('service')) ? 'debet' : 'kredit',
           account_1: formBayar.accountCashflow, // Pastikan ini berisi 15 digit ID, bukan nama akun
@@ -577,12 +581,20 @@ export default function MenuPage() {
         }
       }
 
+      // Siapkan data mekanik untuk nota
+      const mechanicsForPrint = formBayar.mekanikList
+        .filter(m => m.idLama && m.ongkos > 0)
+        .map(m => {
+          const mech = mechanics.find(me => me.username === m.idLama);
+          return { name: mech?.name || m.idLama, ongkos: m.ongkos };
+        });
+
       setShowReceiptPrint({
         id: menuRecordId, timestamp, customer: selectedPersonName, items: cartWithTierPrice,
-        total: totalBelanja, cash: formBayar.nominalBayar, change: formBayar.nominalBayar - totalBelanja,
-        payment: formBayar.payment, 
-        ongkos1: formBayar.mekanikList[0]?.ongkos || 0, 
-        ongkos2: formBayar.mekanikList[1]?.ongkos || 0
+        total: grandTotal, cash: formBayar.nominalBayar, change: formBayar.nominalBayar - grandTotal,
+        payment: formBayar.payment,
+        jenis: selectedMenu,
+        mechanics: mechanicsForPrint
       });
 
       setCart([]);
@@ -691,16 +703,27 @@ export default function MenuPage() {
   };
 
   const handlePrint = () => {
-    // Sesuaikan dengan data yang diprint di modal receipt
+    // Hitung total ongkos dari history
+    const totalOngkosHistory = historyOngkos.reduce((sum, o) => sum + o.ongkos, 0);
+    const grandTotalHistory = totalTransaksi + totalOngkosHistory;
+    
+    // Mapping ongkos ke nama mekanik
+    const mechanicsForPrint = historyOngkos.map(ong => {
+      const mech = mechanics.find(m => m.username === ong.person);
+      return { name: mech?.name || ong.person, ongkos: ong.ongkos };
+    });
+
     setShowReceiptPrint({
       id: showDetailHistory?.id,
       timestamp: showDetailHistory?.created_at,
       customer: personMap[showDetailHistory?.person || ''] || 'Umum',
       items: historyItems.map(h => ({ ...h.expand?.item_baru, qty: h.qty, priceSelected: h.price_1 })),
-      total: totalTransaksi,
-      cash: totalTransaksi, // Default
+      total: grandTotalHistory,
+      cash: grandTotalHistory,
       change: 0,
-      payment: showDetailHistory?.payment
+      payment: showDetailHistory?.payment,
+      jenis: showDetailHistory?.jenis,
+      mechanics: mechanicsForPrint
     });
   };
 
@@ -1218,7 +1241,7 @@ export default function MenuPage() {
               <div className={`p-6 ${activeTheme.main} text-white shrink-0`}> 
                 <div className="flex justify-between items-center mb-5"> 
                   <span className="font-black text-xs text-white/50 uppercase tracking-[0.2em]">Total</span> 
-                  <span className="text-3xl font-black text-white tabular-nums tracking-tighter">Rp {totalBelanja.toLocaleString('id-ID')}</span> 
+                  <span className="text-3xl font-black text-white tabular-nums tracking-tighter">Rp {grandTotal.toLocaleString('id-ID')}</span>
                 </div> 
                 <button onClick={handleCheckoutValidation} className="w-full py-4 rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl flex items-center justify-center gap-3 bg-white text-slate-900 hover:bg-slate-100 transition-colors"> 
                   {editSession ? 'SIMPAN PERUBAHAN' : 'CHECKOUT TRANSAKSI'} <ArrowRight size={18} /> 
@@ -1236,7 +1259,7 @@ export default function MenuPage() {
         <div className="space-y-6 max-h-[75vh] overflow-y-auto pr-2 pb-6"> 
           <div className={`p-5 text-white rounded-3xl text-center ${editSession ? 'bg-blue-600' : 'bg-slate-900'}`}> 
             <p className="text-xs font-bold uppercase tracking-widest text-white/70">{editSession ? 'Validasi Update Nota' : 'Total Invoice'}</p> 
-            <p className="text-4xl font-black mt-1">Rp {totalBelanja.toLocaleString('id-ID')}</p> 
+            <p className="text-4xl font-black mt-1">Rp {grandTotal.toLocaleString('id-ID')}</p> 
           </div> 
 
           {/* Rincian Field Koleksi yang akan di Entry */}
@@ -1262,7 +1285,7 @@ export default function MenuPage() {
                 <p className="font-black text-[10px] text-slate-400 uppercase border-b pb-2 mb-3 flex items-center gap-1.5"><Wallet size={14}/> Koleksi: Cashflow</p>
                 <p><span className="text-slate-400 w-20 inline-block">id_lama:</span> -</p> 
                 <p><span className="text-slate-400 w-20 inline-block">jenis:</span> {selectedMenu}</p> 
-                <p><span className="text-slate-400 w-20 inline-block">nominal:</span> Rp {totalBelanja.toLocaleString('id-ID')}</p> 
+                <p><span className="text-slate-400 w-20 inline-block">nominal:</span> Rp {grandTotal.toLocaleString('id-ID')}</p> 
                 <p><span className="text-slate-400 w-20 inline-block">mutasi:</span> {(selectedMenu.toLowerCase().includes('penjualan') || selectedMenu.toLowerCase().includes('service')) ? 'debet' : 'kredit'}</p> 
                 <p><span className="text-slate-400 w-20 inline-block">account_1:</span> {formBayar.accountCashflow || '-'}</p> 
                 <p><span className="text-slate-400 w-20 inline-block">account_2:</span> -</p> 
@@ -1456,12 +1479,21 @@ export default function MenuPage() {
                  <p className="text-[10px]">Gladag, Rogojampi, Banyuwangi</p> 
                  <p className="text-[9px]">HP/WA: 081-XXXX-XXXX</p> 
                </div> 
-               <div className="py-2 border-b border-dashed text-[10px] space-y-0.5"> 
-                 <p>Nota: {showReceiptPrint.id}</p> 
-                 <p>Waktu: {showReceiptPrint.timestamp}</p> 
-                 <p>Pelanggan: {showReceiptPrint.customer}</p> 
-                 <p>Kasir: {operatorName}</p> 
-               </div> 
+               <div className="py-2 border-b border-dashed text-[10px] space-y-0.5">
+                <p>Nota: {showReceiptPrint.id}</p>
+                <p>Waktu: {showReceiptPrint.timestamp}</p>
+                <p>Pelanggan: {showReceiptPrint.customer}</p>
+                <p>Kasir: {operatorName}</p>
+                <p>Jenis Transaksi: {showReceiptPrint.jenis || '-'}</p>
+                {showReceiptPrint.mechanics && showReceiptPrint.mechanics.length > 0 && (
+                  <div>
+                    <p className="font-bold mt-1">Ongkos Mekanik:</p>
+                    {showReceiptPrint.mechanics.map((m, idx) => (
+                      <p key={idx} className="ml-1">- {m.name}: Rp {m.ongkos.toLocaleString('id-ID')}</p>
+                    ))}
+                  </div>
+                )}
+              </div>
                <div className="py-2 border-b border-dashed text-[10px] space-y-2"> 
                  {showReceiptPrint.items.map((item: any) => ( 
                    <div key={item.id}> 
