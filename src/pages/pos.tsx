@@ -5,7 +5,7 @@ import Modal from '../components/modal';
 import { 
   Search, ShoppingCart, ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
   Trash2, Plus, Receipt, Layers, Printer, Share2, X,
-  ArrowRight, Calendar, History, Sparkles, DollarSign, Wallet, AlertTriangle, Info, Wrench, Edit
+  ArrowRight, Calendar, History, Sparkles, DollarSign, Wallet, AlertTriangle, Info, Wrench, Edit, TrendingUp, TrendingDown
 } from 'lucide-react';
 
 // --- INTERFACES ---
@@ -30,6 +30,7 @@ interface CartItem extends Produk {
   isTiered: boolean;
   basePriceDefault: number;
   manualPrice?: number;
+  activeTierName?: string; // Tambahan properti
 }
 
 interface HistoryMenu {
@@ -68,6 +69,8 @@ export default function MenuPage() {
   const [cashflowAccounts, setCashflowAccounts] = useState<DropdownItem[]>([]);
   const [mechanics, setMechanics] = useState<UserKaryawan[]>([]);
   const [personMap] = useState<Record<string, string>>({});
+
+  const [allPersons, setAllPersons] = useState<DropdownItem[]>([]);
   
   const [loading, setLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -106,7 +109,7 @@ export default function MenuPage() {
   const getJenisColor = (jenis: string) => {
   const j = jenis.toLowerCase();
   if (j.includes('penjualan')) return 'text-emerald-500 bg-emerald-50';
-  if (j.includes('servis')) return 'text-blue-500 bg-blue-50';
+  if (j.includes('service')) return 'text-blue-500 bg-blue-50';
   if (j.includes('pembelian')) return 'text-orange-500 bg-orange-50';
   return 'text-slate-500 bg-slate-100'; // Default
   };
@@ -137,16 +140,66 @@ export default function MenuPage() {
   const userLevel = localStorage.getItem('user_level') || '';
   const operatorName = localStorage.getItem('user_name') || 'Admin';
 
+  // --- HELPER WARNA TEMA DINAMIS ---
+  const getThemeConfig = (menuName: string) => {
+    const lower = menuName.toLowerCase();
+    
+    // Pemetaan tema berdasarkan kata kunci
+    const themes: Record<string, any> = {
+      overview: { main: 'bg-indigo-600', text: 'text-indigo-600', light: 'bg-indigo-50', border: 'border-indigo-200', hoverMain: 'hover:bg-indigo-500', groupHoverText: 'group-hover:text-indigo-600', focusRing: 'focus:ring-indigo-500' },
+      penjualan: { main: 'bg-emerald-500', text: 'text-emerald-500', light: 'bg-emerald-50', border: 'border-emerald-200', hoverMain: 'hover:bg-emerald-400', groupHoverText: 'group-hover:text-emerald-500', focusRing: 'focus:ring-emerald-500' },
+      service: { main: 'bg-blue-500', text: 'text-blue-500', light: 'bg-blue-50', border: 'border-blue-200', hoverMain: 'hover:bg-blue-400', groupHoverText: 'group-hover:text-blue-500', focusRing: 'focus:ring-blue-500' },
+      pembelian: { main: 'bg-amber-500', text: 'text-amber-500', light: 'bg-amber-50', border: 'border-amber-200', hoverMain: 'hover:bg-amber-400', groupHoverText: 'group-hover:text-amber-500', focusRing: 'focus:ring-amber-500' },
+      gaji: { main: 'bg-teal-500', text: 'text-teal-500', light: 'bg-teal-50', border: 'border-teal-200', hoverMain: 'hover:bg-teal-400', groupHoverText: 'group-hover:text-teal-500', focusRing: 'focus:ring-teal-500' },
+      grosir: { main: 'bg-violet-500', text: 'text-violet-500', light: 'bg-violet-50', border: 'border-violet-200', hoverMain: 'hover:bg-violet-400', groupHoverText: 'group-hover:text-violet-500', focusRing: 'focus:ring-violet-500' },
+      retur: { main: 'bg-rose-500', text: 'text-rose-500', light: 'bg-rose-50', border: 'border-rose-200', hoverMain: 'hover:bg-rose-400', groupHoverText: 'group-hover:text-rose-500', focusRing: 'focus:ring-rose-500' }
+    };
+
+    // Mencari kunci tema yang cocok dengan nama menu
+    const match = Object.keys(themes).find(key => lower.includes(key));
+    return match ? themes[match] : themes.overview; // Default ke overview jika tidak ketemu
+  };
+
+  const activeTheme = getThemeConfig(selectedMenu);
+
   // Helper untuk menyeragamkan nama produk
   const getFullLabel = (p: Produk | any) => {
     if (!p) return "Item Tidak Dikenal";
     return `${p.kategori} ${p.merk} ${p.jenis} ${p.keterangan} ${p.varian} ${p.tipe}`.replace(/\s+/g, ' ').trim();
   };
 
+  const formatIdLamaDisplay = (id: string | number | undefined) => {
+    if (id === undefined || id === null || id === '') return 'N/A';
+    return String(id).padStart(5, '0');
+  };
+
+  // --- FITUR AUTO BUKA NOTA DARI URL (?ref=id_transaksi) ---
+  useEffect(() => {
+    const searchParams = new URLSearchParams(location.search);
+    const refId = searchParams.get('ref');
+    
+    if (refId) {
+      const openDirectMenu = async () => {
+        try {
+          // Ambil data menu berdasarkan ID di URL
+          const menuRecord = await pb.collection('menu').getOne<HistoryMenu>(refId, { $autoCancel: false });
+          // Langsung jalankan fungsi buka sub-detail
+          loadHistorySubDetails(menuRecord);
+        } catch (error) {
+          console.error("Gagal membuka transaksi dari URL (mungkin ID tidak valid/terhapus):", error);
+        }
+      };
+      openDirectMenu();
+    }
+  }, [location.search]);
+
   // --- 2. INITIAL FETCH DATA ---
     useEffect(() => {
       const initData = async () => {
         try {
+          const persons = await pb.collection('dropdown').getFullList<DropdownItem>({ filter: `kategori ~ "person"` });
+            setAllPersons(persons);
+
           const menus = await pb.collection('dropdown').getFullList<DropdownItem>({
             filter: `kategori ~ "menu" && jenis ~ "jenis menu" && visibilitas ~ "${userLevel}"`,
             sort: 'text_1', $autoCancel: false
@@ -190,30 +243,42 @@ export default function MenuPage() {
     // Dynamic Person List (Supplier / Customer)
     // 1. Ubah bagian inisialisasi di useEffect utama atau buat baru
     // Ganti useEffect fetchAllPersons menjadi ini:
+    // Dynamic Person List (Supplier / Customer)
+    // Dynamic Person List (Supplier / Customer)
     useEffect(() => {
-        const fetchFilteredPersons = async () => {
-            if (selectedMenu === 'Overview' || selectedMenu.toLowerCase().includes('gaji')) return;
-            
-            // Tentukan jenis berdasarkan menu
-            const isPembelian = selectedMenu.toLowerCase().includes('pembelian');
-            const jenisTarget = isPembelian ? 'supplier' : 'customer';
+      const fetchFilteredPersons = async () => {
+          if (selectedMenu === 'Overview' || selectedMenu.toLowerCase().includes('gaji')) return;
+          
+          // Tentukan jenis berdasarkan menu
+          const isPembelian = selectedMenu.toLowerCase().includes('pembelian');
+          const jenisTarget = isPembelian ? 'supplier' : 'customer';
 
-            try {
-                const persons = await pb.collection('dropdown').getFullList<DropdownItem>({
-                    filter: `kategori ~ "person" && jenis ~ "${jenisTarget}"`,
-                    $autoCancel: false
-                });
-                setPersonOptions(persons);
-                
-                // Set default person jika kosong
-                if (persons.length > 0 && !editSession?.isEditing) {
-                    setFormBayar(prev => ({ ...prev, personIdLama: persons[0].id_lama }));
-                }
-            } catch (e) { console.error("Gagal filter persons:", e); }
-        };
-        
-        fetchFilteredPersons();
-    }, [selectedMenu]); // <-- Dependency ini yang membuatnya berubah saat pindah menu
+          try {
+              const persons = await pb.collection('dropdown').getFullList<DropdownItem>({
+                  filter: `kategori ~ "person" && jenis ~ "${jenisTarget}"`,
+                  $autoCancel: false
+              });
+              setPersonOptions(persons);
+              
+              // Set default person khusus 'umum1' jika menu penjualan/service
+              if (editSession?.isEditing) return; // Jangan ubah customer jika sedang edit nota
+              if (persons.length > 0 && !editSession?.isEditing) {
+                  // Mencari 'umum1' baik di id_lama maupun text_1 secara case-insensitive
+                  const defaultCustomer = persons.find(p => 
+                      p.id_lama.toLowerCase().includes('umum1') || 
+                      p.text_1.toLowerCase().includes('umum1')
+                  ) || persons[0];
+                  
+                  setFormBayar(prev => ({ 
+                      ...prev, 
+                      personIdLama: isPembelian ? persons[0].id_lama : defaultCustomer.id_lama 
+                  }));
+              }
+          } catch (e) { console.error("Gagal filter persons:", e); }
+      };
+      
+      fetchFilteredPersons();
+    }, [selectedMenu]);
 
   // --- 3. CORE FETCH ENGINE ---
   const fetchData = async () => {
@@ -266,24 +331,59 @@ export default function MenuPage() {
   useEffect(() => { fetchData(); }, [page, searchTerm, selectedMenu]);
 
   const cartWithTierPrice = useMemo(() => {
-      const isSpecialCustomer = !['umum1', 'online1'].includes(formBayar.personIdLama);
+  const isPembelian = selectedMenu.toLowerCase().includes('pembelian');
+  
+  const selectedCustomer = personOptions.find(p => p.id_lama === formBayar.personIdLama);
+  const customerText = (selectedCustomer?.text_1 || '').toLowerCase();
+  const customerIdLama = (formBayar.personIdLama || '').toLowerCase();
 
-      return cart.map(item => {
-        const basePriceDefault = isSpecialCustomer ? item.sell_5 : item.sell_6;
-        let finalPrice = basePriceDefault;
-        let isTiered = false;
+  const isUmum = customerIdLama.includes('umum1') || customerText.includes('umum1');
+  const isOnline = customerIdLama.includes('online1') || customerText.includes('online');
+  const isSpecialCustomer = !isUmum && !isOnline;
 
-        if (item.manualPrice !== undefined) {
-          finalPrice = item.manualPrice;
-        } else {
-          if (item.min_3 > 0 && item.qty >= item.min_3) { finalPrice = item.sell_3; isTiered = true; }
-          else if (item.min_2 > 0 && item.qty >= item.min_2) { finalPrice = item.sell_2; isTiered = true; }
-          else if (item.min_1 > 0 && item.qty >= item.min_1) { finalPrice = item.sell_1; isTiered = true; }
-        }
+  return cart.map(item => {
+    const basePriceDefault = isPembelian ? item.beli : (isSpecialCustomer ? item.sell_5 : item.sell_6);
+    
+    let finalPrice = basePriceDefault;
+    let isTiered = false;
+    let activeTierName = isPembelian ? 'Beli Lama' : (isSpecialCustomer ? 'Harga Pelanggan' : 'Harga Eceran');
 
-        return { ...item, priceSelected: finalPrice, isTiered, basePriceDefault };
-      });
-    }, [cart, formBayar.personIdLama]);
+    if (!isPembelian) {
+      // Urutan dari jumlah terbesar (harga termurah) ke terkecil
+      if (item.min_1 > 0 && item.qty >= item.min_1) {
+        finalPrice = item.sell_1;
+        isTiered = true;
+        activeTierName = 'Grosir Besar';
+      } else if (item.min_2 > 0 && item.qty >= item.min_2) {
+        finalPrice = item.sell_2;
+        isTiered = true;
+        activeTierName = 'Grosir Sedang';
+      } else if (item.min_3 > 0 && item.qty >= item.min_3) {
+        finalPrice = item.sell_3;
+        isTiered = true;
+        activeTierName = 'Grosir Kecil';
+      } else if (isSpecialCustomer) {
+        finalPrice = item.sell_5;
+        isTiered = true;
+        activeTierName = 'Harga Pelanggan';
+      }
+    }
+
+    if (item.manualPrice !== undefined) {
+      finalPrice = item.manualPrice;
+      isTiered = true;
+      activeTierName = 'Harga Custom';
+    }
+
+    return { 
+      ...item, 
+      priceSelected: finalPrice, 
+      isTiered, 
+      basePriceDefault,
+      activeTierName
+    };
+  });
+  }, [cart, formBayar.personIdLama, selectedMenu]);
 
     const updatePrice = (id: string, newPrice: number) => {
       setCart(prev => prev.map(c => c.id === id ? { ...c, manualPrice: newPrice } : c));
@@ -294,7 +394,40 @@ export default function MenuPage() {
 
   useEffect(() => { setFormBayar(prev => ({ ...prev, nominalBayar: totalBelanja })); }, [totalBelanja]);
 
-  // --- 5. GUARDS & INTERACTION HANDLERS ---
+  // --- 5. GUARDS & INTERACTION HANDLERS --
+  // --- CHECKOUT SAFETY GUARD ---
+  const handleCheckoutValidation = () => {
+    // 1. Validasi Akun Keuangan
+    if (!formBayar.accountCashflow) {
+      setDialog({ show: true, title: 'Validasi Gagal', message: 'Akun Keuangan tidak boleh kosong.', type: 'alert' });
+      return;
+    }
+
+    const menuLower = selectedMenu.toLowerCase();
+
+    // 2. Validasi Catatan (Service & Pembelian)
+    if (menuLower.includes('service') && !formBayar.noteMenu.trim()) {
+      setDialog({ show: true, title: 'Catatan Kosong', message: 'Isi jenis motor service pada catatan nota!', type: 'alert' });
+      return;
+    }
+
+    if (menuLower.includes('pembelian')) {
+      if (!formBayar.noteMenu.trim()) {
+        setDialog({ show: true, title: 'Catatan Kosong', message: 'Isi nota dari customer pada catatan nota!', type: 'alert' });
+        return;
+      }
+      // 3. Validasi Media Bukti (Pembelian)
+      if (menuFiles.length === 0 && !editSession?.menuId) { 
+        // Note: ditambahkan cek editSession agar jika sedang edit, file lama masih ada di server
+        setDialog({ show: true, title: 'Media Kosong', message: 'Isi media foto nota pembelian!', type: 'alert' });
+        return;
+      }
+    }
+
+    // Jika lolos semua validasi, buka modal review
+    setShowCheckoutReview(true);
+  };
+
   const handleMenuChange = (menuName: string) => {
     if (cart.length > 0 && selectedMenu !== menuName) {
       setDialog({
@@ -319,11 +452,21 @@ export default function MenuPage() {
 
   const updateQty = (id: string, delta: number, maxStok: number) => {
     const item = cart.find(c => c.id === id);
-    if (item && item.qty + delta > maxStok) {
+    if (!item) return;
+
+    const newQty = item.qty + delta;
+
+    if (newQty > maxStok) {
       setDialog({ show: true, title: 'Kapasitas Stok Habis', message: `Maksimal gudang (${maxStok} unit).`, type: 'alert' });
       return;
     }
-    setCart(prev => prev.map(c => c.id === id ? { ...c, qty: Math.max(1, c.qty + delta) } : c));
+
+    // Jika qty mencapai 0 atau di bawahnya, hapus item dari keranjang
+    if (newQty <= 0) {
+      setCart(prev => prev.filter(c => c.id !== id));
+    } else {
+      setCart(prev => prev.map(c => c.id === id ? { ...c, qty: newQty } : c));
+    }
   };
 
   // --- 6. MULTI-COLLECTION STORING TO POCKETBASE ---
@@ -399,11 +542,11 @@ export default function MenuPage() {
           price_1: item.priceSelected,
           price_2: item.beli * item.qty,
           number_1: 0, number_2: 0,
-          boolean: (menuLower.includes('penjualan') || menuLower.includes('servis')) ? 'OUT' : 'IN',
+          boolean: (menuLower.includes('penjualan') || menuLower.includes('service')) ? 'OUT' : 'IN',
           ref_baru: menuRecordId 
         });
 
-        const deltaStok = (menuLower.includes('penjualan') || menuLower.includes('servis')) ? -item.qty : item.qty;
+        const deltaStok = (menuLower.includes('penjualan') || menuLower.includes('service')) ? -item.qty : item.qty;
         await pb.collection('produk').update(item.id, { stok_3: Math.max(0, item.stok_3 + deltaStok) });
       }
 
@@ -414,7 +557,7 @@ export default function MenuPage() {
           operator: operatorName,
           nominal: totalBelanja,
           jenis: selectedMenu,
-          mutasi: (menuLower.includes('penjualan') || menuLower.includes('servis')) ? 'debet' : 'kredit',
+          mutasi: (menuLower.includes('penjualan') || menuLower.includes('service')) ? 'debet' : 'kredit',
           account_1: formBayar.accountCashflow, // Pastikan ini berisi 15 digit ID, bukan nama akun
           account_2: '',
           note: formBayar.note || `POS System: Nota ${menuRecordId}`,
@@ -423,7 +566,7 @@ export default function MenuPage() {
       }
 
       // Payload Koleksi ongkos (Khusus Servis)
-      if (menuLower.includes('servis')) {
+      if (menuLower.includes('service')) {
         for (const mek of formBayar.mekanikList) {
           if (mek.idLama && mek.ongkos > 0) {
             await pb.collection('ongkos').create({ 
@@ -591,63 +734,79 @@ export default function MenuPage() {
   }, [historyGaji]);
 
   return ( 
-    <div className="flex h-full bg-slate-100 overflow-hidden font-sans"> 
+    <div className="flex h-screen bg-slate-100 overflow-hidden font-sans"> 
       
-      {/* --- PANEL KIRI --- */} 
-      {/* Tambahkan pt-24 khusus mobile agar tidak tertimpa tombol hamburger */}
-      <div className="flex-1 flex flex-col p-4 md:p-8 pt-24 md:pt-8 overflow-hidden w-full"> 
+      {/* --- PANEL KIRI (Utama) --- */} 
+      <div className="flex-1 flex flex-col p-4 md:p-8 pt-24 md:pt-8 overflow-hidden w-full transition-colors duration-500"> 
          
         {/* Nav Tabs */}
-        <div className="mb-6 shrink-0 flex items-center bg-white p-2 rounded-[2.5rem] shadow-sm border overflow-x-auto no-scrollbar"> 
+        <div className={`mb-6 shrink-0 flex items-center p-2 rounded-[2.5rem] shadow-sm border overflow-x-auto no-scrollbar transition-colors duration-500 ${activeTheme.light} ${activeTheme.border}`}> 
           <div className="flex gap-2 px-2"> 
-            {menuOptions.map(m => ( 
-              <button key={m.id} onClick={() => handleMenuChange(m.text_1)} 
-                className={`px-8 py-3.5 rounded-[1.8rem] font-black text-[11px] uppercase tracking-widest transition-all ${ 
-                  selectedMenu === m.text_1 ? 'bg-slate-900 text-white shadow-xl scale-105' : 'text-slate-400 hover:bg-slate-50' 
-                }`}> 
-                {m.text_1} 
-              </button> 
-            ))} 
+            {menuOptions.map(m => {
+              const tabTheme = getThemeConfig(m.text_1);
+              const isActive = selectedMenu === m.text_1;
+              return (
+                <button key={m.id} onClick={() => handleMenuChange(m.text_1)} 
+                  className={`px-6 md:px-8 py-3 rounded-[1.8rem] font-black text-[11px] uppercase tracking-widest transition-all duration-300 whitespace-nowrap ${ 
+                    isActive ? `${tabTheme.main} text-white shadow-lg scale-105` : `${tabTheme.text} hover:bg-white/60 opacity-60 hover:opacity-100` 
+                  }`}> 
+                  {m.text_1} 
+                </button> 
+              );
+            })} 
           </div> 
-        </div> 
+        </div>
 
         {/* Search Engine */} 
         <div className="relative mb-6 shrink-0 group"> 
-          <Search className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-blue-500" size={22} /> 
+          <Search className={`absolute left-6 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:${activeTheme.text} transition-colors`} size={22} /> 
           <input type="text" placeholder={`Cari di menu ${selectedMenu}...`} 
-            className="w-full pl-16 pr-8 py-5 bg-white rounded-[2rem] shadow-xl shadow-slate-200/50 outline-none font-bold text-slate-600 border-none text-base" 
+            className={`w-full pl-16 pr-8 py-5 bg-white rounded-[2rem] shadow-xl shadow-slate-200/50 outline-none font-bold text-slate-600 border-2 border-transparent ${activeTheme.focusRing} focus:ring-2 transition-all text-base`} 
             value={searchInput} onChange={(e) => setSearchInput(e.target.value)} /> 
         </div> 
 
-        {/* Content Dynamic */} 
-        <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar pb-10"> 
+        {/* List Produk (Scrollable Area) */}
+        {/* Content Dynamic - Wrapper */}
+        <div className={`flex-1 overflow-y-auto pr-2 custom-scrollbar pb-10 rounded-2xl transition-colors duration-500 p-2 md:p-4 bg-gradient-to-b from-transparent to-${activeTheme.light.replace('bg-', '')}/30`}>
+          
           {loading ? ( 
-            <div className="h-full flex items-center justify-center"><div className="w-12 h-12 border-4 border-slate-200 border-t-blue-600 rounded-full animate-spin" /></div> 
+            <div className="h-full flex items-center justify-center">
+              <div className="w-12 h-12 border-4 border-slate-200 border-t-blue-600 rounded-full animate-spin" />
+            </div> 
           ) : ( 
-            <div className="space-y-10"> 
+            <div className="space-y-10">
                
-              {/* LIST PRODUK */} 
+              {/* 1. LIST PRODUK (PENJUALAN/SERVICE/PEMBELIAN) */} 
               {selectedMenu.toLowerCase() !== 'overview' && !selectedMenu.toLowerCase().includes('gaji') && ( 
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6"> 
                   {products.map(p => ( 
-                    <div key={p.id} onClick={() => addToCart(p)} className="bg-white p-6 rounded-[2.5rem] border-2 border-transparent hover:border-blue-500 shadow-sm hover:shadow-2xl transition-all cursor-pointer group flex flex-col justify-between h-72"> 
-                      <div> 
+                    <div key={p.id} onClick={() => addToCart(p)} className={`bg-white p-6 rounded-[2.5rem] border-2 border-transparent hover:${activeTheme.border} shadow-sm hover:shadow-xl transition-all duration-300 cursor-pointer group flex flex-col justify-between h-72 relative overflow-hidden`}> 
+                      <div className={`absolute -top-10 -right-10 w-32 h-32 ${activeTheme.light} rounded-full blur-3xl opacity-0 group-hover:opacity-100 transition-opacity duration-500`} />
+                      
+                      <div className="relative z-10"> 
                         <div className="flex justify-between items-start mb-4"> 
                           <span className="text-[10px] font-black bg-slate-100 text-slate-500 px-3 py-1.5 rounded-xl tracking-tighter">#{p.id_lama}</span> 
                           <div className={`px-3 py-1.5 rounded-xl font-black text-[10px] uppercase ${p.stok_3 > 5 ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}> 
                             SISA: {p.stok_3} {p.unit} 
                           </div> 
                         </div> 
-                        <h3 className="font-black text-slate-800 text-sm uppercase leading-tight group-hover:text-blue-600 line-clamp-3 tracking-tight">{getFullLabel(p)}</h3> 
+                        <h3 className={`font-black text-slate-800 text-sm uppercase leading-tight ${activeTheme.groupHoverText} line-clamp-3 tracking-tight transition-colors`}>
+                          {formatIdLamaDisplay(p.id_lama)} - {getFullLabel(p)}
+                        </h3>
                       </div> 
-                      <div className="flex justify-between items-center bg-slate-50 p-4 rounded-2xl group-hover:bg-blue-600 transition-all mt-4"> 
-                        <p className="font-black text-blue-600 group-hover:text-white text-lg tracking-tighter">Rp {p.sell_6.toLocaleString('id-ID')}</p> 
-                        <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-blue-600 shadow-sm group-hover:scale-110 transition-transform"><Plus size={20} strokeWidth={3}/></div> 
-                      </div> 
+                      
+                      <div className={`flex justify-between items-center ${activeTheme.light} p-4 rounded-2xl group-hover:${activeTheme.main} transition-all duration-300 mt-4 relative z-10`}> 
+                        <p className={`font-black ${activeTheme.text} group-hover:text-white text-lg tracking-tighter transition-colors`}>
+                          Rp {p.sell_6.toLocaleString('id-ID')}
+                        </p> 
+                        <div className={`w-10 h-10 bg-white rounded-xl flex items-center justify-center ${activeTheme.text} shadow-sm group-hover:scale-110 transition-transform`}>
+                          <Plus size={20} strokeWidth={3}/>
+                        </div> 
+                      </div>
                     </div> 
-                  ))} 
+                  ))}
                 </div> 
-              )} 
+              )}
 
               {/* LIST OVERVIEW */} 
               {selectedMenu.toLowerCase() === 'overview' && Object.entries(groupedHistory).map(([date, items]) => ( 
@@ -659,21 +818,29 @@ export default function MenuPage() {
                   <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6"> 
                     {items.map(h => ( 
                       <div key={h.id} onClick={() => loadHistorySubDetails(h)} className="bg-white p-6 rounded-[2.5rem] border border-slate-200 shadow-sm hover:shadow-xl transition-all cursor-pointer group h-52 flex flex-col justify-between"> 
-                         <div className="flex justify-between items-start"> 
+                        <div className="flex justify-between items-start"> 
                             <span className={`text-[10px] font-black px-2 py-0.5 rounded-md uppercase tracking-widest ${getJenisColor(h.jenis)}`}>
                               {h.jenis}
                             </span>
                             <div className="p-2 bg-slate-50 rounded-xl text-slate-300 group-hover:text-blue-500 transition-colors"><History size={16} /></div> 
-                         </div> 
-                         <div> 
-                            <h4 className="font-black text-slate-800 text-base uppercase leading-none mb-2 truncate">{personMap[h.person] || h.person || 'PELANGGAN UMUM'}</h4> 
-                            <p className="text-xs font-bold text-slate-400 line-clamp-2 italic">"{h.text || 'Tanpa deskripsi nota.'}"</p> 
-                         </div> 
-                         <div className="flex justify-between items-center border-t border-slate-100 pt-4"> 
+                        </div> 
+                        <div> 
+                            {/* Menampilkan text_1 - text_2 dari dropdown person berdasarkan h.person */}
+                            <h4 className="font-black text-slate-800 text-base uppercase leading-none mb-1 truncate">
+                              {(() => {
+                                const person = allPersons.find(p => p.id_lama === h.person);
+                                return person ? `${person.text_1} - ${person.text_2 || ''}` : (h.person || 'PELANGGAN UMUM');
+                              })()}
+                            </h4>
+                            {/* Menambahkan field operator */}
+                            <p className="text-[10px] font-bold text-slate-500 mt-1">Operator: {h.operator || '-'}</p>
+                            <p className="text-xs font-bold text-slate-400 line-clamp-2 italic mt-2">"{h.text || 'Tanpa deskripsi nota.'}"</p> 
+                        </div> 
+                        <div className="flex justify-between items-center border-t border-slate-100 pt-4"> 
                             <span className="text-[10px] font-black text-slate-300 flex items-center gap-1"><Calendar size={12}/> {h.created_at}</span> 
                             <div className="font-black text-slate-700 bg-slate-100 px-3 py-1 rounded-lg text-xs">{h.qty} Item</div> 
-                         </div> 
-                      </div> 
+                        </div> 
+                      </div>
                     ))} 
                   </div> 
                 </div> 
@@ -713,13 +880,13 @@ export default function MenuPage() {
             <button onClick={() => setPage(p => Math.max(1, p-1))} className="p-4 bg-slate-50 rounded-2xl hover:bg-slate-100 transition-colors"><ChevronLeft size={24}/></button> 
             <button onClick={() => setPage(p => Math.min(totalPages, p+1))} className="p-4 bg-slate-50 rounded-2xl hover:bg-slate-100 transition-colors"><ChevronRight size={24}/></button> 
           </div> 
-        </div> 
-      </div> 
+        </div>
+      </div>
 
-      {/* --- FLOATING Tombol Buka Keranjang (Khusus Mobile) --- */}
+      {/* --- FLOATING Tombol Buka Keranjang (Khusus Mobile & Tablet) --- */}
       <button 
         onClick={() => setIsCartOpen(true)}
-        className="md:hidden fixed bottom-6 right-6 z-20 p-4 bg-blue-600 text-white rounded-full shadow-2xl shadow-blue-500/50 flex items-center justify-center"
+        className="lg:hidden fixed bottom-6 right-6 z-20 p-4 bg-blue-600 text-white rounded-full shadow-2xl shadow-blue-500/50 flex items-center justify-center"
       >
         <div className="relative">
           <ShoppingCart size={24} />
@@ -731,17 +898,17 @@ export default function MenuPage() {
         </div>
       </button>
 
-      {/* OVERLAY KERANJANG MOBILE */}
+      {/* OVERLAY KERANJANG MOBILE & TABLET */}
       {isCartOpen && (
-        <div className="fixed inset-0 bg-slate-900/50 z-40 md:hidden backdrop-blur-sm" onClick={() => setIsCartOpen(false)} />
+        <div className="fixed inset-0 bg-slate-900/50 z-40 lg:hidden backdrop-blur-sm" onClick={() => setIsCartOpen(false)} />
       )}
 
-      {/* --- PANEL NOTA / KASIR BILLING (KANAN) --- */}
-      <div className={`fixed inset-y-0 right-0 w-full sm:w-[480px] md:w-[480px] bg-slate-50 border-l border-slate-200 flex flex-col shadow-2xl md:shadow-[-20px_0_60px_rgba(0,0,0,0.02)] z-50 md:z-30 overflow-hidden md:relative transform transition-transform duration-300 ${isCartOpen ? 'translate-x-0' : 'translate-x-full md:translate-x-0'}`}> 
+      {/* --- PANEL KERANJANG (Kanan) --- */}
+      <div className={`fixed inset-y-0 right-0 w-full sm:w-[400px] lg:w-[480px] ${activeTheme.light} border-l ${activeTheme.border} flex flex-col shadow-2xl lg:shadow-[-20px_0_60px_rgba(0,0,0,0.02)] z-50 lg:z-30 overflow-hidden lg:relative transform transition-all duration-500 ${isCartOpen ? 'translate-x-0' : 'translate-x-full lg:translate-x-0'}`}>
         {cart.length === 0 ? ( 
           <div className="h-full flex flex-col items-center justify-center p-10 text-center space-y-6 relative"> 
-            {/* Tombol Tutup Khusus Mobile (Nota Kosong) */}
-            <button onClick={() => setIsCartOpen(false)} className="md:hidden absolute top-6 left-6 p-3 bg-white text-slate-500 rounded-full shadow-sm border border-slate-100">
+            {/* Tombol Tutup Khusus Mobile/Tablet (Nota Kosong) */}
+            <button onClick={() => setIsCartOpen(false)} className="lg:hidden absolute top-6 left-6 p-3 bg-white text-slate-500 rounded-full shadow-sm border border-slate-100">
               <ChevronRight size={20} />
             </button>
             <div className="w-40 h-40 bg-white rounded-full flex items-center justify-center shadow-sm"> 
@@ -758,7 +925,7 @@ export default function MenuPage() {
             <div className="p-6 bg-white border-b border-slate-200 shrink-0 shadow-sm z-10"> 
               <div className="flex items-center justify-between"> 
                 <div className="flex items-center gap-3">
-                  <button onClick={() => setIsCartOpen(false)} className="md:hidden p-2 bg-slate-100 text-slate-500 rounded-full hover:bg-slate-200">
+                  <button onClick={() => setIsCartOpen(false)} className="lg:hidden p-2 bg-slate-100 text-slate-500 rounded-full hover:bg-slate-200 transition-colors">
                     <ChevronRight size={20} />
                   </button>
                   <div> 
@@ -775,7 +942,9 @@ export default function MenuPage() {
             {/* AREA DAFTAR ITEM (SCROLLABLE) */}
             <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar"> 
               {cartWithTierPrice.map(item => {
-                const canEditPrice = userLevel === '1' || formBayar.personIdLama.toLowerCase().includes('online');
+                const canEditPrice = userLevel === '1' || 
+                     formBayar.personIdLama.toLowerCase().includes('online') || 
+                     selectedMenu.toLowerCase().includes('pembelian');
 
                 return (
                   <div key={item.id} className="bg-white p-4 rounded-3xl border border-slate-100 shadow-sm hover:border-blue-200 transition-colors relative group"> 
@@ -787,13 +956,53 @@ export default function MenuPage() {
 
                     <div className="pr-10 mb-3"> 
                       <h4 className="font-bold text-slate-800 text-sm leading-snug">{getFullLabel(item)}</h4> 
+                      
+                      {/* UI HARGA CORET & INDIKATOR DINAMIS */}
                       <div className="flex items-center gap-2 mt-1"> 
-                        {item.isTiered && <span className="text-[9px] font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded flex items-center gap-1 uppercase tracking-wider"><Sparkles size={10}/> Harga Grosir</span>}
-                        {item.priceSelected !== item.sell_6 && (
-                            <span className="text-[10px] font-medium text-slate-400 line-through">Rp {item.sell_6.toLocaleString('id-ID')}</span> 
+                        {selectedMenu.toLowerCase().includes('pembelian') ? (
+                           // TAMPILAN KHUSUS MENU PEMBELIAN
+                           <>
+                             {item.priceSelected !== item.basePriceDefault ? (
+                               <>
+                                 <span className="text-[10px] font-medium text-slate-400 line-through">
+                                   Rp {item.basePriceDefault.toLocaleString('id-ID')}
+                                 </span>
+                                 {(() => {
+                                   const diff = item.priceSelected - item.basePriceDefault;
+                                   const pct = item.basePriceDefault > 0 ? ((Math.abs(diff) / item.basePriceDefault) * 100).toFixed(1) : '100';
+                                   const isUp = diff > 0;
+                                   return (
+                                     <span className={`text-[9px] font-black px-1.5 py-0.5 rounded flex items-center gap-0.5 tracking-wider ${isUp ? 'text-rose-600 bg-rose-50' : 'text-emerald-600 bg-emerald-50'}`}>
+                                       {isUp ? <TrendingUp size={10} /> : <TrendingDown size={10} />}
+                                       {pct}%
+                                     </span>
+                                   );
+                                 })()}
+                               </>
+                             ) : (
+                               <span className="text-[9px] font-black text-slate-400 bg-slate-100 px-2 py-0.5 rounded flex items-center gap-1 uppercase tracking-wider">
+                                 Harga Beli Terakhir
+                               </span>
+                             )}
+                           </>
+                        ) : (
+                           // TAMPILAN UNTUK MENU PENJUALAN / SERVICE
+                           <>
+                             {item.isTiered && (
+                               <span className={`text-[9px] font-black px-2 py-0.5 rounded flex items-center gap-1 uppercase tracking-wider ${item.activeTierName === 'Harga Custom' ? 'text-blue-600 bg-blue-50' : 'text-emerald-600 bg-emerald-50'}`}>
+                                   <Sparkles size={10}/> {item.activeTierName}
+                               </span>
+                             )}
+                             {/* Selalu coret harga eceran (sell_6) jika harga yang aktif lebih rendah (atau berbeda) dari harga eceran */}
+                             {item.priceSelected !== item.sell_6 && (
+                                 <span className="text-[10px] font-medium text-slate-400 line-through">
+                                   Rp {item.sell_6.toLocaleString('id-ID')}
+                                 </span> 
+                             )}
+                           </>
                         )}
-                      </div> 
-                    </div> 
+                      </div>
+                    </div>
 
                     {/* Baris Kontrol QTY, Harga Satuan & Total */}
                     <div className="flex justify-between items-center bg-slate-50/80 p-2 rounded-2xl"> 
@@ -809,17 +1018,19 @@ export default function MenuPage() {
                       <div className="flex items-center gap-2 shrink-0 ml-2">
                         <span className="text-[10px] font-black text-slate-300">x</span>
                         {canEditPrice ? (
-                          <div className="relative flex items-center">
-                            <span className="absolute left-2 text-[10px] font-bold text-blue-400">Rp</span>
+                          <div className="relative flex items-center group">
+                            <span className="absolute left-2 text-[10px] font-bold text-slate-400 group-focus-within:text-blue-500 transition-colors">Rp</span>
                             <input 
                               type="number" 
-                              className="w-[85px] py-1.5 pr-2 pl-6 text-right font-black text-blue-600 bg-blue-50/50 border border-blue-100 rounded-lg text-[11px] outline-none focus:border-blue-500 transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
+                              className="w-[105px] py-1.5 pr-7 pl-6 text-right font-black text-slate-700 bg-white border border-slate-200 rounded-lg text-[11px] outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-200 transition-all [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none hover:border-blue-300" 
                               value={item.manualPrice !== undefined ? item.manualPrice : item.priceSelected} 
                               onChange={e => updatePrice(item.id, Number(e.target.value))} 
+                              title="Klik untuk mengedit harga satuan"
                             />
+                            <Edit size={12} className="absolute right-2 text-slate-400 pointer-events-none group-hover:text-blue-500 transition-colors" />
                           </div>
                         ) : (
-                          <span className="text-[11px] font-bold text-slate-600">
+                          <span className="text-[11px] font-bold text-slate-600 bg-slate-100 px-2 py-1 rounded-md">
                             {item.priceSelected.toLocaleString('id-ID')}
                           </span>
                         )}
@@ -859,12 +1070,23 @@ export default function MenuPage() {
                     </div> 
                     <div className="space-y-1"> 
                       <label className="text-[9px] font-black text-slate-400 uppercase ml-1">Metode Bayar</label> 
-                      <select className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:border-blue-400" value={formBayar.payment} onChange={e => setFormBayar({...formBayar, payment: e.target.value})}> 
-                        <option value="Tunai">Tunai / Cash</option> 
-                        <option value="Transfer">Transfer Bank</option> 
-                        <option value="Tempo">Kredit / Tempo</option> 
-                      </select> 
-                    </div> 
+                      <div className="flex bg-slate-100 p-1 rounded-xl">
+                        {['Tunai', 'Tempo'].map((metode) => (
+                          <button
+                            key={metode}
+                            type="button"
+                            onClick={() => setFormBayar({...formBayar, payment: metode})}
+                            className={`flex-1 py-2.5 text-xs font-black rounded-lg transition-all duration-300 ${
+                              formBayar.payment === metode 
+                                ? `${activeTheme.main} text-white shadow-sm` 
+                                : 'text-slate-500 hover:bg-slate-200'
+                            }`}
+                          >
+                            {metode === 'Tunai' ? 'CASH' : 'TEMPO'}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   </div> 
 
                   <div className="grid grid-cols-2 gap-3"> 
@@ -881,8 +1103,20 @@ export default function MenuPage() {
                     </div>
                   </div>
 
+                  {formBayar.payment === 'Tempo' && (
+                    <div className="space-y-1 animate-in slide-in-from-top-2"> 
+                      <label className="text-[9px] font-black text-slate-400 uppercase ml-1">Tanggal Jatuh Tempo</label> 
+                      <input 
+                        type="date" 
+                        className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:border-blue-400" 
+                        value={formBayar.note || ''} // Menggunakan field note sebagai penampung sementara jika tidak ada field khusus
+                        onChange={e => setFormBayar({...formBayar, note: e.target.value})} 
+                      /> 
+                    </div> 
+                  )}
+
                   {/* Form Mekanik (Servis Saja) */}
-                  {selectedMenu.toLowerCase().includes('servis') && (
+                  {selectedMenu.toLowerCase().includes('service') && (
                     <div className="p-4 bg-blue-50/50 border border-blue-100 rounded-2xl space-y-3"> 
                       <div className="flex justify-between items-center">
                         <p className="text-[9px] font-black text-blue-600 uppercase tracking-widest flex items-center gap-1"><Wrench size={10}/> Ongkos Mekanik</p> 
@@ -981,15 +1215,15 @@ export default function MenuPage() {
               )}
 
               {/* FOOTER TOTAL CHECKOUT */}
-              <div className="p-6 bg-slate-900 text-white shrink-0"> 
+              <div className={`p-6 ${activeTheme.main} text-white shrink-0`}> 
                 <div className="flex justify-between items-center mb-5"> 
                   <span className="font-black text-xs text-white/50 uppercase tracking-[0.2em]">Total</span> 
-                  <span className="text-3xl font-black text-emerald-400 tabular-nums tracking-tighter">Rp {totalBelanja.toLocaleString('id-ID')}</span> 
+                  <span className="text-3xl font-black text-white tabular-nums tracking-tighter">Rp {totalBelanja.toLocaleString('id-ID')}</span> 
                 </div> 
-                <button onClick={() => setShowCheckoutReview(true)} className={`w-full py-4 rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl flex items-center justify-center gap-3 transition-colors ${editSession ? 'bg-blue-600 text-white hover:bg-blue-500' : 'bg-emerald-500 text-white hover:bg-emerald-400'}`}> 
+                <button onClick={handleCheckoutValidation} className="w-full py-4 rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl flex items-center justify-center gap-3 bg-white text-slate-900 hover:bg-slate-100 transition-colors"> 
                   {editSession ? 'SIMPAN PERUBAHAN' : 'CHECKOUT TRANSAKSI'} <ArrowRight size={18} /> 
                 </button> 
-              </div> 
+              </div>
             </div>
           </> 
         )} 
@@ -1029,7 +1263,7 @@ export default function MenuPage() {
                 <p><span className="text-slate-400 w-20 inline-block">id_lama:</span> -</p> 
                 <p><span className="text-slate-400 w-20 inline-block">jenis:</span> {selectedMenu}</p> 
                 <p><span className="text-slate-400 w-20 inline-block">nominal:</span> Rp {totalBelanja.toLocaleString('id-ID')}</p> 
-                <p><span className="text-slate-400 w-20 inline-block">mutasi:</span> {(selectedMenu.toLowerCase().includes('penjualan') || selectedMenu.toLowerCase().includes('servis')) ? 'debet' : 'kredit'}</p> 
+                <p><span className="text-slate-400 w-20 inline-block">mutasi:</span> {(selectedMenu.toLowerCase().includes('penjualan') || selectedMenu.toLowerCase().includes('service')) ? 'debet' : 'kredit'}</p> 
                 <p><span className="text-slate-400 w-20 inline-block">account_1:</span> {formBayar.accountCashflow || '-'}</p> 
                 <p><span className="text-slate-400 w-20 inline-block">account_2:</span> -</p> 
                 <p><span className="text-slate-400 w-20 inline-block">note:</span> POS System: Nota [Auto ID]</p> 
@@ -1039,7 +1273,7 @@ export default function MenuPage() {
              </div>
 
              {/* 3. KOLEKSI ONGKOS (Tampil Bersyarat) */}
-             {selectedMenu.toLowerCase().includes('servis') && formBayar.mekanikList.some(m => m.idLama && m.ongkos > 0) && (
+             {selectedMenu.toLowerCase().includes('service') && formBayar.mekanikList.some(m => m.idLama && m.ongkos > 0) && (
                <div className="bg-blue-50/50 border-blue-100 p-5 rounded-2xl border col-span-1 md:col-span-2 shadow-sm">
                   <p className="font-black text-[10px] text-blue-500 uppercase border-b border-blue-100 pb-2 mb-4 flex items-center gap-1.5"><Wrench size={14}/> Koleksi: Ongkos</p>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1166,7 +1400,7 @@ export default function MenuPage() {
               <div className="p-4 bg-slate-50 rounded-2xl border"> 
                 <p className="font-black text-slate-400 text-[10px] uppercase">Ongkos Mekanik (Ongkos)</p> 
                 <div className="mt-2 space-y-1 font-bold text-slate-700 text-[10px]"> 
-                  {historyOngkos.length === 0 ? <p className="text-slate-400 italic">Bukan transaksi servis / Kosong.</p> : ( 
+                  {historyOngkos.length === 0 ? <p className="text-slate-400 italic">Bukan transaksi service / Kosong.</p> : ( 
                     historyOngkos.map(fee => ( 
                       <p key={fee.id} className="truncate">@{fee.person}: <span className="text-emerald-600">Rp {fee.ongkos?.toLocaleString('id-ID')}</span></p> 
                     )) 

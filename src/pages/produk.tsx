@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { pb } from '../lib/pocketbase';
 import Modal from '../components/modal';
-import { Package, Search, Trash2, Edit, Copy, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Package, Search, Trash2, Edit, Copy, ChevronLeft, ChevronRight, X } from 'lucide-react';
 
 interface Produk {
   [key: string]: any; 
@@ -34,6 +34,14 @@ export default function Produk() {
   const [products, setProducts] = useState<Produk[]>([]);
   const [loading, setLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
+
+  const [logHistory, setLogHistory] = useState<any[]>([]);
+  const [logPage, setLogPage] = useState(1);
+  const [logTotalPages, setLogTotalPages] = useState(1);
+
+  const [inputValue, setInputValue] = useState('');
+
+  const [userLevel, setUserLevel] = useState(localStorage.getItem('user_level') || '');
   
   // Pagination & Search
   const [page, setPage] = useState(1);
@@ -47,29 +55,28 @@ export default function Produk() {
   const [modalType, setModalType] = useState<'detail' | 'form' | 'delete' | null>(null);
   const [selectedProduct, setSelectedProduct] = useState<Produk | null>(null);
   const [formData, setFormData] = useState<Partial<Produk>>({});
+  const [existingTipe, setExistingTipe] = useState<string[]>([]);
 
   // ==========================================
   // FUNGSI PEMBANTU (HELPERS)
   // ==========================================
+  const isReadOnly = userLevel !== '1';
 
-  // Generate ID baru (HANYA ANGKA, tanpa 0 di depan untuk disimpan ke DB)
   const generateRawRandomId = () => {
     return String(Math.floor(Math.random() * 100000));
   };
 
-  // Format ID untuk TAMPILAN (selalu tambahkan 0 agar genap 5 digit)
   const formatIdLamaDisplay = (id: string | number | undefined) => {
     if (id === undefined || id === null || id === '') return 'N/A';
     return String(id).padStart(5, '0');
   };
 
-  // Format ID untuk DISIMPAN (hapus 0 di depan)
   const cleanIdLamaStorage = (id: string | number) => {
-    return String(Number(id)); // contoh: "00123" -> 123 -> "123"
+    return String(Number(id)); 
   };
 
   // ==========================================
-  // FETCH DATA & PENCARIAN
+  // FETCH DATA & PENCARIAN (REVISI MULTI-WORD)
   // ==========================================
   const fetchProducts = async () => {
     try {
@@ -77,23 +84,27 @@ export default function Produk() {
       let filterQuery = '';
       
       if (searchTerm) {
-        // REVISI SEARCH: Pecah kata berdasarkan spasi agar bisa mencari "oli mpx" meski terpisah
-        const terms = searchTerm.trim().split(/\s+/);
-        const conditions = terms.map((_, i) => 
-          `(id_lama ~ {:t${i}} || kategori ~ {:t${i}} || jenis ~ {:t${i}} || varian ~ {:t${i}} || keterangan ~ {:t${i}})`
-        );
+        // 1. Pecah pencarian berdasarkan spasi
+        // Contoh: "water pump vario" -> ["water", "pump", "vario"]
+        const terms = searchTerm.trim().toLowerCase().split(/\s+/);
         
-        // Buat object binding data untuk menghindari injection
         const bindings: any = {};
-        terms.forEach((t, i) => { bindings[`t${i}`] = t; });
+        
+        // 2. Loop setiap kata, buat aturan bahwa KATA TERSEBUT HARUS ADA di salah satu kolom
+        const conditions = terms.map((t, i) => {
+          bindings[`t${i}`] = t;
+          return `(id_lama ~ {:t${i}} || kategori ~ {:t${i}} || merk ~ {:t${i}} || jenis ~ {:t${i}} || varian ~ {:t${i}} || keterangan ~ {:t${i}} || tipe ~ {:t${i}})`;
+        });
 
-        // Gabungkan dengan AND (&&) sehingga semua kata harus cocok
+        // 3. Gabungkan dengan && (AND)
+        // Artinya: Semua kata yang diketik harus match, tidak peduli urutannya
         filterQuery = pb.filter(conditions.join(' && '), bindings);
       }
 
       const result = await pb.collection('produk').getList<Produk>(page, perPage, {
         sort: '-created',
         filter: filterQuery,
+        $autoCancel: false, // Tambahkan ini
       });
       
       setProducts(result.items);
@@ -105,6 +116,25 @@ export default function Produk() {
       setLoading(false);
     }
   };
+
+  // BLOK 1: Hanya jalan 1x saat aplikasi baru dibuka untuk ambil enumlist Tipe Motor
+  useEffect(() => {
+    const fetchTipeOptions = async () => {
+      try {
+        const records = await pb.collection('produk').getFullList({ fields: 'tipe', $autoCancel: false });
+        const allTypes = Array.from(new Set(records.flatMap(r => r.tipe?.split(',').map((s: string) => s.trim()).filter(Boolean))));
+        setExistingTipe(allTypes);
+      } catch (e) {
+        console.error("Gagal memuat tipe motor", e);
+      }
+    };
+    fetchTipeOptions();
+  }, []); // <--- array kosong memastikan ini hanya dirender 1x
+
+  // BLOK 2: Jalan setiap kali ganti halaman atau ketik pencarian
+  useEffect(() => {
+    fetchProducts();
+  }, [page, searchTerm]);
 
   useEffect(() => {
     const delayDebounceFn = setTimeout(() => {
@@ -118,19 +148,36 @@ export default function Produk() {
     fetchProducts();
   }, [page, searchTerm]);
 
+const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
+  try {
+    const filterString = pb.filter('item_baru = {:id}', { id: prodId });
+    
+    const result = await pb.collection('log_stock').getList(pageNum, 5, {
+      filter: filterString, 
+      sort: '-created_at', // REVISI: Sesuaikan dengan nama kolom di DB Anda
+      $autoCancel: false
+    });
+    
+    setLogHistory(result.items);
+    setLogTotalPages(result.totalPages);
+  } catch (e) {
+    console.error("Gagal load history:", e);
+  }
+};
+
   // ==========================================
   // HANDLERS
   // ==========================================
   const handleOpenDetail = (prod: Produk) => {
     setSelectedProduct(prod);
+    setLogPage(1); // Reset page history
+    fetchLogHistory(prod.id, 1);
     setModalType('detail');
   };
 
   const handleOpenEdit = (prod: Produk, e?: React.MouseEvent) => {
     if (e) e.stopPropagation(); 
     setSelectedProduct(prod);
-    
-    // Saat edit, tampilkan ID dengan format 5 digit di form agar rapi
     setFormData({
       ...prod,
       id_lama: formatIdLamaDisplay(prod.id_lama) 
@@ -140,16 +187,11 @@ export default function Produk() {
 
   const handleOpenCopy = (prod: Produk, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
-    
-    // Pisahkan id, created, dan updated agar tidak ikut tersalin menggunakan destructuring
     const { id, created, updated, ...restData } = prod;
-    
     const copyData: Partial<Produk> = { ...restData };
-    
-    // Set ID lama dengan raw format (tanpa 0 di depan)
     copyData.id_lama = generateRawRandomId();
     
-    setSelectedProduct(null); // Mode Copy (Create)
+    setSelectedProduct(null); 
     setFormData(copyData);
     setModalType('form');
   };
@@ -192,40 +234,40 @@ export default function Produk() {
     try {
       let payload = { ...formData };
 
-      // REVISI PENYIMPANAN ID: Selalu hilangkan 0 di depan saat mau dikirim ke DB
       if (payload.id_lama) {
         payload.id_lama = cleanIdLamaStorage(payload.id_lama);
       } else {
         payload.id_lama = generateRawRandomId();
       }
 
+      // Pastikan format tipe rapi (hilang spasi, unik, urut) sebelum kirim ke DB
+      if (typeof payload.tipe === 'string') {
+        const tipeArray = payload.tipe.split(',').map(s => s.trim()).filter(Boolean);
+        payload.tipe = Array.from(new Set(tipeArray)).sort().join(', ');
+      }
+
       if (selectedProduct && selectedProduct.id) {
         // PROSES EDIT
         await pb.collection('produk').update(selectedProduct.id, payload);
       } else {
-        // PROSES CREATE / COPY (Auto Retry Unique ID)
         let success = false;
         let attempts = 0;
-        const maxAttempts = 15; // Beri ruang coba hingga 15x
+        const maxAttempts = 15;
 
         while (!success && attempts < maxAttempts) {
           try {
             await pb.collection('produk').create(payload);
             success = true;
           } catch (error: any) {
-            // Deteksi unique constraint error di Pocketbase
             const isUniqueError = error?.response?.data?.id_lama?.code === 'validation_not_unique' || error?.status === 400;
-            
             if (isUniqueError) {
-              console.log(`ID ${payload.id_lama} sudah ada, generate ulang...`);
-              payload.id_lama = generateRawRandomId(); // Bikin ID raw baru
+              payload.id_lama = generateRawRandomId(); 
               attempts++;
             } else {
-              throw error; // Lempar jika error karena hal lain
+              throw error; 
             }
           }
         }
-
         if (!success) throw new Error("Gagal mendapatkan ID unik.");
       }
       
@@ -298,12 +340,11 @@ export default function Produk() {
                 >
                   <div className="flex justify-between items-start mb-4">
                     <div>
-                      {/* REVISI CSS: Tampilan ID dengan padding 00 */}
                       <span className="inline-block px-2 py-1 bg-gray-100 text-gray-600 text-xs font-bold rounded-lg mb-2">
                         ID: {formatIdLamaDisplay(prod.id_lama)}
                       </span>
                       <h3 className="font-bold text-gray-800 text-lg leading-tight group-hover:text-orange-600 line-clamp-2">
-                        {`${prod.kategori} ${prod.jenis} ${prod.varian} ${prod.keterangan || ''}`.trim()}
+                        {`${prod.kategori} ${prod.jenis} ${prod.varian} ${prod.keterangan || ''} ${prod.tipe || ''}`.trim()}
                       </h3>
                     </div>
                   </div>
@@ -359,12 +400,11 @@ export default function Produk() {
             <div className="flex gap-4 items-center p-4 bg-orange-50 rounded-2xl border border-orange-100">
               <div className="w-16 h-16 bg-white rounded-xl flex items-center justify-center text-orange-500 shrink-0"><Package size={32} /></div>
               <div>
-                {/* REVISI CSS: Format ID Detail */}
                 <p className="text-sm font-bold text-orange-600 mb-1">
                   ID: {formatIdLamaDisplay(selectedProduct.id_lama)}
                 </p>
                 <h3 className="font-bold text-gray-900 text-lg leading-tight">
-                  {`${selectedProduct.kategori} ${selectedProduct.jenis} ${selectedProduct.varian} ${selectedProduct.keterangan || ''}`.trim()}
+                  {`${selectedProduct.kategori} ${selectedProduct.jenis} ${selectedProduct.varian} ${selectedProduct.keterangan || ''} ${selectedProduct.tipe || ''}`.trim()}
                 </h3>
               </div>
             </div>
@@ -392,6 +432,86 @@ export default function Produk() {
                 </table>
               </div>
             </div>
+
+            {/* History Table */}
+            <div className="mt-8">
+              <h4 className="font-bold text-slate-700 text-sm mb-4">Riwayat Keluar/Masuk</h4>
+              
+              <div className="bg-white border border-slate-100 rounded-[1.25rem] shadow-sm overflow-hidden text-xs">
+                <table className="w-full text-left border-collapse">
+                  <thead className="bg-slate-50/80 border-b border-slate-100">
+                    <tr>
+                      <th className="px-4 py-3 font-bold text-slate-400 text-[10px] uppercase tracking-wider">Tanggal</th>
+                      <th className="px-4 py-3 font-bold text-slate-400 text-[10px] uppercase tracking-wider">Operator</th>
+                      <th className="px-4 py-3 font-bold text-slate-400 text-[10px] uppercase tracking-wider text-center">Status</th>
+                      <th className="px-4 py-3 font-bold text-slate-400 text-[10px] uppercase tracking-wider text-center">Qty</th>
+                      <th className="px-4 py-3 font-bold text-slate-400 text-[10px] uppercase tracking-wider text-right">Harga</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100/80">
+                    {logHistory.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="px-4 py-8 text-center text-slate-400 font-medium">
+                          Belum ada riwayat transaksi.
+                        </td>
+                      </tr>
+                    ) : (
+                      logHistory.map((log) => (
+                        <tr 
+                          key={log.id} 
+                          className="hover:bg-blue-50/40 transition-colors cursor-pointer group" 
+                          onClick={() => window.open(`/?ref=${log.ref_baru}`, '_blank')}
+                        >
+                          <td className="px-4 py-3 text-slate-500 font-medium whitespace-nowrap">
+                            {new Date(log.created_at || log.created).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}
+                          </td>
+                          <td className="px-4 py-3 text-slate-600 font-semibold capitalize">
+                            {log.operator || '-'}
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <span className={`inline-flex items-center justify-center px-2.5 py-1 rounded-md text-[9px] font-black tracking-widest uppercase border ${
+                              log.boolean?.toLowerCase() === 'in' 
+                                ? 'bg-emerald-50 text-emerald-600 border-emerald-100' 
+                                : 'bg-rose-50 text-rose-600 border-rose-100'
+                            }`}>
+                              {log.boolean}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 font-black text-slate-700 text-center">
+                            {log.qty}
+                          </td>
+                          <td className="px-4 py-3 text-right font-black text-slate-800">
+                            Rp {log.price_1?.toLocaleString('id-ID') || 0}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              
+              {/* Pagination History */}
+              <div className="flex justify-between items-center mt-4 px-1">
+                <button 
+                  disabled={logPage === 1}
+                  onClick={() => { setLogPage(p => p - 1); fetchLogHistory(selectedProduct!.id, logPage - 1); }}
+                  className="flex items-center justify-center w-8 h-8 bg-white border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-blue-600 rounded-xl disabled:opacity-30 disabled:hover:bg-white transition-all shadow-sm"
+                >
+                  <ChevronLeft size={16}/>
+                </button>
+                <span className="text-[11px] font-bold text-slate-400 bg-slate-50 px-3 py-1 rounded-lg border border-slate-100">
+                  Hal {logPage} / {logTotalPages || 1}
+                </span>
+                <button 
+                  disabled={logPage >= logTotalPages}
+                  onClick={() => { setLogPage(p => p + 1); fetchLogHistory(selectedProduct!.id, logPage + 1); }}
+                  className="flex items-center justify-center w-8 h-8 bg-white border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-blue-600 rounded-xl disabled:opacity-30 disabled:hover:bg-white transition-all shadow-sm"
+                >
+                  <ChevronRight size={16}/>
+                </button>
+              </div>
+            </div>
+
             <button onClick={() => setModalType(null)} className="w-full bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold py-3 rounded-xl">Tutup</button>
           </div>
         )}
@@ -416,31 +536,98 @@ export default function Produk() {
                     maxLength={5}
                     value={formData.id_lama || ''} 
                     onChange={handleInputChange} 
-                    disabled={isEditMode} // REVISI: Disable jika sedang edit
-                    className={`w-full p-2 border rounded-lg outline-none ${
-                      isEditMode 
-                        ? 'bg-gray-200 text-gray-500 cursor-not-allowed border-transparent' 
-                        : 'bg-white focus:ring-2 focus:ring-orange-400'
-                    }`}
+                    disabled={isEditMode}
+                    className={`w-full p-2 border rounded-lg outline-none ${isEditMode ? 'bg-gray-200 text-gray-500 cursor-not-allowed border-transparent' : 'bg-white focus:ring-2 focus:ring-orange-400'}`}
                   />
-                  {isEditMode && <p className="text-[10px] text-red-500 mt-1">ID tidak bisa diedit.</p>}
                 </div>
                 <div><label className="text-xs font-bold text-gray-500">Kategori</label><input required type="text" name="kategori" value={formData.kategori || ''} onChange={handleInputChange} className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-orange-400 outline-none"/></div>
                 <div><label className="text-xs font-bold text-gray-500">Merk</label><input type="text" name="merk" value={formData.merk || ''} onChange={handleInputChange} className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-orange-400 outline-none"/></div>
                 <div><label className="text-xs font-bold text-gray-500">Jenis</label><input type="text" name="jenis" value={formData.jenis || ''} onChange={handleInputChange} className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-orange-400 outline-none"/></div>
                 <div><label className="text-xs font-bold text-gray-500">Varian</label><input type="text" name="varian" value={formData.varian || ''} onChange={handleInputChange} className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-orange-400 outline-none"/></div>
-                <div><label className="text-xs font-bold text-gray-500">Tipe</label><input type="text" name="tipe" value={formData.tipe || ''} onChange={handleInputChange} className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-orange-400 outline-none"/></div>
                 <div className="col-span-2"><label className="text-xs font-bold text-gray-500">Keterangan</label><input type="text" name="keterangan" value={formData.keterangan || ''} onChange={handleInputChange} className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-orange-400 outline-none"/></div>
-                <div><label className="text-xs font-bold text-gray-500">Satuan (Unit)</label><input type="text" name="unit" value={formData.unit || ''} onChange={handleInputChange} className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-orange-400 outline-none"/></div>
+                <div className="col-span-2 bg-orange-50/50 p-4 rounded-xl border border-orange-100">
+                  <label className="font-bold text-orange-700 text-sm mb-2 block">Tipe Motor (Tekan Enter untuk menambah)</label>
+                  
+                  {/* Daftar Chip Terpilih */}
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    {(formData.tipe?.split(',').filter(Boolean) || []).map((t, idx) => (
+                      <span key={idx} className="px-3 py-1 bg-orange-500 text-white text-[11px] font-bold rounded-lg flex items-center gap-1 shadow-sm">
+                        {t.trim()}
+                        <X size={12} className="cursor-pointer hover:text-orange-200" onClick={() => {
+                          const current = formData.tipe?.split(',').map(s => s.trim()).filter(Boolean) || [];
+                          setFormData({...formData, tipe: current.filter((_, i) => i !== idx).join(', ')});
+                        }} />
+                      </span>
+                    ))}
+                  </div>
+
+                  {/* Input Field dengan Autocomplete */}
+                  <div className="relative">
+                    <input 
+                      type="text" 
+                      placeholder="Ketik tipe motor..."
+                      className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-orange-400 outline-none text-sm"
+                      onChange={(e) => setInputValue(e.target.value)} // Tambahkan state ini
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          const val = e.currentTarget.value.trim();
+                          if (val) {
+                            const current = formData.tipe ? formData.tipe.split(',').map(s => s.trim()).filter(Boolean) : [];
+                            if (!current.includes(val)) setFormData({...formData, tipe: [...current, val].join(', ')});
+                            e.currentTarget.value = '';
+                            setInputValue(''); // Reset input
+                          }
+                        }
+                      }}
+                    />
+                    
+                    {/* Dropdown hanya muncul jika ada input (inputValue.length > 0) */}
+                    {inputValue.length > 0 && (
+                      <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-40 overflow-y-auto">
+                        {existingTipe
+                          .filter(t => 
+                            t.toLowerCase().includes(inputValue.toLowerCase()) && 
+                            !(formData.tipe?.split(',').map(s => s.trim()) || []).includes(t)
+                          )
+                          .map((t) => (
+                            <div 
+                              key={t} 
+                              className="px-4 py-2 text-xs font-bold text-gray-700 hover:bg-orange-50 cursor-pointer"
+                              onClick={() => {
+                                const current = formData.tipe ? formData.tipe.split(',').map(s => s.trim()).filter(Boolean) : [];
+                                setFormData({...formData, tipe: [...current, t].join(', ')});
+                                setInputValue(''); // Reset input setelah klik
+                              }}
+                            >
+                              {t}
+                            </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
+              <div><label className="text-xs font-bold text-gray-500">Satuan (Unit)</label><input type="text" name="unit" value={formData.unit || ''} onChange={handleInputChange} className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-orange-400 outline-none"/></div>
             </div>
 
             <div className="bg-green-50/50 p-4 rounded-xl border border-green-100 space-y-4">
-              <h4 className="font-bold text-green-700 text-sm border-b border-green-200 pb-2">Manajemen Stok</h4>
+              <h4 className="font-bold text-green-700 text-sm border-b border-green-200 pb-2">
+                Manajemen Stok {isReadOnly && <span className="text-[10px] text-gray-400">(Read-Only)</span>}
+              </h4>
               <div className="grid grid-cols-3 gap-4">
-                <div><label className="text-xs font-bold text-gray-500">Stok 1</label><input type="number" name="stok_1" value={formData.stok_1 ?? ''} onChange={handleInputChange} className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-green-400 outline-none"/></div>
-                <div><label className="text-xs font-bold text-gray-500">Stok 2</label><input type="number" name="stok_2" value={formData.stok_2 ?? ''} onChange={handleInputChange} className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-green-400 outline-none"/></div>
-                <div><label className="text-xs font-bold text-green-600">Stok Utama (3)</label><input type="number" name="stok_3" value={formData.stok_3 ?? ''} onChange={handleInputChange} className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-green-500 outline-none font-bold bg-green-50"/></div>
+                <div>
+                  <label className="text-xs font-bold text-gray-500">Stok Awal</label>
+                  <input type="number" name="stok_1" disabled={isReadOnly} value={formData.stok_1 ?? ''} onChange={handleInputChange} className={`w-full p-2 border rounded-lg outline-none ${isReadOnly ? 'bg-gray-100 text-gray-500' : 'bg-white'}`}/>
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-gray-500">Stok Menipis</label>
+                  <input type="number" name="stok_2" disabled={isReadOnly} value={formData.stok_2 ?? ''} onChange={handleInputChange} className={`w-full p-2 border rounded-lg outline-none ${isReadOnly ? 'bg-gray-100 text-gray-500' : 'bg-white'}`}/>
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-green-600">Stok Realtime</label>
+                  <input type="number" name="stok_3" disabled={isReadOnly} value={formData.stok_3 ?? ''} onChange={handleInputChange} className={`w-full p-2 border rounded-lg outline-none font-bold ${isReadOnly ? 'bg-gray-100 text-gray-500' : 'bg-green-50'}`}/>
+                </div>
               </div>
             </div>
 
