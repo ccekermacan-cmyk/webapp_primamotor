@@ -10,6 +10,7 @@ import Cashflow from './pages/cashflow';
 import Akun from './pages/akun';
 import Settings from './pages/settings';
 import Person from './pages/person';
+import ReportPage from './pages/report';
 
 export default function App() {
   // Gunakan pb.authStore.isValid
@@ -32,7 +33,7 @@ export default function App() {
           <Route path="/produk" element={<Produk />} />
           <Route path="/person" element={<Person />} />
           <Route path="/cashflow" element={<Cashflow />} />
-          <Route path="/report" element={<div className="p-8"><h2 className="text-2xl font-bold text-slate-800">Laporan Performa</h2></div>} />
+          <Route path="/report" element={<ReportPage />} />
           <Route path="/akun" element={<Akun />} />
           <Route path="/settings" element={<Settings />} /> 
         </Route>
