@@ -60,6 +60,8 @@ export default function MenuPage() {
   const navigate = useNavigate();
   const location = useLocation();
 
+  const [isCartModalOpen, setIsCartModalOpen] = useState(false);
+
   // --- 1. ALL STATES ---
   const [products, setProducts] = useState<Produk[]>([]);
   const [historyMenu, setHistoryMenu] = useState<HistoryMenu[]>([]);
@@ -261,7 +263,7 @@ export default function MenuPage() {
           setFormBayar(prev => ({ ...prev, accountCashflow: kasirAcc ? kasirAcc.id : accounts[0].id }));
 
           const mechs = await pb.collection('user').getFullList<UserKaryawan>({
-            filter: `level = 10 && (status ~ "active")`,
+            filter: `level = 10 && status = "Active"`,
             $autoCancel: false
           });
           setMechanics(mechs);
@@ -689,6 +691,7 @@ export default function MenuPage() {
         mechanics: mechanicsForPrint
       });
 
+      setShowCheckoutReview(false);
       setCart([]);
       setMenuFiles([]);
       setEditSession(null);
@@ -970,34 +973,64 @@ export default function MenuPage() {
                 </div> 
               ))} 
 
-              {/* LIST GAJI */} 
-              {selectedMenu.toLowerCase().includes('gaji') && Object.entries(groupedHistory).map(([date, items]) => (
-                <div key={date} className="space-y-4"> 
-                  <div className="flex items-center gap-4 px-4"> 
-                    <span className="bg-teal-100 text-teal-600 px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest">{date}</span> 
-                    <div className="h-[1px] flex-1 bg-teal-100" /> 
-                  </div> 
-                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6"> 
-                    {items.map(item => ( 
-                      <div key={item.id} onClick={() => loadHistorySubDetails(item)} className="bg-white p-6 rounded-[2.5rem] border border-teal-100 shadow-sm hover:shadow-xl transition-all cursor-pointer group h-48 flex flex-col justify-between"> 
-                        <div className="flex justify-between items-start"> 
-                          <span className="text-[10px] font-black bg-teal-50 text-teal-600 px-2 py-0.5 rounded-md uppercase tracking-widest">GAJI</span>
-                          <div className="p-2 bg-slate-50 rounded-xl text-slate-300 group-hover:text-teal-500 transition-colors"><History size={16} /></div> 
-                        </div> 
-                        <div> 
-                          <h4 className="font-black text-slate-800 text-base uppercase leading-none mb-1 truncate">{item.person}</h4> 
-                          <p className="text-xs font-bold text-slate-500 mt-1">Operator: {item.operator || '-'}</p>
-                          <p className="text-xs font-bold text-slate-400 line-clamp-2 italic mt-2">"{item.text || 'Tanpa deskripsi'}"</p> 
-                        </div> 
-                        <div className="flex justify-between items-center border-t border-slate-100 pt-4"> 
-                          <span className="text-[10px] font-black text-slate-300 flex items-center gap-1"><Calendar size={12}/> {item.created_at}</span> 
-                          <div className="font-black text-slate-700 bg-slate-100 px-3 py-1 rounded-lg text-xs">{item.qty} Item</div> 
-                        </div> 
+              {/* LIST GAJI */}
+              {selectedMenu.toLowerCase().includes('gaji') && (
+                Object.keys(groupedHistory).length === 0 ? (
+                  <div className="text-center py-20 text-slate-400 font-bold text-sm">
+                    Belum ada data gaji.
+                  </div>
+                ) : (
+                  Object.entries(groupedHistory).map(([date, items]) => (
+                    <div key={date} className="space-y-4">
+                      <div className="flex items-center gap-4 px-4">
+                        <span className="bg-teal-100 text-teal-600 px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest">
+                          {date}
+                        </span>
+                        <div className="h-[1px] flex-1 bg-teal-100" />
                       </div>
-                    ))} 
-                  </div> 
-                </div> 
-                ))}
+                      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                        {items
+                          .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+                          .map(item => (
+                            <div
+                              key={item.id}
+                              onClick={() => loadHistorySubDetails(item)}
+                              className="bg-white p-6 rounded-[2.5rem] border border-teal-100 shadow-sm hover:shadow-xl transition-all cursor-pointer group h-48 flex flex-col justify-between"
+                            >
+                              <div className="flex justify-between items-start">
+                                <span className="text-[10px] font-black bg-teal-50 text-teal-600 px-2 py-0.5 rounded-md uppercase tracking-widest">
+                                  GAJI
+                                </span>
+                                <div className="p-2 bg-slate-50 rounded-xl text-slate-300 group-hover:text-teal-500 transition-colors">
+                                  <History size={16} />
+                                </div>
+                              </div>
+                              <div>
+                                <h4 className="font-black text-slate-800 text-base uppercase leading-none mb-1 truncate">
+                                  {item.person}
+                                </h4>
+                                <p className="text-xs font-bold text-slate-500 mt-1">
+                                  Operator: {item.operator || '-'}
+                                </p>
+                                <p className="text-xs font-bold text-slate-400 line-clamp-2 italic mt-2">
+                                  "{item.text || 'Tanpa deskripsi'}"
+                                </p>
+                              </div>
+                              <div className="flex justify-between items-center border-t border-slate-100 pt-4">
+                                <span className="text-[10px] font-black text-slate-300 flex items-center gap-1">
+                                  <Calendar size={12} /> {item.created_at}
+                                </span>
+                                <div className="font-black text-slate-700 bg-slate-100 px-3 py-1 rounded-lg text-xs">
+                                  {item.qty} Item
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                  ))
+                )
+              )}
               </div>
             )}
           </div> 
@@ -1011,383 +1044,304 @@ export default function MenuPage() {
         </div>
       </div>
 
-      {/* --- FLOATING Tombol Buka Keranjang (Khusus Mobile & Tablet) --- */}
+      {/* ===== FLOATING CART BUTTON (UNIVERSAL) ===== */}
       <button 
-        onClick={() => setIsCartOpen(true)}
-        className="lg:hidden fixed bottom-6 right-6 z-20 p-4 bg-blue-600 text-white rounded-full shadow-2xl shadow-blue-500/50 flex items-center justify-center"
+        onClick={() => setIsCartModalOpen(true)}
+        className="fixed bottom-6 right-6 z-50 p-4 bg-blue-600 text-white rounded-full shadow-2xl shadow-blue-500/50 flex items-center justify-center hover:bg-blue-700 transition-all duration-300"
       >
         <div className="relative">
           <ShoppingCart size={24} />
           {totalQtyKeranjang > 0 && (
-            <span className="absolute -top-2 -right-3 bg-rose-500 text-white text-[10px] font-black w-5 h-5 flex items-center justify-center rounded-full border-2 border-blue-600">
+            <span className="absolute -top-2 -right-3 bg-rose-500 text-white text-[10px] font-black w-5 h-5 flex items-center justify-center rounded-full border-2 border-white">
               {totalQtyKeranjang}
             </span>
           )}
         </div>
       </button>
 
-      {/* OVERLAY KERANJANG MOBILE & TABLET */}
-      {isCartOpen && (
-        <div className="fixed inset-0 bg-slate-900/50 z-40 lg:hidden backdrop-blur-sm" onClick={() => setIsCartOpen(false)} />
-      )}
-
-      {/* --- PANEL KERANJANG (Kanan) --- */}
-      <div className={`fixed inset-y-0 right-0 w-full sm:w-[400px] lg:w-[480px] ${activeTheme.light} border-l ${activeTheme.border} flex flex-col shadow-2xl lg:shadow-[-20px_0_60px_rgba(0,0,0,0.02)] z-50 lg:z-30 overflow-hidden lg:relative transform transition-all duration-500 ${isCartOpen ? 'translate-x-0' : 'translate-x-full lg:translate-x-0'}`}>
-        {cart.length === 0 ? ( 
-          // Kode baru
-          <div className="flex-1 flex flex-col items-center justify-center p-6 lg:p-10 text-center space-y-6 relative min-h-[300px]"> 
-            {/* Tombol tutup tampil di tablet dan mobile, sembunyi di desktop */}
-            <button onClick={() => setIsCartOpen(false)} className="absolute top-4 left-4 lg:hidden p-2 bg-white text-slate-500 rounded-full shadow-sm border border-slate-100 hover:bg-slate-50 transition-colors">
-              <ChevronRight size={20} />
-            </button>
-            {/* Ukuran lingkaran lebih kecil di tablet/mobile, normal di desktop */}
-            <div className="w-32 h-32 lg:w-40 lg:h-40 bg-white rounded-full flex items-center justify-center shadow-md"> 
-              <ShoppingCart size={56} className="text-slate-300 lg:w-auto lg:h-auto" /> 
-            </div> 
-            <div> 
-              {/* Judul lebih kecil di mobile/tablet, normal di desktop */}
-              <h3 className="text-lg lg:text-xl font-black text-slate-400 uppercase tracking-widest">Nota Kosong</h3> 
-              <p className="text-xs lg:text-sm text-slate-500 font-medium mt-2 max-w-[250px] mx-auto">Silakan pilih item atau jasa mekanik dari katalog.</p> 
-            </div> 
-          </div>
-        ) : ( 
-          <> 
-            {/* HEADER KERANJANG */}
-            <div className="p-6 bg-white border-b border-slate-200 shrink-0 shadow-sm z-10"> 
-              <div className="flex items-center justify-between"> 
-                <div className="flex items-center gap-3">
-                  <button onClick={() => setIsCartOpen(false)} className="lg:hidden p-2 bg-slate-100 text-slate-500 rounded-full hover:bg-slate-200 transition-colors">
-                    <ChevronRight size={20} />
-                  </button>
-                  <div> 
-                    <h2 className="text-xl font-black text-slate-800 tracking-tight flex items-center gap-2">
-                      <Receipt size={20} className="text-blue-500"/> Rincian Nota
-                    </h2> 
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Kategori: {selectedMenu} {editSession && <span className="text-rose-500 bg-rose-50 px-2 py-0.5 rounded ml-1">(EDIT)</span>}</p> 
-                  </div> 
-                </div>
-                <button onClick={() => { setCart([]); setEditSession(null); setMenuFiles([]); }} className="text-[10px] font-black text-rose-500 bg-rose-50 hover:bg-rose-100 transition-colors px-4 py-2.5 rounded-xl uppercase shrink-0">Kosongkan</button> 
+      {/* ===== MODAL KERANJANG (POPUP) – FLAT COLOR THEME ===== */}
+      <Modal
+        isOpen={isCartModalOpen}
+        onClose={() => setIsCartModalOpen(false)}
+        title="Keranjang Belanja"
+      >
+        <div className="flex flex-col max-h-[75vh] bg-gray-50">
+          {cart.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 text-center space-y-4">
+              <div className="w-24 h-24 bg-gray-200 rounded-full flex items-center justify-center">
+                <ShoppingCart size={48} className="text-gray-400" />
               </div>
-            </div> 
-
-            {/* AREA DAFTAR ITEM (SCROLLABLE) */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar"> 
-              {cartWithTierPrice.map(item => {
-                const canEditPrice = userLevel === '1' || 
-                     formBayar.personIdLama.toLowerCase().includes('online') || 
-                     selectedMenu.toLowerCase().includes('pembelian');
-
-                return (
-                  <div key={item.id} className="bg-white p-4 rounded-3xl border border-slate-100 shadow-sm hover:border-blue-200 transition-colors relative group"> 
-                    
-                    {/* Tombol Hapus Pojok Kanan Atas */}
-                    <button onClick={() => setCart(prev => prev.filter(c => c.id !== item.id))} className="absolute top-4 right-4 text-slate-300 hover:text-rose-500 bg-slate-50 hover:bg-rose-50 p-1.5 rounded-lg transition-all opacity-0 group-hover:opacity-100">
-                      <Trash2 size={14}/>
-                    </button> 
-
-                    <div className="pr-10 mb-3"> 
-                      <h4 className="font-bold text-slate-800 text-sm leading-snug">{formatIdLamaDisplay(item.id_lama)} - {getFullLabel(item)}</h4>
-                      
-                      {/* UI HARGA CORET & INDIKATOR DINAMIS */}
-                      <div className="flex items-center gap-2 mt-1"> 
-                        {selectedMenu.toLowerCase().includes('pembelian') ? (
-                           // TAMPILAN KHUSUS MENU PEMBELIAN
-                           <>
-                             {item.priceSelected !== item.basePriceDefault ? (
-                               <>
-                                 <span className="text-[10px] font-medium text-slate-400 line-through">
-                                   Rp {item.basePriceDefault.toLocaleString('id-ID')}
-                                 </span>
-                                 {(() => {
-                                   const diff = item.priceSelected - item.basePriceDefault;
-                                   const pct = item.basePriceDefault > 0 ? ((Math.abs(diff) / item.basePriceDefault) * 100).toFixed(1) : '100';
-                                   const isUp = diff > 0;
-                                   return (
-                                     <span className={`text-[9px] font-black px-1.5 py-0.5 rounded flex items-center gap-0.5 tracking-wider ${isUp ? 'text-rose-600 bg-rose-50' : 'text-emerald-600 bg-emerald-50'}`}>
-                                       {isUp ? <TrendingUp size={10} /> : <TrendingDown size={10} />}
-                                       {pct}%
-                                     </span>
-                                   );
-                                 })()}
-                               </>
-                             ) : (
-                               <span className="text-[9px] font-black text-slate-400 bg-slate-100 px-2 py-0.5 rounded flex items-center gap-1 uppercase tracking-wider">
-                                 Harga Beli Terakhir
-                               </span>
-                             )}
-                           </>
-                        ) : (
-                           // TAMPILAN UNTUK MENU PENJUALAN / SERVICE
-                           <>
-                             {item.isTiered && (
-                               <span className={`text-[9px] font-black px-2 py-0.5 rounded flex items-center gap-1 uppercase tracking-wider ${item.activeTierName === 'Harga Custom' ? 'text-blue-600 bg-blue-50' : 'text-emerald-600 bg-emerald-50'}`}>
-                                   <Sparkles size={10}/> {item.activeTierName}
-                               </span>
-                             )}
-                             {/* Selalu coret harga eceran (sell_6) jika harga yang aktif lebih rendah (atau berbeda) dari harga eceran */}
-                             {item.priceSelected !== item.sell_6 && (
-                                 <span className="text-[10px] font-medium text-slate-400 line-through">
-                                   Rp {item.sell_6.toLocaleString('id-ID')}
-                                 </span> 
-                             )}
-                           </>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Baris Kontrol QTY, Harga Satuan & Total */}
-                    <div className="flex justify-between items-center bg-slate-50/80 p-2 rounded-2xl"> 
-                      
-                      {/* QTY Control */}
-                      <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-xl p-1 shadow-sm shrink-0"> 
-                        <button onClick={() => updateQty(item.id, -1, item.stok_3)} className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-500 font-black hover:bg-slate-100 transition-colors">－</button> 
-                        <span className="font-black text-slate-800 text-sm w-6 text-center tabular-nums">{item.qty}</span> 
-                        <button onClick={() => updateQty(item.id, 1, item.stok_3)} className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-500 font-black hover:bg-slate-100 transition-colors">＋</button> 
-                      </div> 
-                      
-                      {/* Harga Satuan */}
-                      <div className="flex items-center gap-2 shrink-0 ml-2">
-                        <span className="text-[10px] font-black text-slate-300">x</span>
-                        {canEditPrice ? (
-                          <div className="relative flex items-center group">
-                            <span className="absolute left-2 text-[10px] font-bold text-slate-400 group-focus-within:text-blue-500 transition-colors">Rp</span>
-                            <input 
-                              type="number" 
-                              className="w-[105px] py-1.5 pr-7 pl-6 text-right font-black text-slate-700 bg-white border border-slate-200 rounded-lg text-[11px] outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-200 transition-all [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none hover:border-blue-300" 
-                              value={item.manualPrice !== undefined ? item.manualPrice : item.priceSelected} 
-                              onChange={e => updatePrice(item.id, Number(e.target.value))} 
-                              title="Klik untuk mengedit harga satuan"
-                            />
-                            <Edit size={12} className="absolute right-2 text-slate-400 pointer-events-none group-hover:text-blue-500 transition-colors" />
-                          </div>
-                        ) : (
-                          <span className="text-[11px] font-bold text-slate-600 bg-slate-100 px-2 py-1 rounded-md">
-                            {item.priceSelected.toLocaleString('id-ID')}
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Total Item (QTY x Harga) */}
-                      <div className="flex-1 text-right border-l border-slate-200 ml-2 pl-2">
-                         <span className="font-black text-slate-900 text-sm">Rp {(item.qty * item.priceSelected).toLocaleString('id-ID')}</span>
-                      </div>
-
-                    </div> 
-                  </div> 
-                );
-              })}
-            </div>
-
-            {/* AREA FORM PEMBAYARAN & LAMPIRAN */}
-            <div className="bg-white border-t border-slate-200 shrink-0 z-20">
-              
-              <button 
-                onClick={() => setIsPaymentFormOpen(!isPaymentFormOpen)}
-                className="w-full flex items-center justify-center gap-2 py-3 bg-slate-50 text-[10px] font-black text-slate-500 uppercase tracking-widest hover:bg-slate-100 transition-colors"
+              <div>
+                <h3 className="text-lg font-semibold text-gray-500 uppercase tracking-widest">Keranjang Kosong</h3>
+                <p className="text-sm text-gray-400 mt-1">Silakan pilih item dari katalog.</p>
+              </div>
+              <button
+                onClick={() => setIsCartModalOpen(false)}
+                className="mt-4 px-6 py-2 bg-blue-500 text-white rounded-lg font-medium text-sm hover:bg-blue-600 transition"
               >
-                {isPaymentFormOpen ? 'Sembunyikan Form' : 'Buka Form Pembayaran'} {isPaymentFormOpen ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+                Tutup
               </button>
-
-              {isPaymentFormOpen && (
-                <div className="p-5 space-y-4 max-h-[40vh] overflow-y-auto custom-scrollbar"> 
-                  
-                  {/* Info Pelanggan & Pembayaran */}
-                  <div className="grid grid-cols-2 gap-3"> 
-                    <div className="space-y-1"> 
-                      <label className="text-[9px] font-black text-slate-400 uppercase ml-1">Pelanggan</label> 
-                      <select className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:border-blue-400" value={formBayar.personIdLama} onChange={e => setFormBayar({...formBayar, personIdLama: e.target.value})}> 
-                        {personOptions.map(p => <option key={p.id} value={p.id_lama}>{p.text_1} ({p.jenis})</option>)}
-                      </select>
-                    </div> 
-                    <div className="space-y-1"> 
-                      <label className="text-[9px] font-black text-slate-400 uppercase ml-1">Metode Bayar</label> 
-                      <div className="flex bg-slate-100 p-1 rounded-xl">
-                        {['Tunai', 'Tempo'].map((metode) => (
-                          <button
-                            key={metode}
-                            type="button"
-                            onClick={() => setFormBayar({...formBayar, payment: metode})}
-                            className={`flex-1 py-2.5 text-xs font-black rounded-lg transition-all duration-300 ${
-                              formBayar.payment === metode 
-                                ? `${activeTheme.main} text-white shadow-sm` 
-                                : 'text-slate-500 hover:bg-slate-200'
-                            }`}
-                          >
-                            {metode === 'Tunai' ? 'CASH' : 'TEMPO'}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </div> 
-
-                  <div className="grid grid-cols-2 gap-3"> 
-                    <div className="space-y-1"> 
-                      <label className="text-[9px] font-black text-slate-400 uppercase ml-1">Akun Keuangan</label> 
-                      <select 
-                        className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:border-blue-400" 
-                        value={formBayar.accountCashflow} 
-                        onChange={e => setFormBayar({...formBayar, accountCashflow: e.target.value})}
-                      > 
-                        <option value="">Pilih Akun Kas/Bank</option>
-                        {cashflowAccounts.map(a => <option key={a.id} value={a.id}>{a.text_1}</option>)} 
-                      </select> 
-                    </div>
-                  </div>
-
-                  {formBayar.payment === 'Tempo' && (
-                    <div className="space-y-1 animate-in slide-in-from-top-2"> 
-                      <label className="text-[9px] font-black text-slate-400 uppercase ml-1">Tanggal Jatuh Tempo</label> 
-                      <input 
-                        type="date" 
-                        className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:border-blue-400" 
-                        value={formBayar.note || ''} // Menggunakan field note sebagai penampung sementara jika tidak ada field khusus
-                        onChange={e => setFormBayar({...formBayar, note: e.target.value})} 
-                      /> 
-                    </div> 
-                  )}
-
-                  {isOnlinePerson && (
-                    <div className="space-y-3 pt-2 border-t border-slate-100">
-                      <div className="grid grid-cols-3 gap-3">
-                        <div className="space-y-1">
-                          <label className="text-[9px] font-black text-slate-400 uppercase">Marketplace</label>
-                          <input list="marketplaceOptions" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold" 
-                            value={formBayar.marketplace} onChange={e => setFormBayar({...formBayar, marketplace: e.target.value})} required />
-                          <datalist id="marketplaceOptions">
-                            <option value="Shopee" />
-                            <option value="Tokopedia" />
-                            <option value="Lazada" />
-                            <option value="Blibli" />
-                            <option value="Bukalapak" />
-                          </datalist>
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-[9px] font-black text-slate-400 uppercase">Admin Fee</label>
-                          <input type="number" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold" 
-                            value={formBayar.adminFee} onChange={e => setFormBayar({...formBayar, adminFee: Number(e.target.value)})} required />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-[9px] font-black text-slate-400 uppercase">Cashback</label>
-                          <input type="number" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold" 
-                            value={formBayar.cashback} onChange={e => setFormBayar({...formBayar, cashback: Number(e.target.value)})} />
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Form Mekanik (Servis Saja) */}
-                  {selectedMenu.toLowerCase().includes('service') && (
-                    <div className="p-4 bg-blue-50/50 border border-blue-100 rounded-2xl space-y-3"> 
-                      <div className="flex justify-between items-center">
-                        <p className="text-[9px] font-black text-blue-600 uppercase tracking-widest flex items-center gap-1"><Wrench size={10}/> Ongkos Mekanik</p> 
-                        <button onClick={() => setFormBayar(prev => ({...prev, mekanikList: [...prev.mekanikList, {idLama: '', ongkos: 0}]}))} className="text-[9px] bg-blue-600 text-white px-2 py-1 rounded-md font-bold hover:bg-blue-500">Tambah Mekanik</button>
-                      </div>
-                      <div className="space-y-2"> 
-                        {formBayar.mekanikList.map((mek, idx) => (
-                          <div key={idx} className="flex gap-2 items-center">
-                            <select className="flex-1 p-2 bg-white border border-slate-200 rounded-lg text-xs font-bold outline-none focus:border-blue-400" value={mek.idLama} onChange={e => {
-                              const newList = [...formBayar.mekanikList]; newList[idx].idLama = e.target.value; setFormBayar({...formBayar, mekanikList: newList});
-                            }}> 
-                              <option value="">Pilih Mekanik</option> 
-                              {mechanics.map(m => <option key={m.id} value={m.username}>{m.name}</option>)} 
-                            </select> 
-                            <input type="number" placeholder="Ongkos" className="w-1/3 p-2 bg-white border border-slate-200 rounded-lg text-xs font-bold outline-none focus:border-blue-400" value={mek.ongkos || ''} onChange={e => {
-                              const newList = [...formBayar.mekanikList]; newList[idx].ongkos = Number(e.target.value); setFormBayar({...formBayar, mekanikList: newList});
-                            }} /> 
-                            {formBayar.mekanikList.length > 1 && (
-                              <button onClick={() => {
-                                const newList = formBayar.mekanikList.filter((_, i) => i !== idx); setFormBayar({...formBayar, mekanikList: newList});
-                              }} className="p-2 bg-rose-50 text-rose-500 rounded-lg hover:bg-rose-500 hover:text-white"><Trash2 size={14}/></button>
-                            )}
-                          </div>
-                        ))}
-                      </div> 
-                    </div> 
-                  )}
-
-                  {/* LAMPIRAN & CATATAN (TERGABUNG AGAR RAPI) */}
-                  <div className="space-y-3 pt-2 border-t border-slate-100">
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1">
-                        <label className="text-[9px] font-black text-slate-400 uppercase ml-1">Catatan Nota</label> 
-                        <input type="text" placeholder="Cth: Lunas..." className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:border-blue-400" value={formBayar.noteMenu} onChange={e => setFormBayar({...formBayar, noteMenu: e.target.value})} /> 
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[9px] font-black text-slate-400 uppercase ml-1">Catatan Jurnal (Cashflow)</label> 
-                        <input type="text" placeholder="Opsional..." className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:border-blue-400" value={formBayar.note} onChange={e => setFormBayar({...formBayar, note: e.target.value})} /> 
-                      </div>
-                    </div>
-
-                    {/* FIELD UPLOAD FILE */}
-                    <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
-                      <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest flex items-center justify-between mb-2">
-                        <span>Lampiran Media (Opsional)</span>
-                        <span className="text-slate-400">Maks. 5MB</span>
-                      </label>
-                      <input 
-                        type="file" 
-                        multiple 
-                        accept="image/*,video/*"
-                        onChange={(e) => {
-                          const selected = Array.from(e.target.files || []);
-                          const valid = selected.filter(f => f.size <= 5 * 1024 * 1024 && (f.type.startsWith('image/') || f.type.startsWith('video/')));
-                          if (valid.length !== selected.length) alert("Beberapa file dilewati karena melebihi 5MB atau format tidak didukung.");
-                          setMenuFiles(valid);
-                        }}
-                        className="w-full text-xs font-bold text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-[10px] file:font-black file:bg-blue-100 file:text-blue-700 hover:file:bg-blue-200 cursor-pointer"
-                      />
-                      
-                      {/* WRAPPER PREVIEW GAMBAR LAMA & BARU */}
-                      <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-slate-200 border-dashed">
-                        {/* Menampilkan Lampiran LAMA (Mode Edit) */}
-                        {editSession && editSession.menuId && menuFiles.length === 0 && (
-                          <div className="w-full text-[9px] font-black text-slate-400 mb-1 uppercase tracking-widest">File Lama (Server):</div>
-                        )}
-                        {editSession && editSession.menuId && menuFiles.length === 0 && showDetailHistory?.file?.map((filename: string) => {
-                           const isVid = isVideo(filename);
-                           return (
-                             <div key={filename} className="w-12 h-12 bg-slate-200 rounded-lg overflow-hidden relative shadow-sm border border-slate-300">
-                               {isVid && <div className="absolute inset-0 bg-black/20 flex items-center justify-center text-white"><span className="text-[8px] font-black border border-white px-1 rounded">VID</span></div>}
-                               {isVid 
-                                 ? <video src={pb.files.getUrl(showDetailHistory, filename)} className="w-full h-full object-cover" /> 
-                                 : <img src={pb.files.getUrl(showDetailHistory, filename)} alt="old" className="w-full h-full object-cover" />}
-                             </div>
-                           );
-                        })}
-
-                        {/* Menampilkan Lampiran BARU (Local Blob) */}
-                        {menuPreviewUrls.length > 0 && <div className="w-full text-[9px] font-black text-blue-500 mb-1 uppercase tracking-widest">File Baru (Local):</div>}
-                        {menuPreviewUrls.map((url, idx) => {
-                          const isVid = menuFiles[idx].type.startsWith('video/');
-                          return (
-                            <div key={idx} className="w-12 h-12 bg-blue-50 rounded-lg overflow-hidden relative shadow-sm border border-blue-200">
-                              {isVid && <div className="absolute inset-0 bg-black/20 flex items-center justify-center text-white"><span className="text-[8px] font-black border border-white px-1 rounded">VID</span></div>}
-                              {isVid ? <video src={url} className="w-full h-full object-cover" /> : <img src={url} alt="preview" className="w-full h-full object-cover" />}
-                            </div>
-                          );
-                        })}
-                      </div>
-
-                    </div>
-                  </div>
-
-                </div>
-              )}
-
-              {/* FOOTER TOTAL CHECKOUT */}
-              <div className={`p-6 ${activeTheme.main} text-white shrink-0`}> 
-                <div className="flex justify-between items-center mb-5"> 
-                  <span className="font-black text-xs text-white/50 uppercase tracking-[0.2em]">Total</span> 
-                  <span className="text-3xl font-black text-white tabular-nums tracking-tighter">Rp {grandTotal.toLocaleString('id-ID')}</span>
-                </div> 
-                <button onClick={handleCheckoutValidation} className="w-full py-4 rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl flex items-center justify-center gap-3 bg-white text-slate-900 hover:bg-slate-100 transition-colors"> 
-                  {editSession ? 'SIMPAN PERUBAHAN' : 'CHECKOUT TRANSAKSI'} <ArrowRight size={18} /> 
-                </button> 
-              </div>
             </div>
-          </> 
-        )} 
-      </div>
+          ) : (
+            <>
+              {/* DAFTAR ITEM – FLAT COLOR */}
+              <div className="space-y-2 overflow-y-auto pr-1">
+                {cartWithTierPrice.map(item => {
+                  const canEditPrice =
+                    userLevel === '1' ||
+                    formBayar.personIdLama.toLowerCase().includes('online') ||
+                    selectedMenu.toLowerCase().includes('pembelian');
+                  return (
+                    <div key={item.id} className="bg-white border border-gray-200 rounded-lg p-3 relative group hover:bg-gray-50 transition">
+                      <button
+                        onClick={() => setCart(prev => prev.filter(c => c.id !== item.id))}
+                        className="absolute top-2 right-2 text-gray-400 hover:text-red-500 p-1 rounded transition"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                      <div className="pr-6">
+                        <p className="font-medium text-gray-800 text-sm line-clamp-2">
+                          <span className="font-mono text-gray-500 text-[11px] mr-1">
+                            #{formatIdLamaDisplay(item.id_lama)}
+                          </span>
+                          {getFullLabel(item)}
+                        </p>
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1">
+                          {item.isTiered && (
+                            <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-teal-100 text-teal-700">
+                              {item.activeTierName}
+                            </span>
+                          )}
+                          {item.priceSelected !== item.sell_6 &&
+                            !selectedMenu.toLowerCase().includes('pembelian') && (
+                              <span className="text-[10px] text-gray-400 line-through">
+                                Rp {item.sell_6.toLocaleString('id-ID')}
+                              </span>
+                            )}
+                        </div>
+                      </div>
+                      <div className="flex justify-between items-center mt-3 pt-2 border-t border-gray-100">
+                        <div className="flex items-center gap-1 border border-gray-300 rounded-md bg-white">
+                          <button
+                            onClick={() => updateQty(item.id, -1, item.stok_3)}
+                            className="w-7 h-7 flex items-center justify-center text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-l-md transition text-base"
+                          >
+                            −
+                          </button>
+                          <span className="w-6 text-center text-sm font-medium text-gray-800">
+                            {item.qty}
+                          </span>
+                          <button
+                            onClick={() => updateQty(item.id, 1, item.stok_3)}
+                            className="w-7 h-7 flex items-center justify-center text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-r-md transition text-base"
+                          >
+                            +
+                          </button>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <span className="text-[10px] text-gray-400">@</span>
+                          {canEditPrice ? (
+                            <div className="relative inline-block">
+                              <input
+                                type="number"
+                                className="w-20 py-1 pl-5 pr-1 text-right text-xs font-mono bg-white border border-gray-300 rounded-md focus:border-blue-400 focus:ring-0 outline-none"
+                                value={item.manualPrice !== undefined ? item.manualPrice : item.priceSelected}
+                                onChange={e => updatePrice(item.id, Number(e.target.value))}
+                              />
+                              <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[10px] text-gray-400">
+                                Rp
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-xs font-medium text-gray-700">
+                              {item.priceSelected.toLocaleString('id-ID')}
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-sm font-semibold text-gray-800">
+                          Rp {(item.qty * item.priceSelected).toLocaleString('id-ID')}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* FORM PEMBAYARAN – FLAT COLOR */}
+              <div className="mt-4 space-y-3 border-t border-gray-200 pt-4 bg-gray-50">
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[9px] font-semibold text-gray-500 uppercase">Pelanggan</label>
+                    <select
+                      value={formBayar.personIdLama}
+                      onChange={e => setFormBayar({ ...formBayar, personIdLama: e.target.value })}
+                      className="w-full p-1.5 text-xs bg-white border border-gray-300 rounded-md focus:border-blue-400 focus:ring-0 outline-none"
+                    >
+                      {personOptions.map(p => (
+                        <option key={p.id} value={p.id_lama}>
+                          {p.text_1}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[9px] font-semibold text-gray-500 uppercase">Bayar</label>
+                    <div className="flex bg-white rounded-md p-0.5 border border-gray-300">
+                      {['Tunai', 'Tempo'].map(m => (
+                        <button
+                          key={m}
+                          onClick={() => setFormBayar({ ...formBayar, payment: m })}
+                          className={`flex-1 py-1 text-[10px] font-semibold rounded-md transition ${
+                            formBayar.payment === m ? 'bg-blue-500 text-white' : 'text-gray-600 hover:bg-gray-100'
+                          }`}
+                        >
+                          {m === 'Tunai' ? 'CASH' : 'TEMPO'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <label className="text-[9px] font-semibold text-gray-500 uppercase">Akun Kas</label>
+                  <select
+                    value={formBayar.accountCashflow}
+                    onChange={e => setFormBayar({ ...formBayar, accountCashflow: e.target.value })}
+                    className="w-full p-1.5 text-xs bg-white border border-gray-300 rounded-md focus:border-blue-400 outline-none"
+                  >
+                    <option value="">Pilih Akun</option>
+                    {cashflowAccounts.map(a => (
+                      <option key={a.id} value={a.id}>
+                        {a.text_1}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {formBayar.payment === 'Tempo' && (
+                  <input
+                    type="date"
+                    value={formBayar.note}
+                    onChange={e => setFormBayar({ ...formBayar, note: e.target.value })}
+                    className="w-full p-1.5 text-xs bg-white border border-gray-300 rounded-md focus:border-blue-400 outline-none"
+                  />
+                )}
+                {isOnlinePerson && (
+                  <div className="grid grid-cols-3 gap-2 bg-gray-100 p-2 rounded-md">
+                    <input
+                      list="marketplaceOptions"
+                      placeholder="Marketplace"
+                      value={formBayar.marketplace}
+                      onChange={e => setFormBayar({ ...formBayar, marketplace: e.target.value })}
+                      className="p-1.5 text-xs border border-gray-300 rounded-md bg-white"
+                    />
+                    <input
+                      type="number"
+                      placeholder="Admin fee"
+                      value={formBayar.adminFee}
+                      onChange={e => setFormBayar({ ...formBayar, adminFee: Number(e.target.value) })}
+                      className="p-1.5 text-xs border border-gray-300 rounded-md bg-white"
+                    />
+                    <input
+                      type="number"
+                      placeholder="Cashback"
+                      value={formBayar.cashback}
+                      onChange={e => setFormBayar({ ...formBayar, cashback: Number(e.target.value) })}
+                      className="p-1.5 text-xs border border-gray-300 rounded-md bg-white"
+                    />
+                  </div>
+                )}
+                {selectedMenu.toLowerCase().includes('service') && (
+                  <div className="bg-gray-100 p-2 rounded-md space-y-2">
+                    <div className="flex justify-between items-center">
+                      <span className="text-[10px] font-semibold text-teal-700">Ongkos Mekanik</span>
+                      <button
+                        onClick={() =>
+                          setFormBayar({
+                            ...formBayar,
+                            mekanikList: [...formBayar.mekanikList, { idLama: '', ongkos: 0 }],
+                          })
+                        }
+                        className="text-[9px] bg-teal-500 text-white px-2 py-0.5 rounded hover:bg-teal-600"
+                      >
+                        + Tambah
+                      </button>
+                    </div>
+                    {formBayar.mekanikList.map((mek, idx) => (
+                      <div key={idx} className="flex gap-2 items-center">
+                        <select
+                          value={mek.idLama}
+                          onChange={e => {
+                            const newList = [...formBayar.mekanikList];
+                            newList[idx].idLama = e.target.value;
+                            setFormBayar({ ...formBayar, mekanikList: newList });
+                          }}
+                          className="flex-1 p-1 text-xs border border-gray-300 rounded-md bg-white"
+                        >
+                          <option value="">Pilih mekanik</option>
+                          {mechanics.map(m => (
+                            <option key={m.id} value={m.username}>
+                              {m.name}
+                            </option>
+                          ))}
+                        </select>
+                        <input
+                          type="number"
+                          placeholder="Ongkos"
+                          value={mek.ongkos || ''}
+                          onChange={e => {
+                            const newList = [...formBayar.mekanikList];
+                            newList[idx].ongkos = Number(e.target.value);
+                            setFormBayar({ ...formBayar, mekanikList: newList });
+                          }}
+                          className="w-20 p-1 text-xs border border-gray-300 rounded-md bg-white"
+                        />
+                        {formBayar.mekanikList.length > 1 && (
+                          <button
+                            onClick={() =>
+                              setFormBayar({
+                                ...formBayar,
+                                mekanikList: formBayar.mekanikList.filter((_, i) => i !== idx),
+                              })
+                            }
+                            className="text-rose-500 hover:text-rose-700"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    placeholder="Catatan nota"
+                    value={formBayar.noteMenu}
+                    onChange={e => setFormBayar({ ...formBayar, noteMenu: e.target.value })}
+                    className="p-1.5 text-xs border border-gray-300 rounded-md bg-white"
+                  />
+                  <input
+                    placeholder="Catatan jurnal"
+                    value={formBayar.note}
+                    onChange={e => setFormBayar({ ...formBayar, note: e.target.value })}
+                    className="p-1.5 text-xs border border-gray-300 rounded-md bg-white"
+                  />
+                </div>
+                <div className="flex justify-between items-center pt-2 border-t border-gray-200">
+                  <div>
+                    <span className="text-[9px] font-semibold text-gray-500 uppercase">Total</span>
+                    <p className="text-xl font-semibold text-gray-800">Rp {grandTotal.toLocaleString('id-ID')}</p>
+                  </div>
+                  <button
+                    onClick={handleCheckoutValidation}
+                    className="px-5 py-2 bg-green-500 text-white rounded-lg text-xs font-semibold hover:bg-green-600 transition"
+                  >
+                    {editSession ? 'SIMPAN' : 'CHECKOUT'}
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </Modal>
 
       {/* ========================================================= */} 
       {/* 1. MODAL OVERVIEW RE-CHECK SEBELUM EXECUTE STORING DATA */} 
