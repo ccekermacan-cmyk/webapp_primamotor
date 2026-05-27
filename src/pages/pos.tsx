@@ -1034,19 +1034,22 @@ export default function MenuPage() {
       {/* --- PANEL KERANJANG (Kanan) --- */}
       <div className={`fixed inset-y-0 right-0 w-full sm:w-[400px] lg:w-[480px] ${activeTheme.light} border-l ${activeTheme.border} flex flex-col shadow-2xl lg:shadow-[-20px_0_60px_rgba(0,0,0,0.02)] z-50 lg:z-30 overflow-hidden lg:relative transform transition-all duration-500 ${isCartOpen ? 'translate-x-0' : 'translate-x-full lg:translate-x-0'}`}>
         {cart.length === 0 ? ( 
-          <div className="h-full flex flex-col items-center justify-center p-10 text-center space-y-6 relative"> 
-            {/* Tombol Tutup Khusus Mobile/Tablet (Nota Kosong) */}
-            <button onClick={() => setIsCartOpen(false)} className="lg:hidden absolute top-6 left-6 p-3 bg-white text-slate-500 rounded-full shadow-sm border border-slate-100">
+          // Kode baru
+          <div className="flex-1 flex flex-col items-center justify-center p-6 lg:p-10 text-center space-y-6 relative min-h-[300px]"> 
+            {/* Tombol tutup tampil di tablet dan mobile, sembunyi di desktop */}
+            <button onClick={() => setIsCartOpen(false)} className="absolute top-4 left-4 lg:hidden p-2 bg-white text-slate-500 rounded-full shadow-sm border border-slate-100 hover:bg-slate-50 transition-colors">
               <ChevronRight size={20} />
             </button>
-            <div className="w-40 h-40 bg-white rounded-full flex items-center justify-center shadow-sm"> 
-              <ShoppingCart size={64} className="text-slate-200" /> 
+            {/* Ukuran lingkaran lebih kecil di tablet/mobile, normal di desktop */}
+            <div className="w-32 h-32 lg:w-40 lg:h-40 bg-white rounded-full flex items-center justify-center shadow-md"> 
+              <ShoppingCart size={56} className="text-slate-300 lg:w-auto lg:h-auto" /> 
             </div> 
             <div> 
-              <h3 className="text-xl font-black text-slate-400 uppercase tracking-widest">Nota Kosong</h3> 
-              <p className="text-sm text-slate-500 font-medium mt-2">Silakan pilih item atau jasa mekanik dari katalog.</p> 
+              {/* Judul lebih kecil di mobile/tablet, normal di desktop */}
+              <h3 className="text-lg lg:text-xl font-black text-slate-400 uppercase tracking-widest">Nota Kosong</h3> 
+              <p className="text-xs lg:text-sm text-slate-500 font-medium mt-2 max-w-[250px] mx-auto">Silakan pilih item atau jasa mekanik dari katalog.</p> 
             </div> 
-          </div> 
+          </div>
         ) : ( 
           <> 
             {/* HEADER KERANJANG */}

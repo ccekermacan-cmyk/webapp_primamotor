@@ -129,7 +129,7 @@ export default function Layout({ setAuth }: { setAuth: (status: boolean) => void
       )}
 
       {/* Sidebar (Sembunyi di HP, Tampil di PC) */}
-      <div className={`fixed md:relative w-64 bg-white h-screen shadow-2xl md:shadow-sm flex flex-col z-40 border-r border-gray-100 transform transition-transform duration-300 ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
+      <div className={`fixed md:relative w-64 md:w-52 lg:w-64 bg-white h-screen shadow-2xl md:shadow-sm flex flex-col z-40 border-r border-gray-100 transform transition-transform duration-300 ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
         
         {/* HEADER SIDEBAR (Diperbaiki strukturnya) */}
         <div className="p-8 border-b border-gray-50 text-center shrink-0 relative">
