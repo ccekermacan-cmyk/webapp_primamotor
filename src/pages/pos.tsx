@@ -144,6 +144,35 @@ export default function MenuPage() {
     show: false, title: '', message: '', type: 'alert'
   });
 
+  const printWithRawBT = (htmlContent: string) => {
+    const isAndroid = /Android/i.test(navigator.userAgent);
+    if (isAndroid) {
+      const encodedHtml = encodeURIComponent(htmlContent);
+      const rawbtIntent = `intent://print?html=${encodedHtml}#Intent;scheme=rawbt;action=rawbt.intent.action.PRINT;end`;
+      window.location.href = rawbtIntent;
+      // Fallback jika RawBT tidak terinstal
+      setTimeout(() => {
+        const printContents = document.getElementById('thermal-receipt-58mm')?.innerHTML;
+        if (printContents) {
+          const original = document.body.innerHTML;
+          document.body.innerHTML = printContents;
+          window.print();
+          document.body.innerHTML = original;
+          window.location.reload();
+        }
+      }, 1000);
+    } else {
+      const printContents = document.getElementById('thermal-receipt-58mm')?.innerHTML;
+      if (printContents) {
+        const original = document.body.innerHTML;
+        document.body.innerHTML = printContents;
+        window.print();
+        document.body.innerHTML = original;
+        window.location.reload();
+      }
+    }
+  };
+
   const userLevel = localStorage.getItem('user_level') || '';
   const operatorName = localStorage.getItem('user_name') || 'Admin';
 
@@ -254,7 +283,7 @@ export default function MenuPage() {
     // Dynamic Person List (Supplier / Customer)
     useEffect(() => {
       const fetchFilteredPersons = async () => {
-          if (selectedMenu === 'Overview' || selectedMenu.toLowerCase().includes('gaji')) return;
+          if (selectedMenu === 'Overview' || selectedMenu.toLowerCase().includes('Gaji')) return;
           
           // Tentukan jenis berdasarkan menu
           const isPembelian = selectedMenu.toLowerCase().includes('pembelian');
@@ -300,7 +329,7 @@ export default function MenuPage() {
         terms.forEach((t, i) => {
           if (menuLower === 'overview') {
             conditions.push(`(id_lama ~ {:t${i}} || jenis ~ {:t${i}} || person ~ {:t${i}} || text ~ {:t${i}} || payment ~ {:t${i}})`);
-          } else if (menuLower.includes('gaji')) {
+          } else if (menuLower.includes('Gaji')) {
             conditions.push(`(person ~ {:t${i}} || id_lama ~ {:t${i}})`);
           } else {
             const numericId = parseInt(t, 10);
@@ -432,6 +461,28 @@ export default function MenuPage() {
   // --- 5. GUARDS & INTERACTION HANDLERS --
   // --- CHECKOUT SAFETY GUARD ---
   const handleCheckoutValidation = () => {
+        // 1. Validasi keranjang tidak boleh kosong
+    if (cart.length === 0) {
+      setDialog({ show: true, title: 'Validasi Gagal', message: 'Isi keranjang dengan item terlebih dahulu!', type: 'alert' });
+      return;
+    }
+
+    // 2. Validasi khusus service: data mekanik harus lengkap (kedua field terisi)
+    if (selectedMenu.toLowerCase().includes('service')) {
+      // Cek setiap mekanik yang dipilih (idLama tidak kosong) harus punya ongkos > 0
+      const invalidMechanics = formBayar.mekanikList.some(mek => mek.idLama && mek.ongkos <= 0);
+      if (invalidMechanics) {
+        setDialog({ show: true, title: 'Validasi Gagal', message: 'Mohon isi data mekanik service dengan lengkap (nama mekanik dan ongkos > 0).', type: 'alert' });
+        return;
+      }
+      // Cek jika ada mekanik dengan ongkos > 0 tapi idLama kosong
+      const missingName = formBayar.mekanikList.some(mek => mek.ongkos > 0 && !mek.idLama);
+      if (missingName) {
+        setDialog({ show: true, title: 'Validasi Gagal', message: 'Pilih nama mekanik untuk ongkos yang diisi.', type: 'alert' });
+        return;
+      }
+    }
+    
     // 1. Validasi Akun Keuangan
     if (!formBayar.accountCashflow) {
       setDialog({ show: true, title: 'Validasi Gagal', message: 'Akun Keuangan tidak boleh kosong.', type: 'alert' });
@@ -470,30 +521,6 @@ export default function MenuPage() {
         return;
       }
     }
-
-    // ========== TAMBAHAN VALIDASI BARU ==========
-    // 1. Validasi keranjang tidak boleh kosong
-    if (cart.length === 0) {
-      setDialog({ show: true, title: 'Validasi Gagal', message: 'Isi keranjang dengan item terlebih dahulu!', type: 'alert' });
-      return;
-    }
-
-    // 2. Validasi khusus service: data mekanik harus lengkap (kedua field terisi)
-    if (selectedMenu.toLowerCase().includes('service')) {
-      // Cek setiap mekanik yang dipilih (idLama tidak kosong) harus punya ongkos > 0
-      const invalidMechanics = formBayar.mekanikList.some(mek => mek.idLama && mek.ongkos <= 0);
-      if (invalidMechanics) {
-        setDialog({ show: true, title: 'Validasi Gagal', message: 'Mohon isi data mekanik service dengan lengkap (nama mekanik dan ongkos > 0).', type: 'alert' });
-        return;
-      }
-      // Cek jika ada mekanik dengan ongkos > 0 tapi idLama kosong
-      const missingName = formBayar.mekanikList.some(mek => mek.ongkos > 0 && !mek.idLama);
-      if (missingName) {
-        setDialog({ show: true, title: 'Validasi Gagal', message: 'Pilih nama mekanik untuk ongkos yang diisi.', type: 'alert' });
-        return;
-      }
-    }
-    // ========== AKHIR TAMBAHAN ==========
 
     // Jika lolos semua validasi, buka modal review
     setShowCheckoutReview(true);
@@ -792,20 +819,29 @@ export default function MenuPage() {
     });
   };
 
-  const handleDeleteHistory = (menuItem: HistoryMenu) => {
-    setDialog({
-      show: true, title: 'Hapus Nota Permanen?',
-      message: 'Peringatan: Stok barang tidak akan dikembalikan otomatis jika Anda menghapus dari sini. Yakin ingin menghapus?',
-      type: 'confirm',
-      onConfirm: async () => {
-        try {
-          await pb.collection('menu').delete(menuItem.id);
-          fetchData();
-          setShowDetailHistory(null);
-          setDialog(prev => ({ ...prev, show: false }));
-        } catch (e) { alert("Gagal menghapus data."); }
-      }
-    });
+  const handleDeleteHistory = async (menuItem: HistoryMenu) => {
+    try {
+      // 1. Hapus semua log_stock yang terkait
+      const logs = await pb.collection('log_stock').getFullList({ filter: `ref_baru = "${menuItem.id}"` });
+      for (const log of logs) await pb.collection('log_stock').delete(log.id);
+      
+      // 2. Hapus cashflow terkait
+      const cfs = await pb.collection('cashflow').getFullList({ filter: `ref_baru = "${menuItem.id}"` });
+      for (const cf of cfs) await pb.collection('cashflow').delete(cf.id);
+      
+      // 3. Hapus ongkos terkait
+      const ongkosList = await pb.collection('ongkos').getFullList({ filter: `ref_baru = "${menuItem.id}"` });
+      for (const ok of ongkosList) await pb.collection('ongkos').delete(ok.id);
+      
+      // 4. Hapus record menu (file otomatis terhapus)
+      await pb.collection('menu').delete(menuItem.id);
+      
+      fetchData();
+      setShowDetailHistory(null);
+    } catch (e) {
+      console.error(e);
+      alert("Gagal menghapus data.");
+    }
   };
 
   // --- 9. MEMO GROUPING ---
@@ -1545,8 +1581,11 @@ export default function MenuPage() {
             <div className="flex gap-2 pt-2 border-t mt-4 pt-4">
               {/* Tombol Delete (Level 1 & 5 saja) */}
               {(userLevel === '1' || userLevel === '5') && (
-                <button onClick={() => confirmAction('Hapus Transaksi', 'Yakin ingin menghapus nota ini secara permanen?', () => handleDeleteHistory(showDetailHistory!))} 
-                        className="p-3 bg-rose-50 text-rose-500 rounded-xl hover:bg-rose-100 transition-colors"><Trash2 size={18}/></button>
+                <button 
+                  onClick={() => confirmAction('Hapus Transaksi', 'Yakin ingin menghapus nota ini secara permanen?', () => handleDeleteHistory(showDetailHistory!))} 
+                  className="p-3 bg-rose-50 text-rose-500 rounded-xl hover:bg-rose-100 transition-colors">
+                  <Trash2 size={18}/>
+                </button>
               )}
 
               {/* Tombol Edit - Pastikan memanggil handleEditHistoryToCart dengan parameter yang benar */}
@@ -1581,45 +1620,100 @@ export default function MenuPage() {
       {/* 3. LAYOUT TEMPLATE NOTA PRINTER THERMAL 58MM */} 
       {/* ========================================================= */} 
       <Modal isOpen={!!showReceiptPrint} onClose={() => setShowReceiptPrint(null)} title="Print Nota Kasir"> 
-         {showReceiptPrint && ( 
-           <div className="space-y-6"> 
-             <div className="border border-dashed border-slate-300 p-4 bg-white mx-auto text-slate-800 font-mono text-xs shadow-inner rounded-xl max-w-[280px]" id="thermal-receipt-58mm"> 
-               <div className="text-center space-y-1 border-b border-dashed pb-3"> 
-                 <h4 className="font-black text-sm">PRIMA MOTOR GLADAG</h4> 
-                 <p className="text-[10px]">Gladag, Rogojampi, Banyuwangi</p> 
-                 <p className="text-[9px]">HP/WA: 081-XXXX-XXXX</p> 
-               </div> 
-               <div className="py-2 border-b border-dashed text-[10px] space-y-0.5">
-                  <p>Nota: {showReceiptPrint.id}</p>
-                  <p>Waktu: {showReceiptPrint.timestamp}</p>
-                  <p>Pelanggan: {showReceiptPrint.customer}</p>
-                  <p>Kasir: {operatorName}</p>
-                  <p>Jenis Transaksi: {showReceiptPrint.jenis || '-'}</p>
-                  {showReceiptPrint.mechanics && showReceiptPrint.mechanics.length > 0 && (
-                    <div>
-                      <p className="font-bold mt-1">Ongkos Mekanik:</p>
-                      {showReceiptPrint.mechanics.map((m, idx) => (
-                        <p key={idx} className="ml-1">- {m.name}: Rp {m.ongkos.toLocaleString('id-ID')}</p>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                <div className="py-2 border-b border-dashed text-[10px] space-y-2">
-                  {/* items */}
-                </div>
-                <div className="py-2 space-y-1 text-[10px]">
-                 <div className="flex justify-between font-bold"><span>TOTAL:</span><span>Rp {showReceiptPrint.total?.toLocaleString('id-ID')}</span></div>
-                 <div className="flex justify-between text-[9px]"><span>BAYAR:</span><span>Rp {showReceiptPrint.cash?.toLocaleString('id-ID')}</span></div>
-                 <div className="flex justify-between text-[9px]"><span>KEMBALI:</span><span>Rp {showReceiptPrint.change?.toLocaleString('id-ID')}</span></div>
-               </div>
-             </div> {/* <-- TAMBAHAN 1: Tutup div id="thermal-receipt-58mm" di sini */}
+        {showReceiptPrint && ( 
+          <div className="space-y-6"> 
+            <div className="border border-dashed border-slate-300 p-4 bg-white mx-auto text-slate-800 font-mono text-xs shadow-inner rounded-xl max-w-[280px]" id="thermal-receipt-58mm"> 
+              {/* HEADER TOKO */}
+              <div className="text-center space-y-1 border-b border-dashed pb-3"> 
+                <h4 className="font-black text-sm">PRIMA MOTOR GLADAG</h4> 
+                <p className="text-[10px]">Gladag, Rogojampi, Banyuwangi</p> 
+                <p className="text-[9px]">HP/WA: 081-XXXX-XXXX</p> 
+              </div> 
 
-             <div className="flex gap-2"> 
-               <button onClick={() => { const printContents = document.getElementById('thermal-receipt-58mm')?.innerHTML; if (printContents) { document.body.innerHTML = printContents; window.print(); window.location.reload(); } }} className="flex-1 py-4 bg-slate-900 text-white rounded-2xl font-black text-xs">CETAK NOTA (PRINT 58MM)</button> 
-               <button onClick={() => setShowReceiptPrint(null)} className="py-4 px-6 bg-slate-100 text-slate-500 font-bold rounded-2xl text-xs">LEWATI</button> 
-             </div> 
-           </div> 
-         )} {/* <-- TAMBAHAN 2: Ganti } menjadi )} */}
+              {/* INFORMASI NOTA (tanpa mekanik) */}
+              <div className="py-2 border-b border-dashed text-[10px] space-y-0.5">
+                <p>Nota: {showReceiptPrint.id}</p>
+                <p>Waktu: {showReceiptPrint.timestamp}</p>
+                <p>Pelanggan: {showReceiptPrint.customer}</p>
+                <p>Kasir: {operatorName}</p>
+                <p>Jenis Transaksi: {showReceiptPrint.jenis || '-'}</p>
+              </div>
+
+              {/* DAFTAR ITEM PRODUK & MEKANIK (dengan format seragam) */}
+              <div className="py-2 border-b border-dashed text-[10px] space-y-2">
+                {/* Item Produk */}
+                {showReceiptPrint.items?.map((item: any, idx: number) => (
+                  <div key={idx}>
+                    <p className="font-bold uppercase">
+                      {formatIdLamaDisplay(item.id_lama)} - {getFullLabel(item)}
+                    </p>
+                    <div className="flex justify-between text-[9px] text-slate-500">
+                      <span>{item.qty} x Rp {item.priceSelected?.toLocaleString('id-ID')}</span>
+                      <span className="font-mono text-slate-800">
+                        Rp {(item.priceSelected * item.qty)?.toLocaleString('id-ID')}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+
+                {/* Separator jika ada mekanik */}
+                {showReceiptPrint.mechanics && showReceiptPrint.mechanics.length > 0 && (
+                  <div className="border-t border-dashed my-1"></div>
+                )}
+
+                {/* Servis Mekanik (format seperti item) */}
+                {showReceiptPrint.mechanics?.map((m: any, idx: number) => (
+                  <div key={`mech-${idx}`}>
+                    <p className="font-bold uppercase">MEKANIK: {m.name}</p>
+                    <div className="flex justify-between text-[9px] text-slate-500">
+                      <span>1 x Rp {m.ongkos.toLocaleString('id-ID')}</span>
+                      <span className="font-mono text-slate-800">
+                        Rp {m.ongkos.toLocaleString('id-ID')}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* TOTAL DAN PEMBAYARAN */}
+              <div className="py-2 space-y-1 text-[10px]">
+                <div className="flex justify-between font-bold">
+                  <span>TOTAL:</span>
+                  <span>Rp {showReceiptPrint.total?.toLocaleString('id-ID')}</span>
+                </div>
+                <div className="flex justify-between text-[9px]">
+                  <span>BAYAR:</span>
+                  <span>Rp {showReceiptPrint.cash?.toLocaleString('id-ID')}</span>
+                </div>
+                <div className="flex justify-between text-[9px]">
+                  <span>KEMBALI:</span>
+                  <span>Rp {showReceiptPrint.change?.toLocaleString('id-ID')}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* TOMBOL CETAK & BATAL */}
+            <div className="flex gap-2"> 
+              <button 
+                onClick={() => {
+                  const receiptElement = document.getElementById('thermal-receipt-58mm');
+                  if (receiptElement) {
+                    const htmlContent = receiptElement.outerHTML;
+                    printWithRawBT(htmlContent);
+                  } else {
+                    alert("Konten nota tidak ditemukan.");
+                  }
+                }} 
+                className="flex-1 py-4 bg-slate-900 text-white rounded-2xl font-black text-xs">
+                CETAK NOTA (RAWBT)
+              </button>
+              <button onClick={() => setShowReceiptPrint(null)} 
+                      className="py-4 px-6 bg-slate-100 text-slate-500 font-bold rounded-2xl text-xs">
+                LEWATI
+              </button>
+            </div> 
+          </div> 
+        )} 
       </Modal>
 
       {/* DIALOG BOX POPUP ALERT / CONFIRMATION */} 
