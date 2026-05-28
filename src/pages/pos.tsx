@@ -1088,9 +1088,9 @@ export default function MenuPage() {
               <div className="space-y-2 overflow-y-auto pr-1">
                 {cartWithTierPrice.map(item => {
                   const canEditPrice =
-                    userLevel === '1' ||
-                    formBayar.personIdLama.toLowerCase().includes('online') ||
-                    selectedMenu.toLowerCase().includes('pembelian');
+                  userLevel === '1' ||
+                  isOnlinePerson ||
+                  selectedMenu.toLowerCase().includes('pembelian');
                   return (
                     <div key={item.id} className="bg-white border border-gray-200 rounded-lg p-3 relative group hover:bg-gray-50 transition">
                       <button
