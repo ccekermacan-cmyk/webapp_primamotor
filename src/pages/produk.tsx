@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { pb } from '../lib/pocketbase';
 import Modal from '../components/modal';
-import { Package, Search, Trash2, Edit, Copy, ChevronLeft, ChevronRight, X } from 'lucide-react';
+import { Package, Search, Trash2, Edit, Copy, ChevronLeft, ChevronRight, X, Filter, LayoutGrid, List, ArrowUp, ArrowDown } from 'lucide-react';
 
 interface Produk {
   [key: string]: any; 
@@ -42,7 +42,8 @@ export default function Produk() {
   const [inputValue, setInputValue] = useState('');
 
   const [userLevel, setUserLevel] = useState(localStorage.getItem('user_level') || '');
-  
+  const [sortField, setSortField] = useState<'id_lama' | 'nama' | 'stok' | 'harga_customer' | 'harga_retail'>('id_lama');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   // Pagination & Search
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -50,6 +51,10 @@ export default function Produk() {
   const perPage = 12; 
   const [searchInput, setSearchInput] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
+  const [filterKategori, setFilterKategori] = useState<string>('all');
+  const [filterStok, setFilterStok] = useState<string>('all');
+  const [showMobileFilters, setShowMobileFilters] = useState(false);
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
 
   // Modal States
   const [modalType, setModalType] = useState<'detail' | 'form' | 'delete' | null>(null);
@@ -79,35 +84,49 @@ export default function Produk() {
   // FETCH DATA & PENCARIAN (REVISI MULTI-WORD)
   // ==========================================
   const fetchProducts = async () => {
-  try {
-    setLoading(true);
-    let filterQuery = '';
-    
-    if (searchTerm) {
-      const terms = searchTerm.trim().toLowerCase().split(/\s+/);
-      const bindings: any = {};
-      const conditions: string[] = [];
+    try {
+      setLoading(true);
+      let conditions: string[] = [];
 
-      terms.forEach((term, idx) => {
-        const isNumeric = /^\d+$/.test(term);
-        if (isNumeric) {
-          // Hilangkan leading zero, lalu cari dengan operator = (eksak) karena ID unik
-          const numericId = parseInt(term, 10);
-          conditions.push(`id_lama = {:t${idx}}`);
-          bindings[`t${idx}`] = numericId.toString(); // binding sebagai string
-        } else {
-          conditions.push(`(id_lama ~ {:t${idx}} || kategori ~ {:t${idx}} || merk ~ {:t${idx}} || jenis ~ {:t${idx}} || varian ~ {:t${idx}} || keterangan ~ {:t${idx}} || tipe ~ {:t${idx}})`);
-          bindings[`t${idx}`] = term;
-        }
-      });
+      // Filter kategori
+      if (filterKategori !== 'all') {
+        conditions.push(`kategori = "${filterKategori}"`);
+      }
 
-      filterQuery = pb.filter(conditions.join(' && '), bindings);
-      console.log("Filter Query:", filterQuery); // Debug: lihat hasil filter
-    }
+      // Filter stok
+      if (filterStok === 'menipis') {
+        conditions.push(`stok_3 <= stok_2 && stok_3 > 0`);
+      } else if (filterStok === 'habis') {
+        conditions.push(`stok_3 = 0`);
+      }
+
+      // Filter pencarian
+      if (searchTerm) {
+        const terms = searchTerm.trim().toLowerCase().split(/\s+/);
+        const searchConditions: string[] = [];
+        const bindings: any = {};
+
+        terms.forEach((term, idx) => {
+          const isNumeric = /^\d+$/.test(term);
+          if (isNumeric) {
+            const numericId = parseInt(term, 10);
+            searchConditions.push(`id_lama = {:t${idx}}`);
+            bindings[`t${idx}`] = numericId.toString();
+          } else {
+            searchConditions.push(`(id_lama ~ {:t${idx}} || kategori ~ {:t${idx}} || merk ~ {:t${idx}} || jenis ~ {:t${idx}} || varian ~ {:t${idx}} || keterangan ~ {:t${idx}} || tipe ~ {:t${idx}})`);
+            bindings[`t${idx}`] = term;
+          }
+        });
+        const searchFilter = pb.filter(searchConditions.join(' && '), bindings);
+        if (searchFilter) conditions.push(`(${searchFilter})`);
+      }
+
+      const filterString = conditions.length ? conditions.join(' && ') : '';
+      console.log("Filter Query:", filterString);
 
       const result = await pb.collection('produk').getList<Produk>(page, perPage, {
-        sort: 'id_lama',     // ascending sesuai ID string (alfabetis, tapi ID angka akan terurut secara numerik jika panjangnya sama)
-        filter: filterQuery,
+        sort: 'id_lama',
+        filter: filterString,
         $autoCancel: false,
       });
       
@@ -121,24 +140,64 @@ export default function Produk() {
     }
   };
 
-  // BLOK 1: Hanya jalan 1x saat aplikasi baru dibuka untuk ambil enumlist Tipe Motor
-  useEffect(() => {
-    const fetchTipeOptions = async () => {
-      try {
-        const records = await pb.collection('produk').getFullList({ fields: 'tipe', $autoCancel: false });
-        const allTypes = Array.from(new Set(records.flatMap(r => r.tipe?.split(',').map((s: string) => s.trim()).filter(Boolean))));
-        setExistingTipe(allTypes);
-      } catch (e) {
-        console.error("Gagal memuat tipe motor", e);
+  const sortedProducts = useMemo(() => {
+    if (products.length === 0) return [];
+    const sorted = [...products];
+    sorted.sort((a, b) => {
+      let aVal: any, bVal: any;
+      switch (sortField) {
+        case 'id_lama':
+          aVal = parseInt(a.id_lama, 10) || 0;
+          bVal = parseInt(b.id_lama, 10) || 0;
+          break;
+        case 'nama':
+          aVal = `${a.kategori} ${a.merk} ${a.jenis} ${a.varian} ${a.keterangan || ''} ${a.tipe || ''}`.trim().toLowerCase();
+          bVal = `${b.kategori} ${b.merk} ${b.jenis} ${b.varian} ${b.keterangan || ''} ${b.tipe || ''}`.trim().toLowerCase();
+          break;
+        case 'stok':
+          aVal = a.stok_3;
+          bVal = b.stok_3;
+          break;
+        case 'harga_customer':
+          aVal = a.sell_5;
+          bVal = b.sell_5;
+          break;
+        case 'harga_retail':
+          aVal = a.sell_6;
+          bVal = b.sell_6;
+          break;
+        default:
+          aVal = a.id_lama;
+          bVal = b.id_lama;
       }
-    };
-    fetchTipeOptions();
-  }, []); // <--- array kosong memastikan ini hanya dirender 1x
+      if (aVal < bVal) return sortOrder === 'asc' ? -1 : 1;
+      if (aVal > bVal) return sortOrder === 'asc' ? 1 : -1;
+      return 0;
+    });
+    return sorted;
+  }, [products, sortField, sortOrder]);
+
+  // BLOK 1: Hanya jalan 1x saat aplikasi baru dibuka untuk ambil enumlist Tipe Motor
+  const hasFetchedTipe = useRef(false);
+    useEffect(() => {
+      if (hasFetchedTipe.current) return;
+      hasFetchedTipe.current = true;
+      const fetchTipeOptions = async () => {
+        try {
+          const records = await pb.collection('produk').getFullList({ fields: 'tipe', $autoCancel: false });
+          const allTypes = Array.from(new Set(records.flatMap(r => r.tipe?.split(',').map((s: string) => s.trim()).filter(Boolean))));
+          setExistingTipe(allTypes);
+        } catch (e) {
+          console.error("Gagal memuat tipe motor", e);
+        }
+      };
+      fetchTipeOptions();
+    }, []);
 
   // BLOK 2: Jalan setiap kali ganti halaman atau ketik pencarian
   useEffect(() => {
     fetchProducts();
-  }, [page, searchTerm]);
+  }, [page, searchTerm, filterKategori, filterStok]);
 
   useEffect(() => {
     const delayDebounceFn = setTimeout(() => {
@@ -148,9 +207,21 @@ export default function Produk() {
     return () => clearTimeout(delayDebounceFn);
   }, [searchInput]);
 
-  useEffect(() => {
-    fetchProducts();
-  }, [page, searchTerm]);
+const [kategoriOptions, setKategoriOptions] = useState<string[]>([]);
+
+const hasFetchedKategori = useRef(false);
+useEffect(() => {
+  if (hasFetchedKategori.current) return;
+  hasFetchedKategori.current = true;
+  const fetchKategoriOptions = async () => {
+    try {
+      const records = await pb.collection('produk').getFullList({ fields: 'kategori', $autoCancel: false });
+      const uniqueKategori = Array.from(new Set(records.map(r => r.kategori).filter(Boolean)));
+      setKategoriOptions(uniqueKategori);
+    } catch (e) { console.error(e); }
+  };
+  fetchKategoriOptions();
+}, []);
 
 const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
   try {
@@ -310,17 +381,134 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
       <div className="bg-white rounded-3xl shadow-xl shadow-gray-200/50 border border-gray-100 flex-1 flex flex-col overflow-hidden relative">
         
         {/* Search Bar */}
-        <div className="p-6 border-b border-gray-100 bg-gray-50/50 flex gap-4 items-center shrink-0">
-          <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
-            <input 
-              type="text" 
-              placeholder="Cari ID, Kategori, atau Varian..." 
-              className="w-full pl-12 pr-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none transition-all shadow-sm"
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-            />
+        <div className="p-6 border-b border-gray-100 bg-gray-50/50 shrink-0">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+            <div className="ml-auto flex items-center gap-1 bg-white border border-gray-200 rounded-xl p-1 shadow-sm">
+              <button
+                onClick={() => setViewMode('grid')}
+                className={`p-2 rounded-lg transition-all ${viewMode === 'grid' ? 'bg-orange-500 text-white' : 'text-gray-500 hover:bg-gray-100'}`}
+                title="Tampilan Grid"
+              >
+                <LayoutGrid size={18} />
+              </button>
+              <button
+                onClick={() => setViewMode('list')}
+                className={`p-2 rounded-lg transition-all ${viewMode === 'list' ? 'bg-orange-500 text-white' : 'text-gray-500 hover:bg-gray-100'}`}
+                title="Tampilan List"
+              >
+                <List size={18} />
+              </button>
+            </div>
+
+            {/* Input pencarian: lebar 25% di desktop */}
+            <div className="relative w-full sm:w-1/4">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+              <input 
+                type="text" 
+                placeholder="Cari produk..." 
+                className="w-full pl-12 pr-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none transition-all shadow-sm text-sm"
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+              />
+            </div>
+
+            {/* Filter untuk desktop (tampil di layar >= sm) */}
+            <div className="hidden sm:flex items-center gap-3 flex-1">
+              {/* Filter Kategori: lebar 15% */}
+              <div className="w-[25%]">
+                <select
+                  value={filterKategori}
+                  onChange={(e) => { setFilterKategori(e.target.value); setPage(1); }}
+                  className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm font-medium focus:ring-2 focus:ring-orange-500 outline-none shadow-sm appearance-none bg-no-repeat bg-[position:right_1rem_center] bg-[length:1.5em_1.5em]"
+                  style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%236b7280' stroke-width='2'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E")` }}
+                >
+                  <option value="all">Semua Kategori</option>
+                  {kategoriOptions.map(kat => (
+                    <option key={kat} value={kat}>{kat}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Filter Stok: menggunakan tombol pill */}
+              <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-xl p-1 shadow-sm">
+                <button
+                  onClick={() => { setFilterStok('all'); setPage(1); }}
+                  className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${
+                    filterStok === 'all' 
+                      ? 'bg-orange-500 text-white shadow-sm' 
+                      : 'text-gray-600 hover:bg-gray-100'
+                  }`}
+                >
+                  Semua
+                </button>
+                <button
+                  onClick={() => { setFilterStok('menipis'); setPage(1); }}
+                  className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${
+                    filterStok === 'menipis' 
+                      ? 'bg-orange-500 text-white shadow-sm' 
+                      : 'text-gray-600 hover:bg-gray-100'
+                  }`}
+                >
+                  Menipis
+                </button>
+                <button
+                  onClick={() => { setFilterStok('habis'); setPage(1); }}
+                  className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${
+                    filterStok === 'habis' 
+                      ? 'bg-orange-500 text-white shadow-sm' 
+                      : 'text-gray-600 hover:bg-gray-100'
+                  }`}
+                >
+                  Habis
+                </button>
+              </div>
+            </div>
+
+            {/* Tombol filter mobile */}
+            <button
+              type="button"
+              onClick={() => setShowMobileFilters(!showMobileFilters)}
+              className="sm:hidden flex items-center justify-center gap-2 w-full py-3 bg-white border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 transition shadow-sm"
+            >
+              <Filter size={18} />
+              {showMobileFilters ? 'Sembunyikan Filter' : 'Tampilkan Filter'}
+            </button>
           </div>
+
+          {/* Filter mobile (tampil jika tombol ditekan) */}
+          {showMobileFilters && (
+            <div className="sm:hidden flex flex-col gap-3 mt-3 animate-in slide-in-from-top-2 duration-200">
+              <select
+                value={filterKategori}
+                onChange={(e) => { setFilterKategori(e.target.value); setPage(1); }}
+                className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm font-medium focus:ring-2 focus:ring-orange-500 outline-none shadow-sm"
+              >
+                <option value="all">Semua Kategori</option>
+                {kategoriOptions.map(kat => (
+                  <option key={kat} value={kat}>{kat}</option>
+                ))}
+              </select>
+              <div className="flex gap-2 bg-white border border-gray-200 rounded-xl p-1 shadow-sm">
+                {[
+                  { value: 'all', label: 'Semua' },
+                  { value: 'menipis', label: 'Menipis' },
+                  { value: 'habis', label: 'Habis' }
+                ].map(opt => (
+                  <button
+                    key={opt.value}
+                    onClick={() => { setFilterStok(opt.value); setPage(1); }}
+                    className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all ${
+                      filterStok === opt.value 
+                        ? 'bg-orange-500 text-white shadow-sm' 
+                        : 'text-gray-600 hover:bg-gray-100'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* List Grid Produk */}
@@ -334,9 +522,10 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
               <Package size={64} className="mb-4 opacity-20" />
               <p className="font-medium">Tidak ada produk ditemukan.</p>
             </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-              {products.map((prod) => (
+          ) : 
+            viewMode === 'grid' ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+              {sortedProducts.map((prod) => (
                 <div 
                   key={prod.id} 
                   onClick={() => handleOpenDetail(prod)}
@@ -387,6 +576,80 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
                 </div>
               ))}
             </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm border-collapse">
+                  <thead className="bg-gray-50 border-b border-gray-200">
+                    <tr>
+                      <th className="text-left py-3 px-4 font-semibold text-gray-600 cursor-pointer select-none" onClick={() => { if (sortField === 'id_lama') setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc'); else { setSortField('id_lama'); setSortOrder('asc'); } }}>
+                        <div className="flex items-center gap-1">
+                          Kode
+                          {sortField === 'id_lama' && (sortOrder === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />)}
+                        </div>
+                      </th>
+                      <th className="text-left py-3 px-4 font-semibold text-gray-600 cursor-pointer select-none" onClick={() => { if (sortField === 'nama') setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc'); else { setSortField('nama'); setSortOrder('asc'); } }}>
+                        <div className="flex items-center gap-1">
+                          Nama Produk
+                          {sortField === 'nama' && (sortOrder === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />)}
+                        </div>
+                      </th>
+                      <th className="text-right py-3 px-4 font-semibold text-gray-600 cursor-pointer select-none" onClick={() => { if (sortField === 'stok') setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc'); else { setSortField('stok'); setSortOrder('asc'); } }}>
+                        <div className="flex items-center justify-end gap-1">
+                          Stok
+                          {sortField === 'stok' && (sortOrder === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />)}
+                        </div>
+                      </th>
+                      <th className="text-right py-3 px-4 font-semibold text-gray-600 cursor-pointer select-none" onClick={() => { if (sortField === 'harga_customer') setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc'); else { setSortField('harga_customer'); setSortOrder('asc'); } }}>
+                        <div className="flex items-center justify-end gap-1">
+                          Harga Pelanggan
+                          {sortField === 'harga_customer' && (sortOrder === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />)}
+                        </div>
+                      </th>
+                      <th className="text-right py-3 px-4 font-semibold text-gray-600 cursor-pointer select-none" onClick={() => { if (sortField === 'harga_retail') setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc'); else { setSortField('harga_retail'); setSortOrder('asc'); } }}>
+                        <div className="flex items-center justify-end gap-1">
+                          Harga Retail
+                          {sortField === 'harga_retail' && (sortOrder === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />)}
+                        </div>
+                      </th>
+                      <th className="text-center py-3 px-4 font-semibold text-gray-600">Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {sortedProducts.map((prod) => (
+                      <tr key={prod.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => handleOpenDetail(prod)}>
+                        <td className="py-3 px-4 font-mono text-xs">{formatIdLamaDisplay(prod.id_lama)}</td>
+                        <td className="py-3 px-4 font-medium text-gray-800">
+                          {`${prod.kategori} ${prod.merk} ${prod.jenis} ${prod.varian} ${prod.keterangan || ''} ${prod.tipe || ''}`.trim()}
+                        </td>
+                        <td className="py-3 px-4 text-right font-semibold">
+                          <span className={prod.stok_3 <= 0 ? 'text-red-500' : 'text-green-600'}>
+                            {prod.stok_3} {prod.unit}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-right font-semibold text-purple-600">
+                          Rp {prod.sell_5?.toLocaleString('id-ID') || 0}
+                        </td>
+                        <td className="py-3 px-4 text-right font-semibold text-blue-600">
+                          Rp {prod.sell_6?.toLocaleString('id-ID') || 0}
+                        </td>
+                        <td className="py-3 px-4 text-center whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex gap-1 justify-center">
+                            <button onClick={(e) => handleOpenEdit(prod, e)} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-md transition" title="Edit">
+                              <Edit size={14} />
+                            </button>
+                            <button onClick={(e) => handleOpenCopy(prod, e)} className="p-1.5 text-green-600 hover:bg-green-50 rounded-md transition" title="Copy">
+                              <Copy size={14} />
+                            </button>
+                            <button onClick={(e) => handleOpenDelete(prod, e)} className="p-1.5 text-red-600 hover:bg-red-50 rounded-md transition" title="Hapus">
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
           )}
         </div>
 
@@ -415,6 +678,22 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
                 <h3 className="font-bold text-gray-900 text-lg leading-tight">
                   {`${selectedProduct.kategori} ${selectedProduct.merk} ${selectedProduct.jenis} ${selectedProduct.varian} ${selectedProduct.keterangan || ''} ${selectedProduct.tipe || ''}`.trim()}
                 </h3>
+                <div className="flex items-center gap-3 mt-2">
+                  <span className="inline-flex items-center gap-1 text-xs font-semibold text-green-700 bg-green-100 px-2 py-0.5 rounded-full">
+                    <Package size={12} />
+                    Stok: {selectedProduct.stok_3 ?? 0} {selectedProduct.unit || ''}
+                  </span>
+                  {selectedProduct.stok_3 <= 0 && (
+                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-700 bg-red-100 px-2 py-0.5 rounded-full">
+                      Habis
+                    </span>
+                  )}
+                  {selectedProduct.stok_3 > 0 && selectedProduct.stok_3 <= (selectedProduct.stok_2 ?? 0) && (
+                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
+                      Menipis
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -517,7 +796,7 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
                         <tr 
                           key={log.id} 
                           className="hover:bg-blue-50/40 transition-colors cursor-pointer group" 
-                          onClick={() => window.open(`/?ref=${log.ref_baru}`, '_blank')}
+                          onClick={() => { window.location.href = `/?ref=${log.ref_baru}`; }}
                         >
                           <td className="px-4 py-3 text-slate-500 font-medium whitespace-nowrap">
                             {new Date(log.created_at || log.created).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}
