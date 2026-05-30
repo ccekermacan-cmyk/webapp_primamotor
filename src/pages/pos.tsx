@@ -5,7 +5,7 @@ import Modal from '../components/modal';
 import { 
   Search, ShoppingCart, ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
   Trash2, Plus, Receipt, Layers, Printer, Share2, X,
-  ArrowRight, Calendar, History, Sparkles, DollarSign, Wallet, AlertTriangle, Info, Wrench, Edit, TrendingUp, TrendingDown
+  ArrowRight, Calendar, History, Sparkles, DollarSign, Wallet, AlertTriangle, Info, Wrench, Edit, TrendingUp, TrendingDown, Filter
 } from 'lucide-react';
 
 // --- INTERFACES ---
@@ -84,6 +84,10 @@ export default function MenuPage() {
 
   const [searchInput, setSearchInput] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
+  const [filterStatus, setFilterStatus] = useState<string>('all');
+  const [showStatusFilter, setShowStatusFilter] = useState(false);
+  const [selectedMenuFilters, setSelectedMenuFilters] = useState<string[]>([]);
+  const [showJenisFilter, setShowJenisFilter] = useState(false);
   
   const [showDetailHistory, setShowDetailHistory] = useState<HistoryMenu | null>(null);
   const [historyItems, setHistoryItems] = useState<LogStockDetail[]>([]);
@@ -123,14 +127,14 @@ export default function MenuPage() {
       personIdLama: 'umum1',
       payment: 'Tunai',
       nominalBayar: 0,
-      accountCashflow: '',
+      cashflowList: [{ accountId: '', nominal: 0 }], // Multi cashflow
       mekanikList: [{ idLama: '', ongkos: 0 }],
       note: '',
       noteMenu: '',
       marketplace: '',
       adminFee: 0,
       cashback: 0
-    });
+  });
 
   const isOnlinePerson = useMemo(() => {
   const selectedPerson = personOptions.find(p => p.id_lama === formBayar.personIdLama);
@@ -235,7 +239,10 @@ export default function MenuPage() {
     useEffect(() => {
       const initData = async () => {
         try {
-          const persons = await pb.collection('dropdown').getFullList<DropdownItem>({ filter: `kategori ~ "person"` });
+          const persons = await pb.collection('dropdown').getFullList<DropdownItem>({ 
+            filter: `kategori ~ "person"`,
+            $autoCancel: false 
+          });
             setAllPersons(persons);
 
           const menus = await pb.collection('dropdown').getFullList<DropdownItem>({
@@ -244,23 +251,13 @@ export default function MenuPage() {
           });
           setMenuOptions([{ id: 'ov-1', text_1: 'Overview' } as any, ...menus]);
 
-          // Dropdown Cashflow Accounts (Perbaikan operator = menjadi ~)
+          // Dropdown Cashflow Accounts
           const accounts = await pb.collection('dropdown').getFullList<DropdownItem>({
             filter: `jenis ~ "cashflow account" && visibilitas ~ "${userLevel}"`,
             sort: 'text_1', $autoCancel: false
           });
           setCashflowAccounts(accounts);
-          if (accounts.length > 0) {
-            const kasirAcc = accounts.find(a => a.text_1.toLowerCase() === 'cashkasir');
-            setFormBayar(prev => ({ ...prev, accountCashflow: kasirAcc ? kasirAcc.id_lama : accounts[0].id_lama }));
-          }
-          
-          console.log("Cek Data Cashflow:", accounts); // <-- Cek di Inspect Element > Console
-          setCashflowAccounts(accounts);
-          
-          const kasirAcc = accounts.find(a => a.text_1.toLowerCase().includes('cashkasir') || a.text_1.toLowerCase().includes('kasir'));
-          // GUNAKAN .id BUKAN .id_lama
-          setFormBayar(prev => ({ ...prev, accountCashflow: kasirAcc ? kasirAcc.id : accounts[0].id }));
+          console.log("Cek Data Cashflow:", accounts);
 
           const mechs = await pb.collection('user').getFullList<UserKaryawan>({
             filter: `level = 10 && status = "Active"`,
@@ -349,7 +346,28 @@ export default function MenuPage() {
       const filterStr = conditions.length > 0 ? pb.filter(conditions.join(' && '), params) : '';
 
       if (menuLower === 'overview') {
-        const res = await pb.collection('menu').getList<HistoryMenu>(page, perPage, { sort: '-created_at', filter: filterStr, $autoCancel: false });
+        let overviewFilter = filterStr;
+        // Filter status lunas/belum
+        if (filterStatus !== 'all') {
+          const paymentValue = filterStatus === 'lunas' ? 'Tunai' : 'Tempo';
+          if (overviewFilter) {
+            overviewFilter = `(${overviewFilter}) && payment = "${paymentValue}"`;
+          } else {
+            overviewFilter = `payment = "${paymentValue}"`;
+          }
+        }
+        // Filter jenis menu (multi-select)
+        if (selectedMenuFilters.length > 0) {
+          const jenisConditions = selectedMenuFilters.map(jenis => `jenis = "${jenis}"`).join(' || ');
+          if (overviewFilter) {
+            overviewFilter = `(${overviewFilter}) && (${jenisConditions})`;
+          } else {
+            overviewFilter = `(${jenisConditions})`;
+          }
+        }
+        console.log("Overview Filter yang dikirim:", overviewFilter);
+        const res = await pb.collection('menu').getList<HistoryMenu>(page, perPage, { sort: '-created_at', filter: overviewFilter, $autoCancel: false });
+        console.log("Jumlah data ditemukan:", res.items.length);
         setHistoryMenu(res.items);
         setTotalPages(res.totalPages);
       } else if (menuLower.includes('gaji')) {
@@ -388,7 +406,7 @@ export default function MenuPage() {
     }
   }, [isOnlinePerson]);
 
-  useEffect(() => { fetchData(); }, [page, searchTerm, selectedMenu]);
+  useEffect(() => { fetchData(); }, [page, searchTerm, selectedMenu, filterStatus, selectedMenuFilters]);
 
   const cartWithTierPrice = useMemo(() => {
   const isPembelian = selectedMenu.toLowerCase().includes('pembelian');
@@ -468,6 +486,18 @@ export default function MenuPage() {
       setDialog({ show: true, title: 'Validasi Gagal', message: 'Isi keranjang dengan item terlebih dahulu!', type: 'alert' });
       return;
     }
+
+    // Validasi multi cashflow
+  const totalDibayar = formBayar.cashflowList.reduce((sum, cf) => sum + (cf.nominal || 0), 0);
+  if (totalDibayar !== grandTotal) {
+    setDialog({ show: true, title: 'Validasi Gagal', message: `Jumlah nominal akun kas (${totalDibayar.toLocaleString('id-ID')}) tidak sama dengan total belanja (${grandTotal.toLocaleString('id-ID')})`, type: 'alert' });
+    return;
+  }
+  const invalidCashflow = formBayar.cashflowList.some(cf => !cf.accountId || cf.nominal <= 0);
+  if (invalidCashflow) {
+    setDialog({ show: true, title: 'Validasi Gagal', message: 'Setiap baris akun kas harus diisi akun dan nominal > 0', type: 'alert' });
+    return;
+  }
 
     // 2. Validasi khusus service: data mekanik harus lengkap (kedua field terisi)
     if (selectedMenu.toLowerCase().includes('service')) {
@@ -648,19 +678,22 @@ export default function MenuPage() {
         await pb.collection('produk').update(item.id, { stok_3: Math.max(0, item.stok_3 + deltaStok) });
       }
 
-      if (formBayar.accountCashflow) {
-        await pb.collection('cashflow').create({
-          id_lama: '',
-          created_at: timestamp,
-          operator: operatorName,
-          nominal: grandTotal,
-          jenis: selectedMenu,
-          mutasi: (menuLower.includes('penjualan') || menuLower.includes('service')) ? 'debet' : 'kredit',
-          account_1: formBayar.accountCashflow, // Pastikan ini berisi 15 digit ID, bukan nama akun
-          account_2: '',
-          note: formBayar.note || `POS System: Nota ${menuRecordId}`,
-          ref_baru: menuRecordId 
-        });
+      // Simpan cashflow untuk setiap baris
+      for (const cf of formBayar.cashflowList) {
+        if (cf.accountId && cf.nominal > 0) {
+          await pb.collection('cashflow').create({
+            id_lama: '',
+            created_at: timestamp,
+            operator: operatorName,
+            nominal: cf.nominal,
+            jenis: selectedMenu,
+            mutasi: (menuLower.includes('penjualan') || menuLower.includes('service')) ? 'debet' : 'kredit',
+            account_1: cf.accountId,
+            account_2: '',
+            note: formBayar.note || `POS System: Nota ${menuRecordId}`,
+            ref_baru: menuRecordId 
+          });
+        }
       }
 
       // Payload Koleksi ongkos (Khusus Servis)
@@ -766,20 +799,40 @@ export default function MenuPage() {
             ? fees.map(f => ({ idLama: f.person, ongkos: f.ongkos }))
             : [{ idLama: '', ongkos: 0 }];
 
-          // Ambil note dari cashflow lama jika ada
-          const oldCf = await pb.collection('cashflow').getFullList({ filter: `ref_baru = "${menuItem.id}"` });
-          const cfNote = oldCf.length > 0 ? oldCf[0].note : '';
+          const existingCashflows = await pb.collection('cashflow').getFullList({ filter: `ref_baru = "${menuItem.id}"` });
+          const cfNote = existingCashflows.length > 0 ? existingCashflows[0].note : '';
+
+          // Muat cashflowList dari database
+          let cashflowList = [];
+          if (existingCashflows.length > 0) {
+            cashflowList = existingCashflows.map(cf => ({
+              accountId: cf.account_1,
+              nominal: cf.nominal
+            }));
+          } else {
+            cashflowList = [{ accountId: '', nominal: 0 }];
+          }
+
+          // Mapping payment dari database ke nilai tombol UI
+          // Database: "cash" / "tempo" → UI: "Tunai" / "Tempo"
+          let paymentValue = 'Tunai';
+          if (menuItem.payment && menuItem.payment.toLowerCase() === 'tempo') {
+            paymentValue = 'Tempo';
+          } else if (menuItem.payment && menuItem.payment.toLowerCase() === 'cash') {
+            paymentValue = 'Tunai';
+          }
 
           setFormBayar(prev => ({ 
             ...prev, 
             personIdLama: menuItem.person, 
-            payment: menuItem.payment, 
+            payment: paymentValue,
             noteMenu: menuItem.text, 
             note: cfNote,
             marketplace: menuItem.marketplace || '',
             adminFee: menuItem.admin || 0,
             cashback: menuItem.cashback || 0,
-            mekanikList: loadedMekanik
+            mekanikList: loadedMekanik,
+            cashflowList: cashflowList
           }));
           
           // Satu kali panggil set state sudah cukup
@@ -884,13 +937,159 @@ export default function MenuPage() {
           </div> 
         </div>
 
-        {/* Search Engine */} 
-        <div className="relative mb-6 shrink-0 group"> 
-          <Search className={`absolute left-6 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:${activeTheme.text} transition-colors`} size={22} /> 
-          <input type="text" placeholder={`Cari di menu ${selectedMenu}...`} 
-            className={`w-full pl-16 pr-8 py-5 bg-white rounded-[2rem] shadow-xl shadow-slate-200/50 outline-none font-bold text-slate-600 border-2 border-transparent ${activeTheme.focusRing} focus:ring-2 transition-all text-base`} 
-            value={searchInput} onChange={(e) => setSearchInput(e.target.value)} /> 
-        </div> 
+        {/* Search Bar - Flat Modern Style */}
+        <div className="p-6 border-b border-gray-100 bg-gray-50/50 shrink-0">
+          <div className="flex flex-col gap-3">
+            {/* Baris atas: input pencarian + tombol filter (mobile) */}
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+              <div className="relative w-full">
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+                <input 
+                  type="text" 
+                  placeholder={`Cari di menu ${selectedMenu}...`} 
+                  className={`w-full pl-12 pr-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 ${activeTheme.focusRing} outline-none transition-all shadow-sm text-sm font-medium text-slate-700`}
+                  value={searchInput}
+                  onChange={(e) => setSearchInput(e.target.value)}
+                />
+              </div>
+              {/* Tombol filter untuk mobile (hanya di menu Overview) */}
+              {selectedMenu === 'Overview' && (
+                <button
+                  onClick={() => setShowStatusFilter(!showStatusFilter)}
+                  className="sm:hidden flex items-center justify-center gap-2 w-full py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50 transition"
+                >
+                  <Filter size={16} />
+                  {showStatusFilter ? 'Sembunyikan Filter' : 'Tampilkan Filter'}
+                </button>
+              )}
+            </div>
+
+            {/* Filter untuk desktop (selalu tampil di layar >= sm) */}
+            {selectedMenu === 'Overview' && (
+              <div className="hidden sm:flex flex-wrap items-center gap-3">
+                {/* Filter status */}
+                <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-xl p-1 shadow-sm">
+                  <button
+                    onClick={() => { setFilterStatus('all'); setPage(1); }}
+                    className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${
+                      filterStatus === 'all' ? 'bg-indigo-500 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-100'
+                    }`}
+                  >
+                    Semua
+                  </button>
+                  <button
+                    onClick={() => { setFilterStatus('lunas'); setPage(1); }}
+                    className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${
+                      filterStatus === 'lunas' ? 'bg-indigo-500 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-100'
+                    }`}
+                  >
+                    Lunas
+                  </button>
+                  <button
+                    onClick={() => { setFilterStatus('belum'); setPage(1); }}
+                    className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${
+                      filterStatus === 'belum' ? 'bg-indigo-500 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-100'
+                    }`}
+                  >
+                    Belum
+                  </button>
+                </div>
+                {/* Filter jenis menu (multi‑select) */}
+                <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-xl p-1 shadow-sm">
+                  <button
+                    onClick={() => setSelectedMenuFilters([])}
+                    className={`px-3 py-1 text-xs font-medium rounded-lg transition-all ${
+                      selectedMenuFilters.length === 0 ? 'bg-indigo-500 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-100'
+                    }`}
+                  >
+                    Semua Jenis
+                  </button>
+                  {menuOptions.filter(m => m.text_1 !== 'Overview').map(menu => (
+                    <button
+                      key={menu.id}
+                      onClick={() => {
+                        if (selectedMenuFilters.includes(menu.text_1)) {
+                          setSelectedMenuFilters(prev => prev.filter(j => j !== menu.text_1));
+                        } else {
+                          setSelectedMenuFilters(prev => [...prev, menu.text_1]);
+                        }
+                        setPage(1);
+                      }}
+                      className={`px-3 py-1 text-xs font-medium rounded-lg transition-all ${
+                        selectedMenuFilters.includes(menu.text_1) ? 'bg-indigo-500 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-100'
+                      }`}
+                    >
+                      {menu.text_1}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Filter untuk mobile (muncul jika tombol ditekan) */}
+            {selectedMenu === 'Overview' && showStatusFilter && (
+              <div className="sm:hidden flex flex-col gap-3 mt-3 animate-in slide-in-from-top-2 duration-200">
+                {/* Filter status */}
+                <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-xl p-1 shadow-sm w-full justify-between">
+                  <button
+                    onClick={() => { setFilterStatus('all'); setPage(1); setShowStatusFilter(false); }}
+                    className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all ${
+                      filterStatus === 'all' ? 'bg-indigo-500 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-100'
+                    }`}
+                  >
+                    Semua
+                  </button>
+                  <button
+                    onClick={() => { setFilterStatus('lunas'); setPage(1); setShowStatusFilter(false); }}
+                    className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all ${
+                      filterStatus === 'lunas' ? 'bg-indigo-500 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-100'
+                    }`}
+                  >
+                    Lunas
+                  </button>
+                  <button
+                    onClick={() => { setFilterStatus('belum'); setPage(1); setShowStatusFilter(false); }}
+                    className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all ${
+                      filterStatus === 'belum' ? 'bg-indigo-500 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-100'
+                    }`}
+                  >
+                    Belum
+                  </button>
+                </div>
+                {/* Filter jenis */}
+                <div className="flex flex-wrap gap-1 bg-white border border-gray-200 rounded-xl p-1 shadow-sm">
+                  <button
+                    onClick={() => { setSelectedMenuFilters([]); setPage(1); setShowStatusFilter(false); }}
+                    className={`px-3 py-1 text-xs font-medium rounded-lg transition-all ${
+                      selectedMenuFilters.length === 0 ? 'bg-indigo-500 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-100'
+                    }`}
+                  >
+                    Semua Jenis
+                  </button>
+                  {menuOptions.filter(m => m.text_1 !== 'Overview').map(menu => (
+                    <button
+                      key={menu.id}
+                      onClick={() => {
+                        if (selectedMenuFilters.includes(menu.text_1)) {
+                          setSelectedMenuFilters(prev => prev.filter(j => j !== menu.text_1));
+                        } else {
+                          setSelectedMenuFilters(prev => [...prev, menu.text_1]);
+                        }
+                        setPage(1);
+                        setShowStatusFilter(false);
+                      }}
+                      className={`px-3 py-1 text-xs font-medium rounded-lg transition-all ${
+                        selectedMenuFilters.includes(menu.text_1) ? 'bg-indigo-500 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-100'
+                      }`}
+                    >
+                      {menu.text_1}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
 
         {/* List Produk (Scrollable Area) */}
         {/* Content Dynamic - Wrapper */}
@@ -946,9 +1145,17 @@ export default function MenuPage() {
                     {items.map(h => ( 
                       <div key={h.id} onClick={() => loadHistorySubDetails(h)} className="bg-white p-6 rounded-[2.5rem] border border-slate-200 shadow-sm hover:shadow-xl transition-all cursor-pointer group h-52 flex flex-col justify-between"> 
                         <div className="flex justify-between items-start"> 
-                            <span className={`text-[10px] font-black px-2 py-0.5 rounded-md uppercase tracking-widest ${getJenisColor(h.jenis)}`}>
-                              {h.jenis}
-                            </span>
+                            <div className="flex items-center gap-1">
+                              <span className={`text-[10px] font-black px-2 py-0.5 rounded-md uppercase tracking-widest ${getJenisColor(h.jenis)}`}>
+                                {h.jenis}
+                              </span>
+                              <span className="text-[10px] font-bold text-slate-400">•</span>
+                              <span className={`text-[10px] font-black px-2 py-0.5 rounded-md uppercase tracking-widest ${
+                                h.status === 'lunas' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                              }`}>
+                                {h.status === 'lunas' ? 'LUNAS' : 'BELUM'}
+                              </span>
+                            </div>
                             <div className="p-2 bg-slate-50 rounded-xl text-slate-300 group-hover:text-blue-500 transition-colors"><History size={16} /></div> 
                         </div> 
                         <div> 
@@ -964,9 +1171,13 @@ export default function MenuPage() {
                             <p className="text-xs font-bold text-slate-400 line-clamp-2 italic mt-2">"{h.text || 'Tanpa deskripsi nota.'}"</p> 
                         </div> 
                         <div className="flex justify-between items-center border-t border-slate-100 pt-4"> 
-                            <span className="text-[10px] font-black text-slate-300 flex items-center gap-1"><Calendar size={12}/> {h.created_at}</span> 
-                            <div className="font-black text-slate-700 bg-slate-100 px-3 py-1 rounded-lg text-xs">{h.qty} Item</div> 
-                        </div> 
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-black text-slate-300 flex items-center gap-1"><Calendar size={12}/> {h.created_at}</span>
+                            <span className="text-[10px] font-black text-slate-400">|</span>
+                            <span className="text-[10px] font-black text-slate-700">Total: Rp {(h.total || 0).toLocaleString('id-ID')}</span>
+                          </div>
+                          <div className="font-black text-slate-700 bg-slate-100 px-3 py-1 rounded-lg text-xs">{h.qty} Item</div> 
+                        </div>
                       </div>
                     ))} 
                   </div> 
@@ -1201,20 +1412,68 @@ export default function MenuPage() {
                     </div>
                   </div>
                 </div>
-                <div>
-                  <label className="text-[9px] font-semibold text-gray-500 uppercase">Akun Kas</label>
-                  <select
-                    value={formBayar.accountCashflow}
-                    onChange={e => setFormBayar({ ...formBayar, accountCashflow: e.target.value })}
-                    className="w-full p-1.5 text-xs bg-white border border-gray-300 rounded-md focus:border-blue-400 outline-none"
-                  >
-                    <option value="">Pilih Akun</option>
-                    {cashflowAccounts.map(a => (
-                      <option key={a.id} value={a.id}>
-                        {a.text_1}
-                      </option>
-                    ))}
-                  </select>
+                <div className="bg-gray-100 p-3 rounded-md space-y-2">
+                  <div className="flex justify-between items-center">
+                    <label className="text-[9px] font-semibold text-gray-500 uppercase">Akun Kas & Nominal</label>
+                    <button
+                      type="button"
+                      onClick={() => setFormBayar(prev => ({
+                        ...prev,
+                        cashflowList: [...prev.cashflowList, { accountId: '', nominal: 0 }]
+                      }))}
+                      className="text-[9px] bg-blue-500 text-white px-2 py-0.5 rounded hover:bg-blue-600"
+                    >
+                      + Tambah Akun
+                    </button>
+                  </div>
+                  {formBayar.cashflowList.map((cf, idx) => (
+                    <div key={idx} className="flex gap-2 items-center">
+                      <select
+                        value={cf.accountId}
+                        onChange={e => {
+                          const newList = [...formBayar.cashflowList];
+                          newList[idx].accountId = e.target.value;
+                          setFormBayar({ ...formBayar, cashflowList: newList });
+                        }}
+                        className="flex-1 p-1 text-xs border border-gray-300 rounded-md bg-white"
+                      >
+                        <option value="">Pilih Akun</option>
+                        {cashflowAccounts.map(a => (
+                          <option key={a.id} value={a.id}>
+                            {a.text_1}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        type="number"
+                        placeholder="Nominal"
+                        value={cf.nominal || ''}
+                        onChange={e => {
+                          const newList = [...formBayar.cashflowList];
+                          newList[idx].nominal = Number(e.target.value);
+                          setFormBayar({ ...formBayar, cashflowList: newList });
+                        }}
+                        className="w-28 p-1 text-xs border border-gray-300 rounded-md bg-white"
+                      />
+                      {formBayar.cashflowList.length > 1 && (
+                        <button
+                          onClick={() => setFormBayar(prev => ({
+                            ...prev,
+                            cashflowList: prev.cashflowList.filter((_, i) => i !== idx)
+                          }))}
+                          className="text-rose-500 hover:text-rose-700"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  <div className="flex justify-between items-center pt-1">
+                    <span className="text-[9px] font-semibold text-gray-500">Total Dibayar:</span>
+                    <span className="text-xs font-bold text-gray-800">
+                      Rp {formBayar.cashflowList.reduce((sum, cf) => sum + (cf.nominal || 0), 0).toLocaleString('id-ID')}
+                    </span>
+                  </div>
                 </div>
                 {formBayar.payment === 'Tempo' && (
                   <input
@@ -1444,9 +1703,19 @@ export default function MenuPage() {
           <div className="space-y-6 max-h-[80vh] overflow-y-auto pr-1 pb-4"> 
             <div className="bg-slate-900 p-6 rounded-3xl text-center text-white relative"> 
               <span className="text-[10px] font-black text-blue-400 uppercase tracking-widest">{showDetailHistory.ref || `INV-${showDetailHistory.id}`}</span> 
-              <h3 className="text-2xl font-black mt-1 uppercase">
-                {personMap[showDetailHistory.person] ? personMap[showDetailHistory.person] : (showDetailHistory.person || 'PELANGGAN UMUM')}
-              </h3>
+
+              <div className="mt-2">
+                <h4 className="font-black text-white text-2xl uppercase leading-tight">
+                  {(() => {
+                    const person = allPersons.find(p => p.id_lama === showDetailHistory.person);
+                    return person ? `${person.text_1} - ${person.text_2 || ''}` : (showDetailHistory.person || 'PELANGGAN UMUM');
+                  })()}
+                </h4>
+                <p className="text-sm font-bold text-slate-300 mt-1">
+                  Total Transaksi: Rp {totalTransaksi.toLocaleString('id-ID')}
+                </p>
+              </div>
+
               <p className="text-xs font-bold text-slate-400 mt-2">Operator: {showDetailHistory.operator || 'System'} | Tgl: {showDetailHistory.created_at}</p>
 
               {showDetailHistory.marketplace && (
@@ -1457,7 +1726,6 @@ export default function MenuPage() {
                 </div>
               )}
 
-              {/* BAGIAN LABA KOTOR (HANYA LEVEL 1) */}
               {userLevel === '1' && (
                 <div className="mt-4 pt-4 border-t border-white/10 flex justify-center gap-6">
                   <div className="text-center">
