@@ -23,7 +23,11 @@ interface Cashflow {
   note: string;
   ref_baru: string;
   created: string; 
-  file: string[]; 
+  file: string[];
+  // Tambahan field
+  person_customer?: string;
+  acc1?: string;
+  acc2?: string;
 }
 
 interface DropdownItem {
@@ -53,12 +57,23 @@ export default function CashflowPage() {
 
   const [modalType, setModalType] = useState<'detail' | 'form' | 'delete' | null>(null);
   const [selectedTx, setSelectedTx] = useState<Cashflow | null>(null);
-  const [formData, setFormData] = useState<Partial<Cashflow>>({});
+  const [formData, setFormData] = useState<Partial<Cashflow>>({
+    mutasi: 'Masuk',
+    created_at: new Date().toISOString().slice(0,16).replace('T', ' '),
+    account_2: '',
+    person_customer: '',
+    acc2: '',
+    person: ''
+  });
 
   // States untuk File & Media Gallery
   const [files, setFiles] = useState<File[]>([]);
   const [previewUrls, setPreviewUrls] = useState<string[]>([]);
   const [galleryIndex, setGalleryIndex] = useState<number | null>(null);
+  // State untuk dompet dan tab
+  const [wallets, setWallets] = useState<DropdownItem[]>([]);
+  const [loadingWallets, setLoadingWallets] = useState(false);
+  const [activeTab, setActiveTab] = useState<'accounts' | 'history'>('history');
 
   const isEditMode = !!(selectedTx && selectedTx.id);
 
@@ -86,6 +101,24 @@ export default function CashflowPage() {
     }
   };
 
+  const fetchWallets = async () => {
+    setLoadingWallets(true);
+    try {
+      const currentUser = pb.authStore.model;
+      const userLevel = localStorage.getItem('user_level') || '';
+      const userName = currentUser?.username || '';
+      const records = await pb.collection('dropdown').getFullList<DropdownItem>({
+        filter: `kategori ~ "dompet" && visibilitas ~ "${userLevel}" && enum_1 ~ "${userName}"`,
+        $autoCancel: false
+      });
+      setWallets(records);
+    } catch (error) {
+      console.error("Gagal memuat dompet:", error);
+    } finally {
+      setLoadingWallets(false);
+    }
+  };
+
   const fetchCashflow = async () => {
     try {
       setLoading(true);
@@ -101,8 +134,8 @@ export default function CashflowPage() {
       }
 
       if (filterMutasi !== 'semua') {
-        if (filterMutasi === 'masuk') conditions.push(`(mutasi ~ "masuk" || mutasi ~ "debet")`);
-        else if (filterMutasi === 'keluar') conditions.push(`(mutasi ~ "keluar" || mutasi ~ "kredit")`);
+        if (filterMutasi === 'masuk') conditions.push(`mutasi = "in"`);
+        else if (filterMutasi === 'keluar') conditions.push(`mutasi = "out"`);
       }
 
       const requestOptions: any = { sort: '-created_at' };
@@ -121,7 +154,10 @@ export default function CashflowPage() {
     }
   };
 
-  useEffect(() => { fetchDropdowns(); }, []);
+  useEffect(() => { 
+    fetchDropdowns(); 
+    fetchWallets(); 
+  }, []);
   useEffect(() => {
     const delayDebounce = setTimeout(() => { setSearchTerm(searchInput); setPage(1); }, 500);
     return () => clearTimeout(delayDebounce);
@@ -159,14 +195,27 @@ export default function CashflowPage() {
       const operatorName = currentUser?.name || currentUser?.username || 'Admin';
       const formattedDate = formData.created_at ? formData.created_at.replace('T', ' ') + ':00' : new Date().toISOString().replace('T', ' ').slice(0, 19);
 
+      // Cari id_lama dari akun yang dipilih
+      const selectedAccount = accountOptions.find(acc => acc.id === formData.account_1);
+      const accountIdLama = selectedAccount?.id_lama || '';
+
       const formDataObj = new FormData();
       formDataObj.append("jenis", formData.jenis || "");
-      formDataObj.append("mutasi", formData.mutasi?.toLowerCase() === 'masuk' ? 'Debet' : 'Kredit');
+      // Ubah mutasi: 'Masuk' -> 'in', 'Keluar' -> 'out'
+      const mutasiValue = formData.mutasi?.toLowerCase() === 'masuk' ? 'in' : 'out';
+      formDataObj.append("mutasi", mutasiValue);
       formDataObj.append("account_1", formData.account_1 || "");
+      formDataObj.append("account_2", formData.account_2 || "");
       formDataObj.append("nominal", String(formData.nominal || 0));
       formDataObj.append("note", formData.note || "");
       formDataObj.append("created_at", formattedDate);
       formDataObj.append("operator", operatorName);
+      
+      // Field tambahan
+      formDataObj.append("person_customer", formData.person_customer || "");
+      formDataObj.append("person", formData.person || "");
+      formDataObj.append("acc1", accountIdLama);
+      formDataObj.append("acc2", formData.acc2 || "");
 
       if (files && files.length > 0) {
         files.forEach(file => formDataObj.append("file", file));
@@ -179,7 +228,14 @@ export default function CashflowPage() {
       }
       
       setModalType(null);
-      setFormData({});
+      setFormData({
+        mutasi: 'Masuk',
+        created_at: new Date().toISOString().slice(0,16).replace('T', ' '),
+        account_2: '',
+        person_customer: '',
+        acc2: '',
+        person: ''
+      });
       setFiles([]);
       fetchCashflow();
     } catch (error: any) {
@@ -231,6 +287,7 @@ export default function CashflowPage() {
       </div>
 
       {/* CONTAINER UTAMA */}
+      {activeTab === 'history' && (
       <div className="bg-white rounded-[2.5rem] shadow-2xl shadow-slate-200/60 border border-white flex-1 flex flex-col overflow-hidden">
         
         {/* FILTER & PENCARIAN */}
@@ -267,7 +324,7 @@ export default function CashflowPage() {
                 
                 <div className="grid gap-3">
                   {items.map((tx) => {
-                    const isMasuk = tx.mutasi.toLowerCase().includes('masuk') || tx.mutasi.toLowerCase().includes('debet');
+                    const isMasuk = tx.mutasi.toLowerCase() === 'in';
                     return (
                       <div key={tx.id} onClick={() => { setSelectedTx(tx); setModalType('detail'); }} className="group bg-white border border-slate-100 p-4 rounded-3xl hover:border-emerald-200 hover:shadow-xl hover:shadow-emerald-500/5 transition-all flex items-center justify-between cursor-pointer">
                         <div className="flex items-center gap-5">
@@ -299,7 +356,7 @@ export default function CashflowPage() {
           )}
         </div>
 
-        {/* FOOTER */}
+      {/* FOOTER */}
         <div className="p-6 border-t border-slate-50 bg-slate-50/30 flex justify-between items-center shrink-0">
           <p className="text-sm font-bold text-slate-400">Hal. {page} / {totalPages || 1}</p>
           <div className="flex gap-2">
@@ -308,6 +365,34 @@ export default function CashflowPage() {
           </div>
         </div>
       </div>
+      )}
+
+      {activeTab === 'accounts' && (
+        <div className="bg-white rounded-2xl shadow-xl border border-slate-100 p-6">
+          <h3 className="text-lg font-black text-slate-800 mb-4 flex items-center gap-2">
+            <Wallet size={20} className="text-emerald-600" /> Daftar Dompet
+          </h3>
+          {loadingWallets ? (
+            <div className="flex justify-center py-10"><div className="w-8 h-8 border-4 border-emerald-200 border-t-emerald-600 rounded-full animate-spin" /></div>
+          ) : wallets.length === 0 ? (
+            <div className="text-center py-10 text-slate-400">Tidak ada dompet yang tersedia.</div>
+          ) : (
+            <div className="grid gap-4">
+              {wallets.map(wallet => (
+                <div key={wallet.id} className="flex justify-between items-center p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                  <div>
+                    <p className="font-black text-slate-800">{wallet.text_1}</p>
+                    <p className="text-xs text-slate-500">{wallet.jenis || 'Dompet'}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-2xl font-black text-emerald-600">{formatRupiah(wallet.number_1 || 0)}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* MODAL FORM TAMBAH/EDIT */}
       <Modal isOpen={modalType === 'form'} onClose={() => setModalType(null)} title={isEditMode ? "Edit Transaksi" : "Catat Transaksi"}>
@@ -439,9 +524,8 @@ export default function CashflowPage() {
       <Modal isOpen={modalType === 'detail'} onClose={() => setModalType(null)} title="Rincian Transaksi">
         {selectedTx && (
           <div className="space-y-6">
-            <div className={`p-8 rounded-[2rem] text-center ${selectedTx.mutasi.toLowerCase().includes('masuk') ? 'bg-emerald-50' : 'bg-rose-50'}`}>
-              <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">{selectedTx.ref}</span>
-              <h3 className={`text-4xl font-black mt-2 tracking-tighter ${selectedTx.mutasi.toLowerCase().includes('masuk') ? 'text-emerald-600' : 'text-rose-600'}`}>
+            <div className={`p-8 rounded-[2rem] text-center ${selectedTx.mutasi.toLowerCase() === 'in' ? 'bg-emerald-50' : 'bg-rose-50'}`}>
+              <h3 className={`text-4xl font-black mt-2 tracking-tighter ${selectedTx.mutasi.toLowerCase() === 'in' ? 'text-emerald-600' : 'text-rose-600'}`}>
                 {formatRupiah(selectedTx.nominal)}
               </h3>
               <p className="mt-2 font-bold text-slate-600 italic">"{selectedTx.note}"</p>
