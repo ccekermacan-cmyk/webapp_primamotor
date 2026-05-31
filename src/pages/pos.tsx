@@ -36,7 +36,9 @@ interface CartItem extends Produk {
 interface HistoryMenu {
   id: string; created_at: string; created: string; jenis: string; person: string; payment: string; 
   qty: number; text: string; tempo: string; marketplace: string; cashback: number; admin: number; operator: string; ref: string; person_baru: string;
-  file: string[]; // Tambahkan ini
+  file: string[];
+  total?: number;
+  dibayar?: number;
 }
 
 interface LogStockDetail {
@@ -347,13 +349,13 @@ export default function MenuPage() {
 
       if (menuLower === 'overview') {
         let overviewFilter = filterStr;
-        // Filter status lunas/belum
+        // Filter status lunas/belum berdasarkan field 'status'
         if (filterStatus !== 'all') {
-          const paymentValue = filterStatus === 'lunas' ? 'Tunai' : 'Tempo';
+          const statusValue = filterStatus === 'lunas' ? 'lunas' : 'belum';
           if (overviewFilter) {
-            overviewFilter = `(${overviewFilter}) && payment = "${paymentValue}"`;
+            overviewFilter = `(${overviewFilter}) && status = "${statusValue}"`;
           } else {
-            overviewFilter = `payment = "${paymentValue}"`;
+            overviewFilter = `status = "${statusValue}"`;
           }
         }
         // Filter jenis menu (multi-select)
@@ -481,81 +483,94 @@ export default function MenuPage() {
   // --- 5. GUARDS & INTERACTION HANDLERS --
   // --- CHECKOUT SAFETY GUARD ---
   const handleCheckoutValidation = () => {
-        // 1. Validasi keranjang tidak boleh kosong
+    // 1. Validasi keranjang tidak boleh kosong
     if (cart.length === 0) {
       setDialog({ show: true, title: 'Validasi Gagal', message: 'Isi keranjang dengan item terlebih dahulu!', type: 'alert' });
       return;
     }
 
-    // Validasi multi cashflow
-  const totalDibayar = formBayar.cashflowList.reduce((sum, cf) => sum + (cf.nominal || 0), 0);
-  if (totalDibayar !== grandTotal) {
-    setDialog({ show: true, title: 'Validasi Gagal', message: `Jumlah nominal akun kas (${totalDibayar.toLocaleString('id-ID')}) tidak sama dengan total belanja (${grandTotal.toLocaleString('id-ID')})`, type: 'alert' });
-    return;
-  }
-  const invalidCashflow = formBayar.cashflowList.some(cf => !cf.accountId || cf.nominal <= 0);
-  if (invalidCashflow) {
-    setDialog({ show: true, title: 'Validasi Gagal', message: 'Setiap baris akun kas harus diisi akun dan nominal > 0', type: 'alert' });
-    return;
-  }
-
-    // 2. Validasi khusus service: data mekanik harus lengkap (kedua field terisi)
-    if (selectedMenu.toLowerCase().includes('service')) {
-      // Cek setiap mekanik yang dipilih (idLama tidak kosong) harus punya ongkos > 0
-      const invalidMechanics = formBayar.mekanikList.some(mek => mek.idLama && mek.ongkos <= 0);
-      if (invalidMechanics) {
-        setDialog({ show: true, title: 'Validasi Gagal', message: 'Mohon isi data mekanik service dengan lengkap (nama mekanik dan ongkos > 0).', type: 'alert' });
-        return;
-      }
-      // Cek jika ada mekanik dengan ongkos > 0 tapi idLama kosong
-      const missingName = formBayar.mekanikList.some(mek => mek.ongkos > 0 && !mek.idLama);
-      if (missingName) {
-        setDialog({ show: true, title: 'Validasi Gagal', message: 'Pilih nama mekanik untuk ongkos yang diisi.', type: 'alert' });
-        return;
-      }
-    }
-    
-    // 1. Validasi Akun Keuangan
-    if (!formBayar.accountCashflow) {
-      setDialog({ show: true, title: 'Validasi Gagal', message: 'Akun Keuangan tidak boleh kosong.', type: 'alert' });
-      return;
-    }
-
-      // Validasi untuk online person
-    if (isOnlinePerson) {
-      if (!formBayar.marketplace.trim()) {
-        setDialog({ show: true, title: 'Validasi Gagal', message: 'Marketplace wajib diisi untuk pelanggan online.', type: 'alert' });
-        return;
-      }
-      if (formBayar.adminFee <= 0) {
-        setDialog({ show: true, title: 'Validasi Gagal', message: 'Admin fee wajib diisi (minimal 0).', type: 'alert' });
-        return;
-      }
-    }
-
     const menuLower = selectedMenu.toLowerCase();
+    const totalDibayar = formBayar.cashflowList.reduce((sum, cf) => sum + (cf.nominal || 0), 0);
+    let perluKonfirmasiLunas = false;
+    let pesanKonfirmasi = '';
 
-    // 2. Validasi Catatan (Service & Pembelian)
-    if (menuLower.includes('service') && !formBayar.noteMenu.trim()) {
-      setDialog({ show: true, title: 'Catatan Kosong', message: 'Isi jenis motor service pada catatan nota!', type: 'alert' });
-      return;
+    // --- Cek kondisi belum lunas dari cashflow ---
+    const isCashflowKosong = formBayar.cashflowList.length === 0 ||
+      formBayar.cashflowList.every(cf => !cf.accountId && cf.nominal === 0);
+    const adaCashflowBelumLengkap = formBayar.cashflowList.some(cf => (!cf.accountId && cf.nominal > 0) || (cf.accountId && cf.nominal <= 0));
+    const totalKurang = totalDibayar < grandTotal;
+
+    if (isCashflowKosong || adaCashflowBelumLengkap || totalKurang) {
+      perluKonfirmasiLunas = true;
+      pesanKonfirmasi = `Apakah Anda yakin ingin melanjutkan simpan menu ${selectedMenu} ini dalam keadaan BELUM LUNAS?`;
     }
 
-    if (menuLower.includes('pembelian')) {
-      if (!formBayar.noteMenu.trim()) {
-        setDialog({ show: true, title: 'Catatan Kosong', message: 'Isi nota dari customer pada catatan nota!', type: 'alert' });
-        return;
-      }
-      // 3. Validasi Media Bukti (Pembelian)
-      if (menuFiles.length === 0 && !editSession?.menuId) { 
-        // Note: ditambahkan cek editSession agar jika sedang edit, file lama masih ada di server
-        setDialog({ show: true, title: 'Media Kosong', message: 'Isi media foto nota pembelian!', type: 'alert' });
-        return;
+    // --- Cek kondisi belum lunas dari mekanik (khusus service) ---
+    let mekanikKosong = false;
+    if (menuLower.includes('service')) {
+      const adaMekanikTerisi = formBayar.mekanikList.some(mek => mek.idLama && mek.ongkos > 0);
+      const adaMekanikTidakLengkap = formBayar.mekanikList.some(mek => (mek.idLama && mek.ongkos <= 0) || (!mek.idLama && mek.ongkos > 0));
+      if (!adaMekanikTerisi || adaMekanikTidakLengkap) {
+        mekanikKosong = true;
+        perluKonfirmasiLunas = true;
+        pesanKonfirmasi = `Apakah Anda yakin ingin melanjutkan simpan menu SERVICE ini dalam keadaan BELUM LUNAS (tanpa ongkos mekanik)?`;
       }
     }
 
-    // Jika lolos semua validasi, buka modal review
-    setShowCheckoutReview(true);
+    // Jika perlu konfirmasi, tampilkan dialog
+    if (perluKonfirmasiLunas) {
+      setDialog({
+        show: true,
+        title: 'Konfirmasi Status Belum Lunas',
+        message: pesanKonfirmasi,
+        type: 'confirm',
+        onConfirm: () => {
+          setDialog(prev => ({ ...prev, show: false }));
+          // Lanjut ke validasi selanjutnya (mandatory)
+          lanjutkanValidasiMandatory();
+        }
+      });
+      return; // tunggu konfirmasi user
+    }
+
+    // Jika tidak perlu konfirmasi (sudah lunas), langsung lanjut
+    lanjutkanValidasiMandatory();
+
+    // Fungsi untuk melanjutkan validasi mandatory (setelah konfirmasi atau langsung)
+    function lanjutkanValidasiMandatory() {
+      // Validasi untuk online person
+      if (isOnlinePerson) {
+        if (!formBayar.marketplace.trim()) {
+          setDialog({ show: true, title: 'Validasi Gagal', message: 'Marketplace wajib diisi untuk pelanggan online.', type: 'alert' });
+          return;
+        }
+        if (formBayar.adminFee <= 0) {
+          setDialog({ show: true, title: 'Validasi Gagal', message: 'Admin fee wajib diisi (minimal 0).', type: 'alert' });
+          return;
+        }
+      }
+
+      // Validasi Catatan (Service & Pembelian)
+      if (menuLower.includes('service') && !formBayar.noteMenu.trim()) {
+        setDialog({ show: true, title: 'Catatan Kosong', message: 'Isi jenis motor service pada catatan nota!', type: 'alert' });
+        return;
+      }
+
+      if (menuLower.includes('pembelian')) {
+        if (!formBayar.noteMenu.trim()) {
+          setDialog({ show: true, title: 'Catatan Kosong', message: 'Isi nota dari customer pada catatan nota!', type: 'alert' });
+          return;
+        }
+        // Validasi Media Bukti (Pembelian)
+        if (menuFiles.length === 0 && !editSession?.menuId) {
+          setDialog({ show: true, title: 'Media Kosong', message: 'Isi media foto nota pembelian!', type: 'alert' });
+          return;
+        }
+      }
+
+      // Jika lolos semua validasi, buka modal review
+      setShowCheckoutReview(true);
+    }
   };
 
   const handleMenuChange = (menuName: string) => {
@@ -564,7 +579,25 @@ export default function MenuPage() {
         show: true, title: 'Batalkan Transaksi?',
         message: 'Keranjang belanja Anda saat ini akan dibersihkan jika Anda berpindah ke halaman menu lain. Lanjutkan?',
         type: 'confirm',
-        onConfirm: () => { setCart([]); setEditSession(null); setSelectedMenu(menuName); setPage(1); setDialog(prev => ({ ...prev, show: false })); }
+        onConfirm: () => { 
+          setCart([]); 
+          setEditSession(null); 
+          setSelectedMenu(menuName); 
+          setPage(1); 
+          setDialog(prev => ({ ...prev, show: false }));
+          setFormBayar(prev => ({
+            ...prev,
+            personIdLama: 'umum1',
+            payment: 'Tunai',
+            cashflowList: [{ accountId: '', nominal: 0 }],
+            mekanikList: [{ idLama: '', ongkos: 0 }],
+            note: '',
+            noteMenu: '',
+            marketplace: '',
+            adminFee: 0,
+            cashback: 0
+          }));
+        }
       });
     } else { setSelectedMenu(menuName); setPage(1); }
   };
@@ -628,8 +661,30 @@ export default function MenuPage() {
       }
 
       // Payload Koleksi Menu
-      // --- GANTI BAGIAN INI KE BAWAH HINGGA menuRecordId ---
-      // Payload Koleksi Menu (Diubah menjadi FormData untuk support file)
+      // Hitung total dibayar dari cashflowList
+      const totalDibayar = formBayar.cashflowList.reduce((sum, cf) => sum + (cf.nominal || 0), 0);
+      const statusBaru = totalDibayar >= grandTotal ? 'lunas' : 'belum';
+      let dateLunas = null;
+
+      // Tentukan date_lunas berdasarkan status dan mode edit/create
+      if (isEditing) {
+        // Ambil data menu lama untuk cek status sebelumnya
+        const oldMenu = await pb.collection('menu').getOne(editSession.menuId);
+        const oldStatus = oldMenu.status;
+        if (statusBaru === 'lunas' && oldStatus !== 'lunas') {
+          dateLunas = new Date().toISOString().slice(0, 19).replace('T', ' ');
+        } else if (statusBaru === 'lunas') {
+          // Pertahankan date_lunas lama jika sudah lunas
+          dateLunas = oldMenu.date_lunas;
+        }
+      } else {
+        // Mode create: set date_lunas hanya jika status lunas
+        if (statusBaru === 'lunas') {
+          dateLunas = new Date().toISOString().slice(0, 19).replace('T', ' ');
+        }
+      }
+
+      // Payload Koleksi Menu
       const menuFormData = new FormData();
       menuFormData.append('jenis', selectedMenu);
       menuFormData.append('person', formBayar.personIdLama);
@@ -642,6 +697,10 @@ export default function MenuPage() {
       menuFormData.append('marketplace', formBayar.marketplace);
       menuFormData.append('cashback', String(formBayar.cashback));
       menuFormData.append('admin', String(formBayar.adminFee));
+      menuFormData.append('status', statusBaru);
+      menuFormData.append('total', String(totalBelanja));
+      menuFormData.append('dibayar', String(totalDibayar));
+      if (dateLunas) menuFormData.append('date_lunas', dateLunas);
 
       // Append Lampiran jika ada
       if (menuFiles && menuFiles.length > 0) {
@@ -660,6 +719,7 @@ export default function MenuPage() {
 
       // Payload Koleksi log_stock
       for (const item of cartWithTierPrice) {
+        const booleanValue = (menuLower.includes('penjualan') || menuLower.includes('service')) ? 'out' : 'in';
         await pb.collection('log_stock').create({
           id_lama: '',
           created_at: timestamp,
@@ -670,28 +730,39 @@ export default function MenuPage() {
           price_1: item.priceSelected,
           price_2: item.beli * item.qty,
           number_1: 0, number_2: 0,
-          boolean: (menuLower.includes('penjualan') || menuLower.includes('service')) ? 'OUT' : 'IN',
-          ref_baru: menuRecordId 
+          boolean: booleanValue,           // lowercase 'out' atau 'in'
+          ref_baru: menuRecordId
         });
 
         const deltaStok = (menuLower.includes('penjualan') || menuLower.includes('service')) ? -item.qty : item.qty;
         await pb.collection('produk').update(item.id, { stok_3: Math.max(0, item.stok_3 + deltaStok) });
-      }
+}
 
       // Simpan cashflow untuk setiap baris
       for (const cf of formBayar.cashflowList) {
         if (cf.accountId && cf.nominal > 0) {
+          // Cari data akun untuk mendapatkan id_lama (field acc1/acc2)
+          const selectedAccount = cashflowAccounts.find(acc => acc.id === cf.accountId);
+          const accountIdLama = selectedAccount ? selectedAccount.id_lama : '';
+          
+          // Tentukan mutasi: 'in' untuk penjualan/service, 'out' untuk pembelian
+          const mutasiValue = (menuLower.includes('penjualan') || menuLower.includes('service')) ? 'in' : 'out';
+          
           await pb.collection('cashflow').create({
             id_lama: '',
             created_at: timestamp,
             operator: operatorName,
             nominal: cf.nominal,
             jenis: selectedMenu,
-            mutasi: (menuLower.includes('penjualan') || menuLower.includes('service')) ? 'debet' : 'kredit',
-            account_1: cf.accountId,
-            account_2: '',
+            mutasi: mutasiValue,
+            account_1: cf.accountId,          // ID record akun (relasi)
+            account_2: '',                    // ID record akun kedua (kosong)
             note: formBayar.note || `POS System: Nota ${menuRecordId}`,
-            ref_baru: menuRecordId 
+            ref_baru: menuRecordId,
+            // Field tambahan sesuai instruksi:
+            person: formBayar.personIdLama,   // id_lama customer
+            acc1: accountIdLama,              // id_lama akun pembayaran 1
+            acc2: '',                         // id_lama akun pembayaran 2 (kosong)
           });
         }
       }
@@ -701,8 +772,13 @@ export default function MenuPage() {
         for (const mek of formBayar.mekanikList) {
           if (mek.idLama && mek.ongkos > 0) {
             await pb.collection('ongkos').create({ 
-              id_lama: '', created_at: timestamp.split(' ')[0], 
-              person: mek.idLama, ongkos: mek.ongkos, ref: '', ref_baru: menuRecordId 
+              id_lama: '',
+              created_at: timestamp,                // gunakan timestamp lengkap (bisa juga date only)
+              person: mek.idLama,
+              ongkos: mek.ongkos,
+              operator: operatorName,              // tambahan field operator
+              ref: '',
+              ref_baru: menuRecordId
             });
           }
         }
@@ -716,13 +792,16 @@ export default function MenuPage() {
           return { name: mech?.name || m.idLama, ongkos: m.ongkos };
         });
 
-      setShowReceiptPrint({
-        id: menuRecordId, timestamp, customer: selectedPersonName, items: cartWithTierPrice,
-        total: grandTotal, cash: formBayar.nominalBayar, change: formBayar.nominalBayar - grandTotal,
-        payment: formBayar.payment,
-        jenis: selectedMenu,
-        mechanics: mechanicsForPrint
-      });
+      // Hanya tampilkan popup print jika status lunas
+      if (statusBaru === 'lunas') {
+        setShowReceiptPrint({
+          id: menuRecordId, timestamp, customer: selectedPersonName, items: cartWithTierPrice,
+          total: grandTotal, cash: formBayar.nominalBayar, change: formBayar.nominalBayar - grandTotal,
+          payment: formBayar.payment,
+          jenis: selectedMenu,
+          mechanics: mechanicsForPrint
+        });
+      }
 
       setShowCheckoutReview(false);
       setCart([]);
@@ -731,7 +810,8 @@ export default function MenuPage() {
       setIsCartOpen(false); // Tutup panel keranjang di mobile setelah sukses
       setFormBayar(prev => ({
         ...prev, nominalBayar: 0, mekanikList: [{ idLama: '', ongkos: 0 }], 
-        noteMenu: '', note: '' ,marketplace: '', adminFee: 0, cashback: 0
+        noteMenu: '', note: '' ,marketplace: '', adminFee: 0, cashback: 0,
+        cashflowList: [{ accountId: '', nominal: 0 }]
       }));
 
     } catch (err) {
@@ -754,6 +834,7 @@ export default function MenuPage() {
       setHistoryOngkos(fees);
     } catch (e) { console.log("Detail sub-item tidak ditemukan."); }
   };
+
 
   // Kalkulasi laba kotor untuk modal history
   const totalLabaKotor = useMemo(() => {
@@ -968,7 +1049,7 @@ export default function MenuPage() {
             {selectedMenu === 'Overview' && (
               <div className="hidden sm:flex flex-wrap items-center gap-3">
                 {/* Filter status */}
-                <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-xl p-1 shadow-sm">
+                <div className="flex flex-wrap items-center gap-1 bg-white border border-gray-200 rounded-xl p-1 shadow-sm">
                   <button
                     onClick={() => { setFilterStatus('all'); setPage(1); }}
                     className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${
@@ -994,11 +1075,11 @@ export default function MenuPage() {
                     Belum
                   </button>
                 </div>
-                {/* Filter jenis menu (multi‑select) */}
-                <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-xl p-1 shadow-sm">
+                {/* Filter jenis menu (multi‑select) – sekarang dengan ukuran dan gaya yang sama */}
+                <div className="flex flex-wrap items-center gap-1 bg-white border border-gray-200 rounded-xl p-1 shadow-sm">
                   <button
                     onClick={() => setSelectedMenuFilters([])}
-                    className={`px-3 py-1 text-xs font-medium rounded-lg transition-all ${
+                    className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${
                       selectedMenuFilters.length === 0 ? 'bg-indigo-500 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-100'
                     }`}
                   >
@@ -1015,7 +1096,7 @@ export default function MenuPage() {
                         }
                         setPage(1);
                       }}
-                      className={`px-3 py-1 text-xs font-medium rounded-lg transition-all ${
+                      className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${
                         selectedMenuFilters.includes(menu.text_1) ? 'bg-indigo-500 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-100'
                       }`}
                     >
@@ -1029,11 +1110,11 @@ export default function MenuPage() {
             {/* Filter untuk mobile (muncul jika tombol ditekan) */}
             {selectedMenu === 'Overview' && showStatusFilter && (
               <div className="sm:hidden flex flex-col gap-3 mt-3 animate-in slide-in-from-top-2 duration-200">
-                {/* Filter status */}
-                <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-xl p-1 shadow-sm w-full justify-between">
+                {/* Filter status – ukuran tombol sama seperti desktop */}
+                <div className="flex flex-wrap gap-1 bg-white border border-gray-200 rounded-xl p-1 shadow-sm">
                   <button
                     onClick={() => { setFilterStatus('all'); setPage(1); setShowStatusFilter(false); }}
-                    className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all ${
+                    className={`flex-1 px-4 py-2 text-sm font-medium rounded-lg transition-all ${
                       filterStatus === 'all' ? 'bg-indigo-500 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-100'
                     }`}
                   >
@@ -1041,7 +1122,7 @@ export default function MenuPage() {
                   </button>
                   <button
                     onClick={() => { setFilterStatus('lunas'); setPage(1); setShowStatusFilter(false); }}
-                    className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all ${
+                    className={`flex-1 px-4 py-2 text-sm font-medium rounded-lg transition-all ${
                       filterStatus === 'lunas' ? 'bg-indigo-500 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-100'
                     }`}
                   >
@@ -1049,18 +1130,18 @@ export default function MenuPage() {
                   </button>
                   <button
                     onClick={() => { setFilterStatus('belum'); setPage(1); setShowStatusFilter(false); }}
-                    className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all ${
+                    className={`flex-1 px-4 py-2 text-sm font-medium rounded-lg transition-all ${
                       filterStatus === 'belum' ? 'bg-indigo-500 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-100'
                     }`}
                   >
                     Belum
                   </button>
                 </div>
-                {/* Filter jenis */}
+                {/* Filter jenis – ukuran tombol disamakan dengan desktop (px-4 py-2 text-sm) */}
                 <div className="flex flex-wrap gap-1 bg-white border border-gray-200 rounded-xl p-1 shadow-sm">
                   <button
                     onClick={() => { setSelectedMenuFilters([]); setPage(1); setShowStatusFilter(false); }}
-                    className={`px-3 py-1 text-xs font-medium rounded-lg transition-all ${
+                    className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${
                       selectedMenuFilters.length === 0 ? 'bg-indigo-500 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-100'
                     }`}
                   >
@@ -1078,7 +1159,7 @@ export default function MenuPage() {
                         setPage(1);
                         setShowStatusFilter(false);
                       }}
-                      className={`px-3 py-1 text-xs font-medium rounded-lg transition-all ${
+                      className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${
                         selectedMenuFilters.includes(menu.text_1) ? 'bg-indigo-500 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-100'
                       }`}
                     >
@@ -1174,7 +1255,15 @@ export default function MenuPage() {
                           <div className="flex items-center gap-2">
                             <span className="text-[10px] font-black text-slate-300 flex items-center gap-1"><Calendar size={12}/> {h.created_at}</span>
                             <span className="text-[10px] font-black text-slate-400">|</span>
-                            <span className="text-[10px] font-black text-slate-700">Total: Rp {(h.total || 0).toLocaleString('id-ID')}</span>
+                            {h.status === 'lunas' ? (
+                              <span className="text-[10px] font-black text-slate-700">Total: Rp {(h.total || 0).toLocaleString('id-ID')}</span>
+                            ) : (
+                              <div className="flex items-center gap-2">
+                                <span className="text-[10px] font-black text-slate-700">Total : Rp {(h.total || 0).toLocaleString('id-ID')}</span>
+                                <span className="text-[10px] font-black text-slate-400">|</span>
+                                <span className="text-[10px] font-black text-amber-600">Dibayar: Rp {(h.dibayar || 0).toLocaleString('id-ID')}</span>
+                              </div>
+                            )}
                           </div>
                           <div className="font-black text-slate-700 bg-slate-100 px-3 py-1 rounded-lg text-xs">{h.qty} Item</div> 
                         </div>
@@ -1428,6 +1517,23 @@ export default function MenuPage() {
                   </div>
                   {formBayar.cashflowList.map((cf, idx) => (
                     <div key={idx} className="flex gap-2 items-center">
+                      {/* Tombol Delete di kiri - hanya muncul jika baris sudah terisi akun dan nominal */}
+                      {cf.accountId && cf.nominal > 0 && (
+                        <button
+                          onClick={() => {
+                            if (window.confirm('Hapus data pembayaran ini?')) {
+                              setFormBayar(prev => ({
+                                ...prev,
+                                cashflowList: prev.cashflowList.filter((_, i) => i !== idx)
+                              }));
+                            }
+                          }}
+                          className="text-rose-500 hover:text-rose-700"
+                          title="Hapus baris pembayaran"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      )}
                       <select
                         value={cf.accountId}
                         onChange={e => {
@@ -1439,9 +1545,7 @@ export default function MenuPage() {
                       >
                         <option value="">Pilih Akun</option>
                         {cashflowAccounts.map(a => (
-                          <option key={a.id} value={a.id}>
-                            {a.text_1}
-                          </option>
+                          <option key={a.id} value={a.id}>{a.text_1}</option>
                         ))}
                       </select>
                       <input
@@ -1455,17 +1559,6 @@ export default function MenuPage() {
                         }}
                         className="w-28 p-1 text-xs border border-gray-300 rounded-md bg-white"
                       />
-                      {formBayar.cashflowList.length > 1 && (
-                        <button
-                          onClick={() => setFormBayar(prev => ({
-                            ...prev,
-                            cashflowList: prev.cashflowList.filter((_, i) => i !== idx)
-                          }))}
-                          className="text-rose-500 hover:text-rose-700"
-                        >
-                          <Trash2 size={12} />
-                        </button>
-                      )}
                     </div>
                   ))}
                   <div className="flex justify-between items-center pt-1">
@@ -1526,21 +1619,49 @@ export default function MenuPage() {
                     </div>
                     {formBayar.mekanikList.map((mek, idx) => (
                       <div key={idx} className="flex gap-2 items-center">
+                        {/* Tombol delete di kiri - hanya muncul jika mekanik dan ongkos sudah diisi */}
+                        {mek.idLama && mek.ongkos > 0 && (
+                          <button
+                            onClick={() => {
+                              if (window.confirm('Hapus data mekanik ini?')) {
+                                setFormBayar({
+                                  ...formBayar,
+                                  mekanikList: formBayar.mekanikList.filter((_, i) => i !== idx)
+                                });
+                              }
+                            }}
+                            className="text-rose-500 hover:text-rose-700"
+                            title="Hapus mekanik"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        )}
                         <select
                           value={mek.idLama}
                           onChange={e => {
+                            const selectedMekanik = e.target.value;
+                            // Cek duplikat (mekanik yang sama tidak boleh dipilih dua kali)
+                            const isDuplicate = formBayar.mekanikList.some((m, i) => i !== idx && m.idLama === selectedMekanik);
+                            if (selectedMekanik && isDuplicate) {
+                              alert('Mekanik sudah dipilih!');
+                              return;
+                            }
                             const newList = [...formBayar.mekanikList];
-                            newList[idx].idLama = e.target.value;
+                            newList[idx].idLama = selectedMekanik;
                             setFormBayar({ ...formBayar, mekanikList: newList });
                           }}
                           className="flex-1 p-1 text-xs border border-gray-300 rounded-md bg-white"
                         >
                           <option value="">Pilih mekanik</option>
-                          {mechanics.map(m => (
-                            <option key={m.id} value={m.username}>
-                              {m.name}
-                            </option>
-                          ))}
+                          {mechanics.map(m => {
+                            // Disable opsi jika mekanik sudah dipilih di baris lain
+                            const isDisabled = formBayar.mekanikList.some((mekItem, i) => i !== idx && mekItem.idLama === m.username);
+                            return (
+                              <option key={m.id} value={m.username} disabled={isDisabled}>
+                                {m.name}
+                              </option>
+                            );
+                          })}
                         </select>
                         <input
                           type="number"
@@ -1553,19 +1674,6 @@ export default function MenuPage() {
                           }}
                           className="w-20 p-1 text-xs border border-gray-300 rounded-md bg-white"
                         />
-                        {formBayar.mekanikList.length > 1 && (
-                          <button
-                            onClick={() =>
-                              setFormBayar({
-                                ...formBayar,
-                                mekanikList: formBayar.mekanikList.filter((_, i) => i !== idx),
-                              })
-                            }
-                            className="text-rose-500 hover:text-rose-700"
-                          >
-                            <Trash2 size={12} />
-                          </button>
-                        )}
                       </div>
                     ))}
                   </div>
@@ -1615,24 +1723,48 @@ export default function MenuPage() {
           {/* Rincian Field Koleksi yang akan di Entry */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-medium"> 
              {/* 1. KOLEKSI MENU */}
-             <div className="bg-slate-50 p-4 rounded-2xl border space-y-1.5 shadow-sm">
-                <p className="font-black text-[10px] text-slate-400 uppercase border-b pb-2 mb-3 flex items-center gap-1.5"><Layers size={14}/> Koleksi: Menu</p>
-                <p><span className="text-slate-400 w-24 inline-block">jenis:</span> {selectedMenu}</p> 
-                <p><span className="text-slate-400 w-24 inline-block">person:</span> {formBayar.personIdLama}</p> 
-                <p><span className="text-slate-400 w-24 inline-block">person_baru:</span> {personOptions.find(p => p.id_lama === formBayar.personIdLama)?.id || '-'}</p> 
-                <p><span className="text-slate-400 w-24 inline-block">payment:</span> {formBayar.payment}</p> 
-                <p><span className="text-slate-400 w-24 inline-block">text:</span> {selectedMenu.toLowerCase().includes('penjualan') ? '-' : (formBayar.note || '-')}</p> 
-                <p><span className="text-slate-400 w-24 inline-block">qty:</span> {totalQtyKeranjang}</p> 
-                <p><span className="text-slate-400 w-24 inline-block">operator:</span> {operatorName}</p> 
-                <p><span className="text-slate-400 w-24 inline-block">created_at:</span> {editSession ? editSession.createdAt : 'Waktu Generate Auto'}</p> 
+              <div className="bg-slate-50 p-4 rounded-2xl border space-y-1.5 shadow-sm">
+                <p className="font-black text-[10px] text-slate-400 uppercase border-b pb-2 mb-3 flex items-center gap-1.5">
+                  <Layers size={14} /> Koleksi: Menu
+                </p>
+                <p><span className="text-slate-400 w-24 inline-block">jenis:</span> {selectedMenu}</p>
+                <p><span className="text-slate-400 w-24 inline-block">person:</span> {formBayar.personIdLama}</p>
+                <p><span className="text-slate-400 w-24 inline-block">person_baru:</span> {personOptions.find(p => p.id_lama === formBayar.personIdLama)?.id || '-'}</p>
+                <p><span className="text-slate-400 w-24 inline-block">payment:</span> {formBayar.payment}</p>
+                <p><span className="text-slate-400 w-24 inline-block">text:</span> {formBayar.noteMenu || '-'}</p>
+                <p><span className="text-slate-400 w-24 inline-block">qty:</span> {totalQtyKeranjang}</p>
+                <p><span className="text-slate-400 w-24 inline-block">total (menu):</span> Rp {totalBelanja.toLocaleString('id-ID')}</p>
+                <p><span className="text-slate-400 w-24 inline-block">dibayar:</span> Rp {formBayar.cashflowList.reduce((sum, cf) => sum + (cf.nominal || 0), 0).toLocaleString('id-ID')}</p>
+                <p><span className="text-slate-400 w-24 inline-block">operator:</span> {operatorName}</p>
+                <p><span className="text-slate-400 w-24 inline-block">created_at:</span> {editSession ? editSession.createdAt : 'Waktu Generate Auto'}</p>
+                
+                {/* Status dan date_lunas */}
+                <p><span className="text-slate-400 w-24 inline-block">status:</span> 
+                  {(() => {
+                    const totalDibayar = formBayar.cashflowList.reduce((sum, cf) => sum + (cf.nominal || 0), 0);
+                    return totalDibayar >= grandTotal ? 'lunas' : 'belum';
+                  })()}
+                </p>
+                <p><span className="text-slate-400 w-24 inline-block">date_lunas:</span> 
+                  {(() => {
+                    const totalDibayar = formBayar.cashflowList.reduce((sum, cf) => sum + (cf.nominal || 0), 0);
+                    if (editSession) {
+                      // Saat edit, date_lunas akan diambil dari data lama (tidak ditampilkan di preview sederhana)
+                      return '(diambil dari data lama)';
+                    } else {
+                      return totalDibayar >= grandTotal ? 'Akan diisi saat checkout' : '-';
+                    }
+                  })()}
+                </p>
+
                 {isOnlinePerson && (
-                <>
-                <p><span className="text-slate-400 w-24 inline-block">marketplace:</span> {formBayar.marketplace || '-'}</p>
-                <p><span className="text-slate-400 w-24 inline-block">admin:</span> {formBayar.adminFee || 0}</p>
-                <p><span className="text-slate-400 w-24 inline-block">cashback:</span> {formBayar.cashback || 0}</p>
+                  <>
+                    <p><span className="text-slate-400 w-24 inline-block">marketplace:</span> {formBayar.marketplace || '-'}</p>
+                    <p><span className="text-slate-400 w-24 inline-block">admin:</span> {formBayar.adminFee || 0}</p>
+                    <p><span className="text-slate-400 w-24 inline-block">cashback:</span> {formBayar.cashback || 0}</p>
                   </>
                 )}
-             </div>
+              </div>
 
              {/* 2. KOLEKSI CASHFLOW */}
              <div className="bg-slate-50 p-4 rounded-2xl border space-y-1.5 shadow-sm">
@@ -1804,32 +1936,40 @@ export default function MenuPage() {
             </div> 
 
             <div className="flex gap-2 pt-2 border-t mt-4 pt-4">
-              {/* Tombol Delete (Level 1 & 5 saja) */}
-              {(userLevel === '1' || userLevel === '5') && (
+              {/* Tombol Delete: level 1,5 selalu; jika status 'belum', level 1-7 */}
+              {(() => {
+                const isStatusBelum = showDetailHistory?.status === 'belum';
+                const bolehDelete = (userLevel === '1' || userLevel === '5') || (isStatusBelum && ['1','2','3','4','5','6','7'].includes(userLevel));
+                return bolehDelete && (
+                  <button 
+                    onClick={() => confirmAction('Hapus Transaksi', 'Yakin ingin menghapus nota ini secara permanen?', () => handleDeleteHistory(showDetailHistory!))} 
+                    className="p-3 bg-rose-50 text-rose-500 rounded-xl hover:bg-rose-100 transition-colors">
+                    <Trash2 size={18}/>
+                  </button>
+                );
+              })()}
+
+              {/* Tombol Edit: level 1-7 */}
+              {['1','2','3','4','5','6','7'].includes(userLevel) && (
                 <button 
-                  onClick={() => confirmAction('Hapus Transaksi', 'Yakin ingin menghapus nota ini secara permanen?', () => handleDeleteHistory(showDetailHistory!))} 
-                  className="p-3 bg-rose-50 text-rose-500 rounded-xl hover:bg-rose-100 transition-colors">
-                  <Trash2 size={18}/>
+                  onClick={() => {
+                    if (showDetailHistory) handleEditHistoryToCart(showDetailHistory);
+                  }} 
+                  className="p-3 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-100 transition-colors"
+                >
+                  <Edit size={18}/>
                 </button>
               )}
 
-              {/* Tombol Edit - Pastikan memanggil handleEditHistoryToCart dengan parameter yang benar */}
-              <button 
-                onClick={() => {
-                  if (showDetailHistory) handleEditHistoryToCart(showDetailHistory);
-                }} 
-                className="p-3 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-100 transition-colors"
-              >
-                <Edit size={18}/>
-              </button>
-
-              {/* Tombol Print */}
-              <button onClick={handlePrint} 
-                      className="p-3 bg-emerald-50 text-emerald-600 rounded-xl hover:bg-emerald-100 transition-colors"><Printer size={18}/></button>
-
-              {/* Tombol Share */}
-              <button onClick={() => alert('Fitur Share segera hadir!')} 
-                      className="p-3 bg-amber-50 text-amber-600 rounded-xl hover:bg-amber-100 transition-colors"><Share2 size={18}/></button>
+              {/* Tombol Print & Share: hanya jika status 'lunas' */}
+              {showDetailHistory?.status === 'lunas' && (
+                <>
+                  <button onClick={handlePrint} 
+                          className="p-3 bg-emerald-50 text-emerald-600 rounded-xl hover:bg-emerald-100 transition-colors"><Printer size={18}/></button>
+                  <button onClick={() => alert('Fitur Share segera hadir!')} 
+                          className="p-3 bg-amber-50 text-amber-600 rounded-xl hover:bg-amber-100 transition-colors"><Share2 size={18}/></button>
+                </>
+              )}
 
               {/* Tombol Close */}
               <button onClick={() => setShowDetailHistory(null)} 

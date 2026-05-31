@@ -361,10 +361,10 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
   return (
     <div className="p-8 h-full flex flex-col">
       {/* Header Halaman */}
-      <div className="flex justify-between items-end mb-8 shrink-0">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-end gap-3 sm:gap-0 mb-6 sm:mb-8 shrink-0">
         <div>
-          <h2 className="text-3xl font-extrabold text-gray-800 tracking-tight">Manajemen Produk</h2>
-          <p className="text-gray-500 mt-1">Total {totalItems} produk terdaftar</p>
+          <h2 className="text-2xl sm:text-3xl font-extrabold text-gray-800 tracking-tight">Manajemen Produk</h2>
+          <p className="text-gray-500 mt-1 text-sm sm:text-base">Total {totalItems} produk terdaftar</p>
         </div>
         <button 
           onClick={() => {
@@ -372,7 +372,7 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
             setFormData({ id_lama: generateRawRandomId() });
             setModalType('form');
           }}
-          className="bg-gradient-to-r from-orange-500 to-amber-500 text-white px-6 py-3 rounded-2xl font-bold shadow-lg shadow-orange-500/30 hover:-translate-y-1 transition-all"
+          className="bg-gradient-to-r from-orange-500 to-amber-500 text-white px-4 py-2 sm:px-6 sm:py-3 rounded-2xl font-bold shadow-lg shadow-orange-500/30 hover:-translate-y-1 transition-all text-sm sm:text-base"
         >
           + Produk Baru
         </button>
@@ -382,133 +382,126 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
         
         {/* Search Bar */}
         <div className="p-6 border-b border-gray-100 bg-gray-50/50 shrink-0">
-          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-            <div className="ml-auto flex items-center gap-1 bg-white border border-gray-200 rounded-xl p-1 shadow-sm">
+          <div className="flex flex-col gap-3">
+            {/* Baris 1: Tombol Grid/List + Input Pencarian (selalu 1 baris di semua device) */}
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-xl p-1 shadow-sm shrink-0">
+                <button
+                  onClick={() => setViewMode('grid')}
+                  className={`p-2 rounded-lg transition-all ${viewMode === 'grid' ? 'bg-orange-500 text-white' : 'text-gray-500 hover:bg-gray-100'}`}
+                  title="Tampilan Grid"
+                >
+                  <LayoutGrid size={18} />
+                </button>
+                <button
+                  onClick={() => setViewMode('list')}
+                  className={`p-2 rounded-lg transition-all ${viewMode === 'list' ? 'bg-orange-500 text-white' : 'text-gray-500 hover:bg-gray-100'}`}
+                  title="Tampilan List"
+                >
+                  <List size={18} />
+                </button>
+              </div>
+              <div className="relative flex-1">
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+                <input 
+                  type="text" 
+                  placeholder="Cari produk..." 
+                  className="w-full pl-12 pr-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none transition-all shadow-sm text-sm"
+                  value={searchInput}
+                  onChange={(e) => setSearchInput(e.target.value)}
+                />
+              </div>
+            </div>
+
+            {/* Baris 2: Filter Desktop (khusus layar >= sm) dan Tombol Filter Mobile */}
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+              {/* Filter untuk desktop */}
+              <div className="hidden sm:flex items-center gap-3 flex-1">
+                <div className="w-[25%]">
+                  <select
+                    value={filterKategori}
+                    onChange={(e) => { setFilterKategori(e.target.value); setPage(1); }}
+                    className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm font-medium focus:ring-2 focus:ring-orange-500 outline-none shadow-sm appearance-none bg-no-repeat bg-[position:right_1rem_center] bg-[length:1.5em_1.5em]"
+                    style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%236b7280' stroke-width='2'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E")` }}
+                  >
+                    <option value="all">Semua Kategori</option>
+                    {kategoriOptions.map(kat => (
+                      <option key={kat} value={kat}>{kat}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-xl p-1 shadow-sm">
+                  <button
+                    onClick={() => { setFilterStok('all'); setPage(1); }}
+                    className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${
+                      filterStok === 'all' ? 'bg-orange-500 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-100'
+                    }`}
+                  >
+                    Semua
+                  </button>
+                  <button
+                    onClick={() => { setFilterStok('menipis'); setPage(1); }}
+                    className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${
+                      filterStok === 'menipis' ? 'bg-orange-500 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-100'
+                    }`}
+                  >
+                    Menipis
+                  </button>
+                  <button
+                    onClick={() => { setFilterStok('habis'); setPage(1); }}
+                    className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${
+                      filterStok === 'habis' ? 'bg-orange-500 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-100'
+                    }`}
+                  >
+                    Habis
+                  </button>
+                </div>
+              </div>
+
+              {/* Tombol filter mobile */}
               <button
-                onClick={() => setViewMode('grid')}
-                className={`p-2 rounded-lg transition-all ${viewMode === 'grid' ? 'bg-orange-500 text-white' : 'text-gray-500 hover:bg-gray-100'}`}
-                title="Tampilan Grid"
+                type="button"
+                onClick={() => setShowMobileFilters(!showMobileFilters)}
+                className="sm:hidden flex items-center justify-center gap-2 w-full py-3 bg-white border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 transition shadow-sm"
               >
-                <LayoutGrid size={18} />
-              </button>
-              <button
-                onClick={() => setViewMode('list')}
-                className={`p-2 rounded-lg transition-all ${viewMode === 'list' ? 'bg-orange-500 text-white' : 'text-gray-500 hover:bg-gray-100'}`}
-                title="Tampilan List"
-              >
-                <List size={18} />
+                <Filter size={18} />
+                {showMobileFilters ? 'Sembunyikan Filter' : 'Tampilkan Filter'}
               </button>
             </div>
 
-            {/* Input pencarian: lebar 25% di desktop */}
-            <div className="relative w-full sm:w-1/4">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
-              <input 
-                type="text" 
-                placeholder="Cari produk..." 
-                className="w-full pl-12 pr-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none transition-all shadow-sm text-sm"
-                value={searchInput}
-                onChange={(e) => setSearchInput(e.target.value)}
-              />
-            </div>
-
-            {/* Filter untuk desktop (tampil di layar >= sm) */}
-            <div className="hidden sm:flex items-center gap-3 flex-1">
-              {/* Filter Kategori: lebar 15% */}
-              <div className="w-[25%]">
+            {/* Filter mobile (tampil jika tombol ditekan) */}
+            {showMobileFilters && (
+              <div className="sm:hidden flex flex-col gap-3 mt-2 animate-in slide-in-from-top-2 duration-200">
                 <select
                   value={filterKategori}
                   onChange={(e) => { setFilterKategori(e.target.value); setPage(1); }}
-                  className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm font-medium focus:ring-2 focus:ring-orange-500 outline-none shadow-sm appearance-none bg-no-repeat bg-[position:right_1rem_center] bg-[length:1.5em_1.5em]"
-                  style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%236b7280' stroke-width='2'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E")` }}
+                  className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm font-medium focus:ring-2 focus:ring-orange-500 outline-none shadow-sm"
                 >
                   <option value="all">Semua Kategori</option>
                   {kategoriOptions.map(kat => (
                     <option key={kat} value={kat}>{kat}</option>
                   ))}
                 </select>
+                <div className="flex gap-2 bg-white border border-gray-200 rounded-xl p-1 shadow-sm">
+                  {[
+                    { value: 'all', label: 'Semua' },
+                    { value: 'menipis', label: 'Menipis' },
+                    { value: 'habis', label: 'Habis' }
+                  ].map(opt => (
+                    <button
+                      key={opt.value}
+                      onClick={() => { setFilterStok(opt.value); setPage(1); }}
+                      className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all ${
+                        filterStok === opt.value ? 'bg-orange-500 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-100'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
               </div>
-
-              {/* Filter Stok: menggunakan tombol pill */}
-              <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-xl p-1 shadow-sm">
-                <button
-                  onClick={() => { setFilterStok('all'); setPage(1); }}
-                  className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${
-                    filterStok === 'all' 
-                      ? 'bg-orange-500 text-white shadow-sm' 
-                      : 'text-gray-600 hover:bg-gray-100'
-                  }`}
-                >
-                  Semua
-                </button>
-                <button
-                  onClick={() => { setFilterStok('menipis'); setPage(1); }}
-                  className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${
-                    filterStok === 'menipis' 
-                      ? 'bg-orange-500 text-white shadow-sm' 
-                      : 'text-gray-600 hover:bg-gray-100'
-                  }`}
-                >
-                  Menipis
-                </button>
-                <button
-                  onClick={() => { setFilterStok('habis'); setPage(1); }}
-                  className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${
-                    filterStok === 'habis' 
-                      ? 'bg-orange-500 text-white shadow-sm' 
-                      : 'text-gray-600 hover:bg-gray-100'
-                  }`}
-                >
-                  Habis
-                </button>
-              </div>
-            </div>
-
-            {/* Tombol filter mobile */}
-            <button
-              type="button"
-              onClick={() => setShowMobileFilters(!showMobileFilters)}
-              className="sm:hidden flex items-center justify-center gap-2 w-full py-3 bg-white border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 transition shadow-sm"
-            >
-              <Filter size={18} />
-              {showMobileFilters ? 'Sembunyikan Filter' : 'Tampilkan Filter'}
-            </button>
+            )}
           </div>
-
-          {/* Filter mobile (tampil jika tombol ditekan) */}
-          {showMobileFilters && (
-            <div className="sm:hidden flex flex-col gap-3 mt-3 animate-in slide-in-from-top-2 duration-200">
-              <select
-                value={filterKategori}
-                onChange={(e) => { setFilterKategori(e.target.value); setPage(1); }}
-                className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm font-medium focus:ring-2 focus:ring-orange-500 outline-none shadow-sm"
-              >
-                <option value="all">Semua Kategori</option>
-                {kategoriOptions.map(kat => (
-                  <option key={kat} value={kat}>{kat}</option>
-                ))}
-              </select>
-              <div className="flex gap-2 bg-white border border-gray-200 rounded-xl p-1 shadow-sm">
-                {[
-                  { value: 'all', label: 'Semua' },
-                  { value: 'menipis', label: 'Menipis' },
-                  { value: 'habis', label: 'Habis' }
-                ].map(opt => (
-                  <button
-                    key={opt.value}
-                    onClick={() => { setFilterStok(opt.value); setPage(1); }}
-                    className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all ${
-                      filterStok === opt.value 
-                        ? 'bg-orange-500 text-white shadow-sm' 
-                        : 'text-gray-600 hover:bg-gray-100'
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
 
         {/* List Grid Produk */}
@@ -529,7 +522,7 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
                 <div 
                   key={prod.id} 
                   onClick={() => handleOpenDetail(prod)}
-                  className="group bg-white border border-gray-100 p-5 rounded-2xl hover:border-orange-400 hover:shadow-lg hover:shadow-orange-100 transition-all duration-300 cursor-pointer flex flex-col justify-between"
+                  className="group bg-white border border-orange-200 p-5 rounded-2xl hover:border-orange-500 hover:shadow-lg hover:shadow-orange-300 transition-all duration-300 cursor-pointer flex flex-col justify-between"
                 >
                   <div className="flex justify-between items-start mb-4">
                     <div>
