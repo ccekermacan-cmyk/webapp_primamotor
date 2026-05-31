@@ -1359,106 +1359,111 @@ export default function MenuPage() {
         </div>
       </button>
 
-      {/* ===== MODAL KERANJANG (POPUP) – FLAT COLOR THEME ===== */}
+      {/* ===== MODAL KERANJANG (POPUP) – DYNAMIC THEME ===== */}
       <Modal
         isOpen={isCartModalOpen}
         onClose={() => setIsCartModalOpen(false)}
         title="Keranjang Belanja"
       >
-        <div className="flex flex-col max-h-[75vh] bg-gray-50">
+        <div className="flex flex-col max-h-[75vh] bg-white">
           {cart.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 text-center space-y-4">
-              <div className="w-24 h-24 bg-gray-200 rounded-full flex items-center justify-center">
-                <ShoppingCart size={48} className="text-gray-400" />
+              <div className={`w-24 h-24 ${activeTheme.light} rounded-full flex items-center justify-center shadow-inner`}>
+                <ShoppingCart size={48} className={activeTheme.text} />
               </div>
               <div>
-                <h3 className="text-lg font-semibold text-gray-500 uppercase tracking-widest">Keranjang Kosong</h3>
-                <p className="text-sm text-gray-400 mt-1">Silakan pilih item dari katalog.</p>
+                <h3 className={`text-lg font-black ${activeTheme.text} uppercase tracking-widest`}>Keranjang Kosong</h3>
+                <p className="text-sm text-slate-400 mt-1 font-medium">Silakan pilih item dari katalog.</p>
               </div>
               <button
                 onClick={() => setIsCartModalOpen(false)}
-                className="mt-4 px-6 py-2 bg-blue-500 text-white rounded-lg font-medium text-sm hover:bg-blue-600 transition"
+                className={`mt-4 px-8 py-2.5 ${activeTheme.main} text-white rounded-xl font-bold text-sm shadow-md hover:brightness-110 hover:shadow-lg transition-all active:scale-95`}
               >
-                Tutup
+                Tutup Panel
               </button>
             </div>
           ) : (
             <>
-              {/* DAFTAR ITEM – FLAT COLOR */}
-              <div className="space-y-2 overflow-y-auto pr-1">
+              {/* DAFTAR ITEM – DYNAMIC COLOR */}
+              <div className="space-y-3 overflow-y-auto pr-1 mt-2">
                 {cartWithTierPrice.map(item => {
                   const canEditPrice =
-                  userLevel === '1' ||
-                  isOnlinePerson ||
-                  selectedMenu.toLowerCase().includes('pembelian');
+                    userLevel === '1' ||
+                    isOnlinePerson ||
+                    selectedMenu.toLowerCase().includes('pembelian');
                   return (
-                    <div key={item.id} className="bg-white border border-gray-200 rounded-lg p-3 relative group hover:bg-gray-50 transition">
+                    <div key={item.id} className={`bg-white border-2 ${activeTheme.border} rounded-2xl p-4 relative group hover:${activeTheme.light} transition-colors shadow-sm`}>
                       <button
                         onClick={() => setCart(prev => prev.filter(c => c.id !== item.id))}
-                        className="absolute top-2 right-2 text-gray-400 hover:text-red-500 p-1 rounded transition"
+                        className="absolute top-3 right-3 text-slate-300 hover:text-rose-500 p-1.5 rounded-lg hover:bg-rose-50 transition-colors"
                       >
-                        <Trash2 size={14} />
+                        <Trash2 size={16} />
                       </button>
-                      <div className="pr-6">
-                        <p className="font-medium text-gray-800 text-sm line-clamp-2">
-                          <span className="font-mono text-gray-500 text-[11px] mr-1">
+                      
+                      <div className="pr-8">
+                        <p className="font-bold text-slate-800 text-sm line-clamp-2 leading-tight">
+                          <span className={`font-black ${activeTheme.text} bg-white px-1.5 py-0.5 rounded mr-1.5 text-[10px] tracking-tight border ${activeTheme.border}`}>
                             #{formatIdLamaDisplay(item.id_lama)}
                           </span>
                           {getFullLabel(item)}
                         </p>
-                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1">
+                        
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-2">
                           {item.isTiered && (
-                            <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-teal-100 text-teal-700">
+                            <span className={`text-[9px] font-black px-2 py-0.5 rounded-md uppercase tracking-wider ${activeTheme.light} ${activeTheme.text}`}>
                               {item.activeTierName}
                             </span>
                           )}
                           {item.priceSelected !== item.sell_6 &&
                             !selectedMenu.toLowerCase().includes('pembelian') && (
-                              <span className="text-[10px] text-gray-400 line-through">
+                              <span className="text-[10px] text-slate-400 line-through font-medium">
                                 Rp {item.sell_6.toLocaleString('id-ID')}
                               </span>
                             )}
                         </div>
                       </div>
-                      <div className="flex justify-between items-center mt-3 pt-2 border-t border-gray-100">
-                        <div className="flex items-center gap-1 border border-gray-300 rounded-md bg-white">
+
+                      <div className="flex justify-between items-center mt-3 pt-3 border-t border-slate-100/60">
+                        <div className={`flex items-center gap-1 border-2 ${activeTheme.border} rounded-xl bg-white overflow-hidden shadow-sm`}>
                           <button
                             onClick={() => updateQty(item.id, -1, item.stok_3)}
-                            className="w-7 h-7 flex items-center justify-center text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-l-md transition text-base"
+                            className={`w-8 h-8 flex items-center justify-center text-slate-500 hover:${activeTheme.text} hover:${activeTheme.light} transition-colors text-lg font-medium`}
                           >
                             −
                           </button>
-                          <span className="w-6 text-center text-sm font-medium text-gray-800">
+                          <span className="w-8 text-center text-sm font-black text-slate-800">
                             {item.qty}
                           </span>
                           <button
                             onClick={() => updateQty(item.id, 1, item.stok_3)}
-                            className="w-7 h-7 flex items-center justify-center text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-r-md transition text-base"
+                            className={`w-8 h-8 flex items-center justify-center text-slate-500 hover:${activeTheme.text} hover:${activeTheme.light} transition-colors text-lg font-medium`}
                           >
                             +
                           </button>
                         </div>
-                        <div className="flex items-center gap-1">
-                          <span className="text-[10px] text-gray-400">@</span>
+                        
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] text-slate-400 font-bold">@</span>
                           {canEditPrice ? (
                             <div className="relative inline-block">
                               <input
                                 type="number"
-                                className="w-20 py-1 pl-5 pr-1 text-right text-xs font-mono bg-white border border-gray-300 rounded-md focus:border-blue-400 focus:ring-0 outline-none"
+                                className={`w-24 py-1.5 pl-6 pr-2 text-right text-xs font-black text-slate-700 bg-white border-2 ${activeTheme.border} rounded-xl ${activeTheme.focusRing} outline-none transition-all`}
                                 value={item.manualPrice !== undefined ? item.manualPrice : item.priceSelected}
                                 onChange={e => updatePrice(item.id, Number(e.target.value))}
                               />
-                              <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[10px] text-gray-400">
+                              <span className={`absolute left-2.5 top-1/2 -translate-y-1/2 text-[10px] font-black ${activeTheme.text}`}>
                                 Rp
                               </span>
                             </div>
                           ) : (
-                            <span className="text-xs font-medium text-gray-700">
+                            <span className={`text-xs font-black ${activeTheme.text}`}>
                               {item.priceSelected.toLocaleString('id-ID')}
                             </span>
                           )}
                         </div>
-                        <div className="text-sm font-semibold text-gray-800">
+                        
+                        <div className="text-sm font-black text-slate-900 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-100">
                           Rp {(item.qty * item.priceSelected).toLocaleString('id-ID')}
                         </div>
                       </div>
@@ -1467,15 +1472,17 @@ export default function MenuPage() {
                 })}
               </div>
 
-              {/* FORM PEMBAYARAN – FLAT COLOR */}
-              <div className="mt-4 space-y-3 border-t border-gray-200 pt-4 bg-gray-50">
-                <div className="grid grid-cols-2 gap-2">
+              {/* FORM PEMBAYARAN – DYNAMIC COLOR */}
+              <div className="mt-5 space-y-4 border-t-2 border-slate-100 pt-5">
+                
+                {/* 1. Pelanggan & Bayar */}
+                <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="text-[9px] font-semibold text-gray-500 uppercase">Pelanggan</label>
+                    <label className={`text-[10px] font-black ${activeTheme.text} uppercase tracking-wider ml-1`}>Pelanggan</label>
                     <select
                       value={formBayar.personIdLama}
                       onChange={e => setFormBayar({ ...formBayar, personIdLama: e.target.value })}
-                      className="w-full p-1.5 text-xs bg-white border border-gray-300 rounded-md focus:border-blue-400 focus:ring-0 outline-none"
+                      className={`w-full mt-1 p-2.5 text-xs font-bold text-slate-700 bg-slate-50 border-2 ${activeTheme.border} rounded-xl ${activeTheme.focusRing} outline-none transition-all`}
                     >
                       {personOptions.map(p => (
                         <option key={p.id} value={p.id_lama}>
@@ -1485,14 +1492,16 @@ export default function MenuPage() {
                     </select>
                   </div>
                   <div>
-                    <label className="text-[9px] font-semibold text-gray-500 uppercase">Bayar</label>
-                    <div className="flex bg-white rounded-md p-0.5 border border-gray-300">
+                    <label className={`text-[10px] font-black ${activeTheme.text} uppercase tracking-wider ml-1`}>Tipe Bayar</label>
+                    <div className={`flex bg-slate-100 rounded-xl p-1 mt-1 border-2 border-transparent`}>
                       {['Tunai', 'Tempo'].map(m => (
                         <button
                           key={m}
                           onClick={() => setFormBayar({ ...formBayar, payment: m })}
-                          className={`flex-1 py-1 text-[10px] font-semibold rounded-md transition ${
-                            formBayar.payment === m ? 'bg-blue-500 text-white' : 'text-gray-600 hover:bg-gray-100'
+                          className={`flex-1 py-1.5 text-[10px] font-black rounded-lg transition-all duration-300 ${
+                            formBayar.payment === m 
+                              ? `${activeTheme.main} text-white shadow-md transform scale-100` 
+                              : 'text-slate-500 hover:bg-slate-200'
                           }`}
                         >
                           {m === 'Tunai' ? 'CASH' : 'TEMPO'}
@@ -1501,23 +1510,27 @@ export default function MenuPage() {
                     </div>
                   </div>
                 </div>
-                <div className="bg-gray-100 p-3 rounded-md space-y-2">
+
+                {/* 2. Multi Cashflow / Akun Kas */}
+                <div className={`${activeTheme.light} p-4 rounded-2xl border ${activeTheme.border} space-y-3`}>
                   <div className="flex justify-between items-center">
-                    <label className="text-[9px] font-semibold text-gray-500 uppercase">Akun Kas & Nominal</label>
+                    <label className={`text-[10px] font-black ${activeTheme.text} uppercase tracking-wider flex items-center gap-1.5`}>
+                      <Wallet size={12} /> Akun Kas & Nominal
+                    </label>
                     <button
                       type="button"
                       onClick={() => setFormBayar(prev => ({
                         ...prev,
                         cashflowList: [...prev.cashflowList, { accountId: '', nominal: 0 }]
                       }))}
-                      className="text-[9px] bg-blue-500 text-white px-2 py-0.5 rounded hover:bg-blue-600"
+                      className={`text-[9px] font-black bg-white ${activeTheme.text} px-3 py-1.5 rounded-lg shadow-sm hover:scale-105 transition-transform`}
                     >
-                      + Tambah Akun
+                      + Akun Kas
                     </button>
                   </div>
+                  
                   {formBayar.cashflowList.map((cf, idx) => (
-                    <div key={idx} className="flex gap-2 items-center">
-                      {/* Tombol Delete di kiri - hanya muncul jika baris sudah terisi akun dan nominal */}
+                    <div key={idx} className="flex gap-2 items-center bg-white p-2 rounded-xl border border-white/50 shadow-sm">
                       {cf.accountId && cf.nominal > 0 && (
                         <button
                           onClick={() => {
@@ -1528,10 +1541,10 @@ export default function MenuPage() {
                               }));
                             }
                           }}
-                          className="text-rose-500 hover:text-rose-700"
+                          className="p-1.5 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
                           title="Hapus baris pembayaran"
                         >
-                          <Trash2 size={12} />
+                          <Trash2 size={14} />
                         </button>
                       )}
                       <select
@@ -1541,70 +1554,93 @@ export default function MenuPage() {
                           newList[idx].accountId = e.target.value;
                           setFormBayar({ ...formBayar, cashflowList: newList });
                         }}
-                        className="flex-1 p-1 text-xs border border-gray-300 rounded-md bg-white"
+                        className="flex-1 p-2 text-xs font-bold text-slate-700 border-none bg-slate-50 rounded-lg outline-none"
                       >
-                        <option value="">Pilih Akun</option>
+                        <option value="">Pilih Akun...</option>
                         {cashflowAccounts.map(a => (
                           <option key={a.id} value={a.id}>{a.text_1}</option>
                         ))}
                       </select>
-                      <input
-                        type="number"
-                        placeholder="Nominal"
-                        value={cf.nominal || ''}
-                        onChange={e => {
-                          const newList = [...formBayar.cashflowList];
-                          newList[idx].nominal = Number(e.target.value);
-                          setFormBayar({ ...formBayar, cashflowList: newList });
-                        }}
-                        className="w-28 p-1 text-xs border border-gray-300 rounded-md bg-white"
-                      />
+                      <div className="relative">
+                        <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[10px] font-black text-slate-400">Rp</span>
+                        <input
+                          type="number"
+                          placeholder="Nominal"
+                          value={cf.nominal || ''}
+                          onChange={e => {
+                            const newList = [...formBayar.cashflowList];
+                            newList[idx].nominal = Number(e.target.value);
+                            setFormBayar({ ...formBayar, cashflowList: newList });
+                          }}
+                          className="w-28 pl-7 p-2 text-xs font-bold text-slate-800 border-none bg-slate-50 rounded-lg outline-none"
+                        />
+                      </div>
                     </div>
                   ))}
-                  <div className="flex justify-between items-center pt-1">
-                    <span className="text-[9px] font-semibold text-gray-500">Total Dibayar:</span>
-                    <span className="text-xs font-bold text-gray-800">
+                  <div className="flex justify-between items-center pt-2 border-t border-black/5">
+                    <span className={`text-[10px] font-black ${activeTheme.text} uppercase`}>Total Dibayar:</span>
+                    <span className="text-sm font-black text-slate-800 bg-white px-3 py-1 rounded-lg shadow-sm">
                       Rp {formBayar.cashflowList.reduce((sum, cf) => sum + (cf.nominal || 0), 0).toLocaleString('id-ID')}
                     </span>
                   </div>
                 </div>
+
+                {/* 3. Jatuh Tempo */}
                 {formBayar.payment === 'Tempo' && (
-                  <input
-                    type="date"
-                    value={formBayar.note}
-                    onChange={e => setFormBayar({ ...formBayar, note: e.target.value })}
-                    className="w-full p-1.5 text-xs bg-white border border-gray-300 rounded-md focus:border-blue-400 outline-none"
-                  />
-                )}
-                {isOnlinePerson && (
-                  <div className="grid grid-cols-3 gap-2 bg-gray-100 p-2 rounded-md">
+                  <div className="animate-in fade-in zoom-in duration-200">
+                    <label className="text-[10px] font-black text-rose-500 uppercase tracking-wider ml-1">Jatuh Tempo</label>
                     <input
-                      list="marketplaceOptions"
-                      placeholder="Marketplace"
-                      value={formBayar.marketplace}
-                      onChange={e => setFormBayar({ ...formBayar, marketplace: e.target.value })}
-                      className="p-1.5 text-xs border border-gray-300 rounded-md bg-white"
-                    />
-                    <input
-                      type="number"
-                      placeholder="Admin fee"
-                      value={formBayar.adminFee}
-                      onChange={e => setFormBayar({ ...formBayar, adminFee: Number(e.target.value) })}
-                      className="p-1.5 text-xs border border-gray-300 rounded-md bg-white"
-                    />
-                    <input
-                      type="number"
-                      placeholder="Cashback"
-                      value={formBayar.cashback}
-                      onChange={e => setFormBayar({ ...formBayar, cashback: Number(e.target.value) })}
-                      className="p-1.5 text-xs border border-gray-300 rounded-md bg-white"
+                      type="date"
+                      value={formBayar.note}
+                      onChange={e => setFormBayar({ ...formBayar, note: e.target.value })}
+                      className="w-full mt-1 p-2.5 text-xs font-bold text-slate-700 bg-rose-50 border-2 border-rose-200 rounded-xl focus:border-rose-400 outline-none transition-colors"
                     />
                   </div>
                 )}
+
+                {/* 4. Marketplace Online */}
+                {isOnlinePerson && (
+                  <div className="grid grid-cols-3 gap-3 bg-amber-50 p-4 rounded-2xl border border-amber-200 shadow-sm animate-in fade-in">
+                    <div>
+                      <label className="text-[9px] font-black text-amber-600 uppercase ml-1">Platform</label>
+                      <input
+                        list="marketplaceOptions"
+                        placeholder="Shopee/Tokped"
+                        value={formBayar.marketplace}
+                        onChange={e => setFormBayar({ ...formBayar, marketplace: e.target.value })}
+                        className="w-full mt-1 p-2 text-xs font-bold bg-white border border-amber-200 rounded-lg outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[9px] font-black text-amber-600 uppercase ml-1">Admin Fee</label>
+                      <input
+                        type="number"
+                        placeholder="0"
+                        value={formBayar.adminFee}
+                        onChange={e => setFormBayar({ ...formBayar, adminFee: Number(e.target.value) })}
+                        className="w-full mt-1 p-2 text-xs font-bold bg-white border border-amber-200 rounded-lg outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[9px] font-black text-amber-600 uppercase ml-1">Cashback</label>
+                      <input
+                        type="number"
+                        placeholder="0"
+                        value={formBayar.cashback}
+                        onChange={e => setFormBayar({ ...formBayar, cashback: Number(e.target.value) })}
+                        className="w-full mt-1 p-2 text-xs font-bold bg-white border border-amber-200 rounded-lg outline-none"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* 5. Mekanik (Khusus Service) */}
                 {selectedMenu.toLowerCase().includes('service') && (
-                  <div className="bg-gray-100 p-2 rounded-md space-y-2">
+                  <div className={`${activeTheme.light} p-4 rounded-2xl border ${activeTheme.border} space-y-3`}>
                     <div className="flex justify-between items-center">
-                      <span className="text-[10px] font-semibold text-teal-700">Ongkos Mekanik</span>
+                      <span className={`text-[10px] font-black ${activeTheme.text} uppercase tracking-wider flex items-center gap-1.5`}>
+                        <Wrench size={12}/> Ongkos Mekanik
+                      </span>
                       <button
                         onClick={() =>
                           setFormBayar({
@@ -1612,14 +1648,13 @@ export default function MenuPage() {
                             mekanikList: [...formBayar.mekanikList, { idLama: '', ongkos: 0 }],
                           })
                         }
-                        className="text-[9px] bg-teal-500 text-white px-2 py-0.5 rounded hover:bg-teal-600"
+                        className={`text-[9px] font-black bg-white ${activeTheme.text} px-3 py-1.5 rounded-lg shadow-sm hover:scale-105 transition-transform`}
                       >
                         + Tambah
                       </button>
                     </div>
                     {formBayar.mekanikList.map((mek, idx) => (
-                      <div key={idx} className="flex gap-2 items-center">
-                        {/* Tombol delete di kiri - hanya muncul jika mekanik dan ongkos sudah diisi */}
+                      <div key={idx} className="flex gap-2 items-center bg-white p-2 rounded-xl border border-white/50 shadow-sm">
                         {mek.idLama && mek.ongkos > 0 && (
                           <button
                             onClick={() => {
@@ -1630,17 +1665,16 @@ export default function MenuPage() {
                                 });
                               }
                             }}
-                            className="text-rose-500 hover:text-rose-700"
+                            className="p-1.5 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
                             title="Hapus mekanik"
                           >
-                            <Trash2 size={12} />
+                            <Trash2 size={14} />
                           </button>
                         )}
                         <select
                           value={mek.idLama}
                           onChange={e => {
                             const selectedMekanik = e.target.value;
-                            // Cek duplikat (mekanik yang sama tidak boleh dipilih dua kali)
                             const isDuplicate = formBayar.mekanikList.some((m, i) => i !== idx && m.idLama === selectedMekanik);
                             if (selectedMekanik && isDuplicate) {
                               alert('Mekanik sudah dipilih!');
@@ -1650,11 +1684,10 @@ export default function MenuPage() {
                             newList[idx].idLama = selectedMekanik;
                             setFormBayar({ ...formBayar, mekanikList: newList });
                           }}
-                          className="flex-1 p-1 text-xs border border-gray-300 rounded-md bg-white"
+                          className="flex-1 p-2 text-xs font-bold text-slate-700 border-none bg-slate-50 rounded-lg outline-none"
                         >
-                          <option value="">Pilih mekanik</option>
+                          <option value="">Pilih Mekanik...</option>
                           {mechanics.map(m => {
-                            // Disable opsi jika mekanik sudah dipilih di baris lain
                             const isDisabled = formBayar.mekanikList.some((mekItem, i) => i !== idx && mekItem.idLama === m.username);
                             return (
                               <option key={m.id} value={m.username} disabled={isDisabled}>
@@ -1663,47 +1696,65 @@ export default function MenuPage() {
                             );
                           })}
                         </select>
-                        <input
-                          type="number"
-                          placeholder="Ongkos"
-                          value={mek.ongkos || ''}
-                          onChange={e => {
-                            const newList = [...formBayar.mekanikList];
-                            newList[idx].ongkos = Number(e.target.value);
-                            setFormBayar({ ...formBayar, mekanikList: newList });
-                          }}
-                          className="w-20 p-1 text-xs border border-gray-300 rounded-md bg-white"
-                        />
+                        <div className="relative">
+                          <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[10px] font-black text-slate-400">Rp</span>
+                          <input
+                            type="number"
+                            placeholder="Ongkos"
+                            value={mek.ongkos || ''}
+                            onChange={e => {
+                              const newList = [...formBayar.mekanikList];
+                              newList[idx].ongkos = Number(e.target.value);
+                              setFormBayar({ ...formBayar, mekanikList: newList });
+                            }}
+                            className="w-24 pl-7 p-2 text-xs font-bold text-slate-800 border-none bg-slate-50 rounded-lg outline-none"
+                          />
+                        </div>
                       </div>
                     ))}
                   </div>
                 )}
-                <div className="grid grid-cols-2 gap-2">
-                  <input
-                    placeholder="Catatan nota"
-                    value={formBayar.noteMenu}
-                    onChange={e => setFormBayar({ ...formBayar, noteMenu: e.target.value })}
-                    className="p-1.5 text-xs border border-gray-300 rounded-md bg-white"
-                  />
-                  <input
-                    placeholder="Catatan jurnal"
-                    value={formBayar.note}
-                    onChange={e => setFormBayar({ ...formBayar, note: e.target.value })}
-                    className="p-1.5 text-xs border border-gray-300 rounded-md bg-white"
-                  />
-                </div>
-                <div className="flex justify-between items-center pt-2 border-t border-gray-200">
+
+                {/* 6. Catatan */}
+                <div className="grid grid-cols-2 gap-3 pt-2">
                   <div>
-                    <span className="text-[9px] font-semibold text-gray-500 uppercase">Total</span>
-                    <p className="text-xl font-semibold text-gray-800">Rp {grandTotal.toLocaleString('id-ID')}</p>
+                    <label className={`text-[10px] font-black ${activeTheme.text} uppercase tracking-wider ml-1`}>Catatan Nota</label>
+                    <input
+                      placeholder="Tampil di struk..."
+                      value={formBayar.noteMenu}
+                      onChange={e => setFormBayar({ ...formBayar, noteMenu: e.target.value })}
+                      className={`w-full mt-1 p-2.5 text-xs font-bold text-slate-700 bg-slate-50 border-2 ${activeTheme.border} rounded-xl ${activeTheme.focusRing} outline-none transition-all`}
+                    />
+                  </div>
+                  <div>
+                    <label className={`text-[10px] font-black ${activeTheme.text} uppercase tracking-wider ml-1`}>Catatan Internal</label>
+                    <input
+                      placeholder="Jurnal kasir..."
+                      value={formBayar.note}
+                      onChange={e => setFormBayar({ ...formBayar, note: e.target.value })}
+                      className={`w-full mt-1 p-2.5 text-xs font-bold text-slate-700 bg-slate-50 border-2 ${activeTheme.border} rounded-xl ${activeTheme.focusRing} outline-none transition-all`}
+                    />
+                  </div>
+                </div>
+
+                {/* 7. Action Bawah */}
+                <div className="flex flex-col sm:flex-row justify-between items-center pt-5 border-t-2 border-slate-100 mt-2 gap-4">
+                  <div className="text-center sm:text-left">
+                    <span className={`text-[10px] font-black ${activeTheme.text} uppercase tracking-widest block mb-1`}>
+                      Grand Total
+                    </span>
+                    <p className="text-3xl sm:text-2xl font-black text-slate-900 tracking-tight">
+                      Rp {grandTotal.toLocaleString('id-ID')}
+                    </p>
                   </div>
                   <button
                     onClick={handleCheckoutValidation}
-                    className="px-5 py-2 bg-green-500 text-white rounded-lg text-xs font-semibold hover:bg-green-600 transition"
+                    className={`w-full sm:w-auto px-8 py-4 sm:py-3.5 ${activeTheme.main} text-white rounded-2xl text-sm font-black shadow-lg hover:shadow-xl hover:-translate-y-1 active:translate-y-0 active:shadow-md transition-all uppercase tracking-widest`}
                   >
-                    {editSession ? 'SIMPAN' : 'CHECKOUT'}
+                    {editSession ? 'SIMPAN PERUBAHAN' : 'PROSES CHECKOUT'}
                   </button>
                 </div>
+
               </div>
             </>
           )}
