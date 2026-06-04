@@ -107,15 +107,9 @@ export default function Produk() {
         const bindings: any = {};
 
         terms.forEach((term, idx) => {
-          const isNumeric = /^\d+$/.test(term);
-          if (isNumeric) {
-            const numericId = parseInt(term, 10);
-            searchConditions.push(`id_lama = {:t${idx}}`);
-            bindings[`t${idx}`] = numericId.toString();
-          } else {
-            searchConditions.push(`(id_lama ~ {:t${idx}} || kategori ~ {:t${idx}} || merk ~ {:t${idx}} || jenis ~ {:t${idx}} || varian ~ {:t${idx}} || keterangan ~ {:t${idx}} || tipe ~ {:t${idx}})`);
-            bindings[`t${idx}`] = term;
-          }
+          // Gunakan operator ~ untuk SEMUA field, tanpa perlakuan khusus numerik
+          searchConditions.push(`(id_lama ~ {:t${idx}} || kategori ~ {:t${idx}} || merk ~ {:t${idx}} || jenis ~ {:t${idx}} || varian ~ {:t${idx}} || keterangan ~ {:t${idx}} || tipe ~ {:t${idx}})`);
+          bindings[`t${idx}`] = term;
         });
         const searchFilter = pb.filter(searchConditions.join(' && '), bindings);
         if (searchFilter) conditions.push(`(${searchFilter})`);

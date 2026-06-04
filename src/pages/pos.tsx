@@ -5,7 +5,9 @@ import Modal from '../components/modal';
 import { 
   Search, ShoppingCart, ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
   Trash2, Plus, Receipt, Layers, Printer, Share2, X,
-  ArrowRight, Calendar, History, Sparkles, DollarSign, Wallet, AlertTriangle, Info, Wrench, Edit, TrendingUp, TrendingDown, Filter
+  ArrowRight, Calendar, History, Sparkles, DollarSign, Wallet, AlertTriangle, Info, Wrench, Edit, TrendingUp, TrendingDown, Filter,
+  // Tambahan ikon baru untuk UI yang diperbarui:
+  ListOrdered, List, Grid, Users, CreditCard, ShoppingBag, FileText, EyeOff, ImagePlus, Save, CheckCircle2, Box, User
 } from 'lucide-react';
 
 // --- INTERFACES ---
@@ -145,7 +147,7 @@ export default function MenuPage() {
   return personId.includes('online1') || personText.includes('online');
   }, [formBayar.personIdLama, personOptions]);
 
-  const [isPaymentFormOpen, setIsPaymentFormOpen] = useState(true);
+  const [isPaymentFormOpen, setIsPaymentFormOpen] = useState(false);
   const [isCartOpen, setIsCartOpen] = useState(false);
 
   const [dialog, setDialog] = useState<{show: boolean, title: string, message: string, type: 'alert' | 'confirm', onConfirm?: () => void}>({
@@ -215,6 +217,21 @@ export default function MenuPage() {
   const formatIdLamaDisplay = (id: string | number | undefined) => {
     if (id === undefined || id === null || id === '') return 'N/A';
     return String(id).padStart(5, '0');
+  };
+
+  // --- 7. LOAD SUB-DETAILS (dipindah ke atas) ---
+  const loadHistorySubDetails = async (menuItem: HistoryMenu) => {
+    setShowDetailHistory(menuItem);
+    setHistoryItems([]); setHistoryCashflow(null); setHistoryOngkos([]);
+    try {
+      // expand: 'item_baru' untuk menarik semua detail produk yang berelasi
+      const logs = await pb.collection('log_stock').getFullList<LogStockDetail>({ filter: `ref_baru = "${menuItem.id}"`, expand: 'item_baru', $autoCancel: false });
+      setHistoryItems(logs);
+      const cf = await pb.collection('cashflow').getFirstListItem<CashflowDetail>(`ref_baru = "${menuItem.id}"`, { $autoCancel: false });
+      setHistoryCashflow(cf);
+      const fees = await pb.collection('ongkos').getFullList<OngkosDetail>({ filter: `ref_baru = "${menuItem.id}"`, $autoCancel: false });
+      setHistoryOngkos(fees);
+    } catch (e) { console.log("Detail sub-item tidak ditemukan."); }
   };
 
   // --- FITUR AUTO BUKA NOTA DARI URL (?ref=id_transaksi) ---
@@ -412,6 +429,9 @@ export default function MenuPage() {
 
   const cartWithTierPrice = useMemo(() => {
   const isPembelian = selectedMenu.toLowerCase().includes('pembelian');
+
+  const selectedPersonRecordId = personOptions.find(p => p.id_lama === formBayar.personIdLama)?.id || '';
+  const selectedPersonName = personOptions.find(p => p.id_lama === formBayar.personIdLama)?.text_1 || 'Umum';
   
   const selectedCustomer = personOptions.find(p => p.id_lama === formBayar.personIdLama);
   const customerText = (selectedCustomer?.text_1 || '').toLowerCase();
@@ -635,56 +655,41 @@ export default function MenuPage() {
     setIsProcessing(true);
     try {
       const isEditing = editSession?.isEditing && editSession?.menuId;
+      // Gunakan waktu buatan baru jika buat nota baru, pertahankan waktu lama jika sesi edit
       const timestamp = isEditing ? editSession.createdAt : new Date().toISOString().slice(0, 19).replace('T', ' ');
       const menuLower = selectedMenu.toLowerCase();
 
       const selectedPersonRecordId = personOptions.find(p => p.id_lama === formBayar.personIdLama)?.id || '';
-      const selectedPersonName = personMap[formBayar.personIdLama] || 'Umum';
+      const selectedPersonName = personOptions.find(p => p.id_lama === formBayar.personIdLama)?.text_1 || 'Umum';
 
-      // Jika dalam Mode Edit, kembalikan stok lama dan bersihkan relasi (log_stock, cashflow, ongkos)
+      let menuRecordId = isEditing ? editSession.menuId : '';
+      let oldMenuData: any = null;
+
       if (isEditing) {
-        const oldLogs = await pb.collection('log_stock').getFullList<LogStockDetail>({ filter: `ref_baru = "${editSession.menuId}"` });
-        for (const old of oldLogs) {
-           const revertDelta = (menuLower.includes('penjualan') || menuLower.includes('service')) ? old.qty : -old.qty;
-           try {
-             const prod = await pb.collection('produk').getOne(old.item_baru);
-             await pb.collection('produk').update(old.item_baru, { stok_3: prod.stok_3 + revertDelta });
-           } catch { console.warn(`Produk ID ${old.item_baru} dihapus dari database.`); }
-           await pb.collection('log_stock').delete(old.id);
-        }
-        
-        const oldCf = await pb.collection('cashflow').getFullList({ filter: `ref_baru = "${editSession.menuId}"` });
-        for (const cf of oldCf) await pb.collection('cashflow').delete(cf.id);
-        
-        const oldOngkos = await pb.collection('ongkos').getFullList({ filter: `ref_baru = "${editSession.menuId}"` });
-        for (const ok of oldOngkos) await pb.collection('ongkos').delete(ok.id);
+        // 1. Cadangkan info status lunas/belum nota lama sebelum dibersihkan
+        oldMenuData = await pb.collection('menu').getOne(editSession.menuId).catch(() => null);
+
+        // 2. Eksekusi Delete dan tunggu (AWAIT) hingga seluruh hooks server (menu & log_stock) tuntas mengembalikan stok fisik
+        await pb.collection('menu').delete(editSession.menuId);
       }
 
-      // Payload Koleksi Menu
-      // Hitung total dibayar dari cashflowList
+      // Hitung akumulasi parameter keuangan pembayaran kasir
       const totalDibayar = formBayar.cashflowList.reduce((sum, cf) => sum + (cf.nominal || 0), 0);
       const statusBaru = totalDibayar >= grandTotal ? 'lunas' : 'belum';
       let dateLunas = null;
 
-      // Tentukan date_lunas berdasarkan status dan mode edit/create
-      if (isEditing) {
-        // Ambil data menu lama untuk cek status sebelumnya
-        const oldMenu = await pb.collection('menu').getOne(editSession.menuId);
-        const oldStatus = oldMenu.status;
+      if (isEditing && oldMenuData) {
+        const oldStatus = oldMenuData.status;
         if (statusBaru === 'lunas' && oldStatus !== 'lunas') {
           dateLunas = new Date().toISOString().slice(0, 19).replace('T', ' ');
         } else if (statusBaru === 'lunas') {
-          // Pertahankan date_lunas lama jika sudah lunas
-          dateLunas = oldMenu.date_lunas;
+          dateLunas = oldMenuData.date_lunas; // Pertahankan track records tgl lunas lama
         }
-      } else {
-        // Mode create: set date_lunas hanya jika status lunas
-        if (statusBaru === 'lunas') {
-          dateLunas = new Date().toISOString().slice(0, 19).replace('T', ' ');
-        }
+      } else if (statusBaru === 'lunas') {
+        dateLunas = new Date().toISOString().slice(0, 19).replace('T', ' ');
       }
 
-      // Payload Koleksi Menu
+      // Pembentukan Dokumen Jurnal Formulir Data Menu Baru
       const menuFormData = new FormData();
       menuFormData.append('jenis', selectedMenu);
       menuFormData.append('person', formBayar.personIdLama);
@@ -702,24 +707,25 @@ export default function MenuPage() {
       menuFormData.append('dibayar', String(totalDibayar));
       if (dateLunas) menuFormData.append('date_lunas', dateLunas);
 
-      // Append Lampiran jika ada
       if (menuFiles && menuFiles.length > 0) {
         menuFiles.forEach(file => menuFormData.append('file', file));
       }
 
-      let menuRecordId;
+      // Simpan entitas Menu utama ke Database
       if (isEditing) {
-        await pb.collection('menu').update(editSession.menuId, menuFormData);
-        menuRecordId = editSession.menuId;
+        // Tambahkan ID ke FormData, lalu create dengan ID yang sama
+        menuFormData.append('id', menuRecordId);
+        const menuRecord = await pb.collection('menu').create(menuFormData);
+        menuRecordId = menuRecord.id;
       } else {
         const menuRecord = await pb.collection('menu').create(menuFormData);
         menuRecordId = menuRecord.id;
       }
-      // --- BATAS PENGGANTIAN ---
 
-      // Payload Koleksi log_stock
+      // 3. Masukkan item log_stock baru (Otomatis memicu HOOK log_stock CREATE untuk kalkulasi stok_3 & harga beli baru)
       for (const item of cartWithTierPrice) {
         const booleanValue = (menuLower.includes('penjualan') || menuLower.includes('service')) ? 'out' : 'in';
+        
         await pb.collection('log_stock').create({
           id_lama: '',
           created_at: timestamp,
@@ -727,25 +733,20 @@ export default function MenuPage() {
           item: item.id_lama,
           qty: item.qty,
           item_baru: item.id,
-          price_1: item.priceSelected,
+          price_1: item.priceSelected, // Nilai ini yang otomatis dibaca oleh hook server untuk update harga beli produk
           price_2: item.beli * item.qty,
-          number_1: 0, number_2: 0,
-          boolean: booleanValue,           // lowercase 'out' atau 'in'
+          number_1: 0, 
+          number_2: 0,
+          boolean: booleanValue,
           ref_baru: menuRecordId
         });
+      }
 
-        const deltaStok = (menuLower.includes('penjualan') || menuLower.includes('service')) ? -item.qty : item.qty;
-        await pb.collection('produk').update(item.id, { stok_3: Math.max(0, item.stok_3 + deltaStok) });
-}
-
-      // Simpan cashflow untuk setiap baris
+      // Simpan pemetaan pemisahan multi cashflow aliran dana masuk/keluar
       for (const cf of formBayar.cashflowList) {
         if (cf.accountId && cf.nominal > 0) {
-          // Cari data akun untuk mendapatkan id_lama (field acc1/acc2)
           const selectedAccount = cashflowAccounts.find(acc => acc.id === cf.accountId);
           const accountIdLama = selectedAccount ? selectedAccount.id_lama : '';
-          
-          // Tentukan mutasi: 'in' untuk penjualan/service, 'out' untuk pembelian
           const mutasiValue = (menuLower.includes('penjualan') || menuLower.includes('service')) ? 'in' : 'out';
           
           await pb.collection('cashflow').create({
@@ -755,28 +756,27 @@ export default function MenuPage() {
             nominal: cf.nominal,
             jenis: selectedMenu,
             mutasi: mutasiValue,
-            account_1: cf.accountId,          // ID record akun (relasi)
-            account_2: '',                    // ID record akun kedua (kosong)
+            account_1: cf.accountId,          
+            account_2: '',                    
             note: formBayar.note || `POS System: Nota ${menuRecordId}`,
             ref_baru: menuRecordId,
-            // Field tambahan sesuai instruksi:
-            person: formBayar.personIdLama,   // id_lama customer
-            acc1: accountIdLama,              // id_lama akun pembayaran 1
-            acc2: '',                         // id_lama akun pembayaran 2 (kosong)
+            person: formBayar.personIdLama,   
+            acc1: accountIdLama,              
+            acc2: '',                         
           });
         }
       }
 
-      // Payload Koleksi ongkos (Khusus Servis)
+      // Alokasikan alur pembagian komisi upah ke sub-koleksi ongkos (Khusus Jenis Service)
       if (menuLower.includes('service')) {
         for (const mek of formBayar.mekanikList) {
           if (mek.idLama && mek.ongkos > 0) {
-            await pb.collection('ongkos').create({ 
+            await pb.collection('ongkos').create({
               id_lama: '',
-              created_at: timestamp,                // gunakan timestamp lengkap (bisa juga date only)
+              created_at: timestamp,
               person: mek.idLama,
               ongkos: mek.ongkos,
-              operator: operatorName,              // tambahan field operator
+              operator: operatorName,
               ref: '',
               ref_baru: menuRecordId
             });
@@ -784,7 +784,7 @@ export default function MenuPage() {
         }
       }
 
-      // Siapkan data mekanik untuk nota
+      // Siapkan State Nota Cetak Thermal Printer
       const mechanicsForPrint = formBayar.mekanikList
         .filter(m => m.idLama && m.ongkos > 0)
         .map(m => {
@@ -792,47 +792,48 @@ export default function MenuPage() {
           return { name: mech?.name || m.idLama, ongkos: m.ongkos };
         });
 
-      // Hanya tampilkan popup print jika status lunas
-      if (statusBaru === 'lunas') {
-        setShowReceiptPrint({
-          id: menuRecordId, timestamp, customer: selectedPersonName, items: cartWithTierPrice,
-          total: grandTotal, cash: formBayar.nominalBayar, change: formBayar.nominalBayar - grandTotal,
-          payment: formBayar.payment,
-          jenis: selectedMenu,
-          mechanics: mechanicsForPrint
-        });
-      }
+      setShowReceiptPrint({
+        id: menuRecordId,
+        timestamp,
+        customer: selectedPersonName,
+        items: cartWithTierPrice,
+        total: grandTotal,
+        cash: formBayar.nominalBayar,
+        change: formBayar.nominalBayar - grandTotal,
+        payment: formBayar.payment,
+        jenis: selectedMenu,
+        mechanics: mechanicsForPrint
+      });
 
+      alert(isEditing ? "Perubahan transaksi berhasil diperbarui!" : "Transaksi berhasil disimpan!");
+      
+      // Reset State Form input kasir kembali bersih
       setShowCheckoutReview(false);
       setCart([]);
       setMenuFiles([]);
       setEditSession(null);
-      setIsCartOpen(false); // Tutup panel keranjang di mobile setelah sukses
-      setFormBayar(prev => ({
-        ...prev, nominalBayar: 0, mekanikList: [{ idLama: '', ongkos: 0 }], 
-        noteMenu: '', note: '' ,marketplace: '', adminFee: 0, cashback: 0,
+      setIsCartModalOpen(false);
+      setFormBayar({
+        personIdLama: 'umum1',
+        payment: 'Tunai',
+        nominalBayar: 0,
+        mekanikList: [{ idLama: '', ongkos: 0 }],
+        noteMenu: '',
+        note: '',
+        marketplace: '',
+        adminFee: 0,
+        cashback: 0,
         cashflowList: [{ accountId: '', nominal: 0 }]
-      }));
+      });
 
-    } catch (err) {
+      fetchData(); // Muat ulang grid inventaris barang & list overview di screen utama
+
+    } catch (err: any) {
       console.error(err);
-      alert("Gagal sinkronisasi data PocketBase.");
-    } finally { setIsProcessing(false); }
-  };
-
-  // --- 7. LOAD SUB-DETAILS ---
-  const loadHistorySubDetails = async (menuItem: HistoryMenu) => {
-    setShowDetailHistory(menuItem);
-    setHistoryItems([]); setHistoryCashflow(null); setHistoryOngkos([]);
-    try {
-      // expand: 'item_baru' untuk menarik semua detail produk yang berelasi
-      const logs = await pb.collection('log_stock').getFullList<LogStockDetail>({ filter: `ref_baru = "${menuItem.id}"`, expand: 'item_baru', $autoCancel: false });
-      setHistoryItems(logs);
-      const cf = await pb.collection('cashflow').getFirstListItem<CashflowDetail>(`ref_baru = "${menuItem.id}"`, { $autoCancel: false });
-      setHistoryCashflow(cf);
-      const fees = await pb.collection('ongkos').getFullList<OngkosDetail>({ filter: `ref_baru = "${menuItem.id}"`, $autoCancel: false });
-      setHistoryOngkos(fees);
-    } catch (e) { console.log("Detail sub-item tidak ditemukan."); }
+      alert("Gagal melakukan sinkronisasi data entri: " + (err.message || err));
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
 
@@ -958,19 +959,9 @@ export default function MenuPage() {
 
   const handleDeleteHistory = async (menuItem: HistoryMenu) => {
     try {
-      // 1. Hapus semua log_stock yang terkait
-      const logs = await pb.collection('log_stock').getFullList({ filter: `ref_baru = "${menuItem.id}"` });
-      for (const log of logs) await pb.collection('log_stock').delete(log.id);
-      
-      // 2. Hapus cashflow terkait
-      const cfs = await pb.collection('cashflow').getFullList({ filter: `ref_baru = "${menuItem.id}"` });
-      for (const cf of cfs) await pb.collection('cashflow').delete(cf.id);
-      
-      // 3. Hapus ongkos terkait
-      const ongkosList = await pb.collection('ongkos').getFullList({ filter: `ref_baru = "${menuItem.id}"` });
-      for (const ok of ongkosList) await pb.collection('ongkos').delete(ok.id);
-      
-      // 4. Hapus record menu (file otomatis terhapus)
+      // Cukup hapus menu utamanya saja.
+      // Penghapusan log_stock, cashflow, ongkos, dan pengembalian stok/saldo 
+      // OTOMATIS dikerjakan oleh skrip backend (menu.pb.js)
       await pb.collection('menu').delete(menuItem.id);
       
       fetchData();
@@ -994,112 +985,107 @@ export default function MenuPage() {
     return groups;
   }, [historyGaji]);
 
-  return ( 
-    <div className="flex h-screen bg-slate-100 overflow-hidden font-sans"> 
+  const [viewMode, setViewMode] = useState('grid'); // 'grid' atau 'list'
+
+  return (
+    <div className="flex h-screen bg-slate-50 overflow-hidden font-sans text-slate-800">
       
-      {/* --- PANEL KIRI (Utama) --- */} 
-      <div className="flex-1 flex flex-col p-4 md:p-8 pt-24 md:pt-8 overflow-hidden w-full transition-colors duration-500"> 
+      {/* --- PANEL KIRI (Utama) --- */}
+      <div className="flex-1 flex flex-col p-3 md:p-6 lg:p-8 pt-20 md:pt-6 overflow-hidden w-full transition-colors duration-500">
          
         {/* Nav Tabs */}
-        <div className={`mb-6 shrink-0 flex items-center p-2 rounded-[2.5rem] shadow-sm border overflow-x-auto no-scrollbar transition-colors duration-500 ${activeTheme.light} ${activeTheme.border}`}> 
-          <div className="flex gap-2 px-2"> 
+        <div className={`mb-6 shrink-0 flex items-center p-2 md:p-2.5 rounded-[2.5rem] shadow-sm border overflow-x-auto no-scrollbar transition-colors duration-500 ${activeTheme.light} ${activeTheme.border} bg-white/50 backdrop-blur-md`}>
+          <div className="flex gap-2 md:gap-3 px-2">
             {menuOptions.map(m => {
               const tabTheme = getThemeConfig(m.text_1);
               const isActive = selectedMenu === m.text_1;
               return (
-                <button key={m.id} onClick={() => handleMenuChange(m.text_1)} 
-                  className={`px-6 md:px-8 py-3 rounded-[1.8rem] font-black text-[11px] uppercase tracking-widest transition-all duration-300 whitespace-nowrap ${ 
-                    isActive ? `${tabTheme.main} text-white shadow-lg scale-105` : `${tabTheme.text} hover:bg-white/60 opacity-60 hover:opacity-100` 
-                  }`}> 
-                  {m.text_1} 
-                </button> 
+                <button key={m.id} onClick={() => handleMenuChange(m.text_1)}
+                  className={`px-5 md:px-8 py-2.5 md:py-3.5 rounded-[2rem] font-black text-[10px] md:text-[11px] uppercase tracking-widest transition-all duration-300 whitespace-nowrap flex-shrink-0 ${
+                    isActive ? `${tabTheme.main} text-white shadow-xl shadow-${tabTheme.main.replace('bg-', '')}/40 scale-105` : `${tabTheme.text} hover:bg-white/80 opacity-70 hover:opacity-100 hover:shadow-sm`
+                  }`}>
+                  {m.text_1}
+                </button>
               );
-            })} 
-          </div> 
+            })}
+          </div>
         </div>
 
-        {/* Search Bar - Flat Modern Style */}
-        <div className="p-6 border-b border-gray-100 bg-gray-50/50 shrink-0">
-          <div className="flex flex-col gap-3">
-            {/* Baris atas: input pencarian + tombol filter (mobile) */}
+        {/* Search Bar & Filters - Glassmorphism & Theme Sync */}
+        <div className="p-4 md:p-6 mb-4 border border-gray-100 bg-white/80 backdrop-blur-xl rounded-3xl shadow-sm shrink-0 flex flex-col gap-4">
+            
+            {/* Baris atas: input pencarian + Toggle View & Filter Mobile */}
             <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-              <div className="relative w-full">
-                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+              <div className="relative w-full group">
+                <Search className={`absolute left-4 top-1/2 -translate-y-1/2 transition-colors ${activeTheme.text} opacity-50 group-focus-within:opacity-100`} size={20} />
                 <input 
                   type="text" 
                   placeholder={`Cari di menu ${selectedMenu}...`} 
-                  className={`w-full pl-12 pr-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 ${activeTheme.focusRing} outline-none transition-all shadow-sm text-sm font-medium text-slate-700`}
+                  className={`w-full pl-12 pr-4 py-3.5 bg-gray-50/50 border-2 border-transparent hover:border-gray-200 rounded-2xl focus:bg-white focus:border-transparent focus:ring-4 ${activeTheme.focusRing} outline-none transition-all shadow-sm text-sm font-bold text-slate-700 placeholder-slate-400`}
                   value={searchInput}
                   onChange={(e) => setSearchInput(e.target.value)}
                 />
               </div>
-              {/* Tombol filter untuk mobile (hanya di menu Overview) */}
-              {selectedMenu === 'Overview' && (
-                <button
-                  onClick={() => setShowStatusFilter(!showStatusFilter)}
-                  className="sm:hidden flex items-center justify-center gap-2 w-full py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50 transition"
-                >
-                  <Filter size={16} />
-                  {showStatusFilter ? 'Sembunyikan Filter' : 'Tampilkan Filter'}
-                </button>
-              )}
+
+              <div className="flex gap-2">
+                {/* Tombol Toggle View (Desktop & Tablet) */}
+                {selectedMenu.toLowerCase() !== 'overview' && (
+                  <div className="hidden sm:flex bg-gray-50 border border-gray-200 rounded-2xl p-1.5 shadow-inner shrink-0 items-center">
+                    <button onClick={() => setViewMode('list')} className={`p-2.5 rounded-xl transition-all duration-300 ${viewMode === 'list' ? `${activeTheme.main} text-white shadow-md` : 'text-gray-400 hover:text-gray-700 hover:bg-gray-200'}`}>
+                      <List size={18} />
+                    </button>
+                    <button onClick={() => setViewMode('grid')} className={`p-2.5 rounded-xl transition-all duration-300 ${viewMode === 'grid' ? `${activeTheme.main} text-white shadow-md` : 'text-gray-400 hover:text-gray-700 hover:bg-gray-200'}`}>
+                      <Grid size={18} />
+                    </button>
+                  </div>
+                )}
+
+                {/* Tombol filter mobile (Overview) */}
+                {selectedMenu === 'Overview' && (
+                  <button
+                    onClick={() => setShowStatusFilter(!showStatusFilter)}
+                    className={`sm:hidden flex flex-1 items-center justify-center gap-2 py-3 bg-white border border-gray-200 rounded-2xl text-sm font-bold ${activeTheme.text} shadow-sm active:scale-95 transition-all`}
+                  >
+                    <Filter size={18} />
+                    {showStatusFilter ? 'Tutup Filter' : 'Filter'}
+                  </button>
+                )}
+              </div>
             </div>
 
-            {/* Filter untuk desktop (selalu tampil di layar >= sm) */}
+            {/* Filter Desktop (Sinkronisasi dengan activeTheme) */}
             {selectedMenu === 'Overview' && (
-              <div className="hidden sm:flex flex-wrap items-center gap-3">
+              <div className="hidden sm:flex flex-wrap items-center gap-4 border-t border-gray-100 pt-4">
+                
                 {/* Filter status */}
-                <div className="flex flex-wrap items-center gap-1 bg-white border border-gray-200 rounded-xl p-1 shadow-sm">
-                  <button
-                    onClick={() => { setFilterStatus('all'); setPage(1); }}
-                    className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${
-                      filterStatus === 'all' ? 'bg-indigo-500 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-100'
-                    }`}
-                  >
-                    Semua
-                  </button>
-                  <button
-                    onClick={() => { setFilterStatus('lunas'); setPage(1); }}
-                    className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${
-                      filterStatus === 'lunas' ? 'bg-indigo-500 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-100'
-                    }`}
-                  >
-                    Lunas
-                  </button>
-                  <button
-                    onClick={() => { setFilterStatus('belum'); setPage(1); }}
-                    className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${
-                      filterStatus === 'belum' ? 'bg-indigo-500 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-100'
-                    }`}
-                  >
-                    Belum
-                  </button>
+                <div className="flex flex-wrap items-center bg-gray-50 border border-gray-200 rounded-2xl p-1.5 shadow-inner">
+                  {['all', 'lunas', 'belum'].map(status => (
+                    <button key={status} onClick={() => { setFilterStatus(status); setPage(1); }}
+                      className={`px-5 py-2 text-xs md:text-sm font-black uppercase tracking-wider rounded-xl transition-all duration-300 ${
+                        filterStatus === status ? `${activeTheme.main} text-white shadow-md scale-95` : 'text-gray-500 hover:text-gray-800 hover:bg-gray-200'
+                      }`}>
+                      {status === 'all' ? 'Semua' : status}
+                    </button>
+                  ))}
                 </div>
-                {/* Filter jenis menu (multi‑select) – sekarang dengan ukuran dan gaya yang sama */}
-                <div className="flex flex-wrap items-center gap-1 bg-white border border-gray-200 rounded-xl p-1 shadow-sm">
-                  <button
-                    onClick={() => setSelectedMenuFilters([])}
-                    className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${
-                      selectedMenuFilters.length === 0 ? 'bg-indigo-500 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-100'
-                    }`}
-                  >
+
+                {/* Filter jenis menu */}
+                <div className="flex flex-wrap items-center bg-gray-50 border border-gray-200 rounded-2xl p-1.5 shadow-inner gap-1">
+                  <button onClick={() => setSelectedMenuFilters([])}
+                    className={`px-4 py-2 text-xs md:text-sm font-black uppercase tracking-wider rounded-xl transition-all duration-300 ${
+                      selectedMenuFilters.length === 0 ? `${activeTheme.main} text-white shadow-md` : 'text-gray-500 hover:text-gray-800 hover:bg-gray-200'
+                    }`}>
                     Semua Jenis
                   </button>
                   {menuOptions.filter(m => m.text_1 !== 'Overview').map(menu => (
-                    <button
-                      key={menu.id}
+                    <button key={menu.id}
                       onClick={() => {
-                        if (selectedMenuFilters.includes(menu.text_1)) {
-                          setSelectedMenuFilters(prev => prev.filter(j => j !== menu.text_1));
-                        } else {
-                          setSelectedMenuFilters(prev => [...prev, menu.text_1]);
-                        }
+                        setSelectedMenuFilters(prev => prev.includes(menu.text_1) ? prev.filter(j => j !== menu.text_1) : [...prev, menu.text_1]);
                         setPage(1);
                       }}
-                      className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${
-                        selectedMenuFilters.includes(menu.text_1) ? 'bg-indigo-500 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-100'
-                      }`}
-                    >
+                      className={`px-4 py-2 text-xs md:text-sm font-black uppercase tracking-wider rounded-xl transition-all duration-300 ${
+                        selectedMenuFilters.includes(menu.text_1) ? `${activeTheme.main} text-white shadow-md` : 'text-gray-500 hover:text-gray-800 hover:bg-gray-200'
+                      }`}>
                       {menu.text_1}
                     </button>
                   ))}
@@ -1107,103 +1093,82 @@ export default function MenuPage() {
               </div>
             )}
 
-            {/* Filter untuk mobile (muncul jika tombol ditekan) */}
+            {/* Filter Mobile Expand */}
             {selectedMenu === 'Overview' && showStatusFilter && (
-              <div className="sm:hidden flex flex-col gap-3 mt-3 animate-in slide-in-from-top-2 duration-200">
-                {/* Filter status – ukuran tombol sama seperti desktop */}
-                <div className="flex flex-wrap gap-1 bg-white border border-gray-200 rounded-xl p-1 shadow-sm">
-                  <button
-                    onClick={() => { setFilterStatus('all'); setPage(1); setShowStatusFilter(false); }}
-                    className={`flex-1 px-4 py-2 text-sm font-medium rounded-lg transition-all ${
-                      filterStatus === 'all' ? 'bg-indigo-500 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-100'
-                    }`}
-                  >
-                    Semua
-                  </button>
-                  <button
-                    onClick={() => { setFilterStatus('lunas'); setPage(1); setShowStatusFilter(false); }}
-                    className={`flex-1 px-4 py-2 text-sm font-medium rounded-lg transition-all ${
-                      filterStatus === 'lunas' ? 'bg-indigo-500 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-100'
-                    }`}
-                  >
-                    Lunas
-                  </button>
-                  <button
-                    onClick={() => { setFilterStatus('belum'); setPage(1); setShowStatusFilter(false); }}
-                    className={`flex-1 px-4 py-2 text-sm font-medium rounded-lg transition-all ${
-                      filterStatus === 'belum' ? 'bg-indigo-500 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-100'
-                    }`}
-                  >
-                    Belum
-                  </button>
+              <div className="sm:hidden flex flex-col gap-4 mt-2 animate-in slide-in-from-top-4 fade-in duration-300 border-t border-gray-100 pt-4">
+                <div className="flex gap-2 bg-gray-50 rounded-2xl p-1.5 shadow-inner">
+                  {['all', 'lunas', 'belum'].map(status => (
+                    <button key={status} onClick={() => { setFilterStatus(status); setPage(1); setShowStatusFilter(false); }}
+                      className={`flex-1 py-2.5 text-xs font-black uppercase tracking-wider rounded-xl transition-all ${
+                        filterStatus === status ? `${activeTheme.main} text-white shadow-md` : 'text-gray-500 hover:bg-gray-200'
+                      }`}>
+                      {status === 'all' ? 'Semua' : status}
+                    </button>
+                  ))}
                 </div>
-                {/* Filter jenis – ukuran tombol disamakan dengan desktop (px-4 py-2 text-sm) */}
-                <div className="flex flex-wrap gap-1 bg-white border border-gray-200 rounded-xl p-1 shadow-sm">
-                  <button
-                    onClick={() => { setSelectedMenuFilters([]); setPage(1); setShowStatusFilter(false); }}
-                    className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${
-                      selectedMenuFilters.length === 0 ? 'bg-indigo-500 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-100'
-                    }`}
-                  >
+                <div className="flex flex-wrap gap-2 bg-gray-50 rounded-2xl p-1.5 shadow-inner">
+                  <button onClick={() => { setSelectedMenuFilters([]); setPage(1); setShowStatusFilter(false); }}
+                    className={`flex-1 min-w-[45%] py-2.5 text-xs font-black uppercase tracking-wider rounded-xl transition-all ${
+                      selectedMenuFilters.length === 0 ? `${activeTheme.main} text-white shadow-md` : 'text-gray-500 hover:bg-gray-200'
+                    }`}>
                     Semua Jenis
                   </button>
                   {menuOptions.filter(m => m.text_1 !== 'Overview').map(menu => (
-                    <button
-                      key={menu.id}
-                      onClick={() => {
-                        if (selectedMenuFilters.includes(menu.text_1)) {
-                          setSelectedMenuFilters(prev => prev.filter(j => j !== menu.text_1));
-                        } else {
-                          setSelectedMenuFilters(prev => [...prev, menu.text_1]);
-                        }
-                        setPage(1);
-                        setShowStatusFilter(false);
-                      }}
-                      className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${
-                        selectedMenuFilters.includes(menu.text_1) ? 'bg-indigo-500 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-100'
-                      }`}
-                    >
+                    <button key={menu.id} onClick={() => { /* logika sama dengan di atas */ setSelectedMenuFilters(prev => prev.includes(menu.text_1) ? prev.filter(j => j !== menu.text_1) : [...prev, menu.text_1]); setPage(1); setShowStatusFilter(false); }}
+                      className={`flex-1 min-w-[45%] py-2.5 text-xs font-black uppercase tracking-wider rounded-xl transition-all ${
+                        selectedMenuFilters.includes(menu.text_1) ? `${activeTheme.main} text-white shadow-md` : 'text-gray-500 hover:bg-gray-200'
+                      }`}>
                       {menu.text_1}
                     </button>
                   ))}
                 </div>
               </div>
             )}
-          </div>
         </div>
 
-        {/* List Produk (Scrollable Area) */}
         {/* Content Dynamic - Wrapper */}
-        <div className={`flex-1 overflow-y-auto pr-2 custom-scrollbar pb-10 rounded-2xl transition-colors duration-500 p-2 md:p-4 bg-gradient-to-b from-transparent to-${activeTheme.light.replace('bg-', '')}/30`}>
+        <div className={`flex-1 overflow-y-auto pr-2 custom-scrollbar pb-10 transition-colors duration-500 rounded-3xl`}>
           
           {loading ? ( 
-            <div className="h-full flex items-center justify-center">
-              <div className="w-12 h-12 border-4 border-slate-200 border-t-blue-600 rounded-full animate-spin" />
+            <div className="h-full flex flex-col items-center justify-center gap-4">
+              <div className={`w-16 h-16 border-4 border-slate-200 border-t-transparent ${activeTheme.text.replace('text-', 'border-t-')} rounded-full animate-spin`} />
+              <p className={`font-black uppercase tracking-widest text-xs ${activeTheme.text} animate-pulse`}>Memuat Data...</p>
             </div> 
           ) : ( 
             <div className="space-y-10">
-               
+                
               {/* 1. LIST PRODUK (PENJUALAN/SERVICE/PEMBELIAN) */} 
               {selectedMenu.toLowerCase() !== 'overview' && !selectedMenu.toLowerCase().includes('gaji') && ( 
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6"> 
+                <div className={
+                  viewMode === 'grid' 
+                    ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6" 
+                    : "flex flex-col gap-4"
+                }> 
                   {products.map(p => ( 
-                    <div key={p.id} onClick={() => addToCart(p)} className={`bg-white p-6 rounded-[2.5rem] border-2 border-transparent hover:${activeTheme.border} shadow-sm hover:shadow-xl transition-all duration-300 cursor-pointer group flex flex-col justify-between h-72 relative overflow-hidden`}> 
-                      <div className={`absolute -top-10 -right-10 w-32 h-32 ${activeTheme.light} rounded-full blur-3xl opacity-0 group-hover:opacity-100 transition-opacity duration-500`} />
+                    <div key={p.id} onClick={() => addToCart(p)} 
+                      className={`bg-white rounded-3xl border-2 border-transparent hover:${activeTheme.border} shadow-sm hover:shadow-2xl hover:-translate-y-1 transition-all duration-300 cursor-pointer group relative overflow-hidden ${
+                        viewMode === 'grid' ? 'flex flex-col justify-between h-72 p-6' : 'flex flex-row items-center justify-between p-4 min-h-[120px]'
+                      }`}> 
                       
-                      <div className="relative z-10"> 
-                        <div className="flex justify-between items-start mb-4"> 
+                      {/* Decorative Background Blob */}
+                      <div className={`absolute -top-12 -right-12 w-40 h-40 ${activeTheme.light} rounded-full blur-3xl opacity-20 group-hover:opacity-70 transition-opacity duration-500 pointer-events-none`} />
+                      
+                      <div className={`relative z-10 ${viewMode === 'list' ? 'flex-1 pr-6' : ''}`}> 
+                        <div className={`flex items-start mb-4 ${viewMode === 'grid' ? 'justify-between' : 'gap-4'}`}> 
                           <span className="text-[10px] font-black bg-slate-100 text-slate-500 px-3 py-1.5 rounded-xl tracking-tighter">#{formatIdLamaDisplay(p.id_lama)}</span>
-                          <div className={`px-3 py-1.5 rounded-xl font-black text-[10px] uppercase ${p.stok_3 > 5 ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}> 
+                          <div className={`px-3 py-1.5 rounded-xl font-black text-[10px] uppercase shadow-sm ${p.stok_3 > 5 ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' : 'bg-rose-50 text-rose-600 border border-rose-100 animate-pulse'}`}> 
                             SISA: {p.stok_3} {p.unit} 
                           </div> 
                         </div> 
-                        <h3 className={`font-black text-slate-800 text-sm uppercase leading-tight ${activeTheme.groupHoverText} line-clamp-3 tracking-tight transition-colors`}>
-                          {formatIdLamaDisplay(p.id_lama)} - {getFullLabel(p)}
+                        <h3 className={`font-black text-slate-800 text-sm md:text-base uppercase leading-snug ${activeTheme.groupHoverText} line-clamp-2 md:line-clamp-3 tracking-tight transition-colors`}>
+                          {getFullLabel(p)}
                         </h3>
                       </div> 
                       
-                      <div className={`flex justify-between items-center ${activeTheme.light} p-4 rounded-2xl group-hover:${activeTheme.main} transition-all duration-300 mt-4 relative z-10`}> 
-                        <p className={`font-black ${activeTheme.text} group-hover:text-white text-lg tracking-tighter transition-colors`}>
+                      <div className={`flex justify-between items-center ${activeTheme.light} rounded-2xl group-hover:${activeTheme.main} transition-all duration-300 relative z-10 ${
+                        viewMode === 'grid' ? 'p-4 mt-4' : 'p-3 px-5 min-w-[200px]'
+                      }`}> 
+                        <p className={`font-black ${activeTheme.text} group-hover:text-white text-base md:text-lg tracking-tighter transition-colors`}>
                           Rp {p.sell_6.toLocaleString('id-ID')}
                         </p> 
                         <div className={`w-10 h-10 bg-white rounded-xl flex items-center justify-center ${activeTheme.text} shadow-sm group-hover:scale-110 transition-transform`}>
@@ -1217,55 +1182,62 @@ export default function MenuPage() {
 
               {/* LIST OVERVIEW */} 
               {selectedMenu.toLowerCase() === 'overview' && Object.entries(groupedHistory).map(([date, items]) => ( 
-                <div key={date} className="space-y-4"> 
-                  <div className="flex items-center gap-4 px-4"> 
-                    <span className="bg-slate-200 text-slate-600 px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest">{date}</span> 
-                    <div className="h-[1px] flex-1 bg-slate-200" /> 
+                <div key={date} className="space-y-6"> 
+                  <div className="flex items-center gap-4 px-2"> 
+                    <div className={`w-2 h-2 rounded-full ${activeTheme.main}`} />
+                    <span className="text-slate-500 text-[11px] font-black uppercase tracking-widest">{date}</span> 
+                    <div className="h-[2px] flex-1 bg-gradient-to-r from-slate-200 to-transparent rounded-full" /> 
                   </div> 
-                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6"> 
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"> 
                     {items.map(h => ( 
-                      <div key={h.id} onClick={() => loadHistorySubDetails(h)} className="bg-white p-6 rounded-[2.5rem] border border-slate-200 shadow-sm hover:shadow-xl transition-all cursor-pointer group h-52 flex flex-col justify-between"> 
-                        <div className="flex justify-between items-start"> 
-                            <div className="flex items-center gap-1">
-                              <span className={`text-[10px] font-black px-2 py-0.5 rounded-md uppercase tracking-widest ${getJenisColor(h.jenis)}`}>
+                      <div key={h.id} onClick={() => loadHistorySubDetails(h)} className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:shadow-xl hover:-translate-y-1 hover:border-slate-300 transition-all cursor-pointer group h-auto min-h-[15rem] flex flex-col justify-between relative overflow-hidden">
+                        
+                        {/* Glow effect based on status */}
+                        <div className={`absolute top-0 right-0 w-24 h-24 blur-3xl opacity-20 transition-opacity group-hover:opacity-40 ${h.status === 'lunas' ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+
+                        <div className="flex justify-between items-start relative z-10"> 
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className={`text-[9px] font-black px-2.5 py-1 rounded-lg uppercase tracking-widest ${getJenisColor(h.jenis)} shadow-sm`}>
                                 {h.jenis}
                               </span>
-                              <span className="text-[10px] font-bold text-slate-400">•</span>
-                              <span className={`text-[10px] font-black px-2 py-0.5 rounded-md uppercase tracking-widest ${
-                                h.status === 'lunas' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                              <span className={`text-[9px] font-black px-2.5 py-1 rounded-lg uppercase tracking-widest shadow-sm ${
+                                h.status === 'lunas' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'
                               }`}>
                                 {h.status === 'lunas' ? 'LUNAS' : 'BELUM'}
                               </span>
                             </div>
-                            <div className="p-2 bg-slate-50 rounded-xl text-slate-300 group-hover:text-blue-500 transition-colors"><History size={16} /></div> 
+                            <div className={`p-2 rounded-xl transition-colors ${activeTheme.light} ${activeTheme.text} opacity-50 group-hover:opacity-100`}><History size={16} strokeWidth={2.5} /></div> 
                         </div> 
-                        <div> 
-                            {/* Menampilkan text_1 - text_2 dari dropdown person berdasarkan h.person */}
-                            <h4 className="font-black text-slate-800 text-base uppercase leading-none mb-1 truncate">
+                        
+                        <div className="relative z-10 mt-4"> 
+                            <h4 className="font-black text-slate-800 text-lg uppercase leading-tight mb-2 truncate group-hover:text-blue-600 transition-colors">
                               {(() => {
                                 const person = allPersons.find(p => p.id_lama === h.person);
                                 return person ? `${person.text_1} - ${person.text_2 || ''}` : (h.person || 'PELANGGAN UMUM');
                               })()}
                             </h4>
-                            {/* Menambahkan field operator */}
-                            <p className="text-[10px] font-bold text-slate-500 mt-1">Operator: {h.operator || '-'}</p>
-                            <p className="text-xs font-bold text-slate-400 line-clamp-2 italic mt-2">"{h.text || 'Tanpa deskripsi nota.'}"</p> 
+                            <div className="flex items-center gap-2 text-[10px] font-bold text-slate-400 bg-slate-50 w-fit px-2 py-1 rounded-md">
+                              <span className="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
+                              Operator: {h.operator || '-'}
+                            </div>
+                            <p className="text-xs font-bold text-slate-500 line-clamp-2 italic mt-3 bg-slate-50/50 p-2 rounded-xl border border-slate-100">"{h.text || 'Tanpa deskripsi nota.'}"</p> 
                         </div> 
-                        <div className="flex justify-between items-center border-t border-slate-100 pt-4"> 
-                          <div className="flex items-center gap-2">
-                            <span className="text-[10px] font-black text-slate-300 flex items-center gap-1"><Calendar size={12}/> {h.created_at}</span>
-                            <span className="text-[10px] font-black text-slate-400">|</span>
+                        
+                        <div className="flex justify-between items-center border-t border-slate-100 pt-4 mt-4 relative z-10"> 
+                          <div className="flex flex-col gap-1">
+                            <span className="text-[10px] font-black text-slate-400 flex items-center gap-1.5"><Calendar size={12}/> {h.created_at}</span>
                             {h.status === 'lunas' ? (
-                              <span className="text-[10px] font-black text-slate-700">Total: Rp {(h.total || 0).toLocaleString('id-ID')}</span>
+                              <span className="text-xs font-black text-emerald-600">Total: Rp {(h.total || 0).toLocaleString('id-ID')}</span>
                             ) : (
-                              <div className="flex items-center gap-2">
-                                <span className="text-[10px] font-black text-slate-700">Total : Rp {(h.total || 0).toLocaleString('id-ID')}</span>
-                                <span className="text-[10px] font-black text-slate-400">|</span>
-                                <span className="text-[10px] font-black text-amber-600">Dibayar: Rp {(h.dibayar || 0).toLocaleString('id-ID')}</span>
+                              <div className="flex flex-col">
+                                <span className="text-[10px] font-black text-slate-500 line-through">Rp {(h.total || 0).toLocaleString('id-ID')}</span>
+                                <span className="text-xs font-black text-rose-600">Terbayar: Rp {(h.dibayar || 0).toLocaleString('id-ID')}</span>
                               </div>
                             )}
                           </div>
-                          <div className="font-black text-slate-700 bg-slate-100 px-3 py-1 rounded-lg text-xs">{h.qty} Item</div> 
+                          <div className={`font-black text-white ${activeTheme.main} shadow-md shadow-${activeTheme.main.replace('bg-', '')}/30 px-3 py-1.5 rounded-xl text-xs`}>
+                            {h.qty} Item
+                          </div> 
                         </div>
                       </div>
                     ))} 
@@ -1276,51 +1248,51 @@ export default function MenuPage() {
               {/* LIST GAJI */}
               {selectedMenu.toLowerCase().includes('gaji') && (
                 Object.keys(groupedHistory).length === 0 ? (
-                  <div className="text-center py-20 text-slate-400 font-bold text-sm">
-                    Belum ada data gaji.
+                  <div className="flex flex-col items-center justify-center py-20 opacity-50">
+                    <div className={`w-20 h-20 bg-teal-50 rounded-full flex items-center justify-center mb-4`}>
+                      <Calendar size={32} className="text-teal-500" />
+                    </div>
+                    <span className="text-slate-400 font-bold text-sm uppercase tracking-widest">Belum ada data gaji</span>
                   </div>
                 ) : (
                   Object.entries(groupedHistory).map(([date, items]) => (
-                    <div key={date} className="space-y-4">
-                      <div className="flex items-center gap-4 px-4">
-                        <span className="bg-teal-100 text-teal-600 px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest">
-                          {date}
-                        </span>
-                        <div className="h-[1px] flex-1 bg-teal-100" />
+                    <div key={date} className="space-y-6">
+                      <div className="flex items-center gap-4 px-2">
+                        <div className="w-2 h-2 rounded-full bg-teal-500" />
+                        <span className="text-slate-500 text-[11px] font-black uppercase tracking-widest">{date}</span>
+                        <div className="h-[2px] flex-1 bg-gradient-to-r from-teal-100 to-transparent rounded-full" />
                       </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-                        {items
-                          .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-                          .map(item => (
-                            <div
-                              key={item.id}
-                              onClick={() => loadHistorySubDetails(item)}
-                              className="bg-white p-6 rounded-[2.5rem] border border-teal-100 shadow-sm hover:shadow-xl transition-all cursor-pointer group h-48 flex flex-col justify-between"
-                            >
-                              <div className="flex justify-between items-start">
-                                <span className="text-[10px] font-black bg-teal-50 text-teal-600 px-2 py-0.5 rounded-md uppercase tracking-widest">
-                                  GAJI
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                        {items.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).map(item => (
+                            <div key={item.id} onClick={() => loadHistorySubDetails(item)}
+                              className="bg-white p-6 rounded-3xl border border-teal-100 shadow-sm hover:shadow-xl hover:-translate-y-1 hover:border-teal-300 transition-all cursor-pointer group h-52 flex flex-col justify-between relative overflow-hidden">
+                              
+                              <div className="absolute top-0 right-0 w-32 h-32 bg-teal-500 blur-3xl opacity-10 transition-opacity group-hover:opacity-30 pointer-events-none" />
+
+                              <div className="flex justify-between items-start relative z-10">
+                                <span className="text-[10px] font-black bg-teal-50 text-teal-600 border border-teal-100 px-3 py-1.5 rounded-xl uppercase tracking-widest shadow-sm">
+                                  GAJI KARYAWAN
                                 </span>
-                                <div className="p-2 bg-slate-50 rounded-xl text-slate-300 group-hover:text-teal-500 transition-colors">
+                                <div className="p-2 bg-slate-50 rounded-xl text-slate-300 group-hover:text-teal-500 group-hover:bg-teal-50 transition-colors">
                                   <History size={16} />
                                 </div>
                               </div>
-                              <div>
-                                <h4 className="font-black text-slate-800 text-base uppercase leading-none mb-1 truncate">
+                              <div className="relative z-10 mt-4">
+                                <h4 className="font-black text-slate-800 text-lg uppercase leading-tight mb-2 truncate group-hover:text-teal-600 transition-colors">
                                   {item.person}
                                 </h4>
-                                <p className="text-xs font-bold text-slate-500 mt-1">
+                                <p className="text-[10px] font-bold text-slate-400 bg-slate-50 w-fit px-2 py-1 rounded-md">
                                   Operator: {item.operator || '-'}
                                 </p>
-                                <p className="text-xs font-bold text-slate-400 line-clamp-2 italic mt-2">
+                                <p className="text-xs font-bold text-slate-500 line-clamp-2 italic mt-3 bg-slate-50/50 p-2 rounded-xl border border-slate-100">
                                   "{item.text || 'Tanpa deskripsi'}"
                                 </p>
                               </div>
-                              <div className="flex justify-between items-center border-t border-slate-100 pt-4">
-                                <span className="text-[10px] font-black text-slate-300 flex items-center gap-1">
+                              <div className="flex justify-between items-center border-t border-slate-100 pt-4 mt-4 relative z-10">
+                                <span className="text-[10px] font-black text-slate-400 flex items-center gap-1.5">
                                   <Calendar size={12} /> {item.created_at}
                                 </span>
-                                <div className="font-black text-slate-700 bg-slate-100 px-3 py-1 rounded-lg text-xs">
+                                <div className="font-black text-white bg-teal-500 shadow-md shadow-teal-500/30 px-3 py-1.5 rounded-xl text-xs">
                                   {item.qty} Item
                                 </div>
                               </div>
@@ -1331,28 +1303,29 @@ export default function MenuPage() {
                   ))
                 )
               )}
-              </div>
-            )}
-          </div> 
+            </div>
+          )}
+        </div> 
 
-        <div className="mt-auto flex justify-between items-center bg-white p-4 rounded-[2rem] border border-slate-200 shadow-xl shrink-0"> 
-          <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest ml-6">Halaman {page} / {totalPages}</p> 
-          <div className="flex gap-3"> 
-            <button onClick={() => setPage(p => Math.max(1, p-1))} className="p-4 bg-slate-50 rounded-2xl hover:bg-slate-100 transition-colors"><ChevronLeft size={24}/></button> 
-            <button onClick={() => setPage(p => Math.min(totalPages, p+1))} className="p-4 bg-slate-50 rounded-2xl hover:bg-slate-100 transition-colors"><ChevronRight size={24}/></button> 
+        {/* Pagination - Glassmorphism */}
+        <div className="mt-auto flex justify-between items-center bg-white/80 backdrop-blur-md p-3 md:p-4 rounded-3xl border border-gray-100 shadow-lg shrink-0"> 
+          <p className="text-[10px] md:text-[11px] font-black text-slate-400 uppercase tracking-widest ml-4 md:ml-6">Hal {page} / {totalPages}</p> 
+          <div className="flex gap-2 md:gap-3"> 
+            <button onClick={() => setPage(p => Math.max(1, p-1))} className={`p-3 md:p-4 bg-slate-50 rounded-2xl hover:${activeTheme.light} hover:${activeTheme.text} transition-colors border border-transparent hover:border-gray-200`}><ChevronLeft size={20}/></button> 
+            <button onClick={() => setPage(p => Math.min(totalPages, p+1))} className={`p-3 md:p-4 bg-slate-50 rounded-2xl hover:${activeTheme.light} hover:${activeTheme.text} transition-colors border border-transparent hover:border-gray-200`}><ChevronRight size={20}/></button> 
           </div> 
         </div>
       </div>
 
-      {/* ===== FLOATING CART BUTTON (UNIVERSAL) ===== */}
+      {/* ===== FLOATING CART BUTTON (SINKRON DENGAN TEMA) ===== */}
       <button 
         onClick={() => setIsCartModalOpen(true)}
-        className="fixed bottom-30 right-6 z-50 p-4 bg-blue-600 text-white rounded-full shadow-2xl shadow-blue-500/50 flex items-center justify-center hover:bg-blue-700 transition-all duration-300"
+        className={`fixed bottom-24 right-6 md:bottom-30 md:right-10 z-50 p-4 md:p-5 ${activeTheme.main} text-white rounded-full shadow-2xl shadow-${activeTheme.main.replace('bg-', '')}/50 flex items-center justify-center hover:scale-110 active:scale-95 transition-all duration-300 border-2 border-white`}
       >
         <div className="relative">
-          <ShoppingCart size={24} />
+          <ShoppingCart size={28} />
           {totalQtyKeranjang > 0 && (
-            <span className="absolute -top-2 -right-3 bg-rose-500 text-white text-[10px] font-black w-5 h-5 flex items-center justify-center rounded-full border-2 border-white">
+            <span className="absolute -top-3 -right-4 bg-rose-500 text-white text-[11px] font-black min-w-[24px] h-6 px-1 flex items-center justify-center rounded-full border-2 border-white animate-bounce shadow-lg">
               {totalQtyKeranjang}
             </span>
           )}
@@ -1365,19 +1338,19 @@ export default function MenuPage() {
         onClose={() => setIsCartModalOpen(false)}
         title="Keranjang Belanja"
       >
-        <div className="flex flex-col max-h-[75vh] bg-white">
+        <div className="flex flex-col max-h-[75vh] md:max-h-[85vh] bg-white">
           {cart.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12 text-center space-y-4">
-              <div className={`w-24 h-24 ${activeTheme.light} rounded-full flex items-center justify-center shadow-inner`}>
-                <ShoppingCart size={48} className={activeTheme.text} />
+            <div className="flex flex-col items-center justify-center py-16 text-center space-y-5">
+              <div className={`w-28 h-28 ${activeTheme.light} rounded-full flex items-center justify-center shadow-inner border border-white`}>
+                <ShoppingCart size={56} className={`${activeTheme.text} opacity-80`} />
               </div>
               <div>
-                <h3 className={`text-lg font-black ${activeTheme.text} uppercase tracking-widest`}>Keranjang Kosong</h3>
-                <p className="text-sm text-slate-400 mt-1 font-medium">Silakan pilih item dari katalog.</p>
+                <h3 className={`text-xl font-black ${activeTheme.text} uppercase tracking-widest`}>Keranjang Kosong</h3>
+                <p className="text-sm text-slate-400 mt-2 font-medium px-8">Silakan pilih item dari katalog produk yang tersedia.</p>
               </div>
               <button
                 onClick={() => setIsCartModalOpen(false)}
-                className={`mt-4 px-8 py-2.5 ${activeTheme.main} text-white rounded-xl font-bold text-sm shadow-md hover:brightness-110 hover:shadow-lg transition-all active:scale-95`}
+                className={`mt-6 px-10 py-3.5 ${activeTheme.main} text-white rounded-2xl font-black text-sm shadow-xl shadow-${activeTheme.main.replace('bg-','')}/30 hover:-translate-y-1 hover:brightness-110 transition-all active:scale-95 uppercase tracking-wider`}
               >
                 Tutup Panel
               </button>
@@ -1385,86 +1358,88 @@ export default function MenuPage() {
           ) : (
             <>
               {/* DAFTAR ITEM – DYNAMIC COLOR */}
-              <div className="space-y-3 overflow-y-auto pr-1 mt-2">
+              <div className="space-y-4 overflow-y-auto pr-2 mt-2 custom-scrollbar">
                 {cartWithTierPrice.map(item => {
                   const canEditPrice =
                     userLevel === '1' ||
                     isOnlinePerson ||
                     selectedMenu.toLowerCase().includes('pembelian');
                   return (
-                    <div key={item.id} className={`bg-white border-2 ${activeTheme.border} rounded-2xl p-4 relative group hover:${activeTheme.light} transition-colors shadow-sm`}>
+                    <div key={item.id} className={`bg-white border-2 ${activeTheme.border} rounded-3xl p-5 relative group hover:${activeTheme.light} transition-colors shadow-sm`}>
                       <button
                         onClick={() => setCart(prev => prev.filter(c => c.id !== item.id))}
-                        className="absolute top-3 right-3 text-slate-300 hover:text-rose-500 p-1.5 rounded-lg hover:bg-rose-50 transition-colors"
+                        className="absolute top-4 right-4 text-slate-300 hover:text-rose-500 p-2 rounded-xl hover:bg-rose-50 transition-colors"
                       >
-                        <Trash2 size={16} />
+                        <Trash2 size={18} />
                       </button>
                       
-                      <div className="pr-8">
-                        <p className="font-bold text-slate-800 text-sm line-clamp-2 leading-tight">
-                          <span className={`font-black ${activeTheme.text} bg-white px-1.5 py-0.5 rounded mr-1.5 text-[10px] tracking-tight border ${activeTheme.border}`}>
+                      <div className="pr-10">
+                        <p className="font-black text-slate-800 text-sm md:text-base line-clamp-2 leading-tight">
+                          <span className={`font-black ${activeTheme.text} bg-white px-2 py-1 rounded-md md:rounded-lg mr-2 text-[10px] md:text-xs tracking-tight border ${activeTheme.border}`}>
                             #{formatIdLamaDisplay(item.id_lama)}
                           </span>
                           {getFullLabel(item)}
                         </p>
                         
-                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-2">
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 mt-3">
                           {item.isTiered && (
-                            <span className={`text-[9px] font-black px-2 py-0.5 rounded-md uppercase tracking-wider ${activeTheme.light} ${activeTheme.text}`}>
+                            <span className={`text-[10px] font-black px-2.5 py-1 rounded-md uppercase tracking-wider ${activeTheme.light} ${activeTheme.text}`}>
                               {item.activeTierName}
                             </span>
                           )}
                           {item.priceSelected !== item.sell_6 &&
                             !selectedMenu.toLowerCase().includes('pembelian') && (
-                              <span className="text-[10px] text-slate-400 line-through font-medium">
+                              <span className="text-xs text-slate-400 line-through font-bold">
                                 Rp {item.sell_6.toLocaleString('id-ID')}
                               </span>
                             )}
                         </div>
                       </div>
 
-                      <div className="flex justify-between items-center mt-3 pt-3 border-t border-slate-100/60">
-                        <div className={`flex items-center gap-1 border-2 ${activeTheme.border} rounded-xl bg-white overflow-hidden shadow-sm`}>
+                      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mt-4 pt-4 border-t border-slate-100/60 gap-3">
+                        <div className={`flex items-center gap-1 border-2 ${activeTheme.border} rounded-2xl bg-white overflow-hidden shadow-sm w-fit`}>
                           <button
                             onClick={() => updateQty(item.id, -1, item.stok_3)}
-                            className={`w-8 h-8 flex items-center justify-center text-slate-500 hover:${activeTheme.text} hover:${activeTheme.light} transition-colors text-lg font-medium`}
+                            className={`w-10 h-10 flex items-center justify-center text-slate-500 hover:${activeTheme.text} hover:${activeTheme.light} transition-colors text-xl font-medium`}
                           >
                             −
                           </button>
-                          <span className="w-8 text-center text-sm font-black text-slate-800">
+                          <span className={`w-10 text-center text-base font-black ${activeTheme.text}`}>
                             {item.qty}
                           </span>
                           <button
                             onClick={() => updateQty(item.id, 1, item.stok_3)}
-                            className={`w-8 h-8 flex items-center justify-center text-slate-500 hover:${activeTheme.text} hover:${activeTheme.light} transition-colors text-lg font-medium`}
+                            className={`w-10 h-10 flex items-center justify-center text-slate-500 hover:${activeTheme.text} hover:${activeTheme.light} transition-colors text-xl font-medium`}
                           >
                             +
                           </button>
                         </div>
                         
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[10px] text-slate-400 font-bold">@</span>
-                          {canEditPrice ? (
-                            <div className="relative inline-block">
-                              <input
-                                type="number"
-                                className={`w-24 py-1.5 pl-6 pr-2 text-right text-xs font-black text-slate-700 bg-white border-2 ${activeTheme.border} rounded-xl ${activeTheme.focusRing} outline-none transition-all`}
-                                value={item.manualPrice !== undefined ? item.manualPrice : item.priceSelected}
-                                onChange={e => updatePrice(item.id, Number(e.target.value))}
-                              />
-                              <span className={`absolute left-2.5 top-1/2 -translate-y-1/2 text-[10px] font-black ${activeTheme.text}`}>
-                                Rp
+                        <div className="flex items-center justify-between sm:justify-end gap-3 w-full sm:w-auto">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[10px] md:text-xs text-slate-400 font-bold">@</span>
+                            {canEditPrice ? (
+                              <div className="relative inline-block">
+                                <input
+                                  type="number"
+                                  className={`w-28 md:w-32 py-2 pl-7 pr-3 text-right text-xs md:text-sm font-black text-slate-700 bg-white border-2 ${activeTheme.border} rounded-xl ${activeTheme.focusRing} outline-none transition-all`}
+                                  value={item.manualPrice !== undefined ? item.manualPrice : item.priceSelected}
+                                  onChange={e => updatePrice(item.id, Number(e.target.value))}
+                                />
+                                <span className={`absolute left-3 top-1/2 -translate-y-1/2 text-[10px] md:text-xs font-black ${activeTheme.text}`}>
+                                  Rp
+                                </span>
+                              </div>
+                            ) : (
+                              <span className={`text-sm font-black ${activeTheme.text}`}>
+                                {item.priceSelected.toLocaleString('id-ID')}
                               </span>
-                            </div>
-                          ) : (
-                            <span className={`text-xs font-black ${activeTheme.text}`}>
-                              {item.priceSelected.toLocaleString('id-ID')}
-                            </span>
-                          )}
-                        </div>
-                        
-                        <div className="text-sm font-black text-slate-900 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-100">
-                          Rp {(item.qty * item.priceSelected).toLocaleString('id-ID')}
+                            )}
+                          </div>
+                          
+                          <div className={`text-sm md:text-base font-black text-slate-900 bg-white px-4 py-2 rounded-xl border-2 ${activeTheme.border} shadow-sm`}>
+                            Rp {(item.qty * item.priceSelected).toLocaleString('id-ID')}
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -1473,16 +1448,34 @@ export default function MenuPage() {
               </div>
 
               {/* FORM PEMBAYARAN – DYNAMIC COLOR */}
-              <div className="mt-5 space-y-4 border-t-2 border-slate-100 pt-5">
+              <div className="mt-6 border-t-2 border-slate-100 pt-6">
+                
+                {/* TOGGLE MUNCULKAN DETAIL MENU */}
+                <button
+                  onClick={() => setIsPaymentFormOpen(!isPaymentFormOpen)}
+                  className={`w-full flex justify-between items-center px-5 py-4 mb-4 rounded-2xl border-2 ${activeTheme.border} bg-white hover:${activeTheme.light} transition-all shadow-sm group`}
+                >
+                  <span className={`text-[11px] md:text-xs font-black ${activeTheme.text} uppercase tracking-widest flex items-center gap-2.5`}>
+                    <Receipt size={18} className="group-hover:scale-110 transition-transform"/> 
+                    {isPaymentFormOpen ? 'Sembunyikan Detail Menu' : 'Munculkan Detail Menu'}
+                  </span>
+                  <div className={`p-1 rounded-full ${activeTheme.light} ${activeTheme.text}`}>
+                    {isPaymentFormOpen ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+                  </div>
+                </button>
+
+                {/* PEMBUNGKUS KONTEN YANG DILIPAT */}
+                {isPaymentFormOpen && (
+                  <div className="space-y-5 animate-in fade-in slide-in-from-top-4 duration-300">
                 
                 {/* 1. Pelanggan & Bayar */}
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className={`text-[10px] font-black ${activeTheme.text} uppercase tracking-wider ml-1`}>Pelanggan</label>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                    <label className={`text-[10px] md:text-[11px] font-black ${activeTheme.text} uppercase tracking-wider ml-1 flex items-center gap-1.5`}><Users size={14}/> Pelanggan</label>
                     <select
                       value={formBayar.personIdLama}
                       onChange={e => setFormBayar({ ...formBayar, personIdLama: e.target.value })}
-                      className={`w-full mt-1 p-2.5 text-xs font-bold text-slate-700 bg-slate-50 border-2 ${activeTheme.border} rounded-xl ${activeTheme.focusRing} outline-none transition-all`}
+                      className={`w-full mt-2 p-3 text-xs md:text-sm font-bold text-slate-700 bg-white border-2 ${activeTheme.border} rounded-xl ${activeTheme.focusRing} outline-none transition-all shadow-sm`}
                     >
                       {personOptions.map(p => (
                         <option key={p.id} value={p.id_lama}>
@@ -1491,17 +1484,17 @@ export default function MenuPage() {
                       ))}
                     </select>
                   </div>
-                  <div>
-                    <label className={`text-[10px] font-black ${activeTheme.text} uppercase tracking-wider ml-1`}>Tipe Bayar</label>
-                    <div className={`flex bg-slate-100 rounded-xl p-1 mt-1 border-2 border-transparent`}>
+                  <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                    <label className={`text-[10px] md:text-[11px] font-black ${activeTheme.text} uppercase tracking-wider ml-1 flex items-center gap-1.5`}><CreditCard size={14}/> Tipe Bayar</label>
+                    <div className={`flex bg-white rounded-xl p-1.5 mt-2 border-2 ${activeTheme.border} shadow-sm gap-1`}>
                       {['Tunai', 'Tempo'].map(m => (
                         <button
                           key={m}
                           onClick={() => setFormBayar({ ...formBayar, payment: m })}
-                          className={`flex-1 py-1.5 text-[10px] font-black rounded-lg transition-all duration-300 ${
+                          className={`flex-1 py-2 text-[10px] md:text-[11px] font-black rounded-lg transition-all duration-300 ${
                             formBayar.payment === m 
                               ? `${activeTheme.main} text-white shadow-md transform scale-100` 
-                              : 'text-slate-500 hover:bg-slate-200'
+                              : 'text-slate-500 hover:bg-slate-100'
                           }`}
                         >
                           {m === 'Tunai' ? 'CASH' : 'TEMPO'}
@@ -1512,10 +1505,10 @@ export default function MenuPage() {
                 </div>
 
                 {/* 2. Multi Cashflow / Akun Kas */}
-                <div className={`${activeTheme.light} p-4 rounded-2xl border ${activeTheme.border} space-y-3`}>
+                <div className={`${activeTheme.light} p-5 rounded-3xl border-2 ${activeTheme.border} space-y-4 shadow-sm`}>
                   <div className="flex justify-between items-center">
-                    <label className={`text-[10px] font-black ${activeTheme.text} uppercase tracking-wider flex items-center gap-1.5`}>
-                      <Wallet size={12} /> Akun Kas & Nominal
+                    <label className={`text-[11px] md:text-xs font-black ${activeTheme.text} uppercase tracking-wider flex items-center gap-2`}>
+                      <Wallet size={16} /> Akun Kas & Nominal
                     </label>
                     <button
                       type="button"
@@ -1523,30 +1516,31 @@ export default function MenuPage() {
                         ...prev,
                         cashflowList: [...prev.cashflowList, { accountId: '', nominal: 0 }]
                       }))}
-                      className={`text-[9px] font-black bg-white ${activeTheme.text} px-3 py-1.5 rounded-lg shadow-sm hover:scale-105 transition-transform`}
+                      className={`text-[10px] font-black bg-white ${activeTheme.text} px-4 py-2 rounded-xl shadow-sm hover:scale-105 active:scale-95 transition-all border border-transparent hover:${activeTheme.border}`}
                     >
-                      + Akun Kas
+                      + Tambah Kas
                     </button>
                   </div>
                   
+                  <div className="space-y-2">
                   {formBayar.cashflowList.map((cf, idx) => (
-                    <div key={idx} className="flex gap-2 items-center bg-white p-2 rounded-xl border border-white/50 shadow-sm">
-                      {cf.accountId && cf.nominal > 0 && (
-                        <button
-                          onClick={() => {
-                            if (window.confirm('Hapus data pembayaran ini?')) {
-                              setFormBayar(prev => ({
-                                ...prev,
-                                cashflowList: prev.cashflowList.filter((_, i) => i !== idx)
-                              }));
-                            }
-                          }}
-                          className="p-1.5 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
-                          title="Hapus baris pembayaran"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      )}
+                  <div key={idx} className="flex flex-col sm:flex-row gap-2 sm:items-center bg-white p-2.5 rounded-2xl border border-white/50 shadow-sm">
+                    {/* Tombol Hapus Baris Kas */}
+                    {formBayar.cashflowList.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFormBayar(prev => ({
+                            ...prev,
+                            cashflowList: prev.cashflowList.filter((_, i) => i !== idx)
+                          }));
+                        }}
+                        className="p-2 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors self-end sm:self-auto order-1 sm:order-none"
+                        title="Hapus baris pembayaran"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    )}
                       <select
                         value={cf.accountId}
                         onChange={e => {
@@ -1554,32 +1548,33 @@ export default function MenuPage() {
                           newList[idx].accountId = e.target.value;
                           setFormBayar({ ...formBayar, cashflowList: newList });
                         }}
-                        className="flex-1 p-2 text-xs font-bold text-slate-700 border-none bg-slate-50 rounded-lg outline-none"
+                        className="flex-1 p-3 text-xs md:text-sm font-bold text-slate-700 border-none bg-slate-50 hover:bg-slate-100 rounded-xl outline-none cursor-pointer w-full"
                       >
-                        <option value="">Pilih Akun...</option>
+                        <option value="">Pilih Akun Bank/Tunai...</option>
                         {cashflowAccounts.map(a => (
                           <option key={a.id} value={a.id}>{a.text_1}</option>
                         ))}
                       </select>
-                      <div className="relative">
-                        <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[10px] font-black text-slate-400">Rp</span>
+                      <div className="relative w-full sm:w-auto">
+                        <span className={`absolute left-3 top-1/2 -translate-y-1/2 text-[11px] font-black ${activeTheme.text}`}>Rp</span>
                         <input
                           type="number"
-                          placeholder="Nominal"
+                          placeholder="Nominal Pembayaran"
                           value={cf.nominal || ''}
                           onChange={e => {
                             const newList = [...formBayar.cashflowList];
                             newList[idx].nominal = Number(e.target.value);
                             setFormBayar({ ...formBayar, cashflowList: newList });
                           }}
-                          className="w-28 pl-7 p-2 text-xs font-bold text-slate-800 border-none bg-slate-50 rounded-lg outline-none"
+                          className="w-full sm:w-40 pl-9 pr-3 py-3 text-xs md:text-sm font-black text-slate-800 border-none bg-slate-50 hover:bg-slate-100 focus:bg-white rounded-xl outline-none focus:ring-2 focus:ring-slate-200"
                         />
                       </div>
                     </div>
                   ))}
-                  <div className="flex justify-between items-center pt-2 border-t border-black/5">
-                    <span className={`text-[10px] font-black ${activeTheme.text} uppercase`}>Total Dibayar:</span>
-                    <span className="text-sm font-black text-slate-800 bg-white px-3 py-1 rounded-lg shadow-sm">
+                  </div>
+                  <div className="flex justify-between items-center pt-4 border-t border-black/5">
+                    <span className={`text-[11px] md:text-xs font-black ${activeTheme.text} uppercase`}>Total Dibayar:</span>
+                    <span className="text-base md:text-lg font-black text-slate-800 bg-white px-4 py-1.5 rounded-xl shadow-sm border border-slate-100">
                       Rp {formBayar.cashflowList.reduce((sum, cf) => sum + (cf.nominal || 0), 0).toLocaleString('id-ID')}
                     </span>
                   </div>
@@ -1587,48 +1582,48 @@ export default function MenuPage() {
 
                 {/* 3. Jatuh Tempo */}
                 {formBayar.payment === 'Tempo' && (
-                  <div className="animate-in fade-in zoom-in duration-200">
-                    <label className="text-[10px] font-black text-rose-500 uppercase tracking-wider ml-1">Jatuh Tempo</label>
+                  <div className="animate-in fade-in zoom-in duration-300 bg-rose-50 p-4 rounded-3xl border-2 border-rose-200 shadow-inner">
+                    <label className="text-[10px] md:text-[11px] font-black text-rose-500 uppercase tracking-wider ml-1 flex items-center gap-1.5"><Calendar size={14}/> Tanggal Jatuh Tempo</label>
                     <input
                       type="date"
                       value={formBayar.note}
                       onChange={e => setFormBayar({ ...formBayar, note: e.target.value })}
-                      className="w-full mt-1 p-2.5 text-xs font-bold text-slate-700 bg-rose-50 border-2 border-rose-200 rounded-xl focus:border-rose-400 outline-none transition-colors"
+                      className="w-full mt-2 p-3 text-sm font-bold text-slate-700 bg-white border-2 border-rose-100 rounded-xl focus:border-rose-400 focus:ring-2 focus:ring-rose-200 outline-none transition-all shadow-sm"
                     />
                   </div>
                 )}
 
                 {/* 4. Marketplace Online */}
                 {isOnlinePerson && (
-                  <div className="grid grid-cols-3 gap-3 bg-amber-50 p-4 rounded-2xl border border-amber-200 shadow-sm animate-in fade-in">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-amber-50 p-5 rounded-3xl border-2 border-amber-200 shadow-sm animate-in fade-in">
                     <div>
-                      <label className="text-[9px] font-black text-amber-600 uppercase ml-1">Platform</label>
+                      <label className="text-[10px] font-black text-amber-600 uppercase ml-1 flex items-center gap-1.5"><ShoppingBag size={12}/> Platform</label>
                       <input
                         list="marketplaceOptions"
                         placeholder="Shopee/Tokped"
                         value={formBayar.marketplace}
                         onChange={e => setFormBayar({ ...formBayar, marketplace: e.target.value })}
-                        className="w-full mt-1 p-2 text-xs font-bold bg-white border border-amber-200 rounded-lg outline-none"
+                        className="w-full mt-2 p-3 text-xs md:text-sm font-bold bg-white border-2 border-amber-100 focus:border-amber-400 rounded-xl outline-none shadow-sm"
                       />
                     </div>
                     <div>
-                      <label className="text-[9px] font-black text-amber-600 uppercase ml-1">Admin Fee</label>
+                      <label className="text-[10px] font-black text-amber-600 uppercase ml-1">Biaya Admin</label>
                       <input
                         type="number"
                         placeholder="0"
                         value={formBayar.adminFee}
                         onChange={e => setFormBayar({ ...formBayar, adminFee: Number(e.target.value) })}
-                        className="w-full mt-1 p-2 text-xs font-bold bg-white border border-amber-200 rounded-lg outline-none"
+                        className="w-full mt-2 p-3 text-xs md:text-sm font-bold bg-white border-2 border-amber-100 focus:border-amber-400 rounded-xl outline-none shadow-sm"
                       />
                     </div>
                     <div>
-                      <label className="text-[9px] font-black text-amber-600 uppercase ml-1">Cashback</label>
+                      <label className="text-[10px] font-black text-amber-600 uppercase ml-1">Cashback Potongan</label>
                       <input
                         type="number"
                         placeholder="0"
                         value={formBayar.cashback}
                         onChange={e => setFormBayar({ ...formBayar, cashback: Number(e.target.value) })}
-                        className="w-full mt-1 p-2 text-xs font-bold bg-white border border-amber-200 rounded-lg outline-none"
+                        className="w-full mt-2 p-3 text-xs md:text-sm font-bold bg-white border-2 border-amber-100 focus:border-amber-400 rounded-xl outline-none shadow-sm"
                       />
                     </div>
                   </div>
@@ -1636,10 +1631,10 @@ export default function MenuPage() {
 
                 {/* 5. Mekanik (Khusus Service) */}
                 {selectedMenu.toLowerCase().includes('service') && (
-                  <div className={`${activeTheme.light} p-4 rounded-2xl border ${activeTheme.border} space-y-3`}>
+                  <div className={`${activeTheme.light} p-5 rounded-3xl border-2 ${activeTheme.border} space-y-4 shadow-sm`}>
                     <div className="flex justify-between items-center">
-                      <span className={`text-[10px] font-black ${activeTheme.text} uppercase tracking-wider flex items-center gap-1.5`}>
-                        <Wrench size={12}/> Ongkos Mekanik
+                      <span className={`text-[11px] md:text-xs font-black ${activeTheme.text} uppercase tracking-wider flex items-center gap-2`}>
+                        <Wrench size={16}/> Alokasi Mekanik & Ongkos
                       </span>
                       <button
                         onClick={() =>
@@ -1648,45 +1643,47 @@ export default function MenuPage() {
                             mekanikList: [...formBayar.mekanikList, { idLama: '', ongkos: 0 }],
                           })
                         }
-                        className={`text-[9px] font-black bg-white ${activeTheme.text} px-3 py-1.5 rounded-lg shadow-sm hover:scale-105 transition-transform`}
+                        className={`text-[10px] font-black bg-white ${activeTheme.text} px-4 py-2 rounded-xl shadow-sm hover:scale-105 active:scale-95 transition-all border border-transparent hover:${activeTheme.border}`}
                       >
-                        + Tambah
+                        + Tambah Mekanik
                       </button>
                     </div>
+                    
+                    <div className="space-y-2">
                     {formBayar.mekanikList.map((mek, idx) => (
-                      <div key={idx} className="flex gap-2 items-center bg-white p-2 rounded-xl border border-white/50 shadow-sm">
-                        {mek.idLama && mek.ongkos > 0 && (
-                          <button
-                            onClick={() => {
-                              if (window.confirm('Hapus data mekanik ini?')) {
-                                setFormBayar({
-                                  ...formBayar,
-                                  mekanikList: formBayar.mekanikList.filter((_, i) => i !== idx)
-                                });
-                              }
-                            }}
-                            className="p-1.5 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
-                            title="Hapus mekanik"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        )}
+                    <div key={idx} className="flex flex-col sm:flex-row gap-2 sm:items-center bg-white p-2.5 rounded-2xl border border-white/50 shadow-sm">
+                      {/* Tombol Hapus Baris Mekanik */}
+                      {formBayar.mekanikList.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFormBayar(prev => ({
+                              ...prev,
+                              mekanikList: prev.mekanikList.filter((_, i) => i !== idx)
+                            }));
+                          }}
+                          className="p-2 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors self-end sm:self-auto order-1 sm:order-none"
+                          title="Hapus mekanik"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      )}
                         <select
                           value={mek.idLama}
                           onChange={e => {
                             const selectedMekanik = e.target.value;
                             const isDuplicate = formBayar.mekanikList.some((m, i) => i !== idx && m.idLama === selectedMekanik);
                             if (selectedMekanik && isDuplicate) {
-                              alert('Mekanik sudah dipilih!');
+                              alert('Mekanik sudah dipilih di baris lain!');
                               return;
                             }
                             const newList = [...formBayar.mekanikList];
                             newList[idx].idLama = selectedMekanik;
                             setFormBayar({ ...formBayar, mekanikList: newList });
                           }}
-                          className="flex-1 p-2 text-xs font-bold text-slate-700 border-none bg-slate-50 rounded-lg outline-none"
+                          className="flex-1 p-3 text-xs md:text-sm font-bold text-slate-700 border-none bg-slate-50 hover:bg-slate-100 rounded-xl outline-none cursor-pointer w-full"
                         >
-                          <option value="">Pilih Mekanik...</option>
+                          <option value="">Pilih Nama Mekanik...</option>
                           {mechanics.map(m => {
                             const isDisabled = formBayar.mekanikList.some((mekItem, i) => i !== idx && mekItem.idLama === m.username);
                             return (
@@ -1696,62 +1693,136 @@ export default function MenuPage() {
                             );
                           })}
                         </select>
-                        <div className="relative">
-                          <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[10px] font-black text-slate-400">Rp</span>
+                        <div className="relative w-full sm:w-auto">
+                          <span className={`absolute left-3 top-1/2 -translate-y-1/2 text-[11px] font-black ${activeTheme.text}`}>Rp</span>
                           <input
                             type="number"
-                            placeholder="Ongkos"
+                            placeholder="Ongkos Kerja"
                             value={mek.ongkos || ''}
                             onChange={e => {
                               const newList = [...formBayar.mekanikList];
                               newList[idx].ongkos = Number(e.target.value);
                               setFormBayar({ ...formBayar, mekanikList: newList });
                             }}
-                            className="w-24 pl-7 p-2 text-xs font-bold text-slate-800 border-none bg-slate-50 rounded-lg outline-none"
+                            className="w-full sm:w-40 pl-9 pr-3 py-3 text-xs md:text-sm font-black text-slate-800 border-none bg-slate-50 hover:bg-slate-100 focus:bg-white rounded-xl outline-none focus:ring-2 focus:ring-slate-200"
                           />
                         </div>
                       </div>
                     ))}
+                    </div>
                   </div>
                 )}
 
                 {/* 6. Catatan */}
-                <div className="grid grid-cols-2 gap-3 pt-2">
-                  <div>
-                    <label className={`text-[10px] font-black ${activeTheme.text} uppercase tracking-wider ml-1`}>Catatan Nota</label>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+                  <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                    <label className={`text-[10px] md:text-[11px] font-black ${activeTheme.text} uppercase tracking-wider ml-1 flex items-center gap-1.5`}><FileText size={14}/> Note Menu</label>
                     <input
-                      placeholder="Tampil di struk..."
+                      placeholder="Contoh: Garansi 1 Minggu..."
                       value={formBayar.noteMenu}
                       onChange={e => setFormBayar({ ...formBayar, noteMenu: e.target.value })}
-                      className={`w-full mt-1 p-2.5 text-xs font-bold text-slate-700 bg-slate-50 border-2 ${activeTheme.border} rounded-xl ${activeTheme.focusRing} outline-none transition-all`}
+                      className={`w-full mt-2 p-3 text-xs md:text-sm font-bold text-slate-700 bg-white border-2 ${activeTheme.border} rounded-xl ${activeTheme.focusRing} outline-none transition-all shadow-sm`}
                     />
                   </div>
-                  <div>
-                    <label className={`text-[10px] font-black ${activeTheme.text} uppercase tracking-wider ml-1`}>Catatan Internal</label>
+                  <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                    <label className={`text-[10px] md:text-[11px] font-black ${activeTheme.text} uppercase tracking-wider ml-1 flex items-center gap-1.5`}><EyeOff size={14}/> Note Cashflow</label>
                     <input
-                      placeholder="Jurnal kasir..."
+                      placeholder="Informasi kasir (tidak di-print)..."
                       value={formBayar.note}
                       onChange={e => setFormBayar({ ...formBayar, note: e.target.value })}
-                      className={`w-full mt-1 p-2.5 text-xs font-bold text-slate-700 bg-slate-50 border-2 ${activeTheme.border} rounded-xl ${activeTheme.focusRing} outline-none transition-all`}
+                      className={`w-full mt-2 p-3 text-xs md:text-sm font-bold text-slate-700 bg-white border-2 ${activeTheme.border} rounded-xl ${activeTheme.focusRing} outline-none transition-all shadow-sm`}
                     />
                   </div>
                 </div>
 
-                {/* 7. Action Bawah */}
-                <div className="flex flex-col sm:flex-row justify-between items-center pt-5 border-t-2 border-slate-100 mt-2 gap-4">
-                  <div className="text-center sm:text-left">
-                    <span className={`text-[10px] font-black ${activeTheme.text} uppercase tracking-widest block mb-1`}>
-                      Grand Total
+                {/* 6b. Upload File / Media Bukti */}
+                <div className={`${activeTheme.light} p-5 rounded-3xl border-2 ${activeTheme.border} space-y-4 shadow-sm`}>
+                  <div className="flex justify-between items-center">
+                    <label className={`text-[11px] md:text-xs font-black ${activeTheme.text} uppercase tracking-wider flex items-center gap-2`}>
+                      <ImagePlus size={16} />
+                      Lampiran Media / Bukti
+                      {selectedMenu.toLowerCase().includes('pembelian') && (
+                        <span className="text-rose-500 bg-rose-100 px-2 py-0.5 rounded text-[9px] ml-1">*Wajib</span>
+                      )}
+                    </label>
+                    <label className={`cursor-pointer text-[10px] font-black bg-white ${activeTheme.text} px-4 py-2 rounded-xl shadow-sm hover:scale-105 active:scale-95 transition-all border border-transparent hover:${activeTheme.border}`}>
+                      + Upload File
+                      <input
+                        type="file"
+                        multiple
+                        accept="image/*,video/*"
+                        className="hidden"
+                        onChange={e => {
+                          const files = Array.from(e.target.files || []);
+                          setMenuFiles(prev => [...prev, ...files]);
+                          e.target.value = '';
+                        }}
+                      />
+                    </label>
+                  </div>
+
+                  {menuPreviewUrls.length === 0 ? (
+                    <div className={`text-center py-6 rounded-2xl border-2 border-dashed ${activeTheme.border} bg-white/50 backdrop-blur-sm`}>
+                      <p className={`text-[11px] font-black ${activeTheme.text} opacity-60`}>Belum ada file media yang dilampirkan</p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                      {menuPreviewUrls.map((url, idx) => (
+                        <div key={idx} className="relative group rounded-2xl overflow-hidden border-2 border-white shadow-md aspect-square bg-slate-100">
+                          {isVideo(menuFiles[idx]?.name) ? (
+                            <video src={url} className="w-full h-full object-cover" muted />
+                          ) : (
+                            <img src={url} alt={`preview-${idx}`} className="w-full h-full object-cover transition-transform group-hover:scale-110 duration-500" />
+                          )}
+                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                            <button
+                              type="button"
+                              onClick={() => setMenuFiles(prev => prev.filter((_, i) => i !== idx))}
+                              className="w-10 h-10 bg-rose-500 text-white rounded-full flex items-center justify-center hover:scale-110 active:scale-95 transition-transform shadow-lg"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
+                          <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent pt-4 pb-2 px-2 text-white text-[9px] truncate font-bold">
+                            {menuFiles[idx]?.name}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {menuFiles.length > 0 && (
+                    <div className="flex justify-between items-center pt-2 border-t border-black/5">
+                      <span className={`text-[11px] font-black ${activeTheme.text}`}>{menuFiles.length} file telah dilampirkan</span>
+                      <button
+                        type="button"
+                        onClick={() => setMenuFiles([])}
+                        className="text-[10px] font-black text-rose-500 hover:text-rose-700 bg-rose-50 px-3 py-1.5 rounded-lg transition-colors"
+                      >
+                        Hapus Semua
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                  </div> 
+                )}
+
+                {/* 7. Action Bawah (Grand Total & Checkout) */}
+                <div className={`flex flex-col md:flex-row justify-between items-center px-6 py-5 mt-5 gap-4 rounded-3xl border border-slate-200 bg-slate-50 shadow-sm`}>
+                  <div className="text-center md:text-left w-full md:w-auto">
+                    <span className={`text-[10px] font-black ${activeTheme.text} uppercase tracking-widest block mb-0.5`}>
+                      Total Tagihan Pembayaran
                     </span>
-                    <p className="text-3xl sm:text-2xl font-black text-slate-900 tracking-tight">
+                    <p className="text-2xl font-black text-slate-900 tracking-tight">
                       Rp {grandTotal.toLocaleString('id-ID')}
                     </p>
                   </div>
                   <button
                     onClick={handleCheckoutValidation}
-                    className={`w-full sm:w-auto px-8 py-4 sm:py-3.5 ${activeTheme.main} text-white rounded-2xl text-sm font-black shadow-lg hover:shadow-xl hover:-translate-y-1 active:translate-y-0 active:shadow-md transition-all uppercase tracking-widest`}
+                    className={`w-full md:w-auto px-10 py-5 ${activeTheme.main} text-white rounded-2xl text-sm font-black shadow-xl shadow-${activeTheme.main.replace('bg-', '')}/40 hover:brightness-110 hover:shadow-2xl hover:-translate-y-1 active:translate-y-0 active:scale-95 transition-all uppercase tracking-widest flex justify-center items-center gap-3`}
                   >
-                    {editSession ? 'SIMPAN PERUBAHAN' : 'PROSES CHECKOUT'}
+                    {editSession ? <><Save size={18}/> SIMPAN PERUBAHAN</> : <><CheckCircle2 size={18}/>CHECKOUT</>}
                   </button>
                 </div>
 
@@ -1764,89 +1835,78 @@ export default function MenuPage() {
       {/* ========================================================= */} 
       {/* 1. MODAL OVERVIEW RE-CHECK SEBELUM EXECUTE STORING DATA */} 
       {/* ========================================================= */} 
-      <Modal isOpen={showCheckoutReview} onClose={() => setShowCheckoutReview(false)} title="Konfirmasi Data Entry (Database)"> 
-        <div className="space-y-6 max-h-[75vh] overflow-y-auto pr-2 pb-6"> 
-          <div className={`p-5 text-white rounded-3xl text-center ${editSession ? 'bg-blue-600' : 'bg-slate-900'}`}> 
-            <p className="text-xs font-bold uppercase tracking-widest text-white/70">{editSession ? 'Validasi Update Nota' : 'Total Invoice'}</p> 
-            <p className="text-4xl font-black mt-1">Rp {grandTotal.toLocaleString('id-ID')}</p> 
+      <Modal isOpen={showCheckoutReview} onClose={() => setShowCheckoutReview(false)} title="Konfirmasi & Finalisasi Checkout"> 
+        <div className="space-y-6 max-h-[75vh] md:max-h-[80vh] overflow-y-auto pr-2 pb-6 custom-scrollbar"> 
+          {/* Header Theme Sync */}
+          <div className={`p-6 md:p-8 text-white rounded-[2rem] text-center ${editSession ? 'bg-blue-600 shadow-blue-500/30' : `${activeTheme.main} shadow-${activeTheme.main.replace('bg-','')}/30`} shadow-2xl relative overflow-hidden`}> 
+            <div className="absolute top-0 right-0 w-32 h-32 bg-white rounded-full blur-3xl opacity-20 pointer-events-none" />
+            <p className="text-[11px] font-black uppercase tracking-widest text-white/80 relative z-10">{editSession ? 'Validasi Update Nota Terakhir' : 'Total Invoice Penjualan'}</p> 
+            <p className="text-5xl md:text-6xl font-black mt-2 tracking-tight relative z-10">Rp {grandTotal.toLocaleString('id-ID')}</p> 
           </div> 
 
           {/* Rincian Field Koleksi yang akan di Entry */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-medium"> 
+          <div className="flex flex-col gap-4 text-xs font-medium">
              {/* 1. KOLEKSI MENU */}
-              <div className="bg-slate-50 p-4 rounded-2xl border space-y-1.5 shadow-sm">
-                <p className="font-black text-[10px] text-slate-400 uppercase border-b pb-2 mb-3 flex items-center gap-1.5">
-                  <Layers size={14} /> Koleksi: Menu
+              <div className="bg-slate-50 p-5 rounded-[1.5rem] border-2 border-slate-100 space-y-2.5 shadow-sm">
+                <p className={`font-black text-[11px] ${activeTheme.text} uppercase border-b-2 border-slate-200 pb-3 mb-4 flex items-center gap-2`}>
+                  <Layers size={16} /> Entitas: Tabel Data Induk Menu
                 </p>
-                <p><span className="text-slate-400 w-24 inline-block">jenis:</span> {selectedMenu}</p>
-                <p><span className="text-slate-400 w-24 inline-block">person:</span> {formBayar.personIdLama}</p>
-                <p><span className="text-slate-400 w-24 inline-block">person_baru:</span> {personOptions.find(p => p.id_lama === formBayar.personIdLama)?.id || '-'}</p>
-                <p><span className="text-slate-400 w-24 inline-block">payment:</span> {formBayar.payment}</p>
-                <p><span className="text-slate-400 w-24 inline-block">text:</span> {formBayar.noteMenu || '-'}</p>
-                <p><span className="text-slate-400 w-24 inline-block">qty:</span> {totalQtyKeranjang}</p>
-                <p><span className="text-slate-400 w-24 inline-block">total (menu):</span> Rp {totalBelanja.toLocaleString('id-ID')}</p>
-                <p><span className="text-slate-400 w-24 inline-block">dibayar:</span> Rp {formBayar.cashflowList.reduce((sum, cf) => sum + (cf.nominal || 0), 0).toLocaleString('id-ID')}</p>
-                <p><span className="text-slate-400 w-24 inline-block">operator:</span> {operatorName}</p>
-                <p><span className="text-slate-400 w-24 inline-block">created_at:</span> {editSession ? editSession.createdAt : 'Waktu Generate Auto'}</p>
+                <p className="flex justify-between"><span className="text-slate-400 font-bold">Jenis:</span> <span className="font-black text-slate-700">{selectedMenu}</span></p>
+                <p className="flex justify-between"><span className="text-slate-400 font-bold">Person:</span> <span className="font-bold text-slate-700">{formBayar.personIdLama}</span></p>
+                <p className="flex justify-between"><span className="text-slate-400 font-bold">Tipe Bayar:</span> <span className="font-bold text-slate-700">{formBayar.payment}</span></p>
+                <p className="flex justify-between"><span className="text-slate-400 font-bold">Total Qty:</span> <span className="font-black text-slate-700 bg-slate-200 px-2 py-0.5 rounded">{totalQtyKeranjang} Item</span></p>
+                <p className="flex justify-between"><span className="text-slate-400 font-bold">Total Produk:</span> <span className="font-bold text-slate-700">Rp {totalBelanja.toLocaleString('id-ID')}</span></p>
+                <p className="flex justify-between border-t border-dashed pt-2"><span className="text-slate-400 font-bold">Dana Masuk:</span> <span className="font-black text-emerald-600">Rp {formBayar.cashflowList.reduce((sum, cf) => sum + (cf.nominal || 0), 0).toLocaleString('id-ID')}</span></p>
                 
-                {/* Status dan date_lunas */}
-                <p><span className="text-slate-400 w-24 inline-block">status:</span> 
-                  {(() => {
+                <div className={`mt-4 p-3 rounded-xl border ${(() => {
                     const totalDibayar = formBayar.cashflowList.reduce((sum, cf) => sum + (cf.nominal || 0), 0);
-                    return totalDibayar >= grandTotal ? 'lunas' : 'belum';
-                  })()}
-                </p>
-                <p><span className="text-slate-400 w-24 inline-block">date_lunas:</span> 
-                  {(() => {
-                    const totalDibayar = formBayar.cashflowList.reduce((sum, cf) => sum + (cf.nominal || 0), 0);
-                    if (editSession) {
-                      // Saat edit, date_lunas akan diambil dari data lama (tidak ditampilkan di preview sederhana)
-                      return '(diambil dari data lama)';
-                    } else {
-                      return totalDibayar >= grandTotal ? 'Akan diisi saat checkout' : '-';
-                    }
-                  })()}
-                </p>
-
-                {isOnlinePerson && (
-                  <>
-                    <p><span className="text-slate-400 w-24 inline-block">marketplace:</span> {formBayar.marketplace || '-'}</p>
-                    <p><span className="text-slate-400 w-24 inline-block">admin:</span> {formBayar.adminFee || 0}</p>
-                    <p><span className="text-slate-400 w-24 inline-block">cashback:</span> {formBayar.cashback || 0}</p>
-                  </>
-                )}
+                    return totalDibayar >= grandTotal ? 'bg-emerald-50 border-emerald-100 text-emerald-700' : 'bg-rose-50 border-rose-100 text-rose-700';
+                  })()}`}>
+                  <p className="flex justify-between text-[11px] uppercase tracking-widest font-black">
+                    <span>Status Nota:</span>
+                    <span>{(() => {
+                      const totalDibayar = formBayar.cashflowList.reduce((sum, cf) => sum + (cf.nominal || 0), 0);
+                      return totalDibayar >= grandTotal ? 'LUNAS' : 'BELUM LUNAS';
+                    })()}</span>
+                  </p>
+                </div>
               </div>
 
              {/* 2. KOLEKSI CASHFLOW */}
-             <div className="bg-slate-50 p-4 rounded-2xl border space-y-1.5 shadow-sm">
-                <p className="font-black text-[10px] text-slate-400 uppercase border-b pb-2 mb-3 flex items-center gap-1.5"><Wallet size={14}/> Koleksi: Cashflow</p>
-                <p><span className="text-slate-400 w-20 inline-block">id_lama:</span> -</p> 
-                <p><span className="text-slate-400 w-20 inline-block">jenis:</span> {selectedMenu}</p> 
-                <p><span className="text-slate-400 w-20 inline-block">nominal:</span> Rp {grandTotal.toLocaleString('id-ID')}</p> 
-                <p><span className="text-slate-400 w-20 inline-block">mutasi:</span> {(selectedMenu.toLowerCase().includes('penjualan') || selectedMenu.toLowerCase().includes('service')) ? 'debet' : 'kredit'}</p> 
-                <p><span className="text-slate-400 w-20 inline-block">account_1:</span> {formBayar.accountCashflow || '-'}</p> 
-                <p><span className="text-slate-400 w-20 inline-block">account_2:</span> -</p> 
-                <p><span className="text-slate-400 w-20 inline-block">note:</span> POS System: Nota [Auto ID]</p> 
-                <p><span className="text-slate-400 w-20 inline-block">operator:</span> {operatorName}</p> 
-                <p><span className="text-slate-400 w-20 inline-block">created_at:</span> {editSession ? editSession.createdAt : 'Waktu Generate Auto'}</p> 
-                <p><span className="text-slate-400 w-20 inline-block">ref_baru:</span> [ID Relasi Menu]</p> 
+             <div className="bg-slate-50 p-5 rounded-[1.5rem] border-2 border-slate-100 space-y-2.5 shadow-sm flex flex-col">
+                <p className={`font-black text-[11px] ${activeTheme.text} uppercase border-b-2 border-slate-200 pb-3 mb-4 flex items-center gap-2`}>
+                  <Wallet size={16}/> Entitas: Mutasi Jurnal Kas
+                </p>
+                <p className="flex justify-between"><span className="text-slate-400 font-bold">Nominal Transaksi:</span> <span className="font-black text-slate-800">Rp {grandTotal.toLocaleString('id-ID')}</span></p> 
+                <p className="flex justify-between"><span className="text-slate-400 font-bold">Jenis Mutasi:</span> <span className="font-black uppercase bg-slate-200 px-2 py-0.5 rounded text-slate-700">{(selectedMenu.toLowerCase().includes('penjualan') || selectedMenu.toLowerCase().includes('service')) ? 'Debet (Masuk)' : 'Kredit (Keluar)'}</span></p> 
+                <p className="flex justify-between"><span className="text-slate-400 font-bold">Operator Kasir:</span> <span className="font-bold text-slate-700">{operatorName}</span></p> 
+                
+                {isOnlinePerson && (
+                  <div className="mt-auto pt-4 border-t border-dashed">
+                    <p className="font-black text-[10px] text-amber-500 uppercase mb-2">Detail Marketplace Online:</p>
+                    <p className="flex justify-between"><span className="text-slate-400 font-bold">Platform:</span> <span className="font-bold text-slate-700">{formBayar.marketplace || '-'}</span></p>
+                    <p className="flex justify-between"><span className="text-slate-400 font-bold">Potongan Admin:</span> <span className="font-bold text-rose-500">- Rp {formBayar.adminFee || 0}</span></p>
+                    <p className="flex justify-between"><span className="text-slate-400 font-bold">Cashback:</span> <span className="font-bold text-emerald-500">+ Rp {formBayar.cashback || 0}</span></p>
+                  </div>
+                )}
              </div>
 
              {/* 3. KOLEKSI ONGKOS (Tampil Bersyarat) */}
              {selectedMenu.toLowerCase().includes('service') && formBayar.mekanikList.some(m => m.idLama && m.ongkos > 0) && (
-               <div className="bg-blue-50/50 border-blue-100 p-5 rounded-2xl border col-span-1 md:col-span-2 shadow-sm">
-                  <p className="font-black text-[10px] text-blue-500 uppercase border-b border-blue-100 pb-2 mb-4 flex items-center gap-1.5"><Wrench size={14}/> Koleksi: Ongkos</p>
+               <div className={`${activeTheme.light} border-2 ${activeTheme.border} p-5 rounded-[1.5rem] col-span-1 md:col-span-2 shadow-sm`}>
+                  <p className={`font-black text-[11px] ${activeTheme.text} uppercase border-b-2 border-black/10 pb-3 mb-4 flex items-center gap-2`}><Wrench size={16}/> Alokasi Ongkos Mekanik</p>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {formBayar.mekanikList.filter(m => m.idLama && m.ongkos > 0).map((mek, idx) => (
-                      <div key={idx} className="bg-white p-4 rounded-xl border border-blue-100 space-y-1.5 shadow-sm relative overflow-hidden">
-                        <div className="absolute top-0 left-0 w-1 h-full bg-blue-500" />
-                        <p className="font-bold text-slate-800 mb-2">Record Entry Mekanik {idx + 1}</p>
-                        <p><span className="text-slate-400 w-20 inline-block">id_lama:</span> -</p>
-                        <p><span className="text-slate-400 w-20 inline-block">person:</span> <span className="font-bold text-blue-600">{mek.idLama}</span></p>
-                        <p><span className="text-slate-400 w-20 inline-block">ongkos:</span> Rp {mek.ongkos.toLocaleString('id-ID')}</p>
-                        <p><span className="text-slate-400 w-20 inline-block">created_at:</span> {editSession ? editSession.createdAt.split(' ')[0] : 'Tanggal Transaksi'}</p>
-                        <p><span className="text-slate-400 w-20 inline-block">ref:</span> -</p>
-                        <p><span className="text-slate-400 w-20 inline-block">ref_baru:</span> [ID Relasi Menu]</p>
+                      <div key={idx} className="bg-white p-4 rounded-xl border border-white/50 shadow-sm relative overflow-hidden flex justify-between items-center">
+                        <div className={`absolute top-0 left-0 w-1.5 h-full ${activeTheme.main}`} />
+                        <div>
+                          <p className="text-[10px] font-black text-slate-400 uppercase">Mekanik</p>
+                          <p className={`font-black text-sm ${activeTheme.text}`}>{mek.idLama}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-[10px] font-black text-slate-400 uppercase">Ongkos</p>
+                          <p className="font-black text-slate-800 text-sm">Rp {mek.ongkos.toLocaleString('id-ID')}</p>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -1854,25 +1914,30 @@ export default function MenuPage() {
              )}
           </div>
 
-          <div className="space-y-2"> 
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Data Table: Log Stock (Rincian Item)</p> 
-            <div className="border rounded-2xl overflow-hidden divide-y text-xs bg-white"> 
+          <div className="space-y-3"> 
+            <p className={`text-[11px] font-black ${activeTheme.text} uppercase tracking-widest ml-1 flex items-center gap-2`}><ListOrdered size={16}/> Rincian Item (Log Stock)</p> 
+            <div className="border-2 border-slate-200 rounded-[1.5rem] overflow-hidden divide-y divide-slate-100 text-xs bg-white shadow-sm"> 
               {cartWithTierPrice.map(item => ( 
-                <div key={item.id} className="p-3 flex justify-between items-center bg-slate-50/50"> 
-                  <div> 
-                    <p className="font-bold text-slate-800">{getFullLabel(item)}</p> 
-                    <p className="text-slate-400 font-semibold">{item.qty} {item.unit} x Rp {item.priceSelected.toLocaleString('id-ID')}</p> 
-                  </div> 
-                  <p className="font-black text-slate-900">Rp {(item.priceSelected * item.qty).toLocaleString('id-ID')}</p> 
+                <div key={item.id} className="p-4 flex justify-between items-center hover:bg-slate-50 transition-colors"> 
+                  <div className="flex-1 pr-4"> 
+                    <p className="font-black text-slate-800 text-sm">{getFullLabel(item)}</p> 
+                    <div className="flex flex-wrap items-center gap-2 mt-1.5">
+                      <p className="text-slate-500 font-bold bg-slate-100 px-2 py-0.5 rounded-md text-[11px]">{item.qty} {item.unit} <span className="mx-1">x</span> Rp {item.priceSelected.toLocaleString('id-ID')}</p> 
+                      <p className="text-slate-400 font-bold border border-slate-200 px-2 py-0.5 rounded-md text-[10px]">Normal: Rp {(item.sell_6 * item.qty).toLocaleString('id-ID')}</p> 
+                    </div>
+                  </div>
+                  <p className="font-black text-slate-900 text-sm">Rp {(item.priceSelected * item.qty).toLocaleString('id-ID')}</p> 
                 </div> 
               ))} 
             </div> 
           </div> 
 
-          <div className="flex gap-3 pt-4 border-t"> 
-            <button type="button" onClick={() => setShowCheckoutReview(false)} className="flex-1 py-4 bg-slate-100 rounded-2xl font-black text-slate-400 text-xs">BATAL</button> 
-            <button type="button" onClick={executeStoringData} disabled={isProcessing} className={`flex-1 py-4 text-white rounded-2xl font-black text-xs shadow-lg ${editSession ? 'bg-blue-600 shadow-blue-200' : 'bg-emerald-600 shadow-emerald-200'}`}> 
-              {isProcessing ? 'MENYIMPAN DATA...' : 'KONFIRMASI'} 
+          <div className="flex flex-col sm:flex-row gap-3 pt-6 border-t-2 border-slate-100"> 
+            <button type="button" onClick={() => setShowCheckoutReview(false)} className="flex-1 py-4 bg-slate-100 hover:bg-slate-200 rounded-2xl font-black text-slate-500 text-xs tracking-widest transition-colors">BATALKAN</button> 
+            <button type="button" onClick={executeStoringData} disabled={isProcessing} className={`flex-[2] py-4 text-white rounded-2xl font-black text-sm shadow-xl tracking-widest transition-all active:scale-95 ${editSession ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/30' : `${activeTheme.main} hover:brightness-110 shadow-${activeTheme.main.replace('bg-','')}/40`} ${isProcessing ? 'opacity-70 cursor-not-allowed' : ''}`}> 
+              {isProcessing ? (
+                <span className="flex items-center justify-center gap-2"><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"/> MENYIMPAN KE DATABASE...</span>
+              ) : 'KONFIRMASI SIMPAN TRANSAKSI'} 
             </button> 
           </div> 
         </div> 
@@ -1881,75 +1946,90 @@ export default function MenuPage() {
       {/* ========================================================= */} 
       {/* 2. MODAL DETAIL HISTORI TRANSAKSI BESERTA SUB-DETAILS */} 
       {/* ========================================================= */} 
-      <Modal isOpen={!!showDetailHistory} onClose={() => setShowDetailHistory(null)} title="Rincian Nota Finansial"> 
+      <Modal isOpen={!!showDetailHistory} onClose={() => setShowDetailHistory(null)} title="Rincian Histori & Log Finansial"> 
         {showDetailHistory && ( 
-          <div className="space-y-6 max-h-[80vh] overflow-y-auto pr-1 pb-4"> 
-            <div className="bg-slate-900 p-6 rounded-3xl text-center text-white relative"> 
-              <span className="text-[10px] font-black text-blue-400 uppercase tracking-widest">{showDetailHistory.ref || `INV-${showDetailHistory.id}`}</span> 
+          <div className="space-y-6 max-h-[80vh] overflow-y-auto pr-2 pb-6 custom-scrollbar"> 
+            <div className={`p-6 md:p-8 rounded-[2rem] text-center text-white relative shadow-xl overflow-hidden ${activeTheme.main}`}> 
+              <div className="absolute top-0 right-0 w-40 h-40 bg-white rounded-full blur-3xl opacity-20 pointer-events-none" />
+              <span className="text-[11px] font-black bg-black/20 px-3 py-1.5 rounded-full uppercase tracking-widest backdrop-blur-md relative z-10">{showDetailHistory.ref || `INV-${showDetailHistory.id}`}</span> 
 
-              <div className="mt-2">
-                <h4 className="font-black text-white text-2xl uppercase leading-tight">
+              <div className="mt-4 relative z-10">
+                <h4 className="font-black text-white text-3xl md:text-3xl uppercase leading-tight tracking-tight drop-shadow-sm">
                   {(() => {
                     const person = allPersons.find(p => p.id_lama === showDetailHistory.person);
                     return person ? `${person.text_1} - ${person.text_2 || ''}` : (showDetailHistory.person || 'PELANGGAN UMUM');
                   })()}
                 </h4>
-                <p className="text-sm font-bold text-slate-300 mt-1">
-                  Total Transaksi: Rp {totalTransaksi.toLocaleString('id-ID')}
-                </p>
+                <div className="mt-3 inline-block bg-white/10 backdrop-blur-md border border-white/20 px-5 py-2 rounded-2xl">
+                  <p className="text-sm font-black text-white/90 uppercase tracking-widest text-[10px]">
+                    Total Invoice
+                  </p>
+                  <p className="text-2xl font-black text-white">
+                    Rp {totalTransaksi.toLocaleString('id-ID')}
+                  </p>
+                </div>
               </div>
 
-              <p className="text-xs font-bold text-slate-400 mt-2">Operator: {showDetailHistory.operator || 'System'} | Tgl: {showDetailHistory.created_at}</p>
+              <div className="flex flex-wrap justify-center gap-3 mt-5 relative z-10">
+                <span className="text-[10px] font-black text-white/80 bg-black/10 px-3 py-1.5 rounded-lg flex items-center gap-1.5"><User size={12}/> Kasir: {showDetailHistory.operator || 'System'}</span>
+                <span className="text-[10px] font-black text-white/80 bg-black/10 px-3 py-1.5 rounded-lg flex items-center gap-1.5"><Calendar size={12}/> {showDetailHistory.created_at}</span>
+              </div>
 
               {showDetailHistory.marketplace && (
-                <div className="mt-2 text-[10px] text-slate-400 flex gap-3 justify-center">
-                  <span>Marketplace: {showDetailHistory.marketplace}</span>
-                  <span>Admin: {showDetailHistory.admin}</span>
-                  <span>Cashback: {showDetailHistory.cashback}</span>
+                <div className="mt-4 p-3 bg-black/10 rounded-xl text-[10px] text-white/90 font-bold flex flex-wrap gap-4 justify-center relative z-10 border border-white/10">
+                  <span className="flex items-center gap-1"><ShoppingBag size={12}/> {showDetailHistory.marketplace}</span>
+                  <span className="text-rose-200">Admin: -Rp {showDetailHistory.admin}</span>
+                  <span className="text-emerald-200">CB: +Rp {showDetailHistory.cashback}</span>
                 </div>
               )}
 
-              {userLevel === '1' && (
-                <div className="mt-4 pt-4 border-t border-white/10 flex justify-center gap-6">
-                  <div className="text-center">
-                    <p className="text-[9px] font-black text-slate-400 uppercase">Total Laba Kotor</p>
-                    <p className="font-black text-emerald-400 text-lg">Rp {totalLabaKotor.toLocaleString('id-ID')}</p>
+              {userLevel === '1' && showDetailHistory.jenis?.toLowerCase() !== 'pembelian' && (
+                <div className="mt-6 pt-5 border-t border-white/20 flex justify-around relative z-10">
+                  <div className="text-center bg-black/20 flex-1 rounded-l-xl p-2 border-r border-white/10">
+                    <p className="text-[10px] font-black text-white/60 uppercase tracking-widest">Total Laba Kotor</p>
+                    <p className="font-black text-emerald-300 text-lg md:text-xl drop-shadow-sm mt-1">Rp {totalLabaKotor.toLocaleString('id-ID')}</p>
                   </div>
-                  <div className="text-center">
-                    <p className="text-[9px] font-black text-slate-400 uppercase">Margin (%)</p>
-                    <p className="font-black text-white text-lg">{persentaseLaba}%</p>
+                  <div className="text-center bg-black/20 flex-1 rounded-r-xl p-2">
+                    <p className="text-[10px] font-black text-white/60 uppercase tracking-widest">Persentase Margin</p>
+                    <p className="font-black text-white text-lg md:text-xl mt-1">{persentaseLaba}%</p>
                   </div>
                 </div>
               )}
-            </div>
+            </div> 
 
-            <div className="space-y-2"> 
-              <p className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Detail Koleksi Log Stock:</p> 
-              <div className="border rounded-2xl bg-white divide-y text-xs"> 
+            <div className="space-y-3"> 
+              <p className={`text-[11px] font-black ${activeTheme.text} uppercase tracking-widest ml-1 flex items-center gap-2`}><Box size={16}/> Rincian Item (Log Stok Terjual)</p> 
+              <div className="border-2 border-slate-200 rounded-[1.5rem] bg-white divide-y divide-slate-100 text-xs shadow-sm overflow-hidden"> 
                 {historyItems.length === 0 ? ( 
-                  <p className="p-4 text-center text-slate-400 font-bold">Memuat rincian log stok barang...</p> 
+                  <div className="p-8 text-center flex flex-col items-center">
+                    <div className="w-12 h-12 border-4 border-slate-100 border-t-slate-400 rounded-full animate-spin mb-3"></div>
+                    <p className="text-slate-400 font-bold uppercase tracking-widest text-[10px]">Menarik rincian database...</p>
+                  </div> 
                 ) : ( 
                   historyItems.map(item => ( 
-                    <div key={item.id} className="p-4 bg-slate-50/30"> 
-                      <div className="flex justify-between items-start mb-2">
-                         <p className="font-bold text-slate-800 text-sm">{getFullLabel(item.expand?.item_baru)}</p>
-                         <p className="font-black text-slate-900">Rp {(item.price_1 * item.qty)?.toLocaleString('id-ID')}</p> 
+                    <div key={item.id} className="p-5 hover:bg-slate-50 transition-colors"> 
+                      <div className="flex justify-between items-start mb-3">
+                         <p className="font-black text-slate-800 text-sm md:text-base leading-snug pr-4">{getFullLabel(item.expand?.item_baru)}</p>
+                         <p className="font-black text-slate-900 text-sm bg-slate-100 px-3 py-1 rounded-lg shrink-0">Rp {(item.price_1 * item.qty)?.toLocaleString('id-ID')}</p> 
                       </div>
                       {userLevel === '1' && (
-                        <div className="grid grid-cols-2 gap-2 text-[10px] text-slate-500 bg-white p-3 rounded-xl border border-slate-200 shadow-sm mt-2">
-                           <p>ID Record: <span className="font-mono text-slate-800">{item.id}</span></p>
-                           <p>Item ID Lama: <span className="font-mono text-slate-800">{item.item}</span></p>
-                           <p>Qty Transaksi: <span className="font-bold text-slate-800">{item.qty}</span></p>
-                           <p>Mutasi (Boolean): <span className="font-bold text-slate-800">{item.boolean}</span></p>
-                           <p>Price 1 (Jual Satuan): <span className="font-bold text-slate-800">Rp {item.price_1?.toLocaleString('id-ID')}</span></p>
-                           <p>Price 2 (Total Modal): <span className="font-bold text-slate-800">Rp {item.price_2?.toLocaleString('id-ID')}</span></p>
+                        <div className="grid grid-cols-2 gap-y-2 gap-x-4 text-[10px] md:text-[11px] text-slate-500 bg-slate-50 p-4 rounded-xl border border-slate-200 mt-3 shadow-inner">
+                           <p className="flex justify-between"><span className="font-bold">ID Record:</span> <span className="font-mono text-slate-800">{item.id}</span></p>
+                           <p className="flex justify-between"><span className="font-bold">Item ID Asal:</span> <span className="font-mono text-slate-800">{item.item}</span></p>
+                           <p className="flex justify-between"><span className="font-bold">Qty (Stok Mutasi):</span> <span className="font-black text-slate-800 bg-slate-200 px-1.5 rounded">{item.qty}</span></p>
+                           <p className="flex justify-between"><span className="font-bold">Boolean Alur:</span> <span className="font-black text-slate-800">{item.boolean}</span></p>
+                           <p className="flex justify-between"><span className="font-bold">Price 1 (Jual):</span> <span className="font-black text-slate-800">Rp {item.price_1?.toLocaleString('id-ID')}</span></p>
+                           <p className="flex justify-between"><span className="font-bold">Price 2 (Modal):</span> <span className="font-black text-slate-800">Rp {item.price_2?.toLocaleString('id-ID')}</span></p>
                            {(() => {
                              const laba = (item.price_1 * item.qty) - item.price_2;
                              const pct = item.price_2 > 0 ? ((laba / item.price_2) * 100).toFixed(1) : 0;
                              return (
-                               <div className="col-span-2 border-t border-dashed pt-2 mt-1 flex justify-between items-center">
-                                 <p className="font-bold text-slate-400 uppercase tracking-widest">Laba Kotor Item Ini:</p>
-                                 <p className="font-black text-emerald-600 text-sm">Rp {laba.toLocaleString('id-ID')} <span className="text-[10px] bg-emerald-100 px-1.5 py-0.5 rounded text-emerald-700 ml-1">+{pct}%</span></p>
+                               <div className="col-span-2 border-t-2 border-dashed border-slate-200 pt-3 mt-2 flex justify-between items-center bg-white p-2 rounded-lg">
+                                 <p className="font-black text-slate-400 uppercase tracking-widest text-[9px]">Laba Margin Analitik:</p>
+                                 <p className="font-black text-emerald-600 text-sm flex items-center gap-2">
+                                  Rp {laba.toLocaleString('id-ID')} 
+                                  <span className="text-[10px] bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded-md text-emerald-700 shadow-sm">+{pct}%</span>
+                                 </p>
                                </div>
                              );
                            })()}
@@ -1961,41 +2041,49 @@ export default function MenuPage() {
               </div> 
             </div> 
 
-            <div className="grid grid-cols-2 gap-3 text-xs">
-              <div className="p-4 bg-slate-50 rounded-2xl border"> 
-                <p className="font-black text-slate-400 text-[10px] uppercase">Aliran Dana (Cashflow)</p> 
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+              <div className="p-5 bg-slate-50 rounded-3xl border-2 border-slate-100 shadow-sm relative overflow-hidden"> 
+                <div className="absolute top-0 right-0 w-24 h-24 bg-blue-500 blur-3xl opacity-5 rounded-full" />
+                <p className="font-black text-blue-500 text-[11px] uppercase tracking-widest flex items-center gap-1.5 mb-3 border-b border-blue-100 pb-2"><Wallet size={14}/> Rekaman Jurnal Kas</p> 
                 {historyCashflow ? ( 
-                  <div className="mt-2 space-y-1 font-bold text-slate-700 text-[10px]"> 
-                    <p>Nominal: <span className="text-blue-600">Rp {historyCashflow.nominal?.toLocaleString('id-ID')}</span></p> 
-                    <p>Mutasi Jurnal: <span className="uppercase text-slate-500">{historyCashflow.mutasi}</span></p> 
-                    <p>Akun Jurnal: {historyCashflow.account_1}</p> 
-                    <p>Catatan: {historyCashflow.note}</p> 
+                  <div className="space-y-2 font-bold text-slate-600 text-[11px]"> 
+                    <p className="flex justify-between"><span>Nominal:</span> <span className="font-black text-blue-600 text-sm">Rp {historyCashflow.nominal?.toLocaleString('id-ID')}</span></p> 
+                    <p className="flex justify-between"><span>Mutasi:</span> <span className="uppercase text-slate-800 bg-slate-200 px-2 py-0.5 rounded">{historyCashflow.mutasi}</span></p> 
+                    <p className="flex justify-between"><span>Account:</span> <span className="text-slate-800">{historyCashflow.account_1}</span></p> 
+                    <div className="mt-3 bg-white p-2.5 rounded-xl border border-slate-100 text-slate-500 italic font-medium leading-relaxed">
+                      " {historyCashflow.note} "
+                    </div> 
                   </div> 
-                ) : <p className="text-slate-400 italic mt-1 text-[10px]">Memuat data jurnal kas...</p>} 
+                ) : <p className="text-slate-400 italic mt-2 text-[10px] animate-pulse">Menyelaraskan data jurnal...</p>} 
               </div> 
 
-              <div className="p-4 bg-slate-50 rounded-2xl border"> 
-                <p className="font-black text-slate-400 text-[10px] uppercase">Ongkos Mekanik (Ongkos)</p> 
-                <div className="mt-2 space-y-1 font-bold text-slate-700 text-[10px]"> 
-                  {historyOngkos.length === 0 ? <p className="text-slate-400 italic">Bukan transaksi service / Kosong.</p> : ( 
+              <div className="p-5 bg-slate-50 rounded-3xl border-2 border-slate-100 shadow-sm relative overflow-hidden"> 
+                <div className="absolute top-0 right-0 w-24 h-24 bg-amber-500 blur-3xl opacity-5 rounded-full" />
+                <p className="font-black text-amber-500 text-[11px] uppercase tracking-widest flex items-center gap-1.5 mb-3 border-b border-amber-100 pb-2"><Wrench size={14}/> Potongan Mekanik</p> 
+                <div className="space-y-2 font-bold text-slate-600 text-[11px]"> 
+                  {historyOngkos.length === 0 ? <p className="text-slate-400 italic font-medium mt-4">Nota ini tidak memiliki alokasi servis mekanik.</p> : ( 
                     historyOngkos.map(fee => ( 
-                      <p key={fee.id} className="truncate">@{fee.person}: <span className="text-emerald-600">Rp {fee.ongkos?.toLocaleString('id-ID')}</span></p> 
+                      <div key={fee.id} className="flex justify-between items-center bg-white p-3 rounded-xl border border-slate-100 shadow-sm">
+                        <span className="font-black text-slate-700 uppercase flex items-center gap-2"><User size={12} className="text-slate-400"/> {fee.person}</span>
+                        <span className="font-black text-emerald-600 text-sm tracking-tight">Rp {fee.ongkos?.toLocaleString('id-ID')}</span>
+                      </div>
                     )) 
                   )} 
                 </div> 
               </div> 
             </div> 
 
-            <div className="flex gap-2 pt-2 border-t mt-4 pt-4">
+            <div className="flex flex-wrap md:flex-nowrap gap-3 pt-6 border-t-2 border-slate-100">
               {/* Tombol Delete: level 1,5 selalu; jika status 'belum', level 1-7 */}
               {(() => {
                 const isStatusBelum = showDetailHistory?.status === 'belum';
                 const bolehDelete = (userLevel === '1' || userLevel === '5') || (isStatusBelum && ['1','2','3','4','5','6','7'].includes(userLevel));
                 return bolehDelete && (
                   <button 
-                    onClick={() => confirmAction('Hapus Transaksi', 'Yakin ingin menghapus nota ini secara permanen?', () => handleDeleteHistory(showDetailHistory!))} 
-                    className="p-3 bg-rose-50 text-rose-500 rounded-xl hover:bg-rose-100 transition-colors">
-                    <Trash2 size={18}/>
+                    onClick={() => confirmAction('Hapus Permanen', 'Peringatan: Menghapus nota ini akan mengembalikan seluruh stok barang dan menghapus jejak jurnal kas terkait. Lanjutkan?', () => handleDeleteHistory(showDetailHistory!))} 
+                    className="w-12 h-12 flex-shrink-0 bg-rose-50 text-rose-600 rounded-2xl hover:bg-rose-500 hover:text-white border border-rose-100 hover:shadow-lg hover:shadow-rose-500/30 transition-all flex justify-center items-center group" title="Hapus Nota"
+                  >
+                    <Trash2 size={20} className="group-hover:scale-110 transition-transform"/>
                   </button>
                 );
               })()}
@@ -2006,26 +2094,30 @@ export default function MenuPage() {
                   onClick={() => {
                     if (showDetailHistory) handleEditHistoryToCart(showDetailHistory);
                   }} 
-                  className="p-3 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-100 transition-colors"
+                  className="w-12 h-12 flex-shrink-0 bg-blue-50 text-blue-600 rounded-2xl hover:bg-blue-600 hover:text-white border border-blue-100 hover:shadow-lg hover:shadow-blue-500/30 transition-all flex justify-center items-center group" title="Revisi Nota"
                 >
-                  <Edit size={18}/>
+                  <Edit size={20} className="group-hover:scale-110 transition-transform"/>
                 </button>
               )}
 
               {/* Tombol Print & Share: hanya jika status 'lunas' */}
               {showDetailHistory?.status === 'lunas' && (
-                <>
+                <div className="flex w-full md:w-auto gap-3">
                   <button onClick={handlePrint} 
-                          className="p-3 bg-emerald-50 text-emerald-600 rounded-xl hover:bg-emerald-100 transition-colors"><Printer size={18}/></button>
-                  <button onClick={() => alert('Fitur Share segera hadir!')} 
-                          className="p-3 bg-amber-50 text-amber-600 rounded-xl hover:bg-amber-100 transition-colors"><Share2 size={18}/></button>
-                </>
+                          className="flex-1 p-4 bg-emerald-50 text-emerald-600 rounded-2xl hover:bg-emerald-500 hover:text-white border border-emerald-100 hover:shadow-lg hover:shadow-emerald-500/30 transition-all flex justify-center items-center group" title="Print Struk Thermal">
+                          <Printer size={20} className="group-hover:scale-110 transition-transform"/>
+                  </button>
+                  <button onClick={() => alert('Fitur Share PDF Invoice menyusul pada update berikutnya!')} 
+                          className="flex-1 p-4 bg-amber-50 text-amber-600 rounded-2xl hover:bg-amber-500 hover:text-white border border-amber-100 hover:shadow-lg hover:shadow-amber-500/30 transition-all flex justify-center items-center group" title="Bagikan Bukti Digital">
+                          <Share2 size={20} className="group-hover:scale-110 transition-transform"/>
+                  </button>
+                </div>
               )}
 
               {/* Tombol Close */}
               <button onClick={() => setShowDetailHistory(null)} 
-                      className="flex-1 p-3 bg-slate-100 text-slate-600 rounded-xl hover:bg-slate-200 transition-colors flex items-center justify-center font-bold text-xs">
-                <X size={18} className="mr-2" /> TUTUP
+                      className="flex-[2] md:flex-1 p-4 bg-slate-900 text-white rounded-2xl hover:bg-slate-800 shadow-lg hover:shadow-xl transition-all flex items-center justify-center font-black text-xs tracking-widest">
+                TUTUP PANEL
               </button>
             </div>
           </div> 
@@ -2035,81 +2127,94 @@ export default function MenuPage() {
       {/* ========================================================= */} 
       {/* 3. LAYOUT TEMPLATE NOTA PRINTER THERMAL 58MM */} 
       {/* ========================================================= */} 
-      <Modal isOpen={!!showReceiptPrint} onClose={() => setShowReceiptPrint(null)} title="Print Nota Kasir"> 
+      <Modal isOpen={!!showReceiptPrint} onClose={() => setShowReceiptPrint(null)} title="Print Antrian Kasir"> 
         {showReceiptPrint && ( 
-          <div className="space-y-6"> 
-            <div className="border border-dashed border-slate-300 p-4 bg-white mx-auto text-slate-800 font-mono text-xs shadow-inner rounded-xl max-w-[280px]" id="thermal-receipt-58mm"> 
-              {/* HEADER TOKO */}
-              <div className="text-center space-y-1 border-b border-dashed pb-3"> 
-                <h4 className="font-black text-sm">PRIMA MOTOR GLADAG</h4> 
-                <p className="text-[10px]">Gladag, Rogojampi, Banyuwangi</p> 
-                <p className="text-[9px]">HP/WA: 081-XXXX-XXXX</p> 
-              </div> 
+          <div className="space-y-6 flex flex-col items-center"> 
+            
+            <div className="bg-slate-100 p-4 w-full rounded-2xl flex justify-center items-center shadow-inner">
+              {/* Box Putih simulasi kertas thermal */}
+              <div className="border-t-[8px] border-b-[8px] border-t-slate-800 border-b-white bg-white w-[280px] text-slate-900 font-mono text-xs shadow-xl rounded-sm" id="thermal-receipt-58mm"> 
+                {/* HEADER TOKO */}
+                <div className="text-center space-y-1.5 border-b-2 border-dashed border-slate-300 pb-4 pt-4 px-3"> 
+                  <h4 className="font-black text-base tracking-wide">PRIMA MOTOR GLADAG</h4> 
+                  <p className="text-[10px] font-bold">Jl. Raya Gladag, Rogojampi</p> 
+                  <p className="text-[10px] font-bold">Banyuwangi - Jawa Timur</p> 
+                  <p className="text-[10px] font-bold mt-1">WA: 081-XXXX-XXXX</p> 
+                </div> 
 
-              {/* INFORMASI NOTA (tanpa mekanik) */}
-              <div className="py-2 border-b border-dashed text-[10px] space-y-0.5">
-                <p>Nota: {showReceiptPrint.id}</p>
-                <p>Waktu: {showReceiptPrint.timestamp}</p>
-                <p>Pelanggan: {showReceiptPrint.customer}</p>
-                <p>Kasir: {operatorName}</p>
-                <p>Jenis Transaksi: {showReceiptPrint.jenis || '-'}</p>
-              </div>
-
-              {/* DAFTAR ITEM PRODUK & MEKANIK (dengan format seragam) */}
-              <div className="py-2 border-b border-dashed text-[10px] space-y-2">
-                {/* Item Produk */}
-                {showReceiptPrint.items?.map((item: any, idx: number) => (
-                  <div key={idx}>
-                    <p className="font-bold uppercase">
-                      {formatIdLamaDisplay(item.id_lama)} - {getFullLabel(item)}
-                    </p>
-                    <div className="flex justify-between text-[9px] text-slate-500">
-                      <span>{item.qty} x Rp {item.priceSelected?.toLocaleString('id-ID')}</span>
-                      <span className="font-mono text-slate-800">
-                        Rp {(item.priceSelected * item.qty)?.toLocaleString('id-ID')}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-
-                {/* Separator jika ada mekanik */}
-                {showReceiptPrint.mechanics && showReceiptPrint.mechanics.length > 0 && (
-                  <div className="border-t border-dashed my-1"></div>
-                )}
-
-                {/* Servis Mekanik (format seperti item) */}
-                {showReceiptPrint.mechanics?.map((m: any, idx: number) => (
-                  <div key={`mech-${idx}`}>
-                    <p className="font-bold uppercase">MEKANIK: {m.name}</p>
-                    <div className="flex justify-between text-[9px] text-slate-500">
-                      <span>1 x Rp {m.ongkos.toLocaleString('id-ID')}</span>
-                      <span className="font-mono text-slate-800">
-                        Rp {m.ongkos.toLocaleString('id-ID')}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* TOTAL DAN PEMBAYARAN */}
-              <div className="py-2 space-y-1 text-[10px]">
-                <div className="flex justify-between font-bold">
-                  <span>TOTAL:</span>
-                  <span>Rp {showReceiptPrint.total?.toLocaleString('id-ID')}</span>
+                {/* INFORMASI NOTA */}
+                <div className="py-3 px-3 border-b-2 border-dashed border-slate-300 text-[10px] space-y-1 font-bold">
+                  <div className="flex justify-between"><span className="text-slate-500">Nota:</span> <span>{showReceiptPrint.id}</span></div>
+                  <div className="flex justify-between"><span className="text-slate-500">Waktu:</span> <span>{showReceiptPrint.timestamp}</span></div>
+                  <div className="flex justify-between"><span className="text-slate-500">Cust:</span> <span>{showReceiptPrint.customer}</span></div>
+                  <div className="flex justify-between"><span className="text-slate-500">Kasir:</span> <span>{operatorName}</span></div>
+                  {showReceiptPrint.jenis && <div className="flex justify-between"><span className="text-slate-500">Jenis:</span> <span className="uppercase">{showReceiptPrint.jenis}</span></div>}
                 </div>
-                <div className="flex justify-between text-[9px]">
-                  <span>BAYAR:</span>
-                  <span>Rp {showReceiptPrint.cash?.toLocaleString('id-ID')}</span>
+
+                {/* DAFTAR ITEM PRODUK & MEKANIK */}
+                <div className="py-3 px-3 border-b-2 border-dashed border-slate-300 text-[10px] space-y-3">
+                  {/* Item Produk */}
+                  {showReceiptPrint.items?.map((item: any, idx: number) => (
+                    <div key={idx} className="space-y-0.5">
+                      <p className="font-bold uppercase break-words leading-tight">
+                        {getFullLabel(item)}
+                      </p>
+                      <div className="flex justify-between text-slate-600 font-bold">
+                        <span>{item.qty} {item.unit} x {item.priceSelected?.toLocaleString('id-ID')}</span>
+                        <span className="text-slate-900 font-black">
+                          {(item.priceSelected * item.qty)?.toLocaleString('id-ID')}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+
+                  {/* Separator jika ada mekanik */}
+                  {showReceiptPrint.mechanics && showReceiptPrint.mechanics.length > 0 && (
+                    <div className="border-t border-slate-200 my-2 pt-2">
+                      <p className="font-black text-center text-[9px] uppercase tracking-widest text-slate-500 mb-2">- BIAYA SERVIS JASA -</p>
+                    </div>
+                  )}
+
+                  {/* Servis Mekanik */}
+                  {showReceiptPrint.mechanics?.map((m: any, idx: number) => (
+                    <div key={`mech-${idx}`} className="space-y-0.5">
+                      <p className="font-bold uppercase">MEK: {m.name}</p>
+                      <div className="flex justify-between text-slate-600 font-bold">
+                        <span>1 Jasa x {m.ongkos.toLocaleString('id-ID')}</span>
+                        <span className="text-slate-900 font-black">
+                          {m.ongkos.toLocaleString('id-ID')}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-                <div className="flex justify-between text-[9px]">
-                  <span>KEMBALI:</span>
-                  <span>Rp {showReceiptPrint.change?.toLocaleString('id-ID')}</span>
+
+                {/* TOTAL DAN PEMBAYARAN */}
+                <div className="py-3 px-3 space-y-1.5 text-[10px] bg-slate-50 border-b-2 border-dashed border-slate-300">
+                  <div className="flex justify-between font-black text-sm text-slate-900">
+                    <span>TOTAL:</span>
+                    <span>Rp {showReceiptPrint.total?.toLocaleString('id-ID')}</span>
+                  </div>
+                  <div className="flex justify-between font-bold text-slate-600">
+                    <span>DIBAYAR:</span>
+                    <span>Rp {showReceiptPrint.cash?.toLocaleString('id-ID')}</span>
+                  </div>
+                  <div className="flex justify-between font-bold text-slate-600">
+                    <span>KEMBALI:</span>
+                    <span>Rp {showReceiptPrint.change?.toLocaleString('id-ID')}</span>
+                  </div>
+                </div>
+
+                {/* FOOTER */}
+                <div className="py-4 text-center space-y-1 bg-white">
+                  <p className="font-black text-[10px]">TERIMA KASIH</p>
+                  <p className="font-bold text-[9px] text-slate-500">Barang yang dibeli tidak dapat ditukar</p>
                 </div>
               </div>
             </div>
 
             {/* TOMBOL CETAK & BATAL */}
-            <div className="flex gap-2"> 
+            <div className="flex flex-col sm:flex-row w-full gap-3 mt-2"> 
               <button 
                 onClick={() => {
                   const receiptElement = document.getElementById('thermal-receipt-58mm');
@@ -2117,15 +2222,15 @@ export default function MenuPage() {
                     const htmlContent = receiptElement.outerHTML;
                     printWithRawBT(htmlContent);
                   } else {
-                    alert("Konten nota tidak ditemukan.");
+                    alert("Konten kertas nota gagal di-render oleh DOM.");
                   }
                 }} 
-                className="flex-1 py-4 bg-slate-900 text-white rounded-2xl font-black text-xs">
-                CETAK NOTA (RAWBT)
+                className={`flex-[2] py-4 ${activeTheme.main} text-white rounded-2xl font-black text-xs md:text-sm shadow-xl shadow-${activeTheme.main.replace('bg-','')}/40 hover:-translate-y-1 hover:brightness-110 active:translate-y-0 transition-all tracking-widest flex justify-center items-center gap-2`}>
+                <Printer size={18}/> CETAK VIA RAWBT
               </button>
               <button onClick={() => setShowReceiptPrint(null)} 
-                      className="py-4 px-6 bg-slate-100 text-slate-500 font-bold rounded-2xl text-xs">
-                LEWATI
+                      className="flex-1 py-4 px-6 bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-700 font-black rounded-2xl text-xs md:text-sm tracking-widest transition-colors">
+                TUTUP & LEWATI
               </button>
             </div> 
           </div> 
@@ -2140,22 +2245,22 @@ export default function MenuPage() {
           const themeColor = isAlert ? 'rose' : 'blue';
           
           return (
-            <div className="text-center p-4"> 
-              <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-6 bg-${themeColor}-50 text-${themeColor}-500`}> 
-                {isAlert ? <AlertTriangle size={32} /> : <Info size={32} />} 
+            <div className="text-center p-6"> 
+              <div className={`w-20 h-20 rounded-[2rem] flex items-center justify-center mx-auto mb-6 bg-${themeColor}-50 text-${themeColor}-500 shadow-inner border border-${themeColor}-100 rotate-3`}> 
+                {isAlert ? <AlertTriangle size={40} className="animate-pulse"/> : <Info size={40} />} 
               </div> 
-              <p className="font-bold text-slate-600 text-sm leading-relaxed mb-6">{dialog.message}</p> 
-              <div className="flex gap-3"> 
+              <p className="font-black text-slate-700 text-base leading-relaxed mb-8">{dialog.message}</p> 
+              <div className="flex gap-4"> 
                 {dialog.type === 'confirm' && (
-                  <button onClick={() => setDialog(prev => ({ ...prev, show: false }))} className="flex-1 py-3.5 bg-gray-100 text-gray-400 rounded-xl font-bold text-xs">
-                    BATAL
+                  <button onClick={() => setDialog(prev => ({ ...prev, show: false }))} className="flex-1 py-4 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-2xl font-black text-xs tracking-widest transition-colors">
+                    BATALKAN
                   </button>
                 )} 
                 <button 
                   onClick={dialog.onConfirm || (() => setDialog(prev => ({ ...prev, show: false })))} 
-                  className={`flex-1 py-3.5 text-white rounded-xl font-bold text-xs shadow-md bg-${themeColor}-500 shadow-${themeColor}-200`}
+                  className={`flex-[2] py-4 text-white rounded-2xl font-black text-xs shadow-xl bg-${themeColor}-500 shadow-${themeColor}-500/40 hover:bg-${themeColor}-600 active:scale-95 transition-all tracking-widest`}
                 >
-                  {dialog.type === 'confirm' ? 'YA, LANJUTKAN' : 'OKE'}
+                  {dialog.type === 'confirm' ? 'YA, LANJUTKAN PROSES' : 'MENGERTI'}
                 </button> 
               </div> 
             </div> 
@@ -2164,5 +2269,5 @@ export default function MenuPage() {
       </Modal>
 
     </div> 
-  ); 
+  );
 }

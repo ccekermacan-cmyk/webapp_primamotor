@@ -8,4 +8,8 @@ export default defineConfig({
     react(),
     tailwindcss(),
   ],
+  optimizeDeps: {
+    // Tambahkan lodash agar Vite juga ikut memperbaiki modul di dalamnya
+    include: ['recharts', 'lodash'] 
+  }
 })
