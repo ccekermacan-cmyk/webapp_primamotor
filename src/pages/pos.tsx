@@ -211,7 +211,8 @@ export default function MenuPage() {
   // Helper untuk menyeragamkan nama produk
   const getFullLabel = (p: Produk | any) => {
     if (!p) return "Item Tidak Dikenal";
-    return `${p.kategori} ${p.merk} ${p.jenis} ${p.keterangan} ${p.varian} ${p.tipe}`.replace(/\s+/g, ' ').trim();
+    const idLamaFormatted = formatIdLamaDisplay(p.id_lama);
+    return `${idLamaFormatted} - ${p.kategori} ${p.merk} ${p.jenis} ${p.keterangan} ${p.varian} ${p.tipe}`.replace(/\s+/g, ' ').trim();
   };
 
   const formatIdLamaDisplay = (id: string | number | undefined) => {
@@ -398,13 +399,17 @@ export default function MenuPage() {
         });
         setHistoryMenu(res.items);
         setTotalPages(res.totalPages);
-      } else {
-        let baseFilter = 'stok_3 > 0';
-        if (filterStr) baseFilter += ` && (${filterStr})`;
-        const res = await pb.collection('produk').getList<Produk>(page, perPage, { sort: '-created', filter: baseFilter, $autoCancel: false });
-        setProducts(res.items);
-        setTotalPages(res.totalPages);
-      }
+        } else {
+          // Menu: pembelian, rusak, opname → tampilkan semua produk (termasuk stok 0)
+          const showAllStock = ['pembelian', 'rusak', 'opname'].some(keyword => menuLower.includes(keyword));
+          let baseFilter = showAllStock ? '' : 'stok_3 > 0';
+          if (filterStr) {
+            baseFilter = baseFilter ? `(${baseFilter}) && (${filterStr})` : filterStr;
+          }
+          const res = await pb.collection('produk').getList<Produk>(page, perPage, { sort: '-created', filter: baseFilter, $autoCancel: false });
+          setProducts(res.items);
+          setTotalPages(res.totalPages);
+        }
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
   };
@@ -1841,7 +1846,7 @@ export default function MenuPage() {
           <div className={`p-6 md:p-8 text-white rounded-[2rem] text-center ${editSession ? 'bg-blue-600 shadow-blue-500/30' : `${activeTheme.main} shadow-${activeTheme.main.replace('bg-','')}/30`} shadow-2xl relative overflow-hidden`}> 
             <div className="absolute top-0 right-0 w-32 h-32 bg-white rounded-full blur-3xl opacity-20 pointer-events-none" />
             <p className="text-[11px] font-black uppercase tracking-widest text-white/80 relative z-10">{editSession ? 'Validasi Update Nota Terakhir' : 'Total Invoice Penjualan'}</p> 
-            <p className="text-5xl md:text-6xl font-black mt-2 tracking-tight relative z-10">Rp {grandTotal.toLocaleString('id-ID')}</p> 
+            <p className="text-4xl md:text-4xl font-black mt-2 tracking-tight relative z-10">Rp {grandTotal.toLocaleString('id-ID')}</p> 
           </div> 
 
           {/* Rincian Field Koleksi yang akan di Entry */}
@@ -1923,8 +1928,10 @@ export default function MenuPage() {
                     <p className="font-black text-slate-800 text-sm">{getFullLabel(item)}</p> 
                     <div className="flex flex-wrap items-center gap-2 mt-1.5">
                       <p className="text-slate-500 font-bold bg-slate-100 px-2 py-0.5 rounded-md text-[11px]">{item.qty} {item.unit} <span className="mx-1">x</span> Rp {item.priceSelected.toLocaleString('id-ID')}</p> 
+                      {selectedMenu.toLowerCase() !== 'pembelian' && (
                       <p className="text-slate-400 font-bold border border-slate-200 px-2 py-0.5 rounded-md text-[10px]">Normal: Rp {(item.sell_6 * item.qty).toLocaleString('id-ID')}</p> 
-                    </div>
+                      )}
+                      </div>
                   </div>
                   <p className="font-black text-slate-900 text-sm">Rp {(item.priceSelected * item.qty).toLocaleString('id-ID')}</p> 
                 </div> 
@@ -2007,10 +2014,19 @@ export default function MenuPage() {
                   </div> 
                 ) : ( 
                   historyItems.map(item => ( 
-                    <div key={item.id} className="p-5 hover:bg-slate-50 transition-colors"> 
+                    <div key={item.id} className="p-5 hover:bg-slate-50 transition-colors">
                       <div className="flex justify-between items-start mb-3">
-                         <p className="font-black text-slate-800 text-sm md:text-base leading-snug pr-4">{getFullLabel(item.expand?.item_baru)}</p>
-                         <p className="font-black text-slate-900 text-sm bg-slate-100 px-3 py-1 rounded-lg shrink-0">Rp {(item.price_1 * item.qty)?.toLocaleString('id-ID')}</p> 
+                        <div className="flex-1">
+                          <p className="font-black text-slate-800 text-sm md:text-base leading-snug">
+                            {getFullLabel(item.expand?.item_baru)}
+                          </p>
+                          <p className="text-[11px] font-bold text-slate-500 mt-1.5">
+                            Qty: {item.qty} @ Rp {item.price_1?.toLocaleString('id-ID')}
+                          </p>
+                        </div>
+                        <p className="font-black text-slate-900 text-sm bg-slate-100 px-3 py-1 rounded-lg shrink-0">
+                          Rp {(item.price_1 * item.qty)?.toLocaleString('id-ID')}
+                        </p>
                       </div>
                       {userLevel === '1' && (
                         <div className="grid grid-cols-2 gap-y-2 gap-x-4 text-[10px] md:text-[11px] text-slate-500 bg-slate-50 p-4 rounded-xl border border-slate-200 mt-3 shadow-inner">

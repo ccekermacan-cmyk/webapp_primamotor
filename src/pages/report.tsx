@@ -3,10 +3,10 @@ import { pb } from '../lib/pocketbase';
 import { 
   Search, Calendar, ChevronLeft, ChevronRight, Download, 
   TrendingUp, TrendingDown, DollarSign, Wallet, FileText, 
-  Filter, RefreshCw, BarChart3, Lightbulb, Coffee, Wrench, Store
+  Filter, RefreshCw, BarChart3, Lightbulb, Coffee, Wrench, Store, X
 } from 'lucide-react';
 import { 
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer 
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Line
 } from 'recharts';
 
 // --- INTERFACE DATA REPORT ---
@@ -28,6 +28,16 @@ export default function ReportPage() {
   // --- STATES ---
   const [reports, setReports] = useState<ReportRecord[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const [piutangData, setPiutangData] = useState<Record<string, number>>({});
+  const [hutangData, setHutangData] = useState<Record<string, number>>({});
+  const [selectedMetrics, setSelectedMetrics] = useState({
+    Omset: true,
+    Pengeluaran: true,
+    Laba: false,
+    Piutang: true,
+    Hutang: true,
+  });
   
   // Pagination
   const [page, setPage] = useState(1);
@@ -40,12 +50,17 @@ export default function ReportPage() {
   const [dateRange, setDateRange] = useState({ start: '', end: '' });
 
   // --- FORMATTER HELPER ---
-  const formatRp = (num: number | undefined) => `Rp ${(num || 0).toLocaleString('id-ID')}`;
+  const formatRp = (num: number | undefined) => {
+    const val = num ?? 0;
+    return `Rp ${val.toLocaleString('id-ID')}`;
+  };
   const formatDate = (dateStr: string) => {
     if (!dateStr) return '-';
     const date = new Date(dateStr);
     return date.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
   };
+
+  const [detailModal, setDetailModal] = useState<{ type: string; title: string; items: { label: string; value: number }[] } | null>(null);
 
   // --- FETCH DATA ---
   const fetchReports = async () => {
@@ -93,6 +108,45 @@ export default function ReportPage() {
     fetchReports();
   }, [page, debouncedSearch, dateRange]);
 
+  useEffect(() => {
+    const fetchPiutangHutang = async () => {
+      try {
+        let filters: string[] = [];
+        if (dateRange.start) filters.push(`created_at >= "${dateRange.start} 00:00:00"`);
+        if (dateRange.end) filters.push(`created_at <= "${dateRange.end} 23:59:59"`);
+        const filter = filters.join(' && ');
+        // Gunakan getList dengan perPage besar (10.000) untuk satu request
+        const result = await pb.collection('menu').getList(1, 10000, {
+          filter: filter,
+          $autoCancel: false
+        });
+        const menus = result.items;
+        const piutangPerHari: Record<string, number> = {};
+        const hutangPerHari: Record<string, number> = {};
+        menus.forEach(menu => {
+          const dateKey = menu.created_at?.split(' ')[0];
+          if (!dateKey) return;
+          if (menu.jenis?.toLowerCase().includes('penjualan') || menu.jenis?.toLowerCase().includes('service')) {
+            if (menu.status === 'belum') {
+              const piutang = (menu.total || 0) - (menu.dibayar || 0);
+              piutangPerHari[dateKey] = (piutangPerHari[dateKey] || 0) + piutang;
+            }
+          } else if (menu.jenis?.toLowerCase().includes('pembelian')) {
+            if (menu.status === 'belum') {
+              const hutang = (menu.total || 0) - (menu.dibayar || 0);
+              hutangPerHari[dateKey] = (hutangPerHari[dateKey] || 0) + hutang;
+            }
+          }
+        });
+        setPiutangData(piutangPerHari);
+        setHutangData(hutangPerHari);
+      } catch (err) {
+        console.error("Gagal ambil piutang/hutang", err);
+      }
+    };
+    fetchPiutangHutang();
+  }, [dateRange, debouncedSearch]);
+
   const handleResetFilter = () => {
     setSearchTerm('');
     setDateRange({ start: '', end: '' });
@@ -106,12 +160,17 @@ export default function ReportPage() {
 
     // Untuk Chart (Dibalik agar kronologis dari kiri ke kanan)
     const reversedReports = [...reports].reverse();
-    const chartData = reversedReports.map(r => ({
-      tanggal: formatDate(r.created_at).split(' ')[0],
-      Omset: r.omset_toko + r.omset_servis + r.omset_minuman,
-      Pengeluaran: r.operasional_toko + r.pengeluaran_lain,
-      Laba: r.laba_penjualan
-    }));
+    const chartData = reversedReports.map(r => {
+      const tanggal = formatDate(r.created_at).split(' ')[0];
+      return {
+        tanggal,
+        Omset: r.omset_toko + r.omset_servis + r.omset_minuman,
+        Pengeluaran: r.operasional_toko + r.pengeluaran_lain,
+        Laba: r.laba_penjualan,
+        Piutang: piutangData[tanggal] || 0,
+        Hutang: hutangData[tanggal] || 0,
+      };
+    });
 
     reports.forEach(r => {
       totalOmsetToko += r.omset_toko;
@@ -141,7 +200,41 @@ export default function ReportPage() {
       chartData,
       kesimpulan: insight
     };
-  }, [reports]);
+  }, [reports, piutangData, hutangData]);
+
+
+    // Hitung breakdown dari semua laporan (untuk periode filter)
+    const breakdown = useMemo(() => {
+      let totalOmsetToko = 0, totalOmsetServis = 0, totalOmsetMinuman = 0;
+      let totalLaba = 0, totalPemasukanLain = 0;
+      let totalPengeluaranLain = 0, totalOperasional = 0;
+      
+      reports.forEach(r => {
+        totalOmsetToko += r.omset_toko;
+        totalOmsetServis += r.omset_servis;
+        totalOmsetMinuman += r.omset_minuman;
+        totalLaba += r.laba_penjualan;
+        totalPemasukanLain += r.pemasukan_lain;
+        totalPengeluaranLain += r.pengeluaran_lain;
+        totalOperasional += r.operasional_toko;
+      });
+
+      return {
+        omset: [
+          { label: "Omset Toko", value: totalOmsetToko },
+          { label: "Omset Servis", value: totalOmsetServis },
+          { label: "Omset Minuman", value: totalOmsetMinuman },
+        ],
+        pemasukan: [
+          { label: "Laba Penjualan", value: totalLaba },
+          { label: "Pemasukan Lain", value: totalPemasukanLain },
+        ],
+        pengeluaran: [
+          { label: "Operasional Toko", value: totalOperasional },
+          { label: "Pengeluaran Lain", value: totalPengeluaranLain },
+        ],
+      };
+    }, [reports]);
 
   return (
     <div className="flex flex-col min-h-screen bg-slate-50 font-sans p-4 md:p-8 pt-16 md:pt-10">
@@ -209,45 +302,74 @@ export default function ReportPage() {
           
           {/* Kolom Kiri: Angka Ringkasan */}
           <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex items-center gap-5 group hover:border-emerald-200 transition-colors">
-              <div className="w-14 h-14 bg-emerald-50 text-emerald-500 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform"><TrendingUp size={24} strokeWidth={2.5} /></div>
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Total Omset Kotor</p>
-                <p className="text-2xl font-black text-slate-800">{formatRp(summary.totalOmset)}</p>
+            
+            {/* 1. Omset Kotor */}
+            <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm flex items-center gap-4 group hover:border-emerald-200 transition-colors">
+              <div className="w-12 h-12 shrink-0 bg-emerald-50 text-emerald-500 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform"><TrendingUp size={22} strokeWidth={2.5} /></div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-0.5">Total Omset Kotor</p>
+                <p className="text-xl font-black text-slate-800 truncate">{formatRp(summary.totalOmset)}</p>
               </div>
             </div>
-            <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex items-center gap-5 group hover:border-emerald-200 transition-colors">
-              <div className="w-14 h-14 bg-emerald-50 text-emerald-500 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform"><DollarSign size={24} strokeWidth={2.5} /></div>
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Total Laba Penjualan</p>
-                <p className="text-2xl font-black text-slate-800">{formatRp(summary.totalLaba)}</p>
+
+            {/* 2. Laba Penjualan */}
+            <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm flex items-center gap-4 group hover:border-emerald-200 transition-colors">
+              <div className="w-12 h-12 shrink-0 bg-emerald-50 text-emerald-500 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform"><DollarSign size={22} strokeWidth={2.5} /></div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-0.5">Laba Penjualan</p>
+                <p className="text-xl font-black text-slate-800 truncate">{formatRp(summary.totalLaba)}</p>
               </div>
             </div>
-            <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex items-center gap-5 group hover:border-rose-200 transition-colors">
-              <div className="w-14 h-14 bg-rose-50 text-rose-500 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform"><TrendingDown size={24} strokeWidth={2.5} /></div>
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Total Pengeluaran</p>
-                <p className="text-2xl font-black text-slate-800">{formatRp(summary.totalPengeluaran)}</p>
+
+            {/* 3. Pengeluaran */}
+            <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm flex items-center gap-4 group hover:border-rose-200 transition-colors">
+              <div className="w-12 h-12 shrink-0 bg-rose-50 text-rose-500 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform"><TrendingDown size={22} strokeWidth={2.5} /></div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-0.5">Total Pengeluaran</p>
+                <p className="text-xl font-black text-slate-800 truncate">{formatRp(summary.totalPengeluaran)}</p>
               </div>
             </div>
-            <div className="bg-gradient-to-br from-indigo-900 to-slate-900 p-6 rounded-3xl shadow-xl shadow-indigo-900/20 flex items-center gap-5 text-white transform hover:-translate-y-1 transition-transform">
-              <div className="w-14 h-14 bg-white/10 rounded-2xl border border-white/20 flex items-center justify-center"><Wallet size={24} strokeWidth={2.5} className="text-emerald-400"/></div>
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-widest text-indigo-200 mb-1">Estimasi Laba Bersih</p>
-                <p className={`text-2xl font-black ${summary.labaBersih < 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+
+            {/* 4. Estimasi Laba Bersih (Sudah diperbaiki urutan tag div-nya) */}
+            <div className="bg-gradient-to-br from-indigo-900 to-slate-900 p-5 rounded-3xl shadow-lg shadow-indigo-900/20 flex items-center gap-4 text-white transform hover:-translate-y-1 transition-transform">
+              <div className="w-12 h-12 shrink-0 bg-white/10 rounded-2xl border border-white/20 flex items-center justify-center"><Wallet size={22} strokeWidth={2.5} className="text-emerald-400"/></div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-black uppercase tracking-widest text-indigo-200 mb-0.5">Estimasi Laba Bersih</p>
+                <p className={`text-xl font-black truncate ${summary.labaBersih < 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
                   {formatRp(summary.labaBersih)}
-                </p>
+                </p>  
               </div>
             </div>
+
+            {/* 5. Piutang Penjualan */}
+            <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm flex items-center gap-4 group hover:border-amber-200 transition-colors">
+              <div className="w-12 h-12 shrink-0 bg-amber-50 text-amber-500 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform"><Wallet size={22} strokeWidth={2.5} /></div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-0.5">Piutang Penjualan</p>
+                <p className="text-xl font-black text-amber-600 truncate">{formatRp(Object.values(piutangData).reduce((a,b)=>a+b,0))}</p>
+              </div>
+            </div>
+
+            {/* 6. Hutang Pembelian */}
+            <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm flex items-center gap-4 group hover:border-purple-200 transition-colors">
+              <div className="w-12 h-12 shrink-0 bg-purple-50 text-purple-500 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform"><Wallet size={22} strokeWidth={2.5} /></div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-0.5">Hutang Pembelian</p>
+                <p className="text-xl font-black text-purple-600 truncate">{formatRp(Object.values(hutangData).reduce((a,b)=>a+b,0))}</p>
+              </div>
+            </div>
+
           </div>
 
           {/* Kolom Kanan: Kesimpulan AI / Analisa Otomatis */}
-          <div className="bg-amber-50 border border-amber-200 p-6 rounded-3xl flex flex-col justify-center">
-            <div className="flex items-center gap-2 mb-3">
-              <Lightbulb size={20} className="text-amber-500" strokeWidth={2.5} />
+          <div className="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 p-6 sm:p-8 rounded-3xl flex flex-col justify-center shadow-sm h-full">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2.5 bg-amber-100 rounded-xl">
+                <Lightbulb size={24} className="text-amber-600" strokeWidth={2.5} />
+              </div>
               <h3 className="font-black text-amber-700 uppercase tracking-widest text-xs">Insight Sistem</h3>
             </div>
-            <p className="text-sm font-bold text-amber-900 leading-relaxed italic">
+            <p className="text-sm font-bold text-amber-900 leading-relaxed italic opacity-90">
               "{kesimpulan}"
             </p>
           </div>
@@ -257,6 +379,25 @@ export default function ReportPage() {
         {!loading && chartData.length > 0 && (
           <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 mb-8 h-[300px] flex flex-col">
             <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-4">Grafik Tren Keuangan</h3>
+            
+            <div className="flex flex-wrap gap-4 mb-4 border-b border-slate-100 pb-3">
+              {Object.keys(selectedMetrics).map(key => {
+                const color = key === 'Omset' ? '#3b82f6' : key === 'Pengeluaran' ? '#f43f5e' : key === 'Laba' ? '#10b981' : key === 'Piutang' ? '#f59e0b' : '#8b5cf6';
+                return (
+                  <label key={key} className="flex items-center gap-2 text-xs font-bold cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={selectedMetrics[key as keyof typeof selectedMetrics]}
+                      onChange={() => setSelectedMetrics(prev => ({ ...prev, [key]: !prev[key] }))}
+                      className="w-4 h-4 rounded border-gray-300 focus:ring-blue-500"
+                      style={{ accentColor: color }}
+                    />
+                    <span style={{ color }}>{key}</span>
+                  </label>
+                );
+              })}
+            </div>
+
             <div className="flex-1 w-full min-h-0">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
@@ -273,12 +414,12 @@ export default function ReportPage() {
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                   <XAxis dataKey="tanggal" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#94a3b8', fontWeight: 'bold' }} dy={10} />
                   <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#94a3b8', fontWeight: 'bold' }} tickFormatter={(val) => `Rp${val/1000}k`} />
-                  <Tooltip 
-                    contentStyle={{ borderRadius: '1rem', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
-                    formatter={(value: number) => [`Rp ${value.toLocaleString('id-ID')}`, undefined]}
-                  />
-                  <Area type="monotone" dataKey="Omset" stroke="#3b82f6" strokeWidth={3} fillOpacity={1} fill="url(#colorOmset)" />
-                  <Area type="monotone" dataKey="Pengeluaran" stroke="#f43f5e" strokeWidth={3} fillOpacity={1} fill="url(#colorPengeluaran)" />
+                  <Tooltip formatter={(value: number) => [`Rp ${value.toLocaleString('id-ID')}`, '']} />
+                  {selectedMetrics.Omset && <Area type="monotone" dataKey="Omset" stroke="#3b82f6" strokeWidth={3} fillOpacity={1} fill="url(#colorOmset)" />}
+                  {selectedMetrics.Pengeluaran && <Area type="monotone" dataKey="Pengeluaran" stroke="#f43f5e" strokeWidth={3} fillOpacity={1} fill="url(#colorPengeluaran)" />}
+                  {selectedMetrics.Laba && <Line type="monotone" dataKey="Laba" stroke="#10b981" strokeWidth={2} dot={false} />}
+                  {selectedMetrics.Piutang && <Line type="monotone" dataKey="Piutang" stroke="#f59e0b" strokeWidth={2} strokeDasharray="5 5" dot={false} />}
+                  {selectedMetrics.Hutang && <Line type="monotone" dataKey="Hutang" stroke="#8b5cf6" strokeWidth={2} strokeDasharray="5 5" dot={false} />}
                 </AreaChart>
               </ResponsiveContainer>
             </div>
@@ -413,6 +554,33 @@ export default function ReportPage() {
           )}
         </div>
       </div>
+
+      {/* MODAL DETAIL BREAKDOWN */}
+      {detailModal && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setDetailModal(null)}>
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-xl font-black text-slate-800">{detailModal.title}</h3>
+              <button onClick={() => setDetailModal(null)} className="p-2 hover:bg-slate-100 rounded-full">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="space-y-3">
+              {detailModal.items.map((item, idx) => (
+                <div key={idx} className="flex justify-between items-center border-b border-slate-100 pb-2">
+                  <span className="font-bold text-slate-600">{item.label}</span>
+                  <span className="font-black text-slate-900">{formatRp(item.value)}</span>
+                </div>
+              ))}
+              <div className="pt-3 mt-2 border-t-2 border-slate-200 flex justify-between">
+                <span className="font-black text-slate-800">Total</span>
+                <span className="font-black text-indigo-600">{formatRp(detailModal.items.reduce((sum, i) => sum + i.value, 0))}</span>
+              </div>
+            </div>
+            <button onClick={() => setDetailModal(null)} className="mt-6 w-full py-3 bg-slate-100 rounded-xl font-bold text-slate-600">Tutup</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
