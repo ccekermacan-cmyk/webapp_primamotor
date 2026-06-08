@@ -95,7 +95,7 @@ export default function MenuPage() {
   
   const [showDetailHistory, setShowDetailHistory] = useState<HistoryMenu | null>(null);
   const [historyItems, setHistoryItems] = useState<LogStockDetail[]>([]);
-  const [historyCashflow, setHistoryCashflow] = useState<CashflowDetail | null>(null);
+  const [historyCashflow, setHistoryCashflow] = useState<CashflowDetail[]>([]);
   const [historyOngkos, setHistoryOngkos] = useState<OngkosDetail[]>([]);
   
   const [showCheckoutReview, setShowCheckoutReview] = useState(false);
@@ -149,6 +149,7 @@ export default function MenuPage() {
 
   const [isPaymentFormOpen, setIsPaymentFormOpen] = useState(false);
   const [isCartOpen, setIsCartOpen] = useState(false);
+  const [isAutoLunas, setIsAutoLunas] = useState(false); // State baru untuk fitur Auto Lunas
 
   const [dialog, setDialog] = useState<{show: boolean, title: string, message: string, type: 'alert' | 'confirm', onConfirm?: () => void}>({
     show: false, title: '', message: '', type: 'alert'
@@ -223,13 +224,13 @@ export default function MenuPage() {
   // --- 7. LOAD SUB-DETAILS (dipindah ke atas) ---
   const loadHistorySubDetails = async (menuItem: HistoryMenu) => {
     setShowDetailHistory(menuItem);
-    setHistoryItems([]); setHistoryCashflow(null); setHistoryOngkos([]);
+    setHistoryItems([]); setHistoryCashflow([]); setHistoryOngkos([]);
     try {
       // expand: 'item_baru' untuk menarik semua detail produk yang berelasi
       const logs = await pb.collection('log_stock').getFullList<LogStockDetail>({ filter: `ref_baru = "${menuItem.id}"`, expand: 'item_baru', $autoCancel: false });
       setHistoryItems(logs);
-      const cf = await pb.collection('cashflow').getFirstListItem<CashflowDetail>(`ref_baru = "${menuItem.id}"`, { $autoCancel: false });
-      setHistoryCashflow(cf);
+     const cfs = await pb.collection('cashflow').getFullList<CashflowDetail>({ filter: `ref_baru = "${menuItem.id}"`, $autoCancel: false });
+      setHistoryCashflow(cfs);
       const fees = await pb.collection('ongkos').getFullList<OngkosDetail>({ filter: `ref_baru = "${menuItem.id}"`, $autoCancel: false });
       setHistoryOngkos(fees);
     } catch (e) { console.log("Detail sub-item tidak ditemukan."); }
@@ -503,7 +504,16 @@ export default function MenuPage() {
 
   const grandTotal = totalBelanja + totalOngkos;
 
-  useEffect(() => { setFormBayar(prev => ({ ...prev, nominalBayar: grandTotal })); }, [grandTotal]);
+  useEffect(() => { 
+    setFormBayar(prev => {
+      const next = { ...prev, nominalBayar: grandTotal };
+      // Jika toggle auto lunas aktif, selalu sinkronkan nominal akun kas dengan grand total terbaru
+      if (isAutoLunas && next.cashflowList.length > 0) {
+        next.cashflowList[0].nominal = grandTotal;
+      }
+      return next;
+    }); 
+  }, [grandTotal, isAutoLunas]);
 
   // --- 5. GUARDS & INTERACTION HANDLERS --
   // --- CHECKOUT SAFETY GUARD ---
@@ -608,6 +618,7 @@ export default function MenuPage() {
           setCart([]); 
           setEditSession(null); 
           setSelectedMenu(menuName); 
+          setIsAutoLunas(false); // Reset auto lunas
           setPage(1); 
           setDialog(prev => ({ ...prev, show: false }));
           setFormBayar(prev => ({
@@ -624,7 +635,13 @@ export default function MenuPage() {
           }));
         }
       });
-    } else { setSelectedMenu(menuName); setPage(1); }
+    } else if (selectedMenu === menuName && menuName === 'Overview') {
+      // Refresh data Overview saat tab diklik ulang
+      fetchData();
+    } else { 
+      setSelectedMenu(menuName); 
+      setPage(1); 
+    }
   };
 
   const addToCart = (prod: Produk) => {
@@ -818,6 +835,7 @@ export default function MenuPage() {
       setMenuFiles([]);
       setEditSession(null);
       setIsCartModalOpen(false);
+      setIsAutoLunas(false); // Reset auto lunas
       setFormBayar({
         personIdLama: 'umum1',
         payment: 'Tunai',
@@ -1066,7 +1084,7 @@ export default function MenuPage() {
                 <div className="flex flex-wrap items-center bg-gray-50 border border-gray-200 rounded-2xl p-1.5 shadow-inner">
                   {['all', 'lunas', 'belum'].map(status => (
                     <button key={status} onClick={() => { setFilterStatus(status); setPage(1); }}
-                      className={`px-5 py-2 text-xs md:text-sm font-black uppercase tracking-wider rounded-xl transition-all duration-300 ${
+                      className={`px-5 py-2 text-xs md:text-xs font-black uppercase tracking-wider rounded-xl transition-all duration-300 ${
                         filterStatus === status ? `${activeTheme.main} text-white shadow-md scale-95` : 'text-gray-500 hover:text-gray-800 hover:bg-gray-200'
                       }`}>
                       {status === 'all' ? 'Semua' : status}
@@ -1077,7 +1095,7 @@ export default function MenuPage() {
                 {/* Filter jenis menu */}
                 <div className="flex flex-wrap items-center bg-gray-50 border border-gray-200 rounded-2xl p-1.5 shadow-inner gap-1">
                   <button onClick={() => setSelectedMenuFilters([])}
-                    className={`px-4 py-2 text-xs md:text-sm font-black uppercase tracking-wider rounded-xl transition-all duration-300 ${
+                    className={`px-4 py-2 text-xs md:text-xm font-black uppercase tracking-wider rounded-xl transition-all duration-300 ${
                       selectedMenuFilters.length === 0 ? `${activeTheme.main} text-white shadow-md` : 'text-gray-500 hover:text-gray-800 hover:bg-gray-200'
                     }`}>
                     Semua Jenis
@@ -1088,7 +1106,7 @@ export default function MenuPage() {
                         setSelectedMenuFilters(prev => prev.includes(menu.text_1) ? prev.filter(j => j !== menu.text_1) : [...prev, menu.text_1]);
                         setPage(1);
                       }}
-                      className={`px-4 py-2 text-xs md:text-sm font-black uppercase tracking-wider rounded-xl transition-all duration-300 ${
+                      className={`px-4 py-2 text-xs md:text-xs font-black uppercase tracking-wider rounded-xl transition-all duration-300 ${
                         selectedMenuFilters.includes(menu.text_1) ? `${activeTheme.main} text-white shadow-md` : 'text-gray-500 hover:text-gray-800 hover:bg-gray-200'
                       }`}>
                       {menu.text_1}
@@ -1509,6 +1527,45 @@ export default function MenuPage() {
                   </div>
                 </div>
 
+                {/* TOGGLE AUTO LUNAS (MUNCUL JIKA ADA ITEM DI KERANJANG) */}
+                {cart.length > 0 && (
+                  <div className="flex justify-between items-center p-6 border-b border-gray-100 bg-gradient-to-r from-gray-50 to-white rounded-2xl shadow-sm mb-4 border-2 border-slate-100">
+                    <div>
+                      <h4 className={`text-sm font-black ${activeTheme.text} flex items-center gap-2`}>
+                        <Sparkles size={16}/> Auto Lunas (Cash Kasir)
+                      </h4>
+                      <p className="text-[10px] text-slate-500 font-bold mt-1">Isi otomatis pembayaran penuh ke akun kasir</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const newState = !isAutoLunas;
+                        setIsAutoLunas(newState);
+                        if (newState) {
+                          // Mencari otomatis akun yang mengandung kata "kasir" atau "cash", jika tidak ada gunakan akun pertama.
+                          const kasirAccount = cashflowAccounts.find(a => a.text_1.toLowerCase().includes('kasir') || a.text_1.toLowerCase().includes('cash')) || cashflowAccounts[0];
+                          if (kasirAccount) {
+                            setFormBayar(prev => ({
+                              ...prev,
+                              payment: 'Tunai',
+                              cashflowList: [{ accountId: kasirAccount.id, nominal: grandTotal }]
+                            }));
+                          }
+                        } else {
+                          // Kosongkan kembali jika dimatikan
+                          setFormBayar(prev => ({
+                            ...prev,
+                            cashflowList: [{ accountId: '', nominal: 0 }]
+                          }));
+                        }
+                      }}
+                      className={`w-12 h-6 rounded-full relative transition-colors duration-300 focus:outline-none shadow-inner border border-black/10 ${isAutoLunas ? activeTheme.main : 'bg-slate-300'}`}
+                    >
+                      <div className={`w-4 h-4 bg-white rounded-full absolute top-1 shadow-sm transition-transform duration-300 ${isAutoLunas ? 'translate-x-7' : 'translate-x-1'}`} />
+                    </button>
+                  </div>
+                )}
+
                 {/* 2. Multi Cashflow / Akun Kas */}
                 <div className={`${activeTheme.light} p-5 rounded-3xl border-2 ${activeTheme.border} space-y-4 shadow-sm`}>
                   <div className="flex justify-between items-center">
@@ -1886,6 +1943,24 @@ export default function MenuPage() {
                 <p className="flex justify-between"><span className="text-slate-400 font-bold">Jenis Mutasi:</span> <span className="font-black uppercase bg-slate-200 px-2 py-0.5 rounded text-slate-700">{(selectedMenu.toLowerCase().includes('penjualan') || selectedMenu.toLowerCase().includes('service')) ? 'Debet (Masuk)' : 'Kredit (Keluar)'}</span></p> 
                 <p className="flex justify-between"><span className="text-slate-400 font-bold">Operator Kasir:</span> <span className="font-bold text-slate-700">{operatorName}</span></p> 
                 
+                {/* LIST MULTI CASHFLOW */}
+                <div className="mt-3 pt-3 border-t border-slate-200 space-y-2">
+                  <p className="font-black text-[10px] text-slate-400 uppercase tracking-widest mb-2">Rincian Pembayaran (Multi-Akun):</p>
+                  {formBayar.cashflowList.map((cf, idx) => {
+                    if (!cf.accountId && cf.nominal === 0) return null;
+                    const accName = cashflowAccounts.find(a => a.id === cf.accountId)?.text_1 || 'Akun Belum Dipilih';
+                    return (
+                      <div key={idx} className="flex justify-between items-center bg-white p-2.5 rounded-lg border border-slate-100 shadow-sm">
+                        <span className="font-bold text-slate-600 text-[11px] truncate flex items-center gap-2">
+                          <span className="bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded text-[9px]">#{idx + 1}</span> 
+                          {accName}
+                        </span>
+                        <span className="font-black text-blue-600 text-[11px]">Rp {cf.nominal.toLocaleString('id-ID')}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+
                 {isOnlinePerson && (
                   <div className="mt-auto pt-4 border-t border-dashed">
                     <p className="font-black text-[10px] text-amber-500 uppercase mb-2">Detail Marketplace Online:</p>
@@ -2030,12 +2105,12 @@ export default function MenuPage() {
                       </div>
                       {userLevel === '1' && (
                         <div className="grid grid-cols-2 gap-y-2 gap-x-4 text-[10px] md:text-[11px] text-slate-500 bg-slate-50 p-4 rounded-xl border border-slate-200 mt-3 shadow-inner">
-                           <p className="flex justify-between"><span className="font-bold">ID Record:</span> <span className="font-mono text-slate-800">{item.id}</span></p>
-                           <p className="flex justify-between"><span className="font-bold">Item ID Asal:</span> <span className="font-mono text-slate-800">{item.item}</span></p>
-                           <p className="flex justify-between"><span className="font-bold">Qty (Stok Mutasi):</span> <span className="font-black text-slate-800 bg-slate-200 px-1.5 rounded">{item.qty}</span></p>
-                           <p className="flex justify-between"><span className="font-bold">Boolean Alur:</span> <span className="font-black text-slate-800">{item.boolean}</span></p>
-                           <p className="flex justify-between"><span className="font-bold">Price 1 (Jual):</span> <span className="font-black text-slate-800">Rp {item.price_1?.toLocaleString('id-ID')}</span></p>
-                           <p className="flex justify-between"><span className="font-bold">Price 2 (Modal):</span> <span className="font-black text-slate-800">Rp {item.price_2?.toLocaleString('id-ID')}</span></p>
+                           <p className="flex justify-between"><span className="font-bold">ID:</span> <span className="font-mono text-slate-800">{item.id}</span></p>
+                           <p className="flex justify-between"><span className="font-bold">Kode:</span> <span className="font-mono text-slate-800">{item.item}</span></p>
+                           <p className="flex justify-between"><span className="font-bold">Qty:</span> <span className="font-black text-slate-800 bg-slate-200 px-1.5 rounded">{item.qty}</span></p>
+                           <p className="flex justify-between"><span className="font-bold">In / Out:</span> <span className="font-black text-slate-800">{item.boolean}</span></p>
+                           <p className="flex justify-between"><span className="font-bold">Jual:</span> <span className="font-black text-slate-800">Rp {item.price_1?.toLocaleString('id-ID')}</span></p>
+                           <p className="flex justify-between"><span className="font-bold">Modal:</span> <span className="font-black text-slate-800">Rp {item.price_2?.toLocaleString('id-ID')}</span></p>
                            {(() => {
                              const laba = (item.price_1 * item.qty) - item.price_2;
                              const pct = item.price_2 > 0 ? ((laba / item.price_2) * 100).toFixed(1) : 0;
@@ -2058,20 +2133,30 @@ export default function MenuPage() {
             </div> 
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-              <div className="p-5 bg-slate-50 rounded-3xl border-2 border-slate-100 shadow-sm relative overflow-hidden"> 
+              <div className="p-5 bg-slate-50 rounded-3xl border-2 border-slate-100 shadow-sm relative overflow-hidden h-fit"> 
                 <div className="absolute top-0 right-0 w-24 h-24 bg-blue-500 blur-3xl opacity-5 rounded-full" />
-                <p className="font-black text-blue-500 text-[11px] uppercase tracking-widest flex items-center gap-1.5 mb-3 border-b border-blue-100 pb-2"><Wallet size={14}/> Rekaman Jurnal Kas</p> 
-                {historyCashflow ? ( 
-                  <div className="space-y-2 font-bold text-slate-600 text-[11px]"> 
-                    <p className="flex justify-between"><span>Nominal:</span> <span className="font-black text-blue-600 text-sm">Rp {historyCashflow.nominal?.toLocaleString('id-ID')}</span></p> 
-                    <p className="flex justify-between"><span>Mutasi:</span> <span className="uppercase text-slate-800 bg-slate-200 px-2 py-0.5 rounded">{historyCashflow.mutasi}</span></p> 
-                    <p className="flex justify-between"><span>Account:</span> <span className="text-slate-800">{historyCashflow.account_1}</span></p> 
-                    <div className="mt-3 bg-white p-2.5 rounded-xl border border-slate-100 text-slate-500 italic font-medium leading-relaxed">
-                      " {historyCashflow.note} "
-                    </div> 
-                  </div> 
-                ) : <p className="text-slate-400 italic mt-2 text-[10px] animate-pulse">Menyelaraskan data jurnal...</p>} 
-              </div> 
+                <p className="font-black text-blue-500 text-[11px] uppercase tracking-widest flex items-center gap-1.5 mb-3 border-b border-blue-100 pb-2 relative z-10"><Wallet size={14}/> Rekaman Jurnal Kas</p> 
+                {historyCashflow.length > 0 ? ( 
+                  <div className="space-y-3 relative z-10">
+                    {historyCashflow.map((cf, idx) => {
+                      // Lookup ID dari Pocketbase ke nama akun yang dapat dibaca manusia
+                      const accName = cashflowAccounts.find(a => a.id === cf.account_1)?.text_1 || cf.account_1;
+                      return (
+                        <div key={cf.id || idx} className="space-y-2 font-bold text-slate-600 text-[11px] bg-white p-3 rounded-xl border border-slate-100 shadow-sm"> 
+                          <p className="flex justify-between"><span>Nominal:</span> <span className="font-black text-blue-600 text-sm">Rp {cf.nominal?.toLocaleString('id-ID')}</span></p> 
+                          <p className="flex justify-between"><span>Mutasi:</span> <span className="uppercase text-slate-800 bg-slate-200 px-2 py-0.5 rounded">{cf.mutasi}</span></p> 
+                          <p className="flex justify-between items-center gap-2"><span>Account:</span> <span className="text-slate-800 bg-slate-100 px-2 py-0.5 rounded-lg text-right truncate">{accName}</span></p> 
+                          {cf.note && (
+                            <div className="mt-2 bg-slate-50 p-2 rounded-lg border border-slate-100 text-slate-500 italic font-medium leading-relaxed">
+                              " {cf.note} "
+                            </div> 
+                          )}
+                        </div> 
+                      );
+                    })}
+                  </div>
+                ) : <p className="text-slate-400 italic mt-2 text-[10px] relative z-10">Data jurnal kas tidak ditemukan atau sedang diselaraskan...</p>} 
+              </div>
 
               <div className="p-5 bg-slate-50 rounded-3xl border-2 border-slate-100 shadow-sm relative overflow-hidden"> 
                 <div className="absolute top-0 right-0 w-24 h-24 bg-amber-500 blur-3xl opacity-5 rounded-full" />

@@ -69,31 +69,60 @@ export default function ReportPage() {
       let conditions: string[] = [];
       let params: any = {};
 
-      if (debouncedSearch) {
-        conditions.push(`(text ~ {:search} || id ~ {:search})`);
-        params.search = debouncedSearch;
+      // Filter Search
+      if (debouncedSearch) { 
+        conditions.push(`(text ~ {:search} || id ~ {:search})`); 
+        params.search = debouncedSearch; 
       }
-      if (dateRange.start) {
-        conditions.push(`created_at >= {:start}`);
-        params.start = `${dateRange.start} 00:00:00`;
+      
+      // Filter Tanggal - INI KUNCINYA
+      if (dateRange.start) { 
+        conditions.push(`created_at >= {:start}`); 
+        params.start = `${dateRange.start} 00:00:00`; 
       }
-      if (dateRange.end) {
-        conditions.push(`created_at <= {:end}`);
-        params.end = `${dateRange.end} 23:59:59`;
+      if (dateRange.end) { 
+        conditions.push(`created_at <= {:end}`); 
+        params.end = `${dateRange.end} 23:59:59`; 
       }
 
       const filterStr = conditions.length > 0 ? pb.filter(conditions.join(' && '), params) : '';
 
+      // Fetch Laporan
       const res = await pb.collection('report').getList<ReportRecord>(page, perPage, {
         sort: '-created_at',
         filter: filterStr,
         $autoCancel: false
       });
 
+      // Fetch Menu (untuk piutang/hutang) dengan filter yang SAMA persis
+      const menuRes = await pb.collection('menu').getList(1, 1000, {
+        filter: filterStr, // FILTER YANG SAMA
+        $autoCancel: false
+      });
+
+      const piutangMap: Record<string, number> = {};
+      const hutangMap: Record<string, number> = {};
+
+      menuRes.items.forEach(menu => {
+        const dateKey = menu.created_at?.split(' ')[0];
+        if (!dateKey) return;
+        
+        // hitung selisih (bisa negatif)
+        const balance = (menu.total || 0) - (menu.dibayar || 0);
+
+        if ((menu.jenis?.toLowerCase().includes('penjualan') || menu.jenis?.toLowerCase().includes('service')) && menu.status === 'belum') {
+            piutangMap[dateKey] = (piutangMap[dateKey] || 0) + balance;
+        } else if (menu.jenis?.toLowerCase().includes('pembelian') && menu.status === 'belum') {
+            hutangMap[dateKey] = (hutangMap[dateKey] || 0) + balance;
+        }
+      });
+
       setReports(res.items);
+      setPiutangData(piutangMap);
+      setHutangData(hutangMap);
       setTotalPages(res.totalPages);
     } catch (error) {
-      console.error("Gagal mengambil data report:", error);
+      console.error("Gagal:", error);
     } finally {
       setLoading(false);
     }
@@ -107,45 +136,6 @@ export default function ReportPage() {
   useEffect(() => {
     fetchReports();
   }, [page, debouncedSearch, dateRange]);
-
-  useEffect(() => {
-    const fetchPiutangHutang = async () => {
-      try {
-        let filters: string[] = [];
-        if (dateRange.start) filters.push(`created_at >= "${dateRange.start} 00:00:00"`);
-        if (dateRange.end) filters.push(`created_at <= "${dateRange.end} 23:59:59"`);
-        const filter = filters.join(' && ');
-        // Gunakan getList dengan perPage besar (10.000) untuk satu request
-        const result = await pb.collection('menu').getList(1, 10000, {
-          filter: filter,
-          $autoCancel: false
-        });
-        const menus = result.items;
-        const piutangPerHari: Record<string, number> = {};
-        const hutangPerHari: Record<string, number> = {};
-        menus.forEach(menu => {
-          const dateKey = menu.created_at?.split(' ')[0];
-          if (!dateKey) return;
-          if (menu.jenis?.toLowerCase().includes('penjualan') || menu.jenis?.toLowerCase().includes('service')) {
-            if (menu.status === 'belum') {
-              const piutang = (menu.total || 0) - (menu.dibayar || 0);
-              piutangPerHari[dateKey] = (piutangPerHari[dateKey] || 0) + piutang;
-            }
-          } else if (menu.jenis?.toLowerCase().includes('pembelian')) {
-            if (menu.status === 'belum') {
-              const hutang = (menu.total || 0) - (menu.dibayar || 0);
-              hutangPerHari[dateKey] = (hutangPerHari[dateKey] || 0) + hutang;
-            }
-          }
-        });
-        setPiutangData(piutangPerHari);
-        setHutangData(hutangPerHari);
-      } catch (err) {
-        console.error("Gagal ambil piutang/hutang", err);
-      }
-    };
-    fetchPiutangHutang();
-  }, [dateRange, debouncedSearch]);
 
   const handleResetFilter = () => {
     setSearchTerm('');
@@ -495,10 +485,11 @@ export default function ReportPage() {
                       <tr>
                         <th className="p-4 text-[10px] font-black text-slate-400 uppercase tracking-widest whitespace-nowrap">Tanggal</th>
                         <th className="p-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Keterangan</th>
-                        <th className="p-4 text-[10px] font-black text-emerald-600 uppercase tracking-widest text-right">Omset (Mix)</th>
-                        <th className="p-4 text-[10px] font-black text-emerald-600 uppercase tracking-widest text-right">Laba Jual</th>
-                        <th className="p-4 text-[10px] font-black text-rose-600 uppercase tracking-widest text-right">Pengeluaran</th>
-                        <th className="p-4 text-[10px] font-black text-blue-600 uppercase tracking-widest text-right">Masuk Lain</th>
+                        <th className="p-4 text-[10px] font-black text-emerald-600 uppercase tracking-widest text-right">Omset</th>
+                        <th className="p-4 text-[10px] font-black text-emerald-600 uppercase tracking-widest text-right">Laba</th>
+                        <th className="p-4 text-[10px] font-black text-rose-600 uppercase tracking-widest text-right">Keluar</th>
+                        <th className="p-4 text-[10px] font-black text-amber-600 uppercase tracking-widest text-right">Piutang</th>
+                        <th className="p-4 text-[10px] font-black text-purple-600 uppercase tracking-widest text-right">Hutang</th>
                         <th className="p-4 text-[10px] font-black text-slate-800 uppercase tracking-widest text-right">Kasir Final</th>
                       </tr>
                     </thead>
@@ -506,19 +497,32 @@ export default function ReportPage() {
                       {reports.map((row) => {
                         const totalOmsetRow = row.omset_toko + row.omset_servis + row.omset_minuman;
                         const totalKeluarRow = row.operasional_toko + row.pengeluaran_lain;
+                        const dateKey = row.created_at.split(' ')[0];
+                        const piutangVal = piutangData[dateKey] || 0;
+                        const hutangVal = hutangData[dateKey] || 0;
+
+                        const formatNeg = (num: number) => {
+                          const formatted = Math.abs(num).toLocaleString('id-ID');
+                          return num < 0 ? `-Rp ${formatted}` : `Rp ${formatted}`;
+                        };
+
                         return (
                           <tr key={row.id} className="hover:bg-slate-50/50 transition-colors group">
                             <td className="p-4 whitespace-nowrap text-slate-400">{formatDate(row.created_at)}</td>
-                            <td className="p-4 max-w-[250px] truncate" title={row.text}>{row.text || '-'}</td>
-                            
+                            <td className="p-4 max-w-[200px] truncate" title={row.text}>{row.text || '-'}</td>
                             <td className="p-4 text-right">
-                              <span className="bg-emerald-50 text-emerald-700 px-3 py-1 rounded-lg border border-emerald-100">{formatRp(totalOmsetRow)}</span>
+                              <span className="bg-emerald-50 text-emerald-700 px-3 py-1 rounded-lg border border-emerald-100">
+                                {formatRp(totalOmsetRow)}
+                              </span>
                             </td>
                             <td className="p-4 text-right text-emerald-600 font-bold">{formatRp(row.laba_penjualan)}</td>
-                            <td className="p-4 text-right">
-                              <span className="bg-rose-50 text-rose-600 px-3 py-1 rounded-lg border border-rose-100">{formatRp(totalKeluarRow)}</span>
+                            <td className="p-4 text-right text-rose-600">{formatRp(totalKeluarRow)}</td>
+                            <td className={`p-4 text-right font-black ${piutangVal < 0 ? 'text-rose-600' : 'text-amber-600'}`}>
+                              {formatNeg(piutangVal)}
                             </td>
-                            <td className="p-4 text-right text-blue-600">{formatRp(row.pemasukan_lain)}</td>
+                            <td className={`p-4 text-right font-black ${hutangVal < 0 ? 'text-rose-600' : 'text-purple-600'}`}>
+                              {formatNeg(hutangVal)}
+                            </td>
                             <td className="p-4 text-right text-slate-900 font-black">{formatRp(row.kasir_toko)}</td>
                           </tr>
                         );

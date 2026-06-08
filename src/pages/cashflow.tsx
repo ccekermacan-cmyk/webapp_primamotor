@@ -1,560 +1,969 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { pb } from '../lib/pocketbase';
-import Modal from '../components/modal';
-import { 
-  Wallet, Search, Trash2, Edit, ChevronLeft, ChevronRight, 
-  ArrowDownRight, ArrowUpRight, Calendar, User, CreditCard,
-  ExternalLink, Layers, X, PlayCircle
-} from 'lucide-react';
+  import React, { useState, useEffect, useMemo } from 'react';
+  import { useNavigate } from 'react-router-dom';
+  import { pb } from '../lib/pocketbase';
+  import Modal from '../components/modal';
+  import { 
+    Wallet, Search, Trash2, Edit, ChevronLeft, ChevronRight, 
+    ArrowDownRight, ArrowUpRight, Calendar, User,
+    ExternalLink, Layers, X, DollarSign, ImagePlus, Save, FileText,
+    ArrowRight, Filter, Plus
+  } from 'lucide-react';
 
-interface Cashflow {
-  id: string;
-  id_lama: string;
-  ref: string;
-  operator: string;
-  created_at: string;
-  jenis: string;
-  mutasi: string; 
-  account_1: string;
-  account_2: string;
-  person: string;
-  nominal: number;
-  note: string;
-  ref_baru: string;
-  created: string; 
-  file: string[];
-  person_customer?: string;
-  acc1?: string;
-  acc2?: string;
-}
+  interface Cashflow {
+    id: string;
+    id_lama: string;
+    ref: string;
+    operator: string;
+    created_at: string;
+    jenis: string;
+    mutasi: string; 
+    account_1: string;
+    account_2: string;
+    person: string;
+    nominal: number;
+    note: string;
+    ref_baru: string;
+    created: string; 
+    file: string[];
+    person_customer?: string;
+    acc1?: string;
+    acc2?: string;
+  }
 
-interface DropdownItem {
-  id: string;
-  kategori: string;
-  jenis: string;
-  text_1: string;
-  visibilitas: string;
-}
+  interface DropdownItem {
+    id: string;
+    kategori: string;
+    jenis: string;
+    text_1: string;
+    visibilitas: string;
+  }
 
-export default function CashflowPage() {
-  const navigate = useNavigate();
-  const [transactions, setTransactions] = useState<Cashflow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [isProcessing, setIsProcessing] = useState(false);
-  
-  const [jenisOptionsIn, setJenisOptionsIn] = useState<DropdownItem[]>([]);
-  const [jenisOptionsOut, setJenisOptionsOut] = useState<DropdownItem[]>([]);
-  const [accountOptions, setAccountOptions] = useState<DropdownItem[]>([]);
-  
-  const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const perPage = 20; 
-  
-  const [searchInput, setSearchInput] = useState('');
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filterMutasi, setFilterMutasi] = useState<string>('semua');
+  export default function CashflowPage() {
+    const navigate = useNavigate();
+    const [transactions, setTransactions] = useState<Cashflow[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [isProcessing, setIsProcessing] = useState(false);
+    
+    const [jenisOptionsIn, setJenisOptionsIn] = useState<DropdownItem[]>([]);
+    const [jenisOptionsOut, setJenisOptionsOut] = useState<DropdownItem[]>([]);
+    const [accountOptions, setAccountOptions] = useState<DropdownItem[]>([]);
+    
+    const [page, setPage] = useState(1);
+    const [totalPages, setTotalPages] = useState(1);
+    const perPage = 20; 
 
-  const [modalType, setModalType] = useState<'detail' | 'form' | 'delete' | null>(null);
-  const [selectedTx, setSelectedTx] = useState<Cashflow | null>(null);
-  const [formData, setFormData] = useState<Partial<Cashflow>>({
-    mutasi: 'Masuk',
-    created_at: new Date().toISOString().slice(0,16).replace('T', ' '),
-    account_2: '',
-    person_customer: '',
-    acc2: '',
-    person: ''
-  });
+    const [isMobileFilterOpen, setIsMobileFilterOpen] = useState(false);
 
-  const [files, setFiles] = useState<File[]>([]);
-  const [previewUrls, setPreviewUrls] = useState<string[]>([]);
-  const [galleryIndex, setGalleryIndex] = useState<number | null>(null);
-  const [wallets, setWallets] = useState<DropdownItem[]>([]);
-  const [loadingWallets, setLoadingWallets] = useState(false);
-  const [activeTab, setActiveTab] = useState<'accounts' | 'history'>('history');
-  const [isFormDirty, setIsFormDirty] = useState(false);
+    // Tambahkan state ini untuk mengatur animasi buka/tutup UI
+    const [isSearchOpen, setIsSearchOpen] = useState(false);
+    const [isDateOpen, setIsDateOpen] = useState(false);
+    const [isAccountFilterOpen, setIsAccountFilterOpen] = useState(false); // State baru
 
-  const isEditMode = !!(selectedTx && selectedTx.id);
+    // State untuk filter jenis
+    const [filterJenis, setFilterJenis] = useState<string[]>([]);
+    const [isJenisFilterOpen, setIsJenisFilterOpen] = useState(false);
+    
+    const [searchInput, setSearchInput] = useState('');
+    const [searchTerm, setSearchTerm] = useState('');
+    const [filterAccounts, setFilterAccounts] = useState<string[]>([]); // State filter dompet
+    const [filterMutasi, setFilterMutasi] = useState<string>('semua');
+    
+    // State baru untuk filter tanggal
+    const [dateRange, setDateRange] = useState({ start: '', end: '' });
 
-  const checkFormDirty = () => {
-    return !!(formData.jenis || formData.account_1 || formData.nominal || formData.note);
-  };
-
-  const formatRupiah = (angka: number) => {
-    return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(angka || 0);
-  };
-
-  const getAccountName = (idOrName: string) => {
-    const acc = accountOptions.find(opt => opt.id === idOrName || opt.text_1 === idOrName);
-    return acc ? acc.text_1 : idOrName;
-  };
-
-  const fetchDropdowns = async () => {
-    try {
-      const userLevel = "1"; 
-      const records = await pb.collection('dropdown').getFullList<DropdownItem>({
-        filter: `kategori ~ "Cashflow" && (jenis ~ "jenis" || jenis ~ "account") && visibilitas ~ "${userLevel}"`,
-        $autoCancel: false
-      });
-      // Pisahkan berdasarkan jenis
-      const jenisRecords = records.filter(r => String(r.jenis).toLowerCase().includes('jenis'));
-      const accountRecords = records.filter(r => String(r.jenis).toLowerCase().includes('account'));
-      
-      // Filter jenis berdasarkan text_2 (in / out)
-      setJenisOptionsIn(jenisRecords.filter(r => r.text_2?.toLowerCase() === 'in'));
-      setJenisOptionsOut(jenisRecords.filter(r => r.text_2?.toLowerCase() === 'out'));
-      setAccountOptions(accountRecords);
-    } catch (error) {
-      console.error("Gagal memuat dropdown:", error);
-    }
-  };
-
-  const fetchWallets = async () => {
-    setLoadingWallets(true);
-    try {
-      const currentUser = pb.authStore.model;
-      const userLevel = localStorage.getItem('user_level') || '';
-      const userName = currentUser?.username || '';
-
-      let filterCondition = `kategori ~ "cashflow" && jenis ~ "cashflow account"`;
-
-      // Jika level bukan 1 (bukan superadmin), tambahkan filter enum_1 dan visibilitas
-      if (userLevel !== '1') {
-        filterCondition += ` && enum_1 ~ "${userName}" && visibilitas ~ "${userLevel}"`;
-      }
-
-      const records = await pb.collection('dropdown').getFullList<DropdownItem>({
-        filter: filterCondition,
-        $autoCancel: false
-      });
-      setWallets(records);
-    } catch (error) {
-      console.error("Gagal memuat dompet:", error);
-    } finally {
-      setLoadingWallets(false);
-    }
-  };
-
-  const fetchCashflow = async () => {
-    try {
-      setLoading(true);
-      let conditions: string[] = [];
-      let params: any = {};
-
-      if (searchTerm) {
-        const terms = searchTerm.toLowerCase().trim().split(/\s+/);
-        terms.forEach((term, idx) => {
-          conditions.push(`(ref ~ {:t${idx}} || note ~ {:t${idx}} || person ~ {:t${idx}} || jenis ~ {:t${idx}})`);
-          params[`t${idx}`] = term;
-        });
-      }
-
-      if (filterMutasi !== 'semua') {
-        if (filterMutasi === 'masuk') conditions.push(`mutasi = "in"`);
-        else if (filterMutasi === 'keluar') conditions.push(`mutasi = "out"`);
-      }
-
-      const requestOptions: any = { sort: '-created_at' };
-      if (conditions.length > 0) requestOptions.filter = pb.filter(conditions.join(' && '), params);
-
-      const result = await pb.collection('cashflow').getList<Cashflow>(page, perPage, {
-        ...requestOptions,
-        $autoCancel: false 
-      });
-      setTransactions(result.items);
-      setTotalPages(result.totalPages);
-    } catch (error) {
-      console.error("Gagal mengambil data:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => { 
-    fetchDropdowns(); 
-    fetchWallets(); 
-  }, []);
-  useEffect(() => {
-    const delayDebounce = setTimeout(() => { setSearchTerm(searchInput); setPage(1); }, 500);
-    return () => clearTimeout(delayDebounce);
-  }, [searchInput, filterMutasi]);
-  useEffect(() => { fetchCashflow(); }, [page, searchTerm, filterMutasi]);
-
-  useEffect(() => {
-    if (files.length === 0) { setPreviewUrls([]); return; }
-    const urls = files.map(f => URL.createObjectURL(f));
-    setPreviewUrls(urls);
-    return () => urls.forEach(u => URL.revokeObjectURL(u));
-  }, [files]);
-
-  useEffect(() => {
-    // Jika mutasi berubah dan jenis yang dipilih tidak sesuai dengan mutasi baru, reset jenis
-    if (formData.mutasi && formData.jenis) {
-      const validJenis = formData.mutasi === 'Masuk' 
-        ? jenisOptionsIn.some(j => j.text_1 === formData.jenis)
-        : jenisOptionsOut.some(j => j.text_1 === formData.jenis);
-      if (!validJenis) {
-        setFormData(prev => ({ ...prev, jenis: '' }));
-      }
-    }
-  }, [formData.mutasi, jenisOptionsIn, jenisOptionsOut]);
-
-  const groupedTransactions = useMemo(() => {
-    const groups: { [key: string]: Cashflow[] } = {};
-    transactions.forEach(tx => {
-      const date = tx.created_at ? tx.created_at.split(' ')[0] : 'Tanpa Tanggal';
-      if (!groups[date]) groups[date] = [];
-      groups[date].push(tx);
+    const [modalType, setModalType] = useState<'detail' | 'form' | 'delete' | null>(null);
+    const [selectedTx, setSelectedTx] = useState<Cashflow | null>(null);
+    const [formData, setFormData] = useState<Partial<Cashflow>>({
+      mutasi: 'Masuk',
+      created_at: new Date().toISOString().slice(0,16).replace('T', ' '),
+      account_2: '',
+      person_customer: '',
+      acc2: '',
+      person: ''
     });
-    return groups;
-  }, [transactions]);
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
-    const { name, value, type } = e.target;
-    setFormData(prev => ({ ...prev, [name]: type === 'number' ? (value === '' ? '' : Number(value)) : value }));
-    setIsFormDirty(true);
-  };
+    const [files, setFiles] = useState<File[]>([]);
+    const [previewUrls, setPreviewUrls] = useState<string[]>([]);
+    const [galleryIndex, setGalleryIndex] = useState<number | null>(null);
+    const [wallets, setWallets] = useState<DropdownItem[]>([]);
+    const [loadingWallets, setLoadingWallets] = useState(false);
+    const [activeTab, setActiveTab] = useState<'accounts' | 'history'>('history');
+    const [isFormDirty, setIsFormDirty] = useState(false);
 
-  const handleMutasiChange = (newMutasi: string) => {
-    if (formData.jenis && formData.jenis !== '') {
-      if (window.confirm("Mengubah jenis mutasi akan mereset pilihan Jenis Cashflow. Lanjutkan?")) {
-        setFormData(prev => ({ ...prev, mutasi: newMutasi, jenis: '' }));
+    const isEditMode = !!(selectedTx && selectedTx.id);
+
+    const checkFormDirty = () => {
+      return !!(formData.jenis || formData.account_1 || formData.nominal || formData.note);
+    };
+
+    const formatRupiah = (angka: number) => {
+      return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(angka || 0);
+    };
+
+    const getAccountName = (idOrName: string) => {
+      const acc = accountOptions.find(opt => opt.id === idOrName || opt.text_1 === idOrName);
+      return acc ? acc.text_1 : idOrName;
+    };
+
+    const fetchDropdowns = async () => {
+      try {
+        const userLevel = "1"; 
+        const records = await pb.collection('dropdown').getFullList<DropdownItem>({
+          filter: `kategori ~ "Cashflow" && (jenis ~ "jenis" || jenis ~ "account") && visibilitas ~ "${userLevel}"`,
+          $autoCancel: false
+        });
+        // Pisahkan berdasarkan jenis
+        const jenisRecords = records.filter(r => String(r.jenis).toLowerCase().includes('jenis'));
+        const accountRecords = records.filter(r => String(r.jenis).toLowerCase().includes('account'));
+        
+        // Filter jenis berdasarkan text_2 (in / out)
+        setJenisOptionsIn(jenisRecords.filter(r => r.text_2?.toLowerCase() === 'in'));
+        setJenisOptionsOut(jenisRecords.filter(r => r.text_2?.toLowerCase() === 'out'));
+        setAccountOptions(accountRecords);
+      } catch (error) {
+        console.error("Gagal memuat dropdown:", error);
+      }
+    };
+
+    const fetchWallets = async () => {
+      setLoadingWallets(true);
+      try {
+        const currentUser = pb.authStore.model;
+        const userLevel = localStorage.getItem('user_level') || '';
+        const userName = currentUser?.username || '';
+
+        let filterCondition = `kategori ~ "cashflow" && jenis ~ "cashflow account"`;
+
+        // Jika level bukan 1 (bukan superadmin), tambahkan filter enum_1 dan visibilitas
+        if (userLevel !== '1') {
+          filterCondition += ` && enum_1 ~ "${userName}" && visibilitas ~ "${userLevel}"`;
+        }
+
+        const records = await pb.collection('dropdown').getFullList<DropdownItem>({
+          filter: filterCondition,
+          $autoCancel: false
+        });
+        setWallets(records);
+      } catch (error) {
+        console.error("Gagal memuat dompet:", error);
+      } finally {
+        setLoadingWallets(false);
+      }
+    };
+
+    const fetchCashflow = async () => {
+      try {
+        setLoading(true);
+        let conditions: string[] = [];
+        let params: any = {};
+
+        if (searchTerm) {
+          const terms = searchTerm.toLowerCase().trim().split(/\s+/);
+          terms.forEach((term, idx) => {
+            conditions.push(`(ref ~ {:t${idx}} || note ~ {:t${idx}} || person ~ {:t${idx}} || jenis ~ {:t${idx}})`);
+            params[`t${idx}`] = term;
+          });
+        }
+
+        if (filterMutasi !== 'semua') {
+          if (filterMutasi === 'masuk') conditions.push(`mutasi = "in"`);
+          else if (filterMutasi === 'keluar') conditions.push(`mutasi = "out"`);
+        }
+
+        // --- LOGIKA FILTER TANGGAL BARU ---
+        if (dateRange.start) {
+          conditions.push(`created_at >= {:start}`);
+          params.start = `${dateRange.start} 00:00:00`;
+        }
+        if (dateRange.end) {
+          conditions.push(`created_at <= {:end}`);
+          params.end = `${dateRange.end} 23:59:59`;
+        }
+
+        // --- LOGIKA FILTER AKUN/DOMPET (MULTISELECT) ---
+        if (filterAccounts.length > 0) {
+          const accountConditions = filterAccounts.map(id => `(account_1 = "${id}" || account_2 = "${id}")`).join(' || ');
+          conditions.push(`(${accountConditions})`);
+        }
+
+        if (filterJenis.length > 0) {
+          const jenisConditions = filterJenis.map(id => `jenis = "${id}"`).join(' || ');
+          conditions.push(`(${jenisConditions})`);
+        }
+
+        const requestOptions: any = { sort: '-created_at' };
+        if (conditions.length > 0) requestOptions.filter = pb.filter(conditions.join(' && '), params);
+
+        const result = await pb.collection('cashflow').getList<Cashflow>(page, perPage, {
+          ...requestOptions,
+          $autoCancel: false 
+        });
+        setTransactions(result.items);
+        setTotalPages(result.totalPages);
+      } catch (error) {
+        console.error("Gagal mengambil data:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    useEffect(() => { 
+      fetchDropdowns(); 
+      fetchWallets(); 
+    }, []);
+    useEffect(() => {
+      const delayDebounce = setTimeout(() => { setSearchTerm(searchInput); setPage(1); }, 500);
+      return () => clearTimeout(delayDebounce);
+    }, [searchInput, filterMutasi]);
+    
+    // Tambahkan filterAccounts ke dalam dependency agar data otomatis ter-refresh
+    useEffect(() => { fetchCashflow(); }, [page, searchTerm, filterMutasi, dateRange, filterAccounts, filterJenis]);
+
+    // Fungsi helper untuk toggle opsi multiselect akun
+    const toggleFilterAccount = (accId: string) => {
+      setFilterAccounts(prev => prev.includes(accId) ? prev.filter(id => id !== accId) : [...prev, accId]);
+      setPage(1);
+    };
+
+    const toggleFilterJenis = (jenisId: string) => {
+      setFilterJenis(prev => prev.includes(jenisId) ? prev.filter(id => id !== jenisId) : [...prev, jenisId]);
+      setPage(1);
+    };
+
+    useEffect(() => {
+      if (files.length === 0) { setPreviewUrls([]); return; }
+      const urls = files.map(f => URL.createObjectURL(f));
+      setPreviewUrls(urls);
+      return () => urls.forEach(u => URL.revokeObjectURL(u));
+    }, [files]);
+
+    useEffect(() => {
+      // Jika mutasi berubah dan jenis yang dipilih tidak sesuai dengan mutasi baru, reset jenis
+      if (formData.mutasi && formData.jenis) {
+        const validJenis = formData.mutasi === 'Masuk' 
+          ? jenisOptionsIn.some(j => j.id_lama === formData.jenis)
+          : jenisOptionsOut.some(j => j.id_lama === formData.jenis);
+        if (!validJenis) {
+          setFormData(prev => ({ ...prev, jenis: '' }));
+        }
+      }
+    }, [formData.mutasi, jenisOptionsIn, jenisOptionsOut]);
+
+    const groupedTransactions = useMemo(() => {
+      const groups: { [key: string]: Cashflow[] } = {};
+      transactions.forEach(tx => {
+        const date = tx.created_at ? tx.created_at.split(' ')[0] : 'Tanpa Tanggal';
+        if (!groups[date]) groups[date] = [];
+        groups[date].push(tx);
+      });
+      return groups;
+    }, [transactions]);
+
+    const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+      const { name, value, type } = e.target;
+      setFormData(prev => ({ ...prev, [name]: type === 'number' ? (value === '' ? '' : Number(value)) : value }));
+      setIsFormDirty(true);
+    };
+
+    const handleMutasiChange = (newMutasi: string) => {
+      if (formData.jenis && formData.jenis !== '') {
+        if (window.confirm("Mengubah jenis mutasi akan mereset pilihan Jenis Cashflow. Lanjutkan?")) {
+          setFormData(prev => ({ ...prev, mutasi: newMutasi, jenis: '' }));
+          setIsFormDirty(true);
+        }
+      } else {
+        setFormData(prev => ({ ...prev, mutasi: newMutasi }));
         setIsFormDirty(true);
       }
-    } else {
-      setFormData(prev => ({ ...prev, mutasi: newMutasi }));
-      setIsFormDirty(true);
-    }
-  };
+    };
 
-  const handleCloseModal = () => {
-    if (checkFormDirty()) {
-      if (window.confirm("Ada perubahan yang belum disimpan. Yakin ingin menutup?")) {
-        setModalType(null);
-        setIsFormDirty(false);
-      }
-    } else {
-      setModalType(null);
-    }
-  };
-
-  const submitForm = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (!formData.jenis) {
-      alert("Jenis Cashflow wajib dipilih!");
-      return;
-    }
-    if (!formData.account_1) {
-      alert("Akun Pembayaran wajib dipilih!");
-      return;
-    }
-    if (!formData.nominal || formData.nominal <= 0) {
-      alert("Nominal harus diisi dan lebih dari 0!");
-      return;
-    }
-    if (!formData.note || formData.note.trim() === '') {
-      alert("Keterangan wajib diisi!");
-      return;
-    }
-    if (formData.jenis?.toLowerCase() === 'transfer' && !formData.account_2) {
-      alert("Akun Tujuan wajib dipilih untuk transaksi Transfer!");
-      return;
-    }
-
-    setIsProcessing(true);
-    try {
-      const currentUser = pb.authStore.model;
-      const operatorName = currentUser?.name || currentUser?.username || 'Admin';
-      const formattedDate = formData.created_at ? formData.created_at.replace('T', ' ') + ':00' : new Date().toISOString().replace('T', ' ').slice(0, 19);
-      const selectedAccount = accountOptions.find(acc => acc.id === formData.account_1);
-      const accountIdLama = selectedAccount?.id_lama || '';
-
-      const formDataObj = new FormData();
-      formDataObj.append("jenis", formData.jenis || "");
-      const mutasiValue = formData.mutasi?.toLowerCase() === 'masuk' ? 'in' : 'out';
-      formDataObj.append("mutasi", mutasiValue);
-      formDataObj.append("account_1", formData.account_1 || "");
-      formDataObj.append("account_2", formData.account_2 || "");
-      formDataObj.append("nominal", String(formData.nominal || 0));
-      formDataObj.append("note", formData.note || "");
-      formDataObj.append("created_at", formattedDate);
-      formDataObj.append("operator", operatorName);
-      formDataObj.append("person_customer", formData.person_customer || "");
-      formDataObj.append("person", formData.person || "");
-      formDataObj.append("acc1", accountIdLama);
-      formDataObj.append("acc2", formData.acc2 || "");
-
-      if (files && files.length > 0) {
-        files.forEach(file => formDataObj.append("file", file));
-      }
-
-      if (isEditMode && selectedTx) {
-        await pb.collection('cashflow').update(selectedTx.id, formDataObj);
+    const handleCloseModal = () => {
+      if (checkFormDirty()) {
+        if (window.confirm("Ada perubahan yang belum disimpan. Yakin ingin menutup?")) {
+          setModalType(null);
+          setIsFormDirty(false);
+        }
       } else {
-        await pb.collection('cashflow').create(formDataObj);
+        setModalType(null);
       }
-      
-      setModalType(null);
-      setFormData({
-        mutasi: 'Masuk',
-        created_at: new Date().toISOString().slice(0,16).replace('T', ' '),
-        account_2: '',
-        person_customer: '',
-        acc2: '',
-        person: ''
-      });
-      setFiles([]);
-      fetchCashflow();
-    } catch (error: any) {
-      alert("Gagal simpan: " + (error.data?.message || "Terjadi kesalahan"));
-    } finally {
-      setIsProcessing(false);
-    }
-  };
+    };
 
-  const submitDelete = async () => {
-    if (!selectedTx) return;
-    setIsProcessing(true);
-    try {
-      await pb.collection('cashflow').delete(selectedTx.id);
-      setModalType(null);
-      fetchCashflow();
-    } catch (error) {
-      alert("Gagal menghapus.");
-    } finally {
-      setIsProcessing(false);
-    }
-  };
+    const submitForm = async (e: React.FormEvent) => {
+      e.preventDefault();
 
-  const isVideo = (filename: string) => filename.match(/\.(mp4|webm|ogg)$/i);
+      if (!formData.jenis) {
+        alert("Jenis Cashflow wajib dipilih!");
+        return;
+      }
+      if (!formData.account_1) {
+        alert("Akun Pembayaran wajib dipilih!");
+        return;
+      }
+      if (!formData.nominal || formData.nominal <= 0) {
+        alert("Nominal harus diisi dan lebih dari 0!");
+        return;
+      }
+      if (!formData.note || formData.note.trim() === '') {
+        alert("Keterangan wajib diisi!");
+        return;
+      }
+      if (formData.jenis?.toLowerCase() === 'transfer' && !formData.account_2) {
+        alert("Akun Tujuan wajib dipilih untuk transaksi Transfer!");
+        return;
+      }
 
-  return (
-    <div className="p-4 md:p-8 h-full bg-slate-50 flex flex-col overflow-hidden font-sans">
-      {/* PEMBUNGKUS UTAMA (Agar tidak terlalu panjang/lebar ke samping di layar besar) */}
-      <div className="max-w-6xl mx-auto w-full h-full flex flex-col relative">
+      setIsProcessing(true);
+      try {
+        const currentUser = pb.authStore.model;
+        const operatorName = currentUser?.name || currentUser?.username || 'Admin';
+        const formattedDate = formData.created_at ? formData.created_at.replace('T', ' ') + ':00' : new Date().toISOString().replace('T', ' ').slice(0, 19);
+        const selectedAccount = accountOptions.find(acc => acc.id === formData.account_1);
+        const accountIdLama = selectedAccount?.id_lama || '';
+
+        const formDataObj = new FormData();
+
+        // formData.jenis sudah berisi id_lama (dari dropdown atau dari edit)
+        formDataObj.append("jenis", formData.jenis || "");
+
+        const mutasiValue = formData.mutasi?.toLowerCase() === 'masuk' ? 'in' : 'out';
+        formDataObj.append("mutasi", mutasiValue);
+        formDataObj.append("account_1", formData.account_1 || "");
+        formDataObj.append("account_2", formData.account_2 || "");
+        formDataObj.append("nominal", String(formData.nominal || 0));
+        formDataObj.append("note", formData.note || "");
+        formDataObj.append("created_at", formattedDate);
+        formDataObj.append("operator", operatorName);
+        formDataObj.append("person_customer", formData.person_customer || "");
+        formDataObj.append("person", formData.person || "");
+        formDataObj.append("acc1", accountIdLama);
+        formDataObj.append("acc2", formData.acc2 || "");
+
+        if (files && files.length > 0) {
+          files.forEach(file => formDataObj.append("file", file));
+        }
+
+        if (isEditMode && selectedTx) {
+          await pb.collection('cashflow').update(selectedTx.id, formDataObj);
+        } else {
+          await pb.collection('cashflow').create(formDataObj);
+        }
         
-        {/* HEADER */}
-        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-end gap-4 mb-8 shrink-0">
-          <div>
-            <h2 className="text-3xl font-extrabold text-slate-800 tracking-tight flex items-center gap-3">
-              <div className="p-2.5 bg-emerald-500 rounded-2xl text-white shadow-lg shadow-emerald-200">
-                <Wallet size={26} strokeWidth={2.5} />
-              </div>
-              Arus Kas
-            </h2>
-            <p className="text-slate-500 mt-2 font-medium">Monitoring perputaran modal Prima Motor</p>
+        setModalType(null);
+        setFormData({
+          mutasi: 'Masuk',
+          created_at: new Date().toISOString().slice(0,16).replace('T', ' '),
+          account_2: '',
+          person_customer: '',
+          acc2: '',
+          person: ''
+        });
+        setFiles([]);
+        fetchCashflow();
+      } catch (error: any) {
+        alert("Gagal simpan: " + (error.data?.message || "Terjadi kesalahan"));
+      } finally {
+        setIsProcessing(false);
+      }
+    };
+
+    const submitDelete = async () => {
+      if (!selectedTx) return;
+      setIsProcessing(true);
+      try {
+        await pb.collection('cashflow').delete(selectedTx.id);
+        setModalType(null);
+        fetchCashflow();
+      } catch (error) {
+        alert("Gagal menghapus.");
+      } finally {
+        setIsProcessing(false);
+      }
+    };
+
+    const isVideo = (filename: string) => filename.match(/\.(mp4|webm|ogg)$/i);
+
+    return (
+      <div className="p-4 md:p-8 h-full bg-slate-50 flex flex-col overflow-hidden font-sans">
+        {/* PEMBUNGKUS UTAMA */}
+        <div className="max-w-6xl mx-auto w-full h-full flex flex-col relative">
+          
+          {/* HEADER */}
+          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-end gap-4 mb-8 shrink-0">
+            <div>
+              <h2 className="text-3xl font-extrabold text-slate-800 tracking-tight flex items-center gap-3">
+                <div className="p-2.5 bg-emerald-500 rounded-2xl text-white shadow-lg shadow-emerald-200">
+                  <Wallet size={26} strokeWidth={2.5} />
+                </div>
+                Arus Kas
+              </h2>
+              <p className="text-slate-500 mt-2 font-medium">Monitoring perputaran modal Prima Motor</p>
+            </div>
+            {/* Tombol hanya muncul di Desktop/Tablet */}
+            <button 
+              onClick={() => {
+                setSelectedTx(null);
+                setFiles([]);
+                setFormData({ mutasi: 'Masuk', created_at: new Date().toISOString().slice(0,16).replace('T', ' ') });
+                setModalType('form');
+              }}
+              className="hidden md:flex bg-slate-900 hover:bg-black text-white px-6 py-3.5 rounded-2xl font-black text-sm shadow-xl shadow-slate-200 transition-all active:scale-95 items-center justify-center gap-2"
+            >
+              <span className="text-emerald-400 text-lg leading-none">+</span> CATAT KAS
+            </button>
           </div>
-          <button 
-            onClick={() => {
-              setSelectedTx(null);
-              setFiles([]);
-              setFormData({ mutasi: 'Masuk', created_at: new Date().toISOString().slice(0,16).replace('T', ' ') });
-              setModalType('form');
-            }}
-            className="bg-slate-900 hover:bg-black text-white px-6 py-3.5 rounded-2xl font-black text-sm shadow-xl shadow-slate-200 transition-all active:scale-95 flex items-center justify-center gap-2"
-          >
-            <span className="text-emerald-400 text-lg leading-none">+</span> CATAT KAS
-          </button>
-        </div>
 
-        {/* TAB NAVIGATION (Gaya Modern Segmented Control) */}
-        <div className="flex p-1.5 bg-slate-200/60 rounded-2xl mb-6 w-full sm:w-fit shrink-0">
-          <button
-            onClick={() => setActiveTab('accounts')}
-            className={`flex-1 sm:w-40 py-2.5 text-xs font-black uppercase tracking-wider rounded-xl transition-all duration-300 ${
-              activeTab === 'accounts'
-                ? 'bg-white text-emerald-600 shadow-sm'
-                : 'text-slate-500 hover:text-emerald-700 hover:bg-white/50'
-            }`}
-          >
-            Daftar Dompet
-          </button>
-          <button
-            onClick={() => setActiveTab('history')}
-            className={`flex-1 sm:w-40 py-2.5 text-xs font-black uppercase tracking-wider rounded-xl transition-all duration-300 ${
-              activeTab === 'history'
-                ? 'bg-white text-emerald-600 shadow-sm'
-                : 'text-slate-500 hover:text-emerald-700 hover:bg-white/50'
-            }`}
-          >
-            Histori Kas
-          </button>
-        </div>
+          {/* TAB NAVIGATION */}
+          <div className="flex p-1.5 bg-slate-200/60 rounded-2xl mb-6 w-full sm:w-fit shrink-0">
+            <button
+              onClick={() => {
+                setActiveTab('accounts');
+                fetchWallets(); // Tarik data dompet terbaru
+              }}
+              className={`flex-1 sm:w-40 py-2.5 text-xs font-black uppercase tracking-wider rounded-xl transition-all duration-300 ${
+                activeTab === 'accounts'
+                  ? 'bg-white text-emerald-600 shadow-sm'
+                  : 'text-slate-500 hover:text-emerald-700 hover:bg-white/50'
+              }`}
+            >
+              Daftar Dompet
+            </button>
+            <button
+              onClick={() => {
+                setActiveTab('history');
+                setPage(1); // Reset halaman ke 1
+                fetchCashflow(); // Tarik data history kas terbaru
+              }}
+              className={`flex-1 sm:w-40 py-2.5 text-xs font-black uppercase tracking-wider rounded-xl transition-all duration-300 ${
+                activeTab === 'history'
+                  ? 'bg-white text-emerald-600 shadow-sm'
+                  : 'text-slate-500 hover:text-emerald-700 hover:bg-white/50'
+              }`}
+            >
+              Histori Kas
+            </button>
+          </div>
 
-        {/* CONTAINER HISTORY */}
-        {activeTab === 'history' && (
-          <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/40 border border-slate-100 flex-1 flex flex-col overflow-hidden">
-            {/* FILTER SEARCH BAR */}
-            <div className="p-5 border-b border-slate-100 flex flex-col md:flex-row gap-4 items-center justify-between shrink-0 bg-white">
-              <div className="flex bg-slate-100 p-1.5 rounded-2xl w-full md:w-auto">
-                {['semua', 'masuk', 'keluar'].map(tab => (
+          {/* CONTAINER HISTORY */}
+          {activeTab === 'history' && (
+            <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/40 border border-slate-100 flex-1 flex flex-col overflow-hidden">
+              {/* FILTER SEARCH BAR & TANGGAL */}
+              <div className="p-4 border-b border-slate-100 flex flex-col xl:flex-row gap-3 items-center justify-between shrink-0 bg-white">
+                
+                {/* ROW UTAMA SMARTPHONE: Mutasi + Trigger Filter */}
+                <div className="flex items-center gap-2 w-full xl:flex-1">
+                  {/* 1. Toggle Mutasi (Masuk/Keluar) */}
+                  <div className="flex bg-slate-100 p-1 rounded-xl flex-1 w-full">
+                    {['semua', 'masuk', 'keluar'].map(tab => (
+                      <button 
+                        key={tab} 
+                        onClick={() => { setFilterMutasi(tab); setPage(1); }} 
+                        className={`flex-1 py-2 rounded-lg font-black text-[10px] uppercase tracking-wider transition-all duration-300 ${
+                          filterMutasi === tab 
+                            ? 'bg-white text-emerald-600 shadow-sm' 
+                            : 'text-slate-400 hover:text-slate-600'
+                        }`}
+                      >
+                        {tab}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* 2. Tombol Filter Trigger (Mobile Only) */}
                   <button 
-                    key={tab} 
-                    onClick={() => setFilterMutasi(tab)} 
-                    className={`flex-1 md:w-28 py-2 rounded-xl font-bold text-xs uppercase tracking-wider transition-all duration-300 ${
-                      filterMutasi === tab ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'
-                    }`}
+                    onClick={() => setIsMobileFilterOpen(true)}
+                    className="md:hidden w-10 h-10 flex items-center justify-center bg-slate-100 border border-slate-200 rounded-xl text-slate-600 shadow-sm shrink-0"
                   >
-                    {tab}
+                    <Filter size={16} />
+                  </button>
+                </div>
+
+                {/* Kanan: Filter Akun, Tanggal & Search Bar (Desktop/Tablet) */}
+                <div className={`hidden md:flex items-center gap-3 justify-end transition-all duration-300 ${isAccountFilterOpen || filterAccounts.length > 0 ? 'w-full xl:w-[70%]' : 'w-full xl:w-auto'}`}>
+                  
+                  {/* 1. Filter Akun Expandable (Multiselect) */}
+                  <div className={`relative transition-all duration-300 ease-out flex justify-end ${isAccountFilterOpen || filterAccounts.length > 0 ? 'flex-1 max-w-[60%]' : 'w-10 h-10 shrink-0'}`}>
+                    {!isAccountFilterOpen && filterAccounts.length === 0 ? (
+                      <button onClick={() => setIsAccountFilterOpen(true)} className="w-10 h-10 flex items-center justify-center bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100 text-slate-400 hover:text-emerald-500 transition-all shadow-sm" title="Buka Filter Akun"><Wallet size={16} /></button>
+                    ) : (
+                      <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-1.5 h-10 shadow-sm focus-within:bg-white focus-within:border-emerald-300 transition-all w-full">
+                        <Wallet size={14} className="text-emerald-500 shrink-0 ml-1.5" />
+                        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar flex-1 h-full py-1.5 px-1">
+                          {accountOptions.map(acc => (
+                            <button 
+                              key={acc.id}
+                              onClick={() => toggleFilterAccount(acc.id)}
+                              className={`whitespace-nowrap px-2.5 py-1 text-[10px] font-black rounded-lg transition-all border ${filterAccounts.includes(acc.id) ? 'bg-emerald-500 border-emerald-500 text-white shadow-sm' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-100'}`}
+                            >
+                              {acc.text_1}
+                            </button>
+                          ))}
+                        </div>
+                        <button onClick={() => { setFilterAccounts([]); setIsAccountFilterOpen(false); setPage(1); }} className="p-1 text-rose-500 shrink-0"><X size={14} /></button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Filter Jenis Expandable (selalu tampil, tapi dinonaktifkan saat mutasi 'semua') */}
+                  <div className={`relative transition-all duration-300 ease-out flex justify-end ${isJenisFilterOpen || filterJenis.length > 0 ? 'flex-none w-auto' : 'w-10 h-10 shrink-0'}`}>
+                    {!isJenisFilterOpen && filterJenis.length === 0 ? (
+                      <button 
+                        onClick={() => { if (filterMutasi !== 'semua') setIsJenisFilterOpen(true); }}
+                        className={`w-10 h-10 flex items-center justify-center bg-slate-50 border border-slate-200 rounded-xl transition-all shadow-sm ${
+                          filterMutasi === 'semua' 
+                            ? 'opacity-50 cursor-not-allowed text-slate-300' 
+                            : 'hover:bg-slate-100 text-slate-400 hover:text-emerald-500'
+                        }`}
+                        title={filterMutasi === 'semua' ? "Pilih masuk/keluar dulu" : "Filter Jenis"}
+                        disabled={filterMutasi === 'semua'}
+                      >
+                        <Layers size={16} />
+                      </button>
+                    ) : (
+                      <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-1.5 h-10 shadow-sm focus-within:bg-white focus-within:border-emerald-300 transition-all w-full">
+                        <Layers size={14} className="text-emerald-500 shrink-0 ml-1.5" />
+                        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar flex-1 h-full py-1.5 px-1">
+                          {/* Hanya tampilkan opsi jika mutasi sudah dipilih (bukan 'semua') */}
+                          {(filterMutasi === 'masuk' ? jenisOptionsIn : filterMutasi === 'keluar' ? jenisOptionsOut : []).map(opt => (
+                            <button
+                              key={opt.id}
+                              onClick={() => toggleFilterJenis(opt.id_lama || opt.id)}
+                              className={`whitespace-nowrap px-2.5 py-1 text-[10px] font-black rounded-lg transition-all border ${
+                                filterJenis.includes(opt.id_lama || opt.id) 
+                                  ? 'bg-emerald-500 border-emerald-500 text-white shadow-sm' 
+                                  : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-100'
+                              }`}
+                            >
+                              {opt.text_1}
+                            </button>
+                          ))}
+                        </div>
+                        <button onClick={() => { setFilterJenis([]); setIsJenisFilterOpen(false); setPage(1); }} className="p-1 text-rose-500 shrink-0"><X size={14} /></button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 2. Filter Tanggal Expandable */}
+                  <div className={`relative transition-all duration-300 ease-out flex justify-end ${isDateOpen || dateRange.start || dateRange.end ? 'w-auto' : 'w-10 h-10'}`}>
+                    {!isDateOpen && !dateRange.start && !dateRange.end ? (
+                      <button onClick={() => setIsDateOpen(true)} className="w-10 h-10 flex items-center justify-center bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100 text-slate-400 hover:text-emerald-500 transition-all shadow-sm" title="Buka Filter Tanggal"><Calendar size={16} /></button>
+                    ) : (
+                      <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 h-10 shadow-sm focus-within:bg-white focus-within:border-emerald-300 transition-all">
+                        <Calendar size={14} className="text-emerald-500" />
+                        <input type="date" className="bg-transparent text-[10px] font-bold text-slate-600 outline-none w-24 cursor-pointer" value={dateRange.start} onChange={(e) => { setDateRange({...dateRange, start: e.target.value}); setPage(1); }} />
+                        <span className="text-slate-300">-</span>
+                        <input type="date" className="bg-transparent text-[10px] font-bold text-slate-600 outline-none w-24 cursor-pointer" value={dateRange.end} onChange={(e) => { setDateRange({...dateRange, end: e.target.value}); setPage(1); }} />
+                        <button onClick={() => { setDateRange({ start: '', end: '' }); setIsDateOpen(false); setPage(1); }} className="p-1 text-rose-500"><X size={14} /></button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 3. Search Bar Expandable */}
+                  <div className={`relative transition-all duration-300 ease-out group ${isSearchOpen || searchInput ? 'w-64' : 'w-10 h-10'}`}>
+                    {!isSearchOpen && !searchInput && (
+                      <button onClick={() => { setIsSearchOpen(true); setTimeout(() => document.getElementById('search-input-cf')?.focus(), 100); }} className="absolute inset-0 w-10 h-10 flex items-center justify-center bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100 text-slate-400 hover:text-emerald-500 shadow-sm" title="Cari"><Search size={16} /></button>
+                    )}
+                    <div className={`flex items-center w-full h-10 bg-slate-50 border border-slate-200 rounded-xl focus-within:bg-white focus-within:border-emerald-300 transition-all shadow-sm overflow-hidden ${isSearchOpen || searchInput ? 'opacity-100' : 'opacity-0'}`}>
+                      <Search className="absolute left-3.5 text-slate-400" size={16} />
+                      <input id="search-input-cf" type="text" placeholder="Cari..." className="w-full pl-9 pr-4 py-2 bg-transparent outline-none text-xs font-bold text-slate-700" value={searchInput} onChange={(e) => setSearchInput(e.target.value)} onBlur={() => !searchInput && setIsSearchOpen(false)} />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* DAFTAR TRANSAKSI */}
+              <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-8 scroll-smooth custom-scrollbar">
+                {loading ? (
+                  <div className="flex justify-center py-20"><div className="w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" /></div>
+                ) : Object.keys(groupedTransactions).length === 0 ? (
+                  <div className="text-center py-20 text-slate-400 font-bold bg-slate-50 rounded-3xl border-2 border-dashed border-slate-200">
+                    Belum ada data transaksi kas ditemukan.
+                  </div>
+                ) : (
+                  Object.entries(groupedTransactions).map(([date, items]) => (
+                    <div key={date} className="space-y-4">
+                      <div className="flex items-center gap-4">
+                        <span className="bg-slate-800 px-4 py-1.5 rounded-full text-[10px] font-black text-white uppercase tracking-widest text-center shadow-sm">
+                          {date !== 'Tanpa Tanggal' ? new Date(date).toLocaleDateString('id-ID', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' }) : date}
+                        </span>
+                        <div className="h-[2px] flex-1 bg-slate-100" />
+                      </div>
+                      
+                      <div className="grid gap-3">
+                        {items.map((tx) => {
+                          const isMasuk = tx.mutasi.toLowerCase() === 'in';
+                          return (
+                            <div 
+                              key={tx.id} 
+                              onClick={() => { setSelectedTx(tx); setModalType('detail'); }} 
+                              className="group bg-white border-2 border-slate-100 p-4 md:p-5 rounded-2xl hover:border-emerald-300 hover:shadow-lg hover:shadow-emerald-500/10 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4 cursor-pointer"
+                            >
+                              <div className="flex items-start sm:items-center gap-4 w-full sm:w-auto">
+                                <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 shadow-sm ${isMasuk ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
+                                  {isMasuk ? <ArrowDownRight strokeWidth={3}/> : <ArrowUpRight strokeWidth={3}/>}
+                                </div>
+                                <div className="flex-1">
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-wider bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+                                      {tx.ref}
+                                    </span>
+                                  </div>
+                                  <h4 className="font-bold text-slate-800 line-clamp-1">{tx.note}</h4>
+                                  <div className="flex flex-wrap items-center gap-3 mt-1.5">
+                                    <span className="text-[11px] font-semibold text-slate-500 flex items-center gap-1 bg-slate-50 px-2 py-0.5 rounded-md"><Layers size={12} className="text-slate-400"/> {tx.jenis}</span>
+                                    <span className="text-[11px] font-semibold text-slate-500 flex items-center gap-1 bg-slate-50 px-2 py-0.5 rounded-md"><User size={12} className="text-slate-400"/> {tx.person}</span>
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="flex sm:flex-col items-center sm:items-end justify-between border-t sm:border-0 pt-3 sm:pt-0 border-slate-100 shrink-0">
+                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest sm:mb-1 order-2 sm:order-1">
+                                  {getAccountName(tx.account_1)}
+                                </p>
+                                <p className={`text-lg sm:text-xl font-black tracking-tight order-1 sm:order-2 ${isMasuk ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                  {isMasuk ? '+' : '-'} {formatRupiah(tx.nominal)}
+                                </p>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {/* Paginasi */}
+              <div className="p-4 md:p-6 border-t border-slate-100 bg-white flex justify-between items-center shrink-0 rounded-b-3xl">
+                <p className="text-xs font-black text-slate-400 uppercase tracking-widest bg-slate-100 px-4 py-2 rounded-xl">Hal. {page} / {totalPages || 1}</p>
+                <div className="flex gap-2">
+                  <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="w-10 h-10 flex items-center justify-center bg-white rounded-xl border border-slate-200 hover:bg-slate-50 hover:border-slate-300 disabled:opacity-30 transition-all shadow-sm text-slate-600"><ChevronLeft size={20}/></button>
+                  <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages} className="w-10 h-10 flex items-center justify-center bg-white rounded-xl border border-slate-200 hover:bg-slate-50 hover:border-slate-300 disabled:opacity-30 transition-all shadow-sm text-slate-600"><ChevronRight size={20}/></button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* CONTAINER ACCOUNTS / WALLET */}
+          {activeTab === 'accounts' && (
+            <div className="flex-1 overflow-y-auto custom-scrollbar pb-10">
+              <div className="mb-6">
+                <h3 className="text-xl font-black text-slate-800 flex items-center gap-2">
+                  Buku Rekening & Kas
+                </h3>
+                <p className="text-sm font-medium text-slate-500 mt-1">Sisa saldo aktif untuk setiap penyimpanan</p>
+              </div>
+              
+              {loadingWallets ? (
+                <div className="flex justify-center py-20"><div className="w-10 h-10 border-4 border-emerald-200 border-t-emerald-600 rounded-full animate-spin" /></div>
+              ) : wallets.length === 0 ? (
+                <div className="text-center py-20 text-slate-400 font-bold bg-white rounded-3xl border border-slate-200 shadow-sm">
+                  Tidak ada dompet yang tersedia.
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {wallets.map(wallet => {
+                    const getInitials = (name: string) => name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+                    const stringToColor = (str: string) => {
+                      let hash = 0;
+                      for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
+                      const c = (hash & 0x00FFFFFF).toString(16).toUpperCase();
+                      return '#' + '00000'.substring(0, 6 - c.length) + c;
+                    };
+                    const bgColor = wallet.link_image && wallet.link_image.startsWith('#') ? wallet.link_image : stringToColor(wallet.text_1);
+
+                    return (
+                      <div 
+                        key={wallet.id} 
+                        onClick={() => {
+                          setFilterAccounts([wallet.id]); // Otomatis set filter ke akun ini
+                          setActiveTab('history'); // Pindah ke tab histori
+                          setPage(1); // Reset halaman ke awal
+                        }}
+                        style={{ background: `linear-gradient(135deg, ${bgColor}CC 0%, ${bgColor} 100%)` }}
+                        className="relative overflow-hidden rounded-[2rem] p-6 text-white shadow-xl hover:-translate-y-1.5 transition-transform duration-300 group cursor-pointer"
+                      >
+                        {/* Efek Lingkaran Blur Dekoratif */}
+                        <div className="absolute -top-10 -right-10 w-40 h-40 bg-white/20 rounded-full blur-3xl group-hover:bg-white/30 transition-colors duration-500 pointer-events-none" />
+                        
+                        <div className="flex justify-between items-start mb-8 relative z-10">
+                          <div className="relative group/avatar">
+                            <div className="absolute -inset-1 bg-white/20 rounded-2xl blur opacity-0 group-hover/avatar:opacity-100 transition duration-500"></div>
+                            <div className="relative w-14 h-14 bg-white/10 rounded-2xl border border-white/20 flex items-center justify-center backdrop-blur-md shadow-lg overflow-hidden transition-all duration-300 group-hover:scale-105">
+                              {wallet.link_image && !wallet.link_image.startsWith('#') ? (
+                                <>
+                                  <img src={pb.files.getUrl(wallet, wallet.link_image)} alt="PP" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" onError={(e) => { e.currentTarget.classList.add('hidden'); e.currentTarget.nextElementSibling?.classList.remove('hidden'); }} />
+                                  <span className="hidden font-black text-lg tracking-tight transition-transform duration-300 group-hover:scale-110">{getInitials(wallet.text_1)}</span>
+                                </>
+                              ) : (
+                                <span className="font-black text-lg tracking-tight transition-transform duration-300 group-hover:scale-110">{getInitials(wallet.text_1)}</span>
+                              )}
+                            </div>
+                          </div>
+                          <span className="text-[9px] font-black uppercase tracking-widest text-white bg-white/10 border border-white/20 px-3 py-1.5 rounded-full backdrop-blur-sm shadow-sm">{wallet.jenis || 'DOMPET'}</span>
+                        </div>
+
+                        <div className="relative z-10">
+                          <p className="text-sm font-medium text-white/70 mb-1">{wallet.text_1}</p>
+                          <p className="text-3xl font-black tracking-tighter text-white">{formatRupiah(wallet.number_1 || 0)}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* MODAL TRANSAKSI FORM */}
+          <Modal isOpen={modalType === 'form'} onClose={handleCloseModal} title={isEditMode ? "Revisi Transaksi Kas" : "Catat Transaksi Kas Baru"}>
+            <form onSubmit={submitForm} className="flex flex-col max-h-[75vh] md:max-h-[80vh] overflow-y-auto custom-scrollbar p-1">
+              <div className="space-y-5">
+                
+                <div className="flex bg-slate-100 p-1.5 rounded-2xl w-full shadow-inner">
+                  <button type="button" onClick={() => handleMutasiChange('Masuk')} className={`flex-1 py-3 text-xs font-black uppercase tracking-widest rounded-xl transition-all ${formData.mutasi === 'Masuk' ? 'bg-emerald-500 text-white shadow-md' : 'text-slate-500 hover:bg-white/50'}`}>
+                    <ArrowDownRight size={16} className="inline mr-2"/> KAS MASUK
+                  </button>
+                  <button type="button" onClick={() => handleMutasiChange('Keluar')} className={`flex-1 py-3 text-xs font-black uppercase tracking-widest rounded-xl transition-all ${formData.mutasi === 'Keluar' ? 'bg-rose-500 text-white shadow-md' : 'text-slate-500 hover:bg-white/50'}`}>
+                    <ArrowUpRight size={16} className="inline mr-2"/> KAS KELUAR
+                  </button>
+                </div>
+
+                {(() => {
+                  const isMasuk = formData.mutasi === 'Masuk';
+                  const txtColor = isMasuk ? 'text-emerald-600' : 'text-rose-600';
+                  const focusClass = isMasuk ? 'focus:ring-emerald-500/20 focus:border-emerald-400' : 'focus:ring-rose-500/20 focus:border-rose-400';
+                  const bgBox = isMasuk ? 'bg-emerald-50/30 border-emerald-100' : 'bg-rose-50/30 border-rose-100';
+                  const btnUpload = isMasuk ? 'text-emerald-600 border-emerald-200' : 'text-rose-600 border-rose-200';
+
+                  const optionsJenis = isMasuk ? jenisOptionsIn : jenisOptionsOut;
+                  const isTransfer = formData.jenis?.toLowerCase().includes('transfer');
+
+                  return (
+                    <>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                          <label className={`text-[10px] font-black ${txtColor} uppercase tracking-wider ml-1 flex items-center gap-1.5`}><Calendar size={14}/> Tanggal Waktu</label>
+                          <input type="datetime-local" name="created_at" value={formData.created_at || ''} onChange={handleInputChange} className={`w-full mt-2 p-3 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none transition-all shadow-sm ${focusClass}`} required />
+                        </div>
+                        <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                          <label className={`text-[10px] font-black ${txtColor} uppercase tracking-wider ml-1 flex items-center gap-1.5`}><Layers size={14}/> Jenis Cashflow</label>
+                          <select name="jenis" value={formData.jenis || ''} onChange={handleInputChange} className={`w-full mt-2 p-3 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none shadow-sm ${focusClass}`} required>
+                            <option value="" disabled>Pilih Kategori...</option>
+                            {/* Mengubah value menjadi id_lama agar saat Edit bisa terbaca, dan label tetap text_1 */}
+                            {optionsJenis.map(opt => <option key={opt.id} value={opt.id_lama || opt.id}>{opt.text_1}</option>)}
+                          </select>
+                        </div>
+                      </div>
+
+                      {/* (1) Akun Sumber & Tujuan DIPINDAH KE ATAS */}
+                    <div className={`grid grid-cols-1 ${isTransfer ? 'sm:grid-cols-2' : ''} gap-4`}>
+                      <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                        {/* Wrapper Label & Saldo */}
+                        <div className="flex justify-between items-center ml-1">
+                          <label className={`text-[10px] font-black ${txtColor} uppercase tracking-wider flex items-center gap-1.5`}><Wallet size={14}/> Akun Sumber</label>
+                          {/* Indikator Saldo Dompet 1 */}
+                          {formData.account_1 && (
+                            <span className="text-[9px] font-black text-slate-500 bg-slate-200 px-2 py-0.5 rounded-md shadow-sm">
+                              Saldo: {formatRupiah((wallets.find(w => w.id === formData.account_1) as any)?.number_1 || 0)}
+                            </span>
+                          )}
+                        </div>
+                        <select name="account_1" value={formData.account_1 || ''} onChange={handleInputChange} className={`w-full mt-2 p-3 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none shadow-sm ${focusClass}`} required>
+                          <option value="" disabled>Pilih Dompet...</option>
+                          {accountOptions.map(opt => <option key={opt.id} value={opt.id}>{opt.text_1}</option>)}
+                        </select>
+                      </div>
+                      
+                      {isTransfer && (
+                        <div className="bg-blue-50 p-3 rounded-2xl border border-blue-100 animate-in fade-in zoom-in duration-300">
+                          {/* Wrapper Label & Saldo */}
+                          <div className="flex justify-between items-center ml-1">
+                            <label className="text-[10px] font-black text-blue-600 uppercase tracking-wider flex items-center gap-1.5"><ArrowRight size={14}/> Akun Tujuan</label>
+                            {/* Indikator Saldo Dompet 2 */}
+                            {formData.account_2 && (
+                              <span className="text-[9px] font-black text-blue-600 bg-blue-200/50 px-2 py-0.5 rounded-md shadow-sm">
+                                Saldo: {formatRupiah((wallets.find(w => w.id === formData.account_2) as any)?.number_1 || 0)}
+                              </span>
+                            )}
+                          </div>
+                          <select name="account_2" value={formData.account_2 || ''} onChange={handleInputChange} className="w-full mt-2 p-3 text-xs font-bold text-slate-700 bg-white border border-blue-200 rounded-xl focus:ring-blue-500/20 focus:border-blue-400 outline-none shadow-sm" required>
+                            <option value="" disabled>Pilih Tujuan...</option>
+                            {accountOptions.map(opt => <option key={opt.id} value={opt.id}>{opt.text_1}</option>)}
+                          </select>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* (2) Nominal Rupiah DIPINDAH KE BAWAH */}
+                    <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                      <label className={`text-[10px] font-black ${txtColor} uppercase tracking-wider ml-1 flex items-center gap-1.5`}><DollarSign size={14}/> Nominal Rupiah</label>
+                      <div className="relative mt-2">
+                        <span className={`absolute left-3 top-1/2 -translate-y-1/2 text-xs font-black ${txtColor}`}>Rp</span>
+                        <input type="number" name="nominal" placeholder="0" value={formData.nominal || ''} onChange={handleInputChange} className={`w-full pl-9 pr-3 py-3 text-sm font-black text-slate-800 bg-white border border-slate-200 rounded-xl outline-none shadow-sm ${focusClass}`} required />
+                      </div>
+                    </div>
+
+                      <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                        <label className={`text-[10px] font-black ${txtColor} uppercase tracking-wider ml-1 flex items-center gap-1.5`}><FileText size={14}/> Pihak & Catatan</label>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
+                          <input type="text" name="person" placeholder="Pihak Terkait..." value={formData.person || ''} onChange={handleInputChange} className={`w-full p-3 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none shadow-sm ${focusClass}`} />
+                          <input type="text" name="note" placeholder="Deskripsi/Catatan..." value={formData.note || ''} onChange={handleInputChange} className={`w-full p-3 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none shadow-sm ${focusClass}`} required />
+                        </div>
+                      </div>
+
+                      <div className={`p-4 rounded-3xl border space-y-3 ${bgBox}`}>
+                        <div className="flex justify-between items-center">
+                          <label className={`text-[11px] font-black ${txtColor} uppercase tracking-wider flex items-center gap-2`}><ImagePlus size={16} /> Lampiran Bukti</label>
+                          <label className={`cursor-pointer text-[10px] font-black bg-white px-4 py-2 rounded-xl shadow-sm hover:scale-105 active:scale-95 transition-all border ${btnUpload}`}>+ Upload<input type="file" multiple accept="image/*,video/*" className="hidden" onChange={e => { setFiles(prev => [...prev, ...Array.from(e.target.files||[])]); setIsFormDirty(true); e.target.value = ''; }} /></label>
+                        </div>
+                        {previewUrls.length === 0 ? (
+                          <div className="text-center py-5 rounded-2xl border-2 border-dashed border-white/50"><p className={`text-[10px] font-bold ${txtColor} opacity-70`}>Belum ada file terlampir</p></div>
+                        ) : (
+                          <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
+                            {previewUrls.map((url, idx) => (
+                              <div key={idx} className="relative group rounded-xl overflow-hidden border border-white shadow-sm aspect-square bg-white">
+                                {isVideo(files[idx]?.name) ? <video src={url} className="w-full h-full object-cover opacity-80" muted /> : <img src={url} alt={`preview-${idx}`} className="w-full h-full object-cover transition-transform group-hover:scale-110 duration-500" />}
+                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"><button type="button" onClick={() => setFiles(prev => prev.filter((_, i) => i !== idx))} className="w-8 h-8 bg-rose-500 text-white rounded-full flex items-center justify-center hover:scale-110 active:scale-95 shadow-lg"><Trash2 size={14} /></button></div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+
+              <div className="mt-6 flex flex-col sm:flex-row gap-3 pt-5 border-t-2 border-slate-100 sticky bottom-0 bg-white">
+                <button type="button" onClick={handleCloseModal} className="flex-1 py-4 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-2xl font-black text-xs tracking-widest transition-colors">BATALKAN</button>
+                <button type="submit" disabled={isProcessing} className={`flex-[2] py-4 text-white rounded-2xl font-black text-xs shadow-xl transition-all active:scale-95 flex justify-center items-center gap-2 ${isProcessing ? 'opacity-70 cursor-not-allowed bg-slate-400' : (formData.mutasi === 'Masuk' ? 'bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/40' : 'bg-rose-500 hover:bg-rose-600 shadow-rose-500/40')}`}>{isProcessing ? <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"/> MENYIMPAN...</> : <><Save size={16}/> SIMPAN TRANSAKSI</>}</button>
+              </div>
+            </form>
+          </Modal>
+
+          {/* MODAL FILTER MOBILE */}
+          <Modal isOpen={isMobileFilterOpen} onClose={() => setIsMobileFilterOpen(false)} title="Filter Transaksi">
+            <div className="space-y-6 p-2">
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1.5"><Wallet size={14}/> Filter Dompet / Akun</label>
+                  <div className="flex items-center gap-2 mt-2 overflow-x-auto no-scrollbar pb-2">                    {accountOptions.map(acc => (
+                  <button 
+                    key={acc.id}
+                    onClick={() => toggleFilterAccount(acc.id)}
+                    className={`shrink-0 whitespace-nowrap px-4 py-2.5 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all border ${filterAccounts.includes(acc.id) ? 'bg-emerald-500 border-emerald-500 text-white shadow-md' : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100'}`}
+                  >
+                  {acc.text_1}
                   </button>
                 ))}
               </div>
-              <div className="relative w-full md:max-w-sm group">
-                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-emerald-500 transition-colors" size={18} />
-                <input 
-                  type="text" 
-                  placeholder="Cari referensi, pihak, catatan..." 
-                  className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-100 rounded-xl focus:bg-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-300 outline-none text-sm font-medium transition-all" 
-                  value={searchInput} 
-                  onChange={(e) => setSearchInput(e.target.value)} 
-                />
               </div>
-            </div>
 
-            {/* DAFTAR TRANSAKSI (Tampilan Border Per Data) */}
-            <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-8 scroll-smooth custom-scrollbar">
-              {loading ? (
-                <div className="flex justify-center py-20"><div className="w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" /></div>
-              ) : Object.keys(groupedTransactions).length === 0 ? (
-                <div className="text-center py-20 text-slate-400 font-bold bg-slate-50 rounded-3xl border-2 border-dashed border-slate-200">
-                  Belum ada data transaksi kas ditemukan.
+              {filterMutasi !== 'semua' && (
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                    <Layers size={14}/> Filter Jenis
+                  </label>
+                  <div className="flex items-center gap-2 mt-2 overflow-x-auto no-scrollbar pb-2">
+                    {(filterMutasi === 'masuk' ? jenisOptionsIn : jenisOptionsOut).map(opt => (
+                      <button 
+                        key={opt.id}
+                        onClick={() => toggleFilterJenis(opt.id_lama || opt.id)}
+                        className={`shrink-0 whitespace-nowrap px-4 py-2.5 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all border ${
+                          filterJenis.includes(opt.id_lama || opt.id) 
+                            ? 'bg-emerald-500 border-emerald-500 text-white shadow-md' 
+                            : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100'
+                        }`}
+                      >
+                        {opt.text_1}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              ) : (
-                Object.entries(groupedTransactions).map(([date, items]) => (
-                  <div key={date} className="space-y-4">
-                    {/* Divider Tanggal */}
-                    <div className="flex items-center gap-4">
-                      <span className="bg-slate-800 px-4 py-1.5 rounded-full text-[10px] font-black text-white uppercase tracking-widest text-center shadow-sm">
-                        {date !== 'Tanpa Tanggal' ? new Date(date).toLocaleDateString('id-ID', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' }) : date}
-                      </span>
-                      <div className="h-[2px] flex-1 bg-slate-100" />
-                    </div>
-                    
-                    {/* List Data Row */}
-                    <div className="grid gap-3">
-                      {items.map((tx) => {
-                        const isMasuk = tx.mutasi.toLowerCase() === 'in';
-                        return (
-                          <div 
-                            key={tx.id} 
-                            onClick={() => { setSelectedTx(tx); setModalType('detail'); }} 
-                            className="group bg-white border-2 border-slate-100 p-4 md:p-5 rounded-2xl hover:border-emerald-300 hover:shadow-lg hover:shadow-emerald-500/10 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4 cursor-pointer"
-                          >
-                            <div className="flex items-start sm:items-center gap-4 w-full sm:w-auto">
-                              {/* Icon Mutasi */}
-                              <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 shadow-sm ${isMasuk ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
-                                {isMasuk ? <ArrowDownRight strokeWidth={3}/> : <ArrowUpRight strokeWidth={3}/>}
-                              </div>
-                              
-                              {/* Info Kiri */}
-                              <div className="flex-1">
-                                <div className="flex items-center gap-2 mb-1">
-                                  <span className="text-[10px] font-black text-slate-500 uppercase tracking-wider bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
-                                    {tx.ref}
-                                  </span>
-                                </div>
-                                <h4 className="font-bold text-slate-800 line-clamp-1">{tx.note}</h4>
-                                <div className="flex flex-wrap items-center gap-3 mt-1.5">
-                                  <span className="text-[11px] font-semibold text-slate-500 flex items-center gap-1 bg-slate-50 px-2 py-0.5 rounded-md"><Layers size={12} className="text-slate-400"/> {tx.jenis}</span>
-                                  <span className="text-[11px] font-semibold text-slate-500 flex items-center gap-1 bg-slate-50 px-2 py-0.5 rounded-md"><User size={12} className="text-slate-400"/> {tx.person}</span>
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Nominal & Akun Kanan */}
-                            <div className="flex sm:flex-col items-center sm:items-end justify-between border-t sm:border-0 pt-3 sm:pt-0 border-slate-100 shrink-0">
-                              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest sm:mb-1 order-2 sm:order-1">
-                                {getAccountName(tx.account_1)}
-                              </p>
-                              <p className={`text-lg sm:text-xl font-black tracking-tight order-1 sm:order-2 ${isMasuk ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                {isMasuk ? '+' : '-'} {formatRupiah(tx.nominal)}
-                              </p>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))
               )}
-            </div>
 
-            {/* Paginasi Bawah */}
-            <div className="p-4 md:p-6 border-t border-slate-100 bg-white flex justify-between items-center shrink-0 rounded-b-3xl">
-              <p className="text-xs font-black text-slate-400 uppercase tracking-widest bg-slate-100 px-4 py-2 rounded-xl">Hal. {page} / {totalPages || 1}</p>
-              <div className="flex gap-2">
-                <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="w-10 h-10 flex items-center justify-center bg-white rounded-xl border border-slate-200 hover:bg-slate-50 hover:border-slate-300 disabled:opacity-30 transition-all shadow-sm text-slate-600"><ChevronLeft size={20}/></button>
-                <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages} className="w-10 h-10 flex items-center justify-center bg-white rounded-xl border border-slate-200 hover:bg-slate-50 hover:border-slate-300 disabled:opacity-30 transition-all shadow-sm text-slate-600"><ChevronRight size={20}/></button>
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">Rentang Tanggal</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <input type="date" className="p-3 bg-slate-50 rounded-xl text-xs font-bold border border-slate-200" value={dateRange.start} onChange={(e) => setDateRange({...dateRange, start: e.target.value})} />
+                  <input type="date" className="p-3 bg-slate-50 rounded-xl text-xs font-bold border border-slate-200" value={dateRange.end} onChange={(e) => setDateRange({...dateRange, end: e.target.value})} />
+                </div>
               </div>
-            </div>
-          </div>
-        )}
-
-        {/* CONTAINER ACCOUNTS / WALLET (Gaya Kartu Modern) */}
-        {activeTab === 'accounts' && (
-          <div className="flex-1 overflow-y-auto custom-scrollbar pb-10">
-            <div className="mb-6">
-              <h3 className="text-xl font-black text-slate-800 flex items-center gap-2">
-                Buku Rekening & Kas
-              </h3>
-              <p className="text-sm font-medium text-slate-500 mt-1">Sisa saldo aktif untuk setiap penyimpanan</p>
-            </div>
-            
-            {loadingWallets ? (
-              <div className="flex justify-center py-20"><div className="w-10 h-10 border-4 border-emerald-200 border-t-emerald-600 rounded-full animate-spin" /></div>
-            ) : wallets.length === 0 ? (
-              <div className="text-center py-20 text-slate-400 font-bold bg-white rounded-3xl border border-slate-200 shadow-sm">
-                Tidak ada dompet yang tersedia.
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">Pencarian</label>
+                <input type="text" placeholder="Cari kata kunci..." className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold" value={searchInput} onChange={(e) => setSearchInput(e.target.value)} />
               </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {wallets.map(wallet => (
-                  <div 
-                    key={wallet.id} 
-                    className="relative overflow-hidden rounded-[2rem] p-6 bg-gradient-to-br from-slate-800 to-slate-900 text-white shadow-xl hover:-translate-y-1.5 transition-transform duration-300 group cursor-default"
-                  >
-                    {/* Efek Lingkaran Blur Dekoratif */}
-                    <div className="absolute -top-10 -right-10 w-40 h-40 bg-emerald-500/20 rounded-full blur-3xl group-hover:bg-emerald-500/30 transition-colors duration-500" />
-                    <div className="absolute -bottom-10 -left-10 w-32 h-32 bg-blue-500/20 rounded-full blur-3xl" />
-                    
-                    {/* Konten Kartu Atas */}
-                    <div className="flex justify-between items-start mb-8 relative z-10">
-                      <div className="w-12 h-12 bg-white/10 rounded-2xl border border-white/10 flex items-center justify-center backdrop-blur-md shadow-inner">
-                        <Wallet size={24} className="text-emerald-400" />
-                      </div>
-                      <span className="text-[10px] font-black uppercase tracking-widest text-emerald-400 bg-emerald-950/50 border border-emerald-800 px-3 py-1.5 rounded-full">
-                        {wallet.jenis || 'DOMPET'}
-                      </span>
-                    </div>
+              <button onClick={() => setIsMobileFilterOpen(false)} className="w-full py-4 bg-emerald-500 text-white rounded-2xl font-black text-xs uppercase tracking-widest">Terapkan Filter</button>
+            </div>
+          </Modal>
 
-                    {/* Saldo Kartu Bawah */}
-                    <div className="relative z-10">
-                      <p className="text-sm font-medium text-slate-400 mb-1">{wallet.text_1}</p>
-                      <p className="text-3xl font-black tracking-tighter text-white">
-                        {formatRupiah(wallet.number_1 || 0)}
-                      </p>
+          {/* MODAL DETAIL */}
+          <Modal isOpen={modalType === 'detail'} onClose={() => setModalType(null)} title="Detail Log Transaksi Kas">
+            {selectedTx && (() => {
+              const isMasuk = selectedTx.mutasi?.toLowerCase() === 'in';
+              const txtColor = isMasuk ? 'text-emerald-600' : 'text-rose-600';
+              const mutasiLabel = isMasuk ? 'KAS MASUK (DEBET)' : 'KAS KELUAR (KREDIT)';
+
+              return (
+                <div className="flex flex-col max-h-[75vh] md:max-h-[80vh] overflow-y-auto custom-scrollbar p-1">
+                  <div className={`p-6 md:p-8 rounded-[2rem] text-center text-white relative shadow-xl overflow-hidden ${isMasuk ? 'bg-emerald-500' : 'bg-rose-500'}`}>
+                    <div className="absolute top-0 right-0 w-40 h-40 bg-white rounded-full blur-3xl opacity-20 pointer-events-none" />
+                    <span className="text-[10px] font-black bg-black/20 border border-white/20 px-3 py-1.5 rounded-full uppercase tracking-widest backdrop-blur-md relative z-10 shadow-sm">{selectedTx.ref || selectedTx.id}</span>
+                    <div className="mt-4 relative z-10">
+                      <p className="text-[11px] font-black uppercase tracking-widest text-white/80 mb-1">{mutasiLabel}</p>
+                      <p className="text-4xl md:text-5xl font-black tracking-tight drop-shadow-sm">Rp {selectedTx.nominal?.toLocaleString('id-ID')}</p>
                     </div>
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
 
-        {/* Sisa Modalnya Biarkan Sama Persis / Tidak Perlu Dirombak Jika Hanya Minta Tampilan Depannya Saja */}
-        {/* Jika modal form juga perlu diubah, layout-nya sudah cukup bagus, hanya perlu dibungkus di dalam hirarki ini */}
-        <Modal isOpen={modalType === 'form'} onClose={handleCloseModal} title={isEditMode ? "Edit Transaksi" : "Catat Transaksi"}>
-          {/* ... (Isi Form Modal Sama Persis Seperti Sebelumnya) ... */}
-        </Modal>
+                  <div className="mt-5 flex flex-col gap-4 text-xs font-medium">
+                    <div className="bg-slate-50 p-5 rounded-[1.5rem] border-2 border-slate-100 shadow-sm space-y-3">
+                      <p className={`font-black text-[11px] ${txtColor} uppercase border-b-2 border-slate-200 pb-3 mb-2 flex items-center gap-2`}><Layers size={16} /> Entitas: Data Jurnal Kas</p>
+                      <p className="flex justify-between items-center"><span className="text-slate-400 font-bold">Waktu Transaksi:</span> <span className="font-bold text-slate-700">{selectedTx.created_at}</span></p>
+                      <p className="flex justify-between items-center"><span className="text-slate-400 font-bold">Operator:</span> <span className="font-bold text-slate-700">{selectedTx.operator || '-'}</span></p>
+                      <p className="flex justify-between items-center mt-2 pt-2 border-t border-dashed border-slate-200"><span className="text-slate-400 font-bold">Kategori/Jenis:</span> <span className="font-black text-slate-700 bg-slate-200 px-2 py-0.5 rounded uppercase">{selectedTx.jenis}</span></p>
+                      <p className="flex justify-between items-center"><span className="text-slate-400 font-bold">Akun Sumber:</span> <span className="font-bold text-slate-700">{getAccountName(selectedTx.account_1)}</span></p>
+                      {selectedTx.account_2 && <p className="flex justify-between items-center"><span className="text-slate-400 font-bold">Akun Tujuan:</span> <span className="font-bold text-blue-600">{getAccountName(selectedTx.account_2)}</span></p>}
+                      <p className="flex justify-between items-center"><span className="text-slate-400 font-bold">Pihak Terkait:</span> <span className="font-bold text-slate-700">{selectedTx.person || '-'}</span></p>
+                      {selectedTx.ref_baru && <p className="flex justify-between items-center mt-2 pt-2 border-t border-dashed border-slate-200"><span className="text-slate-400 font-bold">Ref Transaksi POS:</span> <span className="font-bold text-blue-500 bg-blue-50 px-2 py-0.5 rounded border border-blue-100">{selectedTx.ref_baru}</span></p>}
+                    </div>
 
-        <Modal isOpen={modalType === 'detail'} onClose={() => setModalType(null)} title="Rincian Transaksi">
-          {/* ... (Isi Detail Modal Sama Persis Seperti Sebelumnya) ... */}
-        </Modal>
+                    <div className="bg-slate-50 p-5 rounded-[1.5rem] border-2 border-slate-100 shadow-sm flex flex-col">
+                      <p className={`font-black text-[11px] ${txtColor} uppercase border-b-2 border-slate-200 pb-3 mb-3 flex items-center gap-2`}><FileText size={16}/> Catatan & Keterangan</p>
+                      <p className="text-sm font-bold text-slate-700 italic leading-relaxed">"{selectedTx.note || 'Tidak ada catatan'}"</p>
+                    </div>
+
+                    {selectedTx.file && selectedTx.file.length > 0 && (
+                      <div className="bg-slate-50 p-5 rounded-[1.5rem] border-2 border-slate-100 shadow-sm flex flex-col">
+                        <p className={`font-black text-[11px] ${txtColor} uppercase border-b-2 border-slate-200 pb-3 mb-3 flex items-center gap-2`}><ImagePlus size={16}/> Bukti Lampiran Media</p>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                          {selectedTx.file.map((f, i) => {
+                            const fileUrl = pb.files.getUrl(selectedTx, f);
+                            return (
+                              <div key={i} className={`relative group rounded-xl overflow-hidden border-2 border-white shadow-md aspect-square ${isMasuk ? 'bg-emerald-100' : 'bg-rose-100'}`}>
+                                {f.match(/\.(mp4|webm|ogg)$/i) ? <video src={fileUrl} className="w-full h-full object-cover opacity-90" /> : <img src={fileUrl} alt={`Lampiran ${i}`} className="w-full h-full object-cover transition-transform group-hover:scale-110 duration-500" />}
+                                <a href={fileUrl} target="_blank" rel="noreferrer" className={`absolute inset-0 ${isMasuk ? 'bg-emerald-900/40' : 'bg-rose-900/40'} opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-sm`}><ExternalLink size={24} className="text-white drop-shadow-lg scale-75 group-hover:scale-100 transition-transform" /></a>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="mt-6 flex flex-wrap md:flex-nowrap gap-3 pt-5 border-t-2 border-slate-100 sticky bottom-0 bg-white">
+                    <button onClick={() => { if(window.confirm('Hapus permanen?')) submitDelete(); }} className="w-14 h-14 flex-shrink-0 bg-rose-50 text-rose-600 rounded-2xl hover:bg-rose-500 hover:text-white border border-rose-100 hover:shadow-lg transition-all flex justify-center items-center group"><Trash2 size={22} className="group-hover:scale-110 transition-transform"/></button>
+                    <button onClick={() => { setFormData({ mutasi: selectedTx.mutasi?.toLowerCase() === 'in' ? 'Masuk' : 'Keluar', created_at: selectedTx.created_at?.slice(0, 16), jenis: selectedTx.jenis, account_1: selectedTx.account_1, account_2: selectedTx.account_2 || '', person: selectedTx.person || '', nominal: selectedTx.nominal, note: selectedTx.note }); setModalType('form'); }} className="w-14 h-14 flex-shrink-0 bg-blue-50 text-blue-600 rounded-2xl hover:bg-blue-600 hover:text-white border border-blue-100 hover:shadow-lg transition-all flex justify-center items-center group"><Edit size={22} className="group-hover:scale-110 transition-transform"/></button>
+                    <button onClick={() => setModalType(null)} className="flex-[2] py-4 bg-slate-900 hover:bg-slate-800 text-white rounded-2xl font-black text-xs tracking-widest shadow-xl transition-all active:scale-95 uppercase">TUTUP DETAIL</button>
+                  </div>
+                </div>
+              );
+            })()}
+          </Modal>
+
+        </div>
         
-        {/* ... SISA KODE MODAL LAINNYA ... */}
-        
+        {/* Tombol Floating Mobile */}
+        <button onClick={() => { setSelectedTx(null); setFiles([]); setFormData({ mutasi: 'Masuk', created_at: new Date().toISOString().slice(0,16).replace('T', ' ') }); setModalType('form'); }} className="md:hidden fixed bottom-6 right-6 z-50 w-16 h-16 bg-slate-900 text-white rounded-full shadow-2xl shadow-slate-500/50 flex items-center justify-center hover:scale-105 active:scale-95 transition-all duration-300">
+          <Plus size={30} strokeWidth={3} />
+        </button>
       </div>
-    </div>
-  );
-}
+    );
+  }
