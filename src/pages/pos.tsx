@@ -641,6 +641,7 @@ export default function MenuPage() {
     } else { 
       setSelectedMenu(menuName); 
       setPage(1); 
+      fetchData(); // refresh data langsung
     }
   };
 

@@ -22,6 +22,8 @@ interface ReportRecord {
   pengeluaran_lain: number;
   kasir_toko: number;
   pemasukan_lain: number;
+  piutang: number;   // tambahan
+  hutang: number;    // tambahan
 }
 
 export default function ReportPage() {
@@ -29,8 +31,6 @@ export default function ReportPage() {
   const [reports, setReports] = useState<ReportRecord[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const [piutangData, setPiutangData] = useState<Record<string, number>>({});
-  const [hutangData, setHutangData] = useState<Record<string, number>>({});
   const [selectedMetrics, setSelectedMetrics] = useState({
     Omset: true,
     Pengeluaran: true,
@@ -94,32 +94,8 @@ export default function ReportPage() {
         $autoCancel: false
       });
 
-      // Fetch Menu (untuk piutang/hutang) dengan filter yang SAMA persis
-      const menuRes = await pb.collection('menu').getList(1, 1000, {
-        filter: filterStr, // FILTER YANG SAMA
-        $autoCancel: false
-      });
-
-      const piutangMap: Record<string, number> = {};
-      const hutangMap: Record<string, number> = {};
-
-      menuRes.items.forEach(menu => {
-        const dateKey = menu.created_at?.split(' ')[0];
-        if (!dateKey) return;
-        
-        // hitung selisih (bisa negatif)
-        const balance = (menu.total || 0) - (menu.dibayar || 0);
-
-        if ((menu.jenis?.toLowerCase().includes('penjualan') || menu.jenis?.toLowerCase().includes('service')) && menu.status === 'belum') {
-            piutangMap[dateKey] = (piutangMap[dateKey] || 0) + balance;
-        } else if (menu.jenis?.toLowerCase().includes('pembelian') && menu.status === 'belum') {
-            hutangMap[dateKey] = (hutangMap[dateKey] || 0) + balance;
-        }
-      });
-
+      // Langsung set reports, karena field piutang dan hutang sudah ada di dalam setiap item report
       setReports(res.items);
-      setPiutangData(piutangMap);
-      setHutangData(hutangMap);
       setTotalPages(res.totalPages);
     } catch (error) {
       console.error("Gagal:", error);
@@ -157,8 +133,8 @@ export default function ReportPage() {
         Omset: r.omset_toko + r.omset_servis + r.omset_minuman,
         Pengeluaran: r.operasional_toko + r.pengeluaran_lain,
         Laba: r.laba_penjualan,
-        Piutang: piutangData[tanggal] || 0,
-        Hutang: hutangData[tanggal] || 0,
+        Piutang: r.piutang || 0,
+        Hutang: r.hutang || 0,
       };
     });
 
@@ -190,7 +166,7 @@ export default function ReportPage() {
       chartData,
       kesimpulan: insight
     };
-  }, [reports, piutangData, hutangData]);
+  }, [reports]);
 
 
     // Hitung breakdown dari semua laporan (untuk periode filter)
@@ -336,7 +312,7 @@ export default function ReportPage() {
               <div className="w-12 h-12 shrink-0 bg-amber-50 text-amber-500 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform"><Wallet size={22} strokeWidth={2.5} /></div>
               <div className="min-w-0">
                 <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-0.5">Piutang Penjualan</p>
-                <p className="text-xl font-black text-amber-600 truncate">{formatRp(Object.values(piutangData).reduce((a,b)=>a+b,0))}</p>
+                <p className="text-xl font-black text-amber-600 truncate">{formatRp(reports.reduce((sum, r) => sum + (r.piutang || 0), 0))}</p>
               </div>
             </div>
 
@@ -345,7 +321,7 @@ export default function ReportPage() {
               <div className="w-12 h-12 shrink-0 bg-purple-50 text-purple-500 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform"><Wallet size={22} strokeWidth={2.5} /></div>
               <div className="min-w-0">
                 <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-0.5">Hutang Pembelian</p>
-                <p className="text-xl font-black text-purple-600 truncate">{formatRp(Object.values(hutangData).reduce((a,b)=>a+b,0))}</p>
+                <p className="text-xl font-black text-purple-600 truncate">{formatRp(reports.reduce((sum, r) => sum + (r.hutang || 0), 0))}</p>
               </div>
             </div>
 
@@ -497,9 +473,8 @@ export default function ReportPage() {
                       {reports.map((row) => {
                         const totalOmsetRow = row.omset_toko + row.omset_servis + row.omset_minuman;
                         const totalKeluarRow = row.operasional_toko + row.pengeluaran_lain;
-                        const dateKey = row.created_at.split(' ')[0];
-                        const piutangVal = piutangData[dateKey] || 0;
-                        const hutangVal = hutangData[dateKey] || 0;
+                        const piutangVal = row.piutang || 0;
+                        const hutangVal = row.hutang || 0;
 
                         const formatNeg = (num: number) => {
                           const formatted = Math.abs(num).toLocaleString('id-ID');
