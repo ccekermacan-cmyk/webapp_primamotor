@@ -6,7 +6,7 @@
     Wallet, Search, Trash2, Edit, ChevronLeft, ChevronRight, 
     ArrowDownRight, ArrowUpRight, Calendar, User,
     ExternalLink, Layers, X, DollarSign, ImagePlus, Save, FileText,
-    ArrowRight, Filter, Plus
+    ArrowRight, Filter, Plus, ChevronDown
   } from 'lucide-react';
 
   interface Cashflow {
@@ -19,13 +19,13 @@
     mutasi: string; 
     account_1: string;
     account_2: string;
-    person: string;
+    persontext: string;   // field person lama menjadi persontext
     nominal: number;
     note: string;
     ref_baru: string;
     created: string; 
     file: string[];
-    person_customer?: string;
+    person?: string;      // field person_customer lama menjadi person
     acc1?: string;
     acc2?: string;
   }
@@ -47,6 +47,10 @@
     const [jenisOptionsIn, setJenisOptionsIn] = useState<DropdownItem[]>([]);
     const [jenisOptionsOut, setJenisOptionsOut] = useState<DropdownItem[]>([]);
     const [accountOptions, setAccountOptions] = useState<DropdownItem[]>([]);
+
+    const [personOptions, setPersonOptions] = useState<{ id: string; id_lama: string; text_1: string; source: 'dropdown' | 'user' }[]>([]);
+    const [searchPerson, setSearchPerson] = useState('');
+    const [isPersonOpen, setIsPersonOpen] = useState(false);
     
     const [page, setPage] = useState(1);
     const [totalPages, setTotalPages] = useState(1);
@@ -77,9 +81,9 @@
       mutasi: 'Masuk',
       created_at: new Date().toISOString().slice(0,16).replace('T', ' '),
       account_2: '',
-      person_customer: '',
-      acc2: '',
-      person: ''
+      person: '',
+      persontext: '',
+      acc2: ''
     });
 
     const [files, setFiles] = useState<File[]>([]);
@@ -151,6 +155,36 @@
       }
     };
 
+    const fetchPersonOptions = async () => {
+      try {
+        // Ambil dari dropdown kategori person dengan jenis customer
+        const persons = await pb.collection('dropdown').getFullList({
+          filter: `kategori ~ "person" && jenis ~ "customer"`,
+          $autoCancel: false
+        });
+        const dropdownList = persons.map(p => ({
+          id: p.id,
+          id_lama: p.id_lama || '',
+          text_1: p.text_1,
+          source: 'dropdown' as const
+        }));
+        // Ambil dari koleksi user (karyawan) yang aktif
+        const users = await pb.collection('user').getFullList({
+          filter: `status = "active"`,
+          $autoCancel: false
+        });
+        const userList = users.map(u => ({
+          id: u.id,
+          id_lama: u.username || u.id,
+          text_1: u.name || u.username,
+          source: 'user' as const
+        }));
+        setPersonOptions([...dropdownList, ...userList]);
+      } catch (error) {
+        console.error("Gagal memuat person:", error);
+      }
+    };
+
     const fetchCashflow = async () => {
       try {
         setLoading(true);
@@ -160,7 +194,7 @@
         if (searchTerm) {
           const terms = searchTerm.toLowerCase().trim().split(/\s+/);
           terms.forEach((term, idx) => {
-            conditions.push(`(ref ~ {:t${idx}} || note ~ {:t${idx}} || person ~ {:t${idx}} || jenis ~ {:t${idx}})`);
+            conditions.push(`(ref ~ {:t${idx}} || note ~ {:t${idx}} || persontext ~ {:t${idx}} || jenis ~ {:t${idx}})`);
             params[`t${idx}`] = term;
           });
         }
@@ -210,6 +244,7 @@
     useEffect(() => { 
       fetchDropdowns(); 
       fetchWallets(); 
+      fetchPersonOptions(); 
     }, []);
     useEffect(() => {
       const delayDebounce = setTimeout(() => { setSearchTerm(searchInput); setPage(1); }, 500);
@@ -218,6 +253,13 @@
     
     // Tambahkan filterAccounts ke dalam dependency agar data otomatis ter-refresh
     useEffect(() => { fetchCashflow(); }, [page, searchTerm, filterMutasi, dateRange, filterAccounts, filterJenis]);
+
+    useEffect(() => {
+      // Reset person jika bukan (mutasi keluar & jenis bonkaryawan)
+      if (!(formData.mutasi === 'Keluar' && formData.jenis?.toLowerCase() === 'bonkaryawan')) {
+        setFormData(prev => ({ ...prev, person: '', persontext: '' }));
+      }
+    }, [formData.mutasi, formData.jenis]);
 
     // Fungsi helper untuk toggle opsi multiselect akun
     const toggleFilterAccount = (accId: string) => {
@@ -320,9 +362,15 @@
         const selectedAccount = accountOptions.find(acc => acc.id === formData.account_1);
         const accountIdLama = selectedAccount?.id_lama || '';
 
+        // Logika untuk acc2 (akun tujuan)
+        let account2IdLama = '';
+        if (formData.account_2) {
+          const selectedAccount2 = accountOptions.find(acc => acc.id === formData.account_2);
+          account2IdLama = selectedAccount2?.id_lama || '';
+        }
+
         const formDataObj = new FormData();
 
-        // formData.jenis sudah berisi id_lama (dari dropdown atau dari edit)
         formDataObj.append("jenis", formData.jenis || "");
 
         const mutasiValue = formData.mutasi?.toLowerCase() === 'masuk' ? 'in' : 'out';
@@ -333,10 +381,10 @@
         formDataObj.append("note", formData.note || "");
         formDataObj.append("created_at", formattedDate);
         formDataObj.append("operator", operatorName);
-        formDataObj.append("person_customer", formData.person_customer || "");
         formDataObj.append("person", formData.person || "");
+        formDataObj.append("persontext", formData.persontext || "");
         formDataObj.append("acc1", accountIdLama);
-        formDataObj.append("acc2", formData.acc2 || "");
+        formDataObj.append("acc2", account2IdLama);
 
         if (files && files.length > 0) {
           files.forEach(file => formDataObj.append("file", file));
@@ -353,9 +401,9 @@
           mutasi: 'Masuk',
           created_at: new Date().toISOString().slice(0,16).replace('T', ' '),
           account_2: '',
-          person_customer: '',
-          acc2: '',
-          person: ''
+          person: '',
+          persontext: '',
+          acc2: ''
         });
         setFiles([]);
         fetchCashflow();
@@ -754,44 +802,114 @@
                         </div>
                       </div>
 
-                      {/* (1) Akun Sumber & Tujuan DIPINDAH KE ATAS */}
-                    <div className={`grid grid-cols-1 ${isTransfer ? 'sm:grid-cols-2' : ''} gap-4`}>
-                      <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
-                        {/* Wrapper Label & Saldo */}
-                        <div className="flex justify-between items-center ml-1">
-                          <label className={`text-[10px] font-black ${txtColor} uppercase tracking-wider flex items-center gap-1.5`}><Wallet size={14}/> Akun Sumber</label>
-                          {/* Indikator Saldo Dompet 1 */}
-                          {formData.account_1 && (
-                            <span className="text-[9px] font-black text-slate-500 bg-slate-200 px-2 py-0.5 rounded-md shadow-sm">
-                              Saldo: {formatRupiah((wallets.find(w => w.id === formData.account_1) as any)?.number_1 || 0)}
-                            </span>
+                    {/* (1) Akun Sumber & Tujuan (atau Person Selector) */}
+                    {(() => {
+                      const showPersonSelector = formData.mutasi === 'Keluar' && formData.jenis?.toLowerCase() === 'bonkaryawan';
+                      const twoColumns = isTransfer || showPersonSelector;
+                      return (
+                        <div className={`grid grid-cols-1 ${twoColumns ? 'sm:grid-cols-2' : ''} gap-4`}>
+                          {/* Kolom 1: Akun Sumber (selalu ada) */}
+                          <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                            <div className="flex justify-between items-center ml-1">
+                              <label className={`text-[10px] font-black ${txtColor} uppercase tracking-wider flex items-center gap-1.5`}>
+                                <Wallet size={14}/> Akun Sumber
+                              </label>
+                              {formData.account_1 && (
+                                <span className="text-[9px] font-black text-slate-500 bg-slate-200 px-2 py-0.5 rounded-md shadow-sm">
+                                  Saldo: {formatRupiah((wallets.find(w => w.id === formData.account_1) as any)?.number_1 || 0)}
+                                </span>
+                              )}
+                            </div>
+                            <select name="account_1" value={formData.account_1 || ''} onChange={handleInputChange} className={`w-full mt-2 p-3 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none shadow-sm ${focusClass}`} required>
+                              <option value="" disabled>Pilih Dompet...</option>
+                              {accountOptions.map(opt => <option key={opt.id} value={opt.id}>{opt.text_1}</option>)}
+                            </select>
+                          </div>
+
+                          {/* Kolom 2: Tentukan berdasarkan kondisi */}
+                          {isTransfer && (
+                            <div className="bg-blue-50 p-3 rounded-2xl border border-blue-100 animate-in fade-in zoom-in duration-300">
+                              <div className="flex justify-between items-center ml-1">
+                                <label className="text-[10px] font-black text-blue-600 uppercase tracking-wider flex items-center gap-1.5">
+                                  <ArrowRight size={14}/> Akun Tujuan
+                                </label>
+                                {formData.account_2 && (
+                                  <span className="text-[9px] font-black text-blue-600 bg-blue-200/50 px-2 py-0.5 rounded-md shadow-sm">
+                                    Saldo: {formatRupiah((wallets.find(w => w.id === formData.account_2) as any)?.number_1 || 0)}
+                                  </span>
+                                )}
+                              </div>
+                              <select name="account_2" value={formData.account_2 || ''} onChange={handleInputChange} className="w-full mt-2 p-3 text-xs font-bold text-slate-700 bg-white border border-blue-200 rounded-xl focus:ring-blue-500/20 focus:border-blue-400 outline-none shadow-sm" required>
+                                <option value="" disabled>Pilih Tujuan...</option>
+                                {accountOptions.map(opt => <option key={opt.id} value={opt.id}>{opt.text_1}</option>)}
+                              </select>
+                            </div>
+                          )}
+
+                          {showPersonSelector && !isTransfer && (
+                            <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 relative">
+                              <label className={`text-[10px] font-black ${txtColor} uppercase tracking-wider ml-1 flex items-center gap-1.5`}>
+                                <User size={14}/> Pilih Pihak (Customer / Karyawan)
+                              </label>
+                              <div className="relative mt-2">
+                                {/* Input search dengan tombol dropdown */}
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    type="text"
+                                    placeholder="Cari nama..."
+                                    value={searchPerson}
+                                    onChange={(e) => setSearchPerson(e.target.value)}
+                                    onFocus={() => setIsPersonOpen(true)}
+                                    className="flex-1 p-3 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500/20"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => setIsPersonOpen(!isPersonOpen)}
+                                    className="p-3 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition"
+                                  >
+                                    <ChevronDown size={16} className={`transition-transform duration-200 ${isPersonOpen ? 'rotate-180' : ''}`} />
+                                  </button>
+                                </div>
+
+                                {/* Dropdown list person */}
+                                {isPersonOpen && (
+                                  <div className="absolute z-20 mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-lg max-h-60 overflow-y-auto">
+                                    {personOptions.length === 0 ? (
+                                      <div className="px-4 py-3 text-xs text-slate-500 text-center">Memuat data...</div>
+                                    ) : (
+                                      personOptions
+                                        .filter(opt => opt.text_1.toLowerCase().includes(searchPerson.toLowerCase()))
+                                        .map(opt => (
+                                          <div
+                                            key={opt.id}
+                                            onClick={() => {
+                                              setFormData(prev => ({ ...prev, person: opt.id, persontext: opt.text_1 }));
+                                              setSearchPerson('');
+                                              setIsPersonOpen(false);
+                                            }}
+                                            className="px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-emerald-50 cursor-pointer border-b border-slate-100 last:border-0 flex justify-between items-center"
+                                          >
+                                            <span>{opt.text_1}</span>
+                                            <span className="text-[9px] font-black text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
+                                              {opt.source === 'user' ? 'Karyawan' : 'Customer'}
+                                            </span>
+                                          </div>
+                                        ))
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                              {formData.person && (
+                                <div className="mt-3 text-xs font-bold text-emerald-600 bg-white p-2.5 rounded-lg border border-emerald-100 flex items-center justify-between">
+                                  <span>Dipilih:</span>
+                                  <span className="text-slate-800">{formData.persontext}</span>
+                                </div>
+                              )}
+                            </div>
                           )}
                         </div>
-                        <select name="account_1" value={formData.account_1 || ''} onChange={handleInputChange} className={`w-full mt-2 p-3 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none shadow-sm ${focusClass}`} required>
-                          <option value="" disabled>Pilih Dompet...</option>
-                          {accountOptions.map(opt => <option key={opt.id} value={opt.id}>{opt.text_1}</option>)}
-                        </select>
-                      </div>
-                      
-                      {isTransfer && (
-                        <div className="bg-blue-50 p-3 rounded-2xl border border-blue-100 animate-in fade-in zoom-in duration-300">
-                          {/* Wrapper Label & Saldo */}
-                          <div className="flex justify-between items-center ml-1">
-                            <label className="text-[10px] font-black text-blue-600 uppercase tracking-wider flex items-center gap-1.5"><ArrowRight size={14}/> Akun Tujuan</label>
-                            {/* Indikator Saldo Dompet 2 */}
-                            {formData.account_2 && (
-                              <span className="text-[9px] font-black text-blue-600 bg-blue-200/50 px-2 py-0.5 rounded-md shadow-sm">
-                                Saldo: {formatRupiah((wallets.find(w => w.id === formData.account_2) as any)?.number_1 || 0)}
-                              </span>
-                            )}
-                          </div>
-                          <select name="account_2" value={formData.account_2 || ''} onChange={handleInputChange} className="w-full mt-2 p-3 text-xs font-bold text-slate-700 bg-white border border-blue-200 rounded-xl focus:ring-blue-500/20 focus:border-blue-400 outline-none shadow-sm" required>
-                            <option value="" disabled>Pilih Tujuan...</option>
-                            {accountOptions.map(opt => <option key={opt.id} value={opt.id}>{opt.text_1}</option>)}
-                          </select>
-                        </div>
-                      )}
-                    </div>
+                      );
+                    })()}
 
                     {/* (2) Nominal Rupiah DIPINDAH KE BAWAH */}
                     <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
@@ -803,9 +921,8 @@
                     </div>
 
                       <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
-                        <label className={`text-[10px] font-black ${txtColor} uppercase tracking-wider ml-1 flex items-center gap-1.5`}><FileText size={14}/> Pihak & Catatan</label>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
-                          <input type="text" name="person" placeholder="Pihak Terkait..." value={formData.person || ''} onChange={handleInputChange} className={`w-full p-3 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none shadow-sm ${focusClass}`} />
+                        <label className={`text-[10px] font-black ${txtColor} uppercase tracking-wider ml-1 flex items-center gap-1.5`}><FileText size={14}/> Catatan</label>
+                        <div className="grid grid-cols-1 gap-2 mt-2">
                           <input type="text" name="note" placeholder="Deskripsi/Catatan..." value={formData.note || ''} onChange={handleInputChange} className={`w-full p-3 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none shadow-sm ${focusClass}`} required />
                         </div>
                       </div>
@@ -950,7 +1067,7 @@
 
                   <div className="mt-6 flex flex-wrap md:flex-nowrap gap-3 pt-5 border-t-2 border-slate-100 sticky bottom-0 bg-white">
                     <button onClick={() => { if(window.confirm('Hapus permanen?')) submitDelete(); }} className="w-14 h-14 flex-shrink-0 bg-rose-50 text-rose-600 rounded-2xl hover:bg-rose-500 hover:text-white border border-rose-100 hover:shadow-lg transition-all flex justify-center items-center group"><Trash2 size={22} className="group-hover:scale-110 transition-transform"/></button>
-                    <button onClick={() => { setFormData({ mutasi: selectedTx.mutasi?.toLowerCase() === 'in' ? 'Masuk' : 'Keluar', created_at: selectedTx.created_at?.slice(0, 16), jenis: selectedTx.jenis, account_1: selectedTx.account_1, account_2: selectedTx.account_2 || '', person: selectedTx.person || '', nominal: selectedTx.nominal, note: selectedTx.note }); setModalType('form'); }} className="w-14 h-14 flex-shrink-0 bg-blue-50 text-blue-600 rounded-2xl hover:bg-blue-600 hover:text-white border border-blue-100 hover:shadow-lg transition-all flex justify-center items-center group"><Edit size={22} className="group-hover:scale-110 transition-transform"/></button>
+                    onClick={() => { setFormData({ mutasi: selectedTx.mutasi?.toLowerCase() === 'in' ? 'Masuk' : 'Keluar', created_at: selectedTx.created_at?.slice(0, 16), jenis: selectedTx.jenis, account_1: selectedTx.account_1, account_2: selectedTx.account_2 || '', person: selectedTx.person || '', persontext: selectedTx.persontext || '', nominal: selectedTx.nominal, note: selectedTx.note }); setModalType('form'); }}
                     <button onClick={() => setModalType(null)} className="flex-[2] py-4 bg-slate-900 hover:bg-slate-800 text-white rounded-2xl font-black text-xs tracking-widest shadow-xl transition-all active:scale-95 uppercase">TUTUP DETAIL</button>
                   </div>
                 </div>

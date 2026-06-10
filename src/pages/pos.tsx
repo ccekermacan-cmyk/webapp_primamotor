@@ -502,7 +502,10 @@ export default function MenuPage() {
   return formBayar.mekanikList.reduce((sum, mek) => sum + (mek.ongkos || 0), 0);
 }, [formBayar.mekanikList, selectedMenu]);
 
-  const grandTotal = totalBelanja + totalOngkos;
+  const isPembelianMenu = selectedMenu.toLowerCase().includes('pembelian');
+  const grandTotal = isPembelianMenu
+    ? totalBelanja
+    : totalBelanja + totalOngkos - (formBayar.adminFee || 0) + (formBayar.cashback || 0);
 
   useEffect(() => { 
     setFormBayar(prev => {
