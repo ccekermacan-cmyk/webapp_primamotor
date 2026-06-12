@@ -53,7 +53,7 @@ interface CashflowDetail {
 }
 
 interface OngkosDetail {
-  id: string; person: string; ongkos: number; created_at: string;
+  id: string; person: string; ongkos: number; date: string;
 }
 
 interface Gaji {
@@ -721,7 +721,8 @@ export default function MenuPage() {
       menuFormData.append('person', formBayar.personIdLama);
       menuFormData.append('person_baru', selectedPersonRecordId);
       menuFormData.append('text', formBayar.noteMenu);
-      menuFormData.append('payment', formBayar.payment);
+      const paymentValue = formBayar.payment === 'Tunai' ? 'cash' : 'tempo';
+      menuFormData.append('payment', paymentValue);
       menuFormData.append('operator', operatorName);
       menuFormData.append('created_at', timestamp);
       menuFormData.append('qty', String(totalQtyKeranjang));
@@ -748,24 +749,37 @@ export default function MenuPage() {
         menuRecordId = menuRecord.id;
       }
 
-      // 3. Masukkan item log_stock baru (Otomatis memicu HOOK log_stock CREATE untuk kalkulasi stok_3 & harga beli baru)
-      for (const item of cartWithTierPrice) {
-        const booleanValue = (menuLower.includes('penjualan') || menuLower.includes('service')) ? 'out' : 'in';
-        
-        await pb.collection('log_stock').create({
-          id_lama: '',
-          created_at: timestamp,
-          operator: operatorName,
-          item: item.id_lama,
-          qty: item.qty,
-          item_baru: item.id,
-          price_1: item.priceSelected, // Nilai ini yang otomatis dibaca oleh hook server untuk update harga beli produk
-          price_2: item.beli * item.qty,
-          number_1: 0, 
-          number_2: 0,
-          boolean: booleanValue,
-          ref_baru: menuRecordId
-        });
+      // ========== PERUBAHAN ADA DI SINI ==========
+        for (const item of cartWithTierPrice) {
+          const booleanValue = (menuLower.includes('penjualan') || menuLower.includes('service')) ? 'out' : 'in';
+          
+          // [MODIFIED] Menambahkan field 'normal' yang berisi sell_6 * qty
+          await pb.collection('log_stock').create({
+            id_lama: '',
+            created_at: timestamp,
+            operator: operatorName,
+            item: item.id_lama,
+            qty: item.qty,
+            item_baru: item.id,
+            price_1: item.priceSelected,
+            price_2: item.beli * item.qty,
+            number_1: 0,
+            number_2: 0,
+            boolean: booleanValue,
+            ref_baru: menuRecordId,
+            normal: item.sell_6 * item.qty   // <--- TAMBAHAN BARU
+          });
+        }
+
+            // Cari person record ID berdasarkan personIdLama (jika ada)
+      let personRecordId = '';
+      if (formBayar.personIdLama && formBayar.personIdLama !== 'umum1') {
+        try {
+          const personRecord = await pb.collection('dropdown').getFirstListItem(`id_lama = "${formBayar.personIdLama}"`, { $autoCancel: false });
+          personRecordId = personRecord.id;
+        } catch (e) {
+          console.warn("Person tidak ditemukan:", formBayar.personIdLama);
+        }
       }
 
       // Simpan pemetaan pemisahan multi cashflow aliran dana masuk/keluar
@@ -786,7 +800,8 @@ export default function MenuPage() {
             account_2: '',                    
             note: formBayar.note || `POS System: Nota ${menuRecordId}`,
             ref_baru: menuRecordId,
-            person: formBayar.personIdLama,   
+            person: personRecordId,
+            persontext: formBayar.personIdLama || '',  // 🔁 tambahkan baris ini
             acc1: accountIdLama,              
             acc2: '',                         
           });
@@ -799,7 +814,7 @@ export default function MenuPage() {
           if (mek.idLama && mek.ongkos > 0) {
             await pb.collection('ongkos').create({
               id_lama: '',
-              created_at: timestamp,
+              date: timestamp,
               person: mek.idLama,
               ongkos: mek.ongkos,
               operator: operatorName,
@@ -2051,7 +2066,7 @@ export default function MenuPage() {
                     Total Invoice
                   </p>
                   <p className="text-2xl font-black text-white">
-                    Rp {totalTransaksi.toLocaleString('id-ID')}
+                    Rp {grandTotal.toLocaleString('id-ID')}
                   </p>
                 </div>
               </div>
@@ -2070,17 +2085,24 @@ export default function MenuPage() {
               )}
 
               {userLevel === '1' && showDetailHistory.jenis?.toLowerCase() !== 'pembelian' && (
-                <div className="mt-6 pt-5 border-t border-white/20 flex justify-around relative z-10">
-                  <div className="text-center bg-black/20 flex-1 rounded-l-xl p-2 border-r border-white/10">
-                    <p className="text-[10px] font-black text-white/60 uppercase tracking-widest">Total Laba Kotor</p>
-                    <p className="font-black text-emerald-300 text-lg md:text-xl drop-shadow-sm mt-1">Rp {totalLabaKotor.toLocaleString('id-ID')}</p>
-                  </div>
-                  <div className="text-center bg-black/20 flex-1 rounded-r-xl p-2">
-                    <p className="text-[10px] font-black text-white/60 uppercase tracking-widest">Persentase Margin</p>
-                    <p className="font-black text-white text-lg md:text-xl mt-1">{persentaseLaba}%</p>
-                  </div>
+              <div className="mt-6 pt-5 border-t border-white/20 flex justify-around relative z-10">
+                <div className="text-center bg-black/20 flex-1 rounded-l-xl p-2 border-r border-white/10">
+                  <p className="text-[10px] font-black text-white/60 uppercase tracking-widest">Total Laba Kotor</p>
+                  <p className="font-black text-emerald-300 text-lg md:text-xl drop-shadow-sm mt-1">Rp {totalLabaKotor.toLocaleString('id-ID')}</p>
                 </div>
-              )}
+                <div className="text-center bg-black/20 flex-1 rounded-r-xl p-2">
+                  <p className="text-[10px] font-black text-white/60 uppercase tracking-widest">Persentase Margin</p>
+                  <p className="font-black text-white text-lg md:text-xl mt-1">
+                    {(() => {
+                      const totalOngkosHistory = historyOngkos.reduce((sum, o) => sum + o.ongkos, 0);
+                      const menuGrandTotal = totalTransaksi + totalOngkosHistory - (showDetailHistory.admin || 0) + (showDetailHistory.cashback || 0);
+                      const margin = menuGrandTotal > 0 ? ((totalLabaKotor / menuGrandTotal) * 100).toFixed(1) : 0;
+                      return margin;
+                    })()}%
+                  </p>
+                </div>
+              </div>
+            )}
             </div> 
 
             <div className="space-y-3"> 
@@ -2117,7 +2139,8 @@ export default function MenuPage() {
                            <p className="flex justify-between"><span className="font-bold">Modal:</span> <span className="font-black text-slate-800">Rp {item.price_2?.toLocaleString('id-ID')}</span></p>
                            {(() => {
                              const laba = (item.price_1 * item.qty) - item.price_2;
-                             const pct = item.price_2 > 0 ? ((laba / item.price_2) * 100).toFixed(1) : 0;
+                             const totalJual = (item.price_1 * item.qty);
+                             const pct = totalJual > 0 ? ((laba / totalJual) * 100).toFixed(1) : 0;
                              return (
                                <div className="col-span-2 border-t-2 border-dashed border-slate-200 pt-3 mt-2 flex justify-between items-center bg-white p-2 rounded-lg">
                                  <p className="font-black text-slate-400 uppercase tracking-widest text-[9px]">Laba Margin Analitik:</p>
