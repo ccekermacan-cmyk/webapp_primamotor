@@ -76,13 +76,24 @@ export default function ReportPage() {
       }
       
       // Filter Tanggal - INI KUNCINYA
-      if (dateRange.start) { 
-        conditions.push(`created_at >= {:start}`); 
-        params.start = `${dateRange.start} 00:00:00`; 
+      // Helper function - letakkan di dalam komponen (setelah deklarasi state)
+      const toLocalDateISO = (dateStr: string, endOfDay = false) => {
+        const [year, month, day] = dateStr.split('-').map(Number);
+        const hour = endOfDay ? 23 : 0;
+        const minute = endOfDay ? 59 : 0;
+        const second = endOfDay ? 59 : 0;
+        const localDate = new Date(year, month - 1, day, hour, minute, second);
+        return localDate.toISOString();
+      };
+
+      // Kemudian di dalam fetchReports, ganti filter dengan:
+      if (dateRange.start) {
+        conditions.push(`created_at >= {:start}`);
+        params.start = toLocalDateISO(dateRange.start, false);
       }
-      if (dateRange.end) { 
-        conditions.push(`created_at <= {:end}`); 
-        params.end = `${dateRange.end} 23:59:59`; 
+      if (dateRange.end) {
+        conditions.push(`created_at <= {:end}`);
+        params.end = toLocalDateISO(dateRange.end, true);
       }
 
       const filterStr = conditions.length > 0 ? pb.filter(conditions.join(' && '), params) : '';

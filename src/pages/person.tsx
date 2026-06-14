@@ -36,6 +36,21 @@ export default function PeoplePage() {
   const [dummyBonList, setDummyBonList] = useState<any[]>([]);
   const [bonPage, setBonPage] = useState(1);
   const [bonTotalPages, setBonTotalPages] = useState(1);
+
+  // Helper untuk menampilkan datetime lokal dari string ISO UTC
+  const formatLocalDateTime = (isoString: string | undefined) => {
+    if (!isoString) return '';
+    const date = new Date(isoString);
+    return date.toLocaleString('id-ID', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    });
+  };
   
   // Filter & Search
   const [searchTerm, setSearchTerm] = useState('');
@@ -877,7 +892,7 @@ export default function PeoplePage() {
                               className="bg-white border border-slate-200 rounded-xl p-3 cursor-pointer hover:bg-slate-50 transition"
                             >
                               <div className="flex justify-between items-center">
-                                <span className="text-xs font-mono text-slate-500">{item.created_at}</span>
+                                <span className="text-xs font-mono text-slate-500">{formatLocalDateTime(item.created_at)}</span>
                                 <span className="text-xs font-bold text-slate-800">Rp {item.total?.toLocaleString('id-ID') || 0}</span>
                               </div>
                               <p className="text-[10px] text-slate-500 mt-1">Operator: {item.operator || '-'}</p>

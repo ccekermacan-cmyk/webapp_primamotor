@@ -7,7 +7,7 @@ import {
   Trash2, Plus, Receipt, Layers, Printer, Share2, X,
   ArrowRight, Calendar, History, Sparkles, DollarSign, Wallet, AlertTriangle, Info, Wrench, Edit, TrendingUp, TrendingDown, Filter,
   // Tambahan ikon baru untuk UI yang diperbarui:
-  ListOrdered, List, Grid, Users, CreditCard, ShoppingBag, FileText, EyeOff, ImagePlus, Save, CheckCircle2, Box, User
+  ListOrdered, List, Grid, Users, CreditCard, ShoppingBag, FileText, EyeOff, ImagePlus, Save, CheckCircle2, Box, User, ExternalLink,
 } from 'lucide-react';
 
 // --- INTERFACES ---
@@ -65,6 +65,9 @@ export default function MenuPage() {
   const location = useLocation();
 
   const [isCartModalOpen, setIsCartModalOpen] = useState(false);
+
+  // State untuk menyimpan file lama saat edit (agar bisa diupload ulang)
+  const [existingMenuFiles, setExistingMenuFiles] = useState<File[]>([]);
 
   // --- 1. ALL STATES ---
   const [products, setProducts] = useState<Produk[]>([]);
@@ -186,6 +189,21 @@ export default function MenuPage() {
 
   const userLevel = localStorage.getItem('user_level') || '';
   const operatorName = localStorage.getItem('user_name') || 'Admin';
+
+  // Helper untuk menampilkan datetime lokal dari string ISO UTC
+  const formatLocalDateTime = (isoString: string | undefined) => {
+    if (!isoString) return '';
+    const date = new Date(isoString);
+    return date.toLocaleString('id-ID', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    });
+  };
 
   // --- HELPER WARNA TEMA DINAMIS ---
   const getThemeConfig = (menuName: string) => {
@@ -379,7 +397,8 @@ export default function MenuPage() {
         }
         // Filter jenis menu (multi-select)
         if (selectedMenuFilters.length > 0) {
-          const jenisConditions = selectedMenuFilters.map(jenis => `jenis = "${jenis}"`).join(' || ');
+          // Langsung masukkan nilai lowercase ke dalam string filter
+          const jenisConditions = selectedMenuFilters.map(jenis => `jenis = "${jenis.toLowerCase()}"`).join(' || ');
           if (overviewFilter) {
             overviewFilter = `(${overviewFilter}) && (${jenisConditions})`;
           } else {
@@ -682,7 +701,7 @@ export default function MenuPage() {
     try {
       const isEditing = editSession?.isEditing && editSession?.menuId;
       // Gunakan waktu buatan baru jika buat nota baru, pertahankan waktu lama jika sesi edit
-      const timestamp = isEditing ? editSession.createdAt : new Date().toISOString().slice(0, 19).replace('T', ' ');
+      const timestamp = isEditing ? editSession.createdAt : new Date().toISOString();
       const menuLower = selectedMenu.toLowerCase();
 
       const selectedPersonRecordId = personOptions.find(p => p.id_lama === formBayar.personIdLama)?.id || '';
@@ -707,12 +726,12 @@ export default function MenuPage() {
       if (isEditing && oldMenuData) {
         const oldStatus = oldMenuData.status;
         if (statusBaru === 'lunas' && oldStatus !== 'lunas') {
-          dateLunas = new Date().toISOString().slice(0, 19).replace('T', ' ');
+          dateLunas = new Date().toISOString();
         } else if (statusBaru === 'lunas') {
           dateLunas = oldMenuData.date_lunas; // Pertahankan track records tgl lunas lama
         }
       } else if (statusBaru === 'lunas') {
-        dateLunas = new Date().toISOString().slice(0, 19).replace('T', ' ');
+        dateLunas = new Date().toISOString();
       }
 
       // Pembentukan Dokumen Jurnal Formulir Data Menu Baru
@@ -946,6 +965,25 @@ export default function MenuPage() {
             paymentValue = 'Tunai';
           }
 
+          // Ambil file-file lama dari server (konversi ke Blob)
+          const oldFiles: File[] = [];
+          if (menuItem.file && menuItem.file.length > 0) {
+            for (const fileName of menuItem.file) {
+              try {
+                const fileUrl = pb.files.getUrl(menuItem, fileName);
+                const response = await fetch(fileUrl);
+                const blob = await response.blob();
+                // Buat File object dengan nama asli
+                const file = new File([blob], fileName, { type: blob.type });
+                oldFiles.push(file);
+              } catch (err) {
+                console.warn(`Gagal mengambil file ${fileName}:`, err);
+              }
+            }
+          }
+          setMenuFiles(oldFiles);
+          setExistingMenuFiles(oldFiles); // optional, untuk reference
+
           setFormBayar(prev => ({ 
             ...prev, 
             personIdLama: menuItem.person, 
@@ -1017,13 +1055,21 @@ export default function MenuPage() {
   // --- 9. MEMO GROUPING ---
   const groupedHistory = useMemo(() => {
     const groups: Record<string, HistoryMenu[]> = {};
-    historyMenu.forEach(h => { const date = h.created_at?.split(' ')[0] || 'Unknown'; if (!groups[date]) groups[date] = []; groups[date].push(h); });
+    historyMenu.forEach(h => {
+      const date = h.created_at ? new Date(h.created_at).toLocaleDateString('id-ID') : 'Unknown';
+      if (!groups[date]) groups[date] = [];
+      groups[date].push(h);
+    });
     return groups;
   }, [historyMenu]);
 
   const groupedGaji = useMemo(() => {
     const groups: Record<string, Gaji[]> = {};
-    historyGaji.forEach(g => { const date = g.created_at?.split(' ')[0] || 'Unknown'; if (!groups[date]) groups[date] = []; groups[date].push(g); });
+    historyGaji.forEach(g => {
+      const date = g.created_at ? new Date(g.created_at).toLocaleDateString('id-ID') : 'Unknown';
+      if (!groups[date]) groups[date] = [];
+      groups[date].push(g);
+    });
     return groups;
   }, [historyGaji]);
 
@@ -1267,7 +1313,7 @@ export default function MenuPage() {
                         
                         <div className="flex justify-between items-center border-t border-slate-100 pt-4 mt-4 relative z-10"> 
                           <div className="flex flex-col gap-1">
-                            <span className="text-[10px] font-black text-slate-400 flex items-center gap-1.5"><Calendar size={12}/> {h.created_at}</span>
+                                                        <span className="text-[10px] font-black text-slate-400 flex items-center gap-1.5"><Calendar size={12} /> {formatLocalDateTime(h.created_at)}</span>
                             {h.status === 'lunas' ? (
                               <span className="text-xs font-black text-emerald-600">Total: Rp {(h.total || 0).toLocaleString('id-ID')}</span>
                             ) : (
@@ -1331,9 +1377,7 @@ export default function MenuPage() {
                                 </p>
                               </div>
                               <div className="flex justify-between items-center border-t border-slate-100 pt-4 mt-4 relative z-10">
-                                <span className="text-[10px] font-black text-slate-400 flex items-center gap-1.5">
-                                  <Calendar size={12} /> {item.created_at}
-                                </span>
+                                                            <span className="text-[10px] font-black text-slate-400 flex items-center gap-1.5"><Calendar size={12} /> {formatLocalDateTime(h.created_at)}</span>
                                 <div className="font-black text-white bg-teal-500 shadow-md shadow-teal-500/30 px-3 py-1.5 rounded-xl text-xs">
                                   {item.qty} Item
                                 </div>
@@ -1872,6 +1916,21 @@ export default function MenuPage() {
                     </div>
                   )}
 
+                  {/* Tampilkan file lama (jika ada) saat edit */}
+                  {existingMenuFiles.length > 0 && !isEditMode && (
+                    <div className="mt-4 pt-2 border-t border-emerald-200">
+                      <p className="text-[10px] font-black text-emerald-600 mb-2">📎 File yang sudah ada (akan dipertahankan):</p>
+                      <div className="flex flex-wrap gap-2">
+                        {existingMenuFiles.map((file, idx) => (
+                          <div key={idx} className="flex items-center gap-1 bg-white px-2 py-1 rounded-full text-xs shadow-sm">
+                            <span className="w-4 h-4 bg-slate-200 rounded-full flex items-center justify-center text-[8px]">📄</span>
+                            <span className="truncate max-w-[150px]">{file.name}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   {menuFiles.length > 0 && (
                     <div className="flex justify-between items-center pt-2 border-t border-black/5">
                       <span className={`text-[11px] font-black ${activeTheme.text}`}>{menuFiles.length} file telah dilampirkan</span>
@@ -2073,7 +2132,7 @@ export default function MenuPage() {
 
               <div className="flex flex-wrap justify-center gap-3 mt-5 relative z-10">
                 <span className="text-[10px] font-black text-white/80 bg-black/10 px-3 py-1.5 rounded-lg flex items-center gap-1.5"><User size={12}/> Kasir: {showDetailHistory.operator || 'System'}</span>
-                <span className="text-[10px] font-black text-white/80 bg-black/10 px-3 py-1.5 rounded-lg flex items-center gap-1.5"><Calendar size={12}/> {showDetailHistory.created_at}</span>
+                <span className="text-[10px] font-black text-white/80 bg-black/10 px-3 py-1.5 rounded-lg flex items-center gap-1.5"><Calendar size={12}/> {formatLocalDateTime(showDetailHistory.created_at)}</span>
               </div>
 
               {showDetailHistory.marketplace && (
@@ -2201,6 +2260,31 @@ export default function MenuPage() {
               </div> 
             </div> 
 
+            {showDetailHistory.file && showDetailHistory.file.length > 0 && (
+            <div className="bg-slate-50 p-5 rounded-[1.5rem] border-2 border-slate-100 shadow-sm">
+              <p className={`font-black text-[11px] ${activeTheme.text} uppercase border-b-2 border-slate-200 pb-3 mb-3 flex items-center gap-2`}>
+                <ImagePlus size={16}/> Lampiran Media Nota
+              </p>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {showDetailHistory.file.map((f, i) => {
+                  const fileUrl = pb.files.getUrl(showDetailHistory, f);
+                  return (
+                    <div key={i} className="relative group rounded-xl overflow-hidden border-2 border-white shadow-md aspect-square bg-slate-100">
+                      {f.match(/\.(mp4|webm|ogg)$/i) ? (
+                        <video src={fileUrl} className="w-full h-full object-cover" />
+                      ) : (
+                        <img src={fileUrl} alt={`Lampiran ${i}`} className="w-full h-full object-cover transition-transform group-hover:scale-110 duration-500" />
+                      )}
+                      <a href={fileUrl} target="_blank" rel="noreferrer" className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-sm">
+                        <ExternalLink size={24} className="text-white drop-shadow-lg scale-75 group-hover:scale-100 transition-transform" />
+                      </a>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
             <div className="flex flex-wrap md:flex-nowrap gap-3 pt-6 border-t-2 border-slate-100">
               {/* Tombol Delete: level 1,5 selalu; jika status 'belum', level 1-7 */}
               {(() => {
@@ -2273,7 +2357,7 @@ export default function MenuPage() {
                 {/* INFORMASI NOTA */}
                 <div className="py-3 px-3 border-b-2 border-dashed border-slate-300 text-[10px] space-y-1 font-bold">
                   <div className="flex justify-between"><span className="text-slate-500">Nota:</span> <span>{showReceiptPrint.id}</span></div>
-                  <div className="flex justify-between"><span className="text-slate-500">Waktu:</span> <span>{showReceiptPrint.timestamp}</span></div>
+                  <div className="flex justify-between"><span className="text-slate-500">Waktu:</span> <span>{formatLocalDateTime(showReceiptPrint.timestamp)}</span></div>
                   <div className="flex justify-between"><span className="text-slate-500">Cust:</span> <span>{showReceiptPrint.customer}</span></div>
                   <div className="flex justify-between"><span className="text-slate-500">Kasir:</span> <span>{operatorName}</span></div>
                   {showReceiptPrint.jenis && <div className="flex justify-between"><span className="text-slate-500">Jenis:</span> <span className="uppercase">{showReceiptPrint.jenis}</span></div>}

@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { pb } from '../lib/pocketbase';
 import Modal from '../components/modal';
-import { Package, Search, Trash2, Edit, Copy, ChevronLeft, ChevronRight, X, Filter, LayoutGrid, List, ArrowUp, ArrowDown } from 'lucide-react';
-
+import { Package, Search, Trash2, Edit, Copy, ChevronLeft, ChevronRight, X, Filter, LayoutGrid, List, ArrowUp, ArrowDown, ImagePlus, ExternalLink } from 'lucide-react';
 interface Produk {
   [key: string]: any; 
   id: string;
@@ -28,6 +27,7 @@ interface Produk {
   stok_2: number;
   stok_3: number;
   date: string;
+  file?: string[]; // field untuk menyimpan file gambar
 }
 
 export default function Produk() {
@@ -58,9 +58,13 @@ export default function Produk() {
 
   // Modal States
   const [modalType, setModalType] = useState<'detail' | 'form' | 'delete' | null>(null);
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [selectedProduct, setSelectedProduct] = useState<Produk | null>(null);
   const [formData, setFormData] = useState<Partial<Produk>>({});
   const [existingTipe, setExistingTipe] = useState<string[]>([]);
+  // State untuk file gambar produk
+  const [productFiles, setProductFiles] = useState<(File | { isOld: boolean; name: string; url: string })[]>([]);
+  const [productPreviewUrls, setProductPreviewUrls] = useState<string[]>([]);
 
   // ==========================================
   // FUNGSI PEMBANTU (HELPERS)
@@ -171,6 +175,21 @@ export default function Produk() {
     return sorted;
   }, [products, sortField, sortOrder]);
 
+  // Helper untuk menampilkan datetime lokal dari string ISO UTC
+  const formatLocalDateTime = (isoString: string | undefined) => {
+    if (!isoString) return '';
+    const date = new Date(isoString);
+    return date.toLocaleString('id-ID', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    });
+  };
+
   // BLOK 1: Hanya jalan 1x saat aplikasi baru dibuka untuk ambil enumlist Tipe Motor
   const hasFetchedTipe = useRef(false);
     useEffect(() => {
@@ -217,6 +236,30 @@ useEffect(() => {
   fetchKategoriOptions();
 }, []);
 
+// Effect untuk membuat preview URLs dari productFiles
+useEffect(() => {
+  if (productFiles.length === 0) {
+    setProductPreviewUrls([]);
+    return;
+  }
+  const urls = productFiles.map(f => {
+    if (typeof f === 'object' && 'isOld' in f && f.isOld) {
+      return f.url;
+    }
+    if (f instanceof File) {
+      return URL.createObjectURL(f);
+    }
+    return '';
+  }).filter(Boolean);
+  setProductPreviewUrls(urls);
+  
+  return () => {
+    urls.forEach(url => {
+      if (url.startsWith('blob:')) URL.revokeObjectURL(url);
+    });
+  };
+}, [productFiles]);
+
 const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
   try {
     const filterString = pb.filter('item_baru = {:id}', { id: prodId });
@@ -239,18 +282,34 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
   // ==========================================
   const handleOpenDetail = (prod: Produk) => {
     setSelectedProduct(prod);
-    setLogPage(1); // Reset page history
+    setCurrentImageIndex(0); // reset slideshow ke gambar pertama
+    setLogPage(1);
     fetchLogHistory(prod.id, 1);
     setModalType('detail');
   };
 
-  const handleOpenEdit = (prod: Produk, e?: React.MouseEvent) => {
+  const handleOpenEdit = async (prod: Produk, e?: React.MouseEvent) => {
     if (e) e.stopPropagation(); 
     setSelectedProduct(prod);
     setFormData({
       ...prod,
       id_lama: formatIdLamaDisplay(prod.id_lama) 
-    }); 
+    });
+    
+    // Ambil file lama (jika ada)
+    const oldFiles: { isOld: boolean; name: string; url: string }[] = [];
+    if (prod.file && prod.file.length > 0) {
+      for (const fileName of prod.file) {
+        const fileUrl = pb.files.getUrl(prod, fileName);
+        oldFiles.push({
+          isOld: true,
+          name: fileName,
+          url: fileUrl
+        });
+      }
+    }
+    setProductFiles(oldFiles);
+    
     setModalType('form');
   };
 
@@ -262,6 +321,7 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
     
     setSelectedProduct(null); 
     setFormData(copyData);
+    setProductFiles([]); // reset file
     setModalType('form');
   };
 
@@ -315,25 +375,53 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
         payload.tipe = Array.from(new Set(tipeArray)).sort().join(', ');
       }
 
+      // Buat FormData untuk mengirim file
+      const formDataObj = new FormData();
+
+      // Append semua field text/number ke FormData
+      for (const key in payload) {
+        if (payload.hasOwnProperty(key) && payload[key] !== undefined && key !== 'file') {
+          formDataObj.append(key, String(payload[key]));
+        }
+      }
+
+      // Append file
+      if (productFiles && productFiles.length > 0) {
+        productFiles.forEach(f => {
+          if (typeof f === 'object' && 'isOld' in f && f.isOld) {
+            // Pertahankan file lama
+            formDataObj.append('file', f.name);
+          } else if (f instanceof File) {
+            // Upload file baru
+            formDataObj.append('file', f);
+          }
+        });
+      } else if (selectedProduct && selectedProduct.id) {
+        // Jika tidak ada file sama sekali (user hapus semua), kirim string kosong untuk hapus
+        formDataObj.append('file', '');
+      }
+
       if (selectedProduct && selectedProduct.id) {
-        // PROSES EDIT
-        await pb.collection('produk').update(selectedProduct.id, payload);
+        // EDIT
+        await pb.collection('produk').update(selectedProduct.id, formDataObj);
       } else {
+        // CREATE
         let success = false;
         let attempts = 0;
         const maxAttempts = 15;
-
         while (!success && attempts < maxAttempts) {
           try {
-            await pb.collection('produk').create(payload);
+            await pb.collection('produk').create(formDataObj);
             success = true;
           } catch (error: any) {
             const isUniqueError = error?.response?.data?.id_lama?.code === 'validation_not_unique' || error?.status === 400;
             if (isUniqueError) {
-              payload.id_lama = generateRawRandomId(); 
+              // Ganti id_lama dan update FormData
+              const newId = generateRawRandomId();
+              formDataObj.set('id_lama', newId);
               attempts++;
             } else {
-              throw error; 
+              throw error;
             }
           }
         }
@@ -341,7 +429,8 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
       }
       
       setModalType(null);
-      fetchProducts(); 
+      setProductFiles([]); // reset file
+      fetchProducts();
     } catch (error) {
       console.error(error);
       alert("Gagal menyimpan data. Pastikan format isian benar.");
@@ -364,6 +453,7 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
           onClick={() => {
             setSelectedProduct(null);
             setFormData({ id_lama: generateRawRandomId() });
+            setProductFiles([]);
             setModalType('form');
           }}
           className="bg-gradient-to-r from-orange-500 to-amber-500 text-white px-4 py-2 sm:px-6 sm:py-3 rounded-2xl font-bold shadow-lg shadow-orange-500/30 hover:-translate-y-1 transition-all text-sm sm:text-base"
@@ -657,7 +747,48 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
         {selectedProduct && (
           <div className="space-y-6">
             <div className="flex gap-4 items-center p-4 bg-orange-50 rounded-2xl border border-orange-100">
-              <div className="w-16 h-16 bg-white rounded-xl flex items-center justify-center text-orange-500 shrink-0"><Package size={32} /></div>
+              <div className="relative">
+                <div className="w-16 h-16 bg-white rounded-xl flex items-center justify-center text-orange-500 shrink-0 overflow-hidden">
+                  {selectedProduct.file && selectedProduct.file.length > 0 ? (
+                    <img 
+                      src={pb.files.getUrl(selectedProduct, selectedProduct.file[currentImageIndex])} 
+                      alt="produk" 
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <Package size={32} />
+                  )}
+                </div>
+                
+                {/* Tombol navigasi hanya muncul jika ada lebih dari 1 file */}
+                {selectedProduct.file && selectedProduct.file.length > 1 && (
+                  <div className="absolute -bottom-2 left-1/2 transform -translate-x-1/2 flex gap-1 bg-black/50 rounded-full px-1 py-0.5">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setCurrentImageIndex(prev => (prev === 0 ? selectedProduct.file.length - 1 : prev - 1));
+                      }}
+                      className="w-4 h-4 text-white text-[8px] font-bold hover:bg-white/20 rounded-full flex items-center justify-center"
+                    >
+                      ‹
+                    </button>
+                    <span className="text-[8px] text-white font-bold">
+                      {currentImageIndex + 1}/{selectedProduct.file.length}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setCurrentImageIndex(prev => (prev === selectedProduct.file.length - 1 ? 0 : prev + 1));
+                      }}
+                      className="w-4 h-4 text-white text-[8px] font-bold hover:bg-white/20 rounded-full flex items-center justify-center"
+                    >
+                      ›
+                    </button>
+                  </div>
+                )}
+              </div>
               <div>
                 <p className="text-sm font-bold text-orange-600 mb-1">
                   ID: {formatIdLamaDisplay(selectedProduct.id_lama)}
@@ -785,8 +916,21 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
                           className="hover:bg-blue-50/40 transition-colors cursor-pointer group" 
                           onClick={() => { window.location.href = `/?ref=${log.ref_baru}`; }}
                         >
-                          <td className="px-4 py-3 text-slate-500 font-medium whitespace-nowrap">
-                            {new Date(log.created_at || log.created).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}
+                          <td className="px-4 py-3 text-slate-500 font-medium">
+                            {(() => {
+                              const dateStr = log.created_at || log.created;
+                              if (!dateStr) return '-';
+                              const date = new Date(dateStr);
+                              if (isNaN(date.getTime())) return dateStr;
+                              const tanggal = date.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
+                              const waktu = date.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                              return (
+                                <div className="flex flex-col">
+                                  <span>{tanggal}</span>
+                                  <span className="text-[9px] text-slate-400">{waktu}</span>
+                                </div>
+                              );
+                            })()}
                           </td>
                           <td className="px-4 py-3 text-slate-600 font-semibold capitalize">
                             {log.operator || '-'}
@@ -834,6 +978,32 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
                 </button>
               </div>
             </div>
+
+            {/* Lampiran Gambar */}
+            {selectedProduct.file && selectedProduct.file.length > 0 && (
+              <div className="bg-slate-50 p-5 rounded-[1.5rem] border-2 border-slate-100 shadow-sm">
+                <p className={`font-black text-[11px] text-blue-600 uppercase border-b-2 border-slate-200 pb-3 mb-3 flex items-center gap-2`}>
+                  <ImagePlus size={16}/> Lampiran Gambar Produk
+                </p>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  {selectedProduct.file.map((f, i) => {
+                    const fileUrl = pb.files.getUrl(selectedProduct, f);
+                    return (
+                      <div key={i} className="relative group rounded-xl overflow-hidden border-2 border-white shadow-md aspect-square bg-slate-100">
+                        {f.match(/\.(mp4|webm|ogg)$/i) ? (
+                          <video src={fileUrl} className="w-full h-full object-cover" />
+                        ) : (
+                          <img src={fileUrl} alt={`lampiran-${i}`} className="w-full h-full object-cover transition-transform group-hover:scale-110 duration-500" />
+                        )}
+                        <a href={fileUrl} target="_blank" rel="noreferrer" className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-sm">
+                          <ExternalLink size={24} className="text-white drop-shadow-lg scale-75 group-hover:scale-100 transition-transform" />
+                        </a>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             <button onClick={() => setModalType(null)} className="w-full bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold py-3 rounded-xl">Tutup</button>
           </div>
@@ -1047,6 +1217,77 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
                 </div>
               </div>
             </div>
+          </div>
+
+          {/* Bagian Upload File Gambar */}
+          <div className="bg-yellow-50/30 p-4 rounded-xl border border-yellow-100 space-y-3">
+            <div className="flex justify-between items-center">
+              <label className="text-[11px] font-black text-yellow-600 uppercase tracking-wider flex items-center gap-2">
+                <ImagePlus size={16} /> Gambar Produk
+              </label>
+              <label 
+                htmlFor="product-file-input" 
+                className="cursor-pointer text-[10px] font-black bg-white px-4 py-2 rounded-xl shadow-sm hover:scale-105 active:scale-95 transition-all border border-yellow-200 text-yellow-600"
+              >
+                + Upload
+              </label>
+              <input 
+                id="product-file-input"
+                type="file" 
+                multiple 
+                accept="image/*,video/*" 
+                className="hidden" 
+                onChange={e => {
+                  const selectedFiles = Array.from(e.target.files || []);
+                  if (selectedFiles.length > 0) {
+                    setProductFiles(prev => [...prev, ...selectedFiles]);
+                  }
+                  e.target.value = '';
+                }} 
+              />
+            </div>
+            {productPreviewUrls.length === 0 ? (
+              <div className="text-center py-5 rounded-2xl border-2 border-dashed border-yellow-200">
+                <p className="text-[10px] font-bold text-yellow-600 opacity-70">Belum ada file gambar</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
+                {productPreviewUrls.map((url, idx) => (
+                  <div key={idx} className="relative group rounded-xl overflow-hidden border border-white shadow-sm aspect-square bg-white">
+                    {productFiles[idx] && typeof productFiles[idx] === 'object' && 'isOld' in productFiles[idx] && productFiles[idx].isOld ? (
+                      <img src={url} alt={`preview-${idx}`} className="w-full h-full object-cover transition-transform group-hover:scale-110 duration-500" />
+                    ) : (
+                      productFiles[idx] instanceof File && productFiles[idx].type.startsWith('video/') ? (
+                        <video src={url} className="w-full h-full object-cover opacity-80" muted />
+                      ) : (
+                        <img src={url} alt={`preview-${idx}`} className="w-full h-full object-cover transition-transform group-hover:scale-110 duration-500" />
+                      )
+                    )}
+                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                      <button 
+                        type="button" 
+                        onClick={() => setProductFiles(prev => prev.filter((_, i) => i !== idx))} 
+                        className="w-8 h-8 bg-rose-500 text-white rounded-full flex items-center justify-center hover:scale-110 active:scale-95 shadow-lg"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {productFiles.length > 0 && (
+              <div className="flex justify-between items-center pt-2 border-t border-yellow-200">
+                <span className="text-[11px] font-black text-yellow-600">{productFiles.length} file terpilih</span>
+                <button
+                  type="button"
+                  onClick={() => setProductFiles([])}
+                  className="text-[10px] font-black text-rose-500 hover:text-rose-700 bg-rose-50 px-3 py-1.5 rounded-lg transition-colors"
+                >
+                  Hapus Semua
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="flex gap-3 pt-4 border-t">

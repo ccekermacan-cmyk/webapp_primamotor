@@ -43,6 +43,42 @@
     const [transactions, setTransactions] = useState<Cashflow[]>([]);
     const [loading, setLoading] = useState(true);
     const [isProcessing, setIsProcessing] = useState(false);
+
+    // Helper untuk menampilkan datetime lokal dari string ISO UTC
+    const formatLocalDateTime = (isoString: string | undefined) => {
+      if (!isoString) return '';
+      const date = new Date(isoString);
+      return date.toLocaleString('id-ID', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+      });
+    };
+
+    // Helper untuk mengkonversi tanggal lokal (dari input date picker) ke ISO UTC
+    const toLocalDateISO = (dateStr: string, endOfDay = false) => {
+      const [year, month, day] = dateStr.split('-').map(Number);
+      const hour = endOfDay ? 23 : 0;
+      const minute = endOfDay ? 59 : 0;
+      const second = endOfDay ? 59 : 0;
+      const localDate = new Date(year, month - 1, day, hour, minute, second);
+      return localDate.toISOString();
+    };
+
+    // Helper untuk mengkonversi ISO UTC ke format datetime-local (YYYY-MM-DDThh:mm)
+    const formatToLocalDatetimeInput = (isoString: string) => {
+      const date = new Date(isoString);
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      const hours = String(date.getHours()).padStart(2, '0');
+      const minutes = String(date.getMinutes()).padStart(2, '0');
+      return `${year}-${month}-${day}T${hours}:${minutes}`;
+    };
     
     const [jenisOptionsIn, setJenisOptionsIn] = useState<DropdownItem[]>([]);
     const [jenisOptionsOut, setJenisOptionsOut] = useState<DropdownItem[]>([]);
@@ -79,14 +115,14 @@
     const [selectedTx, setSelectedTx] = useState<Cashflow | null>(null);
     const [formData, setFormData] = useState<Partial<Cashflow>>({
       mutasi: 'Masuk',
-      created_at: new Date().toISOString().slice(0,16).replace('T', ' '),
+      created_at: formatToLocalDatetimeInput(new Date().toISOString()),
       account_2: '',
       person: '',
       persontext: '',
       acc2: ''
     });
 
-    const [files, setFiles] = useState<File[]>([]);
+    const [files, setFiles] = useState<any[]>([]);
     const [previewUrls, setPreviewUrls] = useState<string[]>([]);
     const [galleryIndex, setGalleryIndex] = useState<number | null>(null);
     const [wallets, setWallets] = useState<DropdownItem[]>([]);
@@ -107,6 +143,12 @@
     const getAccountName = (idOrName: string) => {
       const acc = accountOptions.find(opt => opt.id === idOrName || opt.text_1 === idOrName);
       return acc ? acc.text_1 : idOrName;
+    };
+
+    const getPersonName = (personId: string | undefined) => {
+      if (!personId) return '-';
+      const person = personOptions.find(opt => opt.id === personId || opt.id_lama === personId);
+      return person ? person.text_1 : personId;
     };
 
     const fetchDropdowns = async () => {
@@ -207,11 +249,11 @@
         // --- LOGIKA FILTER TANGGAL BARU ---
         if (dateRange.start) {
           conditions.push(`created_at >= {:start}`);
-          params.start = `${dateRange.start} 00:00:00`;
+          params.start = toLocalDateISO(dateRange.start, false);
         }
         if (dateRange.end) {
           conditions.push(`created_at <= {:end}`);
-          params.end = `${dateRange.end} 23:59:59`;
+          params.end = toLocalDateISO(dateRange.end, true);
         }
 
         // --- LOGIKA FILTER AKUN/DOMPET (MULTISELECT) ---
@@ -274,9 +316,20 @@
 
     useEffect(() => {
       if (files.length === 0) { setPreviewUrls([]); return; }
-      const urls = files.map(f => URL.createObjectURL(f));
+      const urls = files.map(f => {
+        // Jika file adalah data lama dari server, langsung gunakan URL-nya
+        if (f.isOld) return f.url;
+        // Jika file adalah unggahan baru, buatkan local object URL
+        return URL.createObjectURL(f);
+      });
       setPreviewUrls(urls);
-      return () => urls.forEach(u => URL.revokeObjectURL(u));
+      
+      // Bersihkan memory HANYA untuk local object URL (menghindari error link server)
+      return () => {
+        urls.forEach(u => {
+          if (u.startsWith('blob:')) URL.revokeObjectURL(u);
+        });
+      };
     }, [files]);
 
     useEffect(() => {
@@ -294,7 +347,24 @@
     const groupedTransactions = useMemo(() => {
       const groups: { [key: string]: Cashflow[] } = {};
       transactions.forEach(tx => {
-        const date = tx.created_at ? tx.created_at.split(' ')[0] : 'Tanpa Tanggal';
+        let date = 'Tanpa Tanggal';
+        if (tx.created_at) {
+          let parsed = new Date(tx.created_at);
+          // Jika gagal, coba format "YYYY-MM-DD HH:MM:SS" (format lama)
+          if (isNaN(parsed.getTime())) {
+            const match = tx.created_at.match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/);
+            if (match) {
+              const [_, year, month, day, hour, minute, second] = match;
+              parsed = new Date(Number(year), Number(month)-1, Number(day), Number(hour), Number(minute), Number(second));
+            }
+          }
+          // Jika masih gagal, gunakan string asli (biar tidak muncul "Invalid Date")
+          if (!isNaN(parsed.getTime())) {
+            date = parsed.toLocaleDateString('id-ID');
+          } else {
+            date = tx.created_at; // tampilkan raw string
+          }
+        }
         if (!groups[date]) groups[date] = [];
         groups[date].push(tx);
       });
@@ -358,7 +428,24 @@
       try {
         const currentUser = pb.authStore.model;
         const operatorName = currentUser?.name || currentUser?.username || 'Admin';
-        const formattedDate = formData.created_at ? formData.created_at.replace('T', ' ') + ':00' : new Date().toISOString().replace('T', ' ').slice(0, 19);
+        let formattedDate;
+        if (formData.created_at && formData.created_at.includes('T')) {
+          const [datePart, timePart] = formData.created_at.split('T');
+          if (datePart && timePart) {
+            const [year, month, day] = datePart.split('-').map(Number);
+            const [hours, minutes] = timePart.split(':').map(Number);
+            if (!isNaN(year) && !isNaN(month) && !isNaN(day) && !isNaN(hours) && !isNaN(minutes)) {
+              const localDate = new Date(year, month - 1, day, hours, minutes, 0);
+              formattedDate = localDate.toISOString();
+            } else {
+              formattedDate = new Date().toISOString();
+            }
+          } else {
+            formattedDate = new Date().toISOString();
+          }
+        } else {
+          formattedDate = new Date().toISOString();
+        }
         const selectedAccount = accountOptions.find(acc => acc.id === formData.account_1);
         const accountIdLama = selectedAccount?.id_lama || '';
 
@@ -386,8 +473,18 @@
         formDataObj.append("acc1", accountIdLama);
         formDataObj.append("acc2", account2IdLama);
 
+        // Di PocketBase, cukup kirim 'string' nama file lama untuk dipertahankan, dan 'File object' untuk file baru
         if (files && files.length > 0) {
-          files.forEach(file => formDataObj.append("file", file));
+          files.forEach(f => {
+            if (f.isOld) {
+              formDataObj.append("file", f.name); // Pertahankan file lama ini
+            } else {
+              formDataObj.append("file", f);      // Upload file baru ini
+            }
+          });
+        } else if (isEditMode) {
+          // Jika mode edit tapi array kosong (user menghapus semua foto), kirim string kosong untuk menghapus file di server
+          formDataObj.append("file", "");
         }
 
         if (isEditMode && selectedTx) {
@@ -399,7 +496,7 @@
         setModalType(null);
         setFormData({
           mutasi: 'Masuk',
-          created_at: new Date().toISOString().slice(0,16).replace('T', ' '),
+          created_at: formatToLocalDatetimeInput(new Date().toISOString()),
           account_2: '',
           person: '',
           persontext: '',
@@ -428,7 +525,8 @@
       }
     };
 
-    const isVideo = (filename: string) => filename.match(/\.(mp4|webm|ogg)$/i);
+    // Ditambahkan pengecekan agar jika filename kosong/undefined tidak memicu crash
+    const isVideo = (filename: string | undefined) => filename ? !!filename.match(/\.(mp4|webm|ogg)$/i) : false;
 
     return (
       <div className="p-4 md:p-8 h-full bg-slate-50 flex flex-col overflow-hidden font-sans">
@@ -451,7 +549,7 @@
               onClick={() => {
                 setSelectedTx(null);
                 setFiles([]);
-                setFormData({ mutasi: 'Masuk', created_at: new Date().toISOString().slice(0,16).replace('T', ' ') });
+                setFormData({ mutasi: 'Masuk', created_at: formatToLocalDatetimeInput(new Date().toISOString()) });
                 setModalType('form');
               }}
               className="hidden md:flex bg-slate-900 hover:bg-black text-white px-6 py-3.5 rounded-2xl font-black text-sm shadow-xl shadow-slate-200 transition-all active:scale-95 items-center justify-center gap-2"
@@ -631,7 +729,7 @@
                     <div key={date} className="space-y-4">
                       <div className="flex items-center gap-4">
                         <span className="bg-slate-800 px-4 py-1.5 rounded-full text-[10px] font-black text-white uppercase tracking-widest text-center shadow-sm">
-                          {date !== 'Tanpa Tanggal' ? new Date(date).toLocaleDateString('id-ID', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' }) : date}
+                          {date !== 'Tanpa Tanggal' ? date : 'Tanpa Tanggal'}
                         </span>
                         <div className="h-[2px] flex-1 bg-slate-100" />
                       </div>
@@ -643,32 +741,47 @@
                             <div 
                               key={tx.id} 
                               onClick={() => { setSelectedTx(tx); setModalType('detail'); }} 
-                              className="group bg-white border-2 border-slate-100 p-4 md:p-5 rounded-2xl hover:border-emerald-300 hover:shadow-lg hover:shadow-emerald-500/10 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4 cursor-pointer"
+                              className="group bg-white border-2 border-slate-100 rounded-2xl hover:border-emerald-300 hover:shadow-lg hover:shadow-emerald-500/10 transition-all cursor-pointer overflow-hidden"
                             >
-                              <div className="flex items-start sm:items-center gap-4 w-full sm:w-auto">
-                                <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 shadow-sm ${isMasuk ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
-                                  {isMasuk ? <ArrowDownRight strokeWidth={3}/> : <ArrowUpRight strokeWidth={3}/>}
-                                </div>
-                                <div className="flex-1">
-                                  <div className="flex items-center gap-2 mb-1">
-                                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-wider bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
-                                      {tx.ref}
+                              {/* Baris utama: Ikon + Info Ringkas + Nominal */}
+                              <div className="p-4 md:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                {/* Kiri: Ikon dan ID */}
+                                <div className="flex items-start sm:items-center gap-3 shrink-0">
+                                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-sm ${isMasuk ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
+                                    {isMasuk ? <ArrowDownRight strokeWidth={2.5}/> : <ArrowUpRight strokeWidth={2.5}/>}
+                                  </div>
+                                  <div className="flex flex-col">
+                                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider">{tx.id?.slice(-6) || tx.ref?.slice(-6)}</span>
+                                    <span className="text-[10px] font-black text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200 mt-0.5 text-center">
+                                      {tx.jenis}
                                     </span>
                                   </div>
-                                  <h4 className="font-bold text-slate-800 line-clamp-1">{tx.note}</h4>
-                                  <div className="flex flex-wrap items-center gap-3 mt-1.5">
-                                    <span className="text-[11px] font-semibold text-slate-500 flex items-center gap-1 bg-slate-50 px-2 py-0.5 rounded-md"><Layers size={12} className="text-slate-400"/> {tx.jenis}</span>
-                                    <span className="text-[11px] font-semibold text-slate-500 flex items-center gap-1 bg-slate-50 px-2 py-0.5 rounded-md"><User size={12} className="text-slate-400"/> {tx.person}</span>
+                                </div>
+
+                                {/* Tengah: Informasi Utama (Catatan, Person, Akun, Operator) */}
+                                <div className="flex-1 min-w-0">
+                                  <h4 className="font-bold text-slate-800 text-sm md:text-base truncate">{tx.note || '-'}</h4>
+                                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 text-xs">
+                                    <span className="text-slate-500 flex items-center gap-1"><User size={12}/> {getPersonName(tx.person)}</span>
+                                    <span className="text-slate-500 flex items-center gap-1"><Wallet size={12}/> {getAccountName(tx.account_1)}</span>
+                                    {tx.account_2 && <span className="text-slate-500 flex items-center gap-1"><ArrowRight size={12}/> {getAccountName(tx.account_2)}</span>}
+                                    <span className="text-slate-500 flex items-center gap-1"><User size={12}/> {tx.operator || '-'}</span>
                                   </div>
                                 </div>
+
+                                {/* Kanan: Nominal */}
+                                <div className="flex items-center justify-end shrink-0">
+                                  <p className={`text-base md:text-lg font-black tracking-tight ${isMasuk ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                    {isMasuk ? '+' : '-'} {formatRupiah(tx.nominal)}
+                                  </p>
+                                </div>
                               </div>
-                              <div className="flex sm:flex-col items-center sm:items-end justify-between border-t sm:border-0 pt-3 sm:pt-0 border-slate-100 shrink-0">
-                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest sm:mb-1 order-2 sm:order-1">
-                                  {getAccountName(tx.account_1)}
-                                </p>
-                                <p className={`text-lg sm:text-xl font-black tracking-tight order-1 sm:order-2 ${isMasuk ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                  {isMasuk ? '+' : '-'} {formatRupiah(tx.nominal)}
-                                </p>
+                              
+                              {/* Baris opsional: Waktu transaksi (jam) untuk detail ekstra */}
+                              <div className="px-4 pb-3 md:px-5 md:pb-4 border-t border-slate-100 bg-slate-50/50 flex justify-end">
+                                <span className="text-[9px] font-mono text-slate-400">
+                                  {tx.created_at ? new Date(tx.created_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : '-'}
+                                </span>
                               </div>
                             </div>
                           );
@@ -928,10 +1041,38 @@
                       </div>
 
                       <div className={`p-4 rounded-3xl border space-y-3 ${bgBox}`}>
-                        <div className="flex justify-between items-center">
-                          <label className={`text-[11px] font-black ${txtColor} uppercase tracking-wider flex items-center gap-2`}><ImagePlus size={16} /> Lampiran Bukti</label>
-                          <label className={`cursor-pointer text-[10px] font-black bg-white px-4 py-2 rounded-xl shadow-sm hover:scale-105 active:scale-95 transition-all border ${btnUpload}`}>+ Upload<input type="file" multiple accept="image/*,video/*" className="hidden" onChange={e => { setFiles(prev => [...prev, ...Array.from(e.target.files||[])]); setIsFormDirty(true); e.target.value = ''; }} /></label>
-                        </div>
+                      <div className="flex justify-between items-center">
+                        <label className={`text-[11px] font-black ${txtColor} uppercase tracking-wider flex items-center gap-2`}><ImagePlus size={16} /> Lampiran Bukti</label>
+                        
+                        {/* 1. Label dipisah dan menggunakan htmlFor untuk mencegah bug event bubbling di React */}
+                        <label 
+                          htmlFor="cashflow-file-input" 
+                          className={`cursor-pointer text-[10px] font-black bg-white px-4 py-2 rounded-xl shadow-sm hover:scale-105 active:scale-95 transition-all border ${btnUpload}`}
+                        >
+                          + Upload
+                        </label>
+                        
+                        {/* 2. Input diletakkan di luar label dengan id yang terhubung ke htmlFor */}
+                        <input 
+                          id="cashflow-file-input"
+                          type="file" 
+                          multiple 
+                          accept="image/*,video/*" 
+                          className="hidden" 
+                          onChange={e => { 
+                            // EKSTRAK file DULU sebelum input di-reset!
+                            const selectedFiles = Array.from(e.target.files || []);
+                            
+                            if (selectedFiles.length > 0) {
+                              setFiles(prev => [...prev, ...selectedFiles]); 
+                              setIsFormDirty(true); 
+                            }
+                            
+                            // Baru aman untuk membersihkan input agar bisa upload file yang sama berkali-kali
+                            e.target.value = ''; 
+                          }} 
+                        />
+                      </div>
                         {previewUrls.length === 0 ? (
                           <div className="text-center py-5 rounded-2xl border-2 border-dashed border-white/50"><p className={`text-[10px] font-bold ${txtColor} opacity-70`}>Belum ada file terlampir</p></div>
                         ) : (
@@ -1033,12 +1174,12 @@
                   <div className="mt-5 flex flex-col gap-4 text-xs font-medium">
                     <div className="bg-slate-50 p-5 rounded-[1.5rem] border-2 border-slate-100 shadow-sm space-y-3">
                       <p className={`font-black text-[11px] ${txtColor} uppercase border-b-2 border-slate-200 pb-3 mb-2 flex items-center gap-2`}><Layers size={16} /> Entitas: Data Jurnal Kas</p>
-                      <p className="flex justify-between items-center"><span className="text-slate-400 font-bold">Waktu Transaksi:</span> <span className="font-bold text-slate-700">{selectedTx.created_at}</span></p>
+                      <p className="flex justify-between items-center"><span className="text-slate-400 font-bold">Waktu Transaksi:</span> <span className="font-bold text-slate-700">{formatLocalDateTime(selectedTx.created_at)}</span></p>
                       <p className="flex justify-between items-center"><span className="text-slate-400 font-bold">Operator:</span> <span className="font-bold text-slate-700">{selectedTx.operator || '-'}</span></p>
                       <p className="flex justify-between items-center mt-2 pt-2 border-t border-dashed border-slate-200"><span className="text-slate-400 font-bold">Kategori/Jenis:</span> <span className="font-black text-slate-700 bg-slate-200 px-2 py-0.5 rounded uppercase">{selectedTx.jenis}</span></p>
                       <p className="flex justify-between items-center"><span className="text-slate-400 font-bold">Akun Sumber:</span> <span className="font-bold text-slate-700">{getAccountName(selectedTx.account_1)}</span></p>
                       {selectedTx.account_2 && <p className="flex justify-between items-center"><span className="text-slate-400 font-bold">Akun Tujuan:</span> <span className="font-bold text-blue-600">{getAccountName(selectedTx.account_2)}</span></p>}
-                      <p className="flex justify-between items-center"><span className="text-slate-400 font-bold">Pihak Terkait:</span> <span className="font-bold text-slate-700">{selectedTx.person || '-'}</span></p>
+                      <p className="flex justify-between items-center"><span className="text-slate-400 font-bold">Pihak Terkait:</span> <span className="font-bold text-slate-700">{getPersonName(selectedTx.person)}</span></p>
                       {selectedTx.ref_baru && <p className="flex justify-between items-center mt-2 pt-2 border-t border-dashed border-slate-200"><span className="text-slate-400 font-bold">Ref Transaksi POS:</span> <span className="font-bold text-blue-500 bg-blue-50 px-2 py-0.5 rounded border border-blue-100">{selectedTx.ref_baru}</span></p>}
                     </div>
 
@@ -1066,9 +1207,54 @@
                   </div>
 
                   <div className="mt-6 flex flex-wrap md:flex-nowrap gap-3 pt-5 border-t-2 border-slate-100 sticky bottom-0 bg-white">
-                    <button onClick={() => { if(window.confirm('Hapus permanen?')) submitDelete(); }} className="w-14 h-14 flex-shrink-0 bg-rose-50 text-rose-600 rounded-2xl hover:bg-rose-500 hover:text-white border border-rose-100 hover:shadow-lg transition-all flex justify-center items-center group"><Trash2 size={22} className="group-hover:scale-110 transition-transform"/></button>
-                    onClick={() => { setFormData({ mutasi: selectedTx.mutasi?.toLowerCase() === 'in' ? 'Masuk' : 'Keluar', created_at: selectedTx.created_at?.slice(0, 16), jenis: selectedTx.jenis, account_1: selectedTx.account_1, account_2: selectedTx.account_2 || '', person: selectedTx.person || '', persontext: selectedTx.persontext || '', nominal: selectedTx.nominal, note: selectedTx.note }); setModalType('form'); }}
-                    <button onClick={() => setModalType(null)} className="flex-[2] py-4 bg-slate-900 hover:bg-slate-800 text-white rounded-2xl font-black text-xs tracking-widest shadow-xl transition-all active:scale-95 uppercase">TUTUP DETAIL</button>
+                    {/* Tombol Hapus */}
+                    <button 
+                      onClick={() => { if(window.confirm('Hapus permanen?')) submitDelete(); }} 
+                      className="w-14 h-14 flex-shrink-0 bg-rose-50 text-rose-600 rounded-2xl hover:bg-rose-500 hover:text-white border border-rose-100 hover:shadow-lg transition-all flex justify-center items-center group"
+                      title="Hapus transaksi"
+                    >
+                      <Trash2 size={22} className="group-hover:scale-110 transition-transform"/>
+                    </button>
+                    
+                    {/* Tombol Edit */}
+                    <button 
+                      onClick={() => { 
+                        const localCreatedAt = selectedTx.created_at ? formatToLocalDatetimeInput(selectedTx.created_at) : '';
+                        
+                        // JAUH LEBIH CEPAT: Jangan download filenya, cukup oper URL dan tandai sebagai 'isOld'
+                        const oldFiles = (selectedTx.file || []).map(fileName => ({
+                          isOld: true,
+                          name: fileName, // diperlukan fungsi isVideo (pengecekan ekstensi)
+                          url: pb.files.getUrl(selectedTx, fileName)
+                        }));
+                        
+                        setFiles(oldFiles); // Langsung tampil di kotak preview!
+                        
+                        setFormData({
+                          mutasi: selectedTx.mutasi?.toLowerCase() === 'in' ? 'Masuk' : 'Keluar', 
+                          created_at: localCreatedAt, 
+                          jenis: selectedTx.jenis, 
+                          account_1: selectedTx.account_1, 
+                          account_2: selectedTx.account_2 || '', 
+                          person: selectedTx.person || '', 
+                          persontext: selectedTx.persontext || '', 
+                          nominal: selectedTx.nominal, 
+                          note: selectedTx.note 
+                        }); 
+                        setModalType('form'); 
+                      }}
+                      className="flex-1 py-3 bg-blue-500 text-white rounded-xl font-black text-xs uppercase tracking-widest hover:bg-blue-600 transition-all"
+                    >
+                      Edit Transaksi
+                    </button>
+                    
+                    {/* Tombol Tutup */}
+                    <button 
+                      onClick={() => setModalType(null)} 
+                      className="flex-[2] py-4 bg-slate-900 hover:bg-slate-800 text-white rounded-2xl font-black text-xs tracking-widest shadow-xl transition-all active:scale-95 uppercase"
+                    >
+                      TUTUP DETAIL
+                    </button>
                   </div>
                 </div>
               );
@@ -1078,7 +1264,15 @@
         </div>
         
         {/* Tombol Floating Mobile */}
-        <button onClick={() => { setSelectedTx(null); setFiles([]); setFormData({ mutasi: 'Masuk', created_at: new Date().toISOString().slice(0,16).replace('T', ' ') }); setModalType('form'); }} className="md:hidden fixed bottom-6 right-6 z-50 w-16 h-16 bg-slate-900 text-white rounded-full shadow-2xl shadow-slate-500/50 flex items-center justify-center hover:scale-105 active:scale-95 transition-all duration-300">
+        <button 
+          onClick={() => { 
+            setSelectedTx(null); 
+            setFiles([]); 
+            setFormData({ mutasi: 'Masuk', created_at: formatToLocalDatetimeInput(new Date().toISOString()) }); 
+            setModalType('form'); 
+          }} 
+          className="md:hidden fixed bottom-6 right-6 z-50 w-16 h-16 bg-slate-900 text-white rounded-full shadow-2xl shadow-slate-500/50 flex items-center justify-center hover:scale-105 active:scale-95 transition-all duration-300"
+        >
           <Plus size={30} strokeWidth={3} />
         </button>
       </div>
