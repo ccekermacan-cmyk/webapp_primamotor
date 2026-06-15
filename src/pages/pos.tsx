@@ -107,6 +107,8 @@ export default function MenuPage() {
   // State Khusus File Upload Menu
   const [menuFiles, setMenuFiles] = useState<File[]>([]);
   const [menuPreviewUrls, setMenuPreviewUrls] = useState<string[]>([]);
+  // State untuk menyimpan blob URL dari file nota (dengan autentikasi)
+  const [fileBlobUrls, setFileBlobUrls] = useState<Record<string, string>>({});
 
   // Membersihkan local object URLs untuk preview agar tidak memory leak
   useEffect(() => {
@@ -116,8 +118,29 @@ export default function MenuPage() {
     return () => urls.forEach(u => URL.revokeObjectURL(u));
   }, [menuFiles]);
 
+  useEffect(() => {
+    // Bersihkan blob URL saat modal detail history berubah (ditutup atau ganti nota)
+    return () => {
+      Object.values(fileBlobUrls).forEach(url => {
+        if (url.startsWith('blob:')) URL.revokeObjectURL(url);
+      });
+      setFileBlobUrls({});
+    };
+  }, [showDetailHistory]); // dependency: ketika modal detail berubah (open/close)
+
   // Fungsi helper cek video
   const isVideo = (filename: string) => filename.match(/\.(mp4|webm|ogg)$/i);
+
+  const fetchFileWithAuth = async (url: string): Promise<string> => {
+    const token = pb.authStore.token;
+    if (!token) return url; // fallback (seharusnya tidak terjadi karena user sudah login)
+    const response = await fetch(url, {
+      headers: { 'Authorization': token }
+    });
+    if (!response.ok) throw new Error(`Gagal fetch file: ${response.status}`);
+    const blob = await response.blob();
+    return URL.createObjectURL(blob);
+  };
 
   const getJenisColor = (jenis: string) => {
   const j = jenis.toLowerCase();
@@ -2261,29 +2284,42 @@ export default function MenuPage() {
             </div> 
 
             {showDetailHistory.file && showDetailHistory.file.length > 0 && (
-            <div className="bg-slate-50 p-5 rounded-[1.5rem] border-2 border-slate-100 shadow-sm">
-              <p className={`font-black text-[11px] ${activeTheme.text} uppercase border-b-2 border-slate-200 pb-3 mb-3 flex items-center gap-2`}>
-                <ImagePlus size={16}/> Lampiran Media Nota
-              </p>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                {showDetailHistory.file.map((f, i) => {
-                  const fileUrl = pb.files.getUrl(showDetailHistory, f);
-                  return (
-                    <div key={i} className="relative group rounded-xl overflow-hidden border-2 border-white shadow-md aspect-square bg-slate-100">
-                      {f.match(/\.(mp4|webm|ogg)$/i) ? (
-                        <video src={fileUrl} className="w-full h-full object-cover" />
-                      ) : (
-                        <img src={fileUrl} alt={`Lampiran ${i}`} className="w-full h-full object-cover transition-transform group-hover:scale-110 duration-500" />
-                      )}
-                      <a href={fileUrl} target="_blank" rel="noreferrer" className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-sm">
-                        <ExternalLink size={24} className="text-white drop-shadow-lg scale-75 group-hover:scale-100 transition-transform" />
-                      </a>
-                    </div>
-                  );
-                })}
+              <div className="bg-slate-50 p-5 rounded-[1.5rem] border-2 border-slate-100 shadow-sm">
+                <p className={`font-black text-[11px] ${activeTheme.text} uppercase border-b-2 border-slate-200 pb-3 mb-3 flex items-center gap-2`}>
+                  <ImagePlus size={16}/> Lampiran Media Nota
+                </p>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  {showDetailHistory.file.map((f, i) => {
+                    const fileUrl = pb.files.getUrl(showDetailHistory, f);
+                    const blobUrl = fileBlobUrls[f];
+                    // Jika blobUrl belum ada, fetch secara asinkron
+                    if (!blobUrl) {
+                      fetchFileWithAuth(fileUrl).then(url => {
+                        setFileBlobUrls(prev => ({ ...prev, [f]: url }));
+                      }).catch(err => console.warn(`Gagal memuat file ${f}:`, err));
+                    }
+                    return (
+                      <div key={i} className="relative group rounded-xl overflow-hidden border-2 border-white shadow-md aspect-square bg-slate-100">
+                        {blobUrl ? (
+                          f.match(/\.(mp4|webm|ogg)$/i) ? (
+                            <video src={blobUrl} className="w-full h-full object-cover" />
+                          ) : (
+                            <img src={blobUrl} alt={`Lampiran ${i}`} className="w-full h-full object-cover transition-transform group-hover:scale-110 duration-500" />
+                          )
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center bg-slate-200 animate-pulse">
+                            <span className="text-xs text-slate-500">Loading...</span>
+                          </div>
+                        )}
+                        <a href={fileUrl} target="_blank" rel="noreferrer" className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-sm">
+                          <ExternalLink size={24} className="text-white drop-shadow-lg scale-75 group-hover:scale-100 transition-transform" />
+                        </a>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
             <div className="flex flex-wrap md:flex-nowrap gap-3 pt-6 border-t-2 border-slate-100">
               {/* Tombol Delete: level 1,5 selalu; jika status 'belum', level 1-7 */}
