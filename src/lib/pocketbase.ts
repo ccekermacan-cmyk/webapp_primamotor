@@ -18,7 +18,10 @@ export async function fetchFileAsBlobUrl(record: any, filename: string): Promise
     if (!token) return url; // fallback (tapi seharusnya token ada)
 
     const response = await fetch(url, {
-        headers: { 'Authorization': token }
+        headers: { 
+            'Authorization': token,
+            'ngrok-skip-browser-warning': '69420' // TAMBAHKAN INI DI SINI
+        }
     });
     if (!response.ok) throw new Error(`Gagal mengambil file: ${response.status}`);
     const blob = await response.blob();

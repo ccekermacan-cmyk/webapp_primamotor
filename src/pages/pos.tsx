@@ -135,7 +135,10 @@ export default function MenuPage() {
     const token = pb.authStore.token;
     if (!token) return url; // fallback (seharusnya tidak terjadi karena user sudah login)
     const response = await fetch(url, {
-      headers: { 'Authorization': token }
+      headers: { 
+        'Authorization': token,
+        'ngrok-skip-browser-warning': '69420' // TAMBAHKAN INI DI SINI
+      }
     });
     if (!response.ok) throw new Error(`Gagal fetch file: ${response.status}`);
     const blob = await response.blob();
@@ -994,7 +997,10 @@ export default function MenuPage() {
             for (const fileName of menuItem.file) {
               try {
                 const fileUrl = pb.files.getUrl(menuItem, fileName);
-                const response = await fetch(fileUrl);
+                // TAMBAHKAN HEADER NGROK DI SINI
+                const response = await fetch(fileUrl, {
+                  headers: { 'ngrok-skip-browser-warning': '69420' }
+                });
                 const blob = await response.blob();
                 // Buat File object dengan nama asli
                 const file = new File([blob], fileName, { type: blob.type });
