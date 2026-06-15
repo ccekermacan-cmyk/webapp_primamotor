@@ -1111,7 +1111,7 @@ export default function MenuPage() {
       <div className="flex-1 flex flex-col p-3 md:p-6 lg:p-8 pt-20 md:pt-6 overflow-hidden w-full transition-colors duration-500">
          
         {/* Nav Tabs */}
-        <div className={`mb-6 shrink-0 flex items-center p-2 md:p-2.5 rounded-[2.5rem] shadow-sm border overflow-x-auto no-scrollbar transition-colors duration-500 ${activeTheme.light} ${activeTheme.border} bg-white/50 backdrop-blur-md`}>
+        <div className={`mb-6 shrink-0 flex items-center p-2 md:p-2.5 rounded-[2.5rem] shadow-sm border overflow-x-auto no-scrollbar transition-colors duration-500 ${activeTheme.light} ${activeTheme.border} bg-white/50 md:backdrop-blur-md`}>
           <div className="flex gap-2 md:gap-3 px-2">
             {menuOptions.map(m => {
               const tabTheme = getThemeConfig(m.text_1);
@@ -1258,9 +1258,9 @@ export default function MenuPage() {
               {selectedMenu.toLowerCase() !== 'overview' && !selectedMenu.toLowerCase().includes('gaji') && ( 
                 <div className={
                   viewMode === 'grid' 
-                    ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6" 
-                    : "flex flex-col gap-4"
-                }> 
+                    ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 will-change-transform" 
+                    : "flex flex-col gap-4 will-change-transform"
+                }>
                   {products.map(p => ( 
                     <div key={p.id} onClick={() => addToCart(p)} 
                       className={`bg-white rounded-3xl border-2 border-transparent hover:${activeTheme.border} shadow-sm hover:shadow-2xl hover:-translate-y-1 transition-all duration-300 cursor-pointer group relative overflow-hidden ${
@@ -1268,7 +1268,7 @@ export default function MenuPage() {
                       }`}> 
                       
                       {/* Decorative Background Blob */}
-                      <div className={`absolute -top-12 -right-12 w-40 h-40 ${activeTheme.light} rounded-full blur-3xl opacity-20 group-hover:opacity-70 transition-opacity duration-500 pointer-events-none`} />
+                      <div className={`absolute -top-12 -right-12 w-40 h-40 ${activeTheme.light} rounded-full blur-sm md:blur-3xl opacity-20 group-hover:opacity-70 transition-opacity duration-500 pointer-events-none`} />
                       
                       <div className={`relative z-10 ${viewMode === 'list' ? 'flex-1 pr-6' : ''}`}> 
                         <div className={`flex items-start mb-4 ${viewMode === 'grid' ? 'justify-between' : 'gap-4'}`}> 
