@@ -1,5 +1,5 @@
 import { useNavigate, useLocation } from 'react-router-dom'; // Ini yang menyebabkan error ReferenceError
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { pb } from '../lib/pocketbase';
 import Modal from '../components/modal';
 import { 
@@ -87,12 +87,18 @@ export default function MenuPage() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
-  const perPage = 12;
+  const [perPage, setPerPage] = useState(12);
 
   const [searchInput, setSearchInput] = useState('');
+
+  const [viewMode, setViewMode] = useState('grid'); // 'grid' atau 'list'
+  const [showNavbar, setShowNavbar] = useState(true);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [showStatusFilter, setShowStatusFilter] = useState(false);
+  const [showDesktopFilters, setShowDesktopFilters] = useState(false);
   const [selectedMenuFilters, setSelectedMenuFilters] = useState<string[]>([]);
   const [showJenisFilter, setShowJenisFilter] = useState(false);
   
@@ -460,6 +466,28 @@ export default function MenuPage() {
     finally { setLoading(false); }
   };
 
+  // Deteksi tipe perangkat
+  const [deviceType, setDeviceType] = useState<'mobile' | 'tablet' | 'desktop'>('desktop');
+
+  useEffect(() => {
+    const handleResize = () => {
+      const width = window.innerWidth;
+      if (width < 640) setDeviceType('mobile');
+      else if (width < 1024) setDeviceType('tablet');
+      else setDeviceType('desktop');
+    };
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // Atur jumlah item per halaman berdasarkan device
+  useEffect(() => {
+    if (deviceType === 'mobile') setPerPage(6);
+    else if (deviceType === 'tablet') setPerPage(9);
+    else setPerPage(12);
+  }, [deviceType]);
+
   useEffect(() => {
     const timer = setTimeout(() => { setSearchTerm(searchInput); setPage(1); }, 500);
     return () => clearTimeout(timer);
@@ -476,7 +504,28 @@ export default function MenuPage() {
     }
   }, [isOnlinePerson]);
 
-  useEffect(() => { fetchData(); }, [page, searchTerm, selectedMenu, filterStatus, selectedMenuFilters]);
+  useEffect(() => { fetchData(); }, [page, searchTerm, selectedMenu, filterStatus, selectedMenuFilters, perPage]);
+
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    
+    const handleScroll = () => {
+      const currentScrollTop = container.scrollTop;
+      // Jika scroll melewati 50px ke bawah, sembunyikan navbar
+      if (currentScrollTop > 50) {
+        setShowNavbar(false);
+      } 
+      // Jika scroll sudah mencapai posisi paling atas (<=10px), tampilkan navbar
+      else if (currentScrollTop <= 10) {
+        setShowNavbar(true);
+      }
+      // Untuk posisi antara 11px - 50px, biarkan status navbar tidak berubah (tetap seperti sebelumnya)
+    };
+    
+    container.addEventListener('scroll', handleScroll);
+    return () => container.removeEventListener('scroll', handleScroll);
+  }, []); // Dependency kosong karena tidak lagi menggunakan lastScrollTop
 
   const cartWithTierPrice = useMemo(() => {
   const isPembelian = selectedMenu.toLowerCase().includes('pembelian');
@@ -1102,8 +1151,6 @@ export default function MenuPage() {
     return groups;
   }, [historyGaji]);
 
-  const [viewMode, setViewMode] = useState('grid'); // 'grid' atau 'list'
-
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden font-sans text-slate-800">
       
@@ -1111,140 +1158,157 @@ export default function MenuPage() {
       <div className="flex-1 flex flex-col p-3 md:p-6 lg:p-8 pt-20 md:pt-6 overflow-hidden w-full transition-colors duration-500">
          
         {/* Nav Tabs */}
-        <div className={`mb-6 shrink-0 flex items-center p-2 md:p-2.5 rounded-[2.5rem] shadow-sm border overflow-x-auto no-scrollbar transition-colors duration-500 ${activeTheme.light} ${activeTheme.border} bg-white/50 md:backdrop-blur-md`}>
-          <div className="flex gap-2 md:gap-3 px-2">
-            {menuOptions.map(m => {
-              const tabTheme = getThemeConfig(m.text_1);
-              const isActive = selectedMenu === m.text_1;
-              return (
-                <button key={m.id} onClick={() => handleMenuChange(m.text_1)}
-                  className={`px-5 md:px-8 py-2.5 md:py-3.5 rounded-[2rem] font-black text-[10px] md:text-[11px] uppercase tracking-widest transition-all duration-300 whitespace-nowrap flex-shrink-0 ${
-                    isActive ? `${tabTheme.main} text-white shadow-xl shadow-${tabTheme.main.replace('bg-', '')}/40 scale-105` : `${tabTheme.text} hover:bg-white/80 opacity-70 hover:opacity-100 hover:shadow-sm`
-                  }`}>
-                  {m.text_1}
-                </button>
-              );
-            })}
+        <div className={`shrink-0 transition-all duration-300 ${showNavbar ? 'mb-6 max-h-24 opacity-100' : 'mb-0 max-h-0 opacity-0 overflow-hidden'} ${activeTheme.light} ${activeTheme.border} bg-white/50 md:backdrop-blur-md`}>
+          <div className="flex items-center p-2 md:p-2.5 rounded-[2.5rem] shadow-sm border overflow-x-auto no-scrollbar">
+            <div className="flex gap-2 md:gap-3 px-2">
+              {menuOptions.map(m => {
+                const tabTheme = getThemeConfig(m.text_1);
+                const isActive = selectedMenu === m.text_1;
+                return (
+                  <button key={m.id} onClick={() => handleMenuChange(m.text_1)}
+                    className={`px-5 md:px-8 py-2.5 md:py-3.5 rounded-[2rem] font-black text-[10px] md:text-[11px] uppercase tracking-widest transition-all duration-300 whitespace-nowrap flex-shrink-0 ${
+                      isActive ? `${tabTheme.main} text-white shadow-xl shadow-${tabTheme.main.replace('bg-', '')}/40 scale-105` : `${tabTheme.text} hover:bg-white/80 opacity-70 hover:opacity-100 hover:shadow-sm`
+                    }`}>
+                    {m.text_1}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
 
         {/* Search Bar & Filters - Glassmorphism & Theme Sync */}
-        <div className="p-4 md:p-6 mb-4 border border-gray-100 bg-white/80 backdrop-blur-xl rounded-3xl shadow-sm shrink-0 flex flex-col gap-4">
-            
-            {/* Baris atas: input pencarian + Toggle View & Filter Mobile */}
-            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-              <div className="relative w-full group">
-                <Search className={`absolute left-4 top-1/2 -translate-y-1/2 transition-colors ${activeTheme.text} opacity-50 group-focus-within:opacity-100`} size={20} />
-                <input 
-                  type="text" 
-                  placeholder={`Cari di menu ${selectedMenu}...`} 
-                  className={`w-full pl-12 pr-4 py-3.5 bg-gray-50/50 border-2 border-transparent hover:border-gray-200 rounded-2xl focus:bg-white focus:border-transparent focus:ring-4 ${activeTheme.focusRing} outline-none transition-all shadow-sm text-sm font-bold text-slate-700 placeholder-slate-400`}
-                  value={searchInput}
-                  onChange={(e) => setSearchInput(e.target.value)}
-                />
-              </div>
-
-              <div className="flex gap-2">
-                {/* Tombol Toggle View (Desktop & Tablet) */}
-                {selectedMenu.toLowerCase() !== 'overview' && (
-                  <div className="hidden sm:flex bg-gray-50 border border-gray-200 rounded-2xl p-1.5 shadow-inner shrink-0 items-center">
-                    <button onClick={() => setViewMode('list')} className={`p-2.5 rounded-xl transition-all duration-300 ${viewMode === 'list' ? `${activeTheme.main} text-white shadow-md` : 'text-gray-400 hover:text-gray-700 hover:bg-gray-200'}`}>
-                      <List size={18} />
-                    </button>
-                    <button onClick={() => setViewMode('grid')} className={`p-2.5 rounded-xl transition-all duration-300 ${viewMode === 'grid' ? `${activeTheme.main} text-white shadow-md` : 'text-gray-400 hover:text-gray-700 hover:bg-gray-200'}`}>
-                      <Grid size={18} />
-                    </button>
-                  </div>
-                )}
-
-                {/* Tombol filter mobile (Overview) */}
-                {selectedMenu === 'Overview' && (
-                  <button
-                    onClick={() => setShowStatusFilter(!showStatusFilter)}
-                    className={`sm:hidden flex flex-1 items-center justify-center gap-2 py-3 bg-white border border-gray-200 rounded-2xl text-sm font-bold ${activeTheme.text} shadow-sm active:scale-95 transition-all`}
-                  >
-                    <Filter size={18} />
-                    {showStatusFilter ? 'Tutup Filter' : 'Filter'}
-                  </button>
-                )}
-              </div>
+        <div className="p-3 sm:p-4 md:p-6 mb-3 sm:mb-4 border border-gray-100 bg-white/80 backdrop-blur-xl rounded-2xl sm:rounded-3xl shadow-sm shrink-0 flex flex-col gap-2 sm:gap-3 md:gap-4">
+          
+          {/* Baris atas: input pencarian + Toggle View & Filter Mobile */}
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+            <div className="relative w-full group">
+              <Search className={`absolute left-4 top-1/2 -translate-y-1/2 transition-colors ${activeTheme.text} opacity-50 group-focus-within:opacity-100`} size={20} />
+              <input 
+                type="text" 
+                placeholder={`Cari di menu ${selectedMenu}...`} 
+                className={`w-full pl-12 pr-4 py-3.5 bg-gray-50/50 border-2 border-transparent hover:border-gray-200 rounded-2xl focus:bg-white focus:border-transparent focus:ring-4 ${activeTheme.focusRing} outline-none transition-all shadow-sm text-sm font-bold text-slate-700 placeholder-slate-400`}
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+              />
             </div>
 
-            {/* Filter Desktop (Sinkronisasi dengan activeTheme) */}
-            {selectedMenu === 'Overview' && (
-              <div className="hidden sm:flex flex-wrap items-center gap-4 border-t border-gray-100 pt-4">
-                
-                {/* Filter status */}
-                <div className="flex flex-wrap items-center bg-gray-50 border border-gray-200 rounded-2xl p-1.5 shadow-inner">
-                  {['all', 'lunas', 'belum'].map(status => (
-                    <button key={status} onClick={() => { setFilterStatus(status); setPage(1); }}
-                      className={`px-5 py-2 text-xs md:text-xs font-black uppercase tracking-wider rounded-xl transition-all duration-300 ${
-                        filterStatus === status ? `${activeTheme.main} text-white shadow-md scale-95` : 'text-gray-500 hover:text-gray-800 hover:bg-gray-200'
-                      }`}>
-                      {status === 'all' ? 'Semua' : status}
-                    </button>
-                  ))}
-                </div>
-
-                {/* Filter jenis menu */}
-                <div className="flex flex-wrap items-center bg-gray-50 border border-gray-200 rounded-2xl p-1.5 shadow-inner gap-1">
-                  <button onClick={() => setSelectedMenuFilters([])}
-                    className={`px-4 py-2 text-xs md:text-xm font-black uppercase tracking-wider rounded-xl transition-all duration-300 ${
-                      selectedMenuFilters.length === 0 ? `${activeTheme.main} text-white shadow-md` : 'text-gray-500 hover:text-gray-800 hover:bg-gray-200'
-                    }`}>
-                    Semua Jenis
+            <div className="flex gap-2">
+              {/* Tombol Toggle View (Desktop & Tablet) */}
+              {selectedMenu.toLowerCase() !== 'overview' && (
+                <div className="hidden sm:flex bg-gray-50 border border-gray-200 rounded-2xl p-1.5 shadow-inner shrink-0 items-center">
+                  <button onClick={() => setViewMode('list')} className={`p-2.5 rounded-xl transition-all duration-300 ${viewMode === 'list' ? `${activeTheme.main} text-white shadow-md` : 'text-gray-400 hover:text-gray-700 hover:bg-gray-200'}`}>
+                    <List size={18} />
                   </button>
-                  {menuOptions.filter(m => m.text_1 !== 'Overview').map(menu => (
-                    <button key={menu.id}
-                      onClick={() => {
-                        setSelectedMenuFilters(prev => prev.includes(menu.text_1) ? prev.filter(j => j !== menu.text_1) : [...prev, menu.text_1]);
-                        setPage(1);
-                      }}
-                      className={`px-4 py-2 text-xs md:text-xs font-black uppercase tracking-wider rounded-xl transition-all duration-300 ${
-                        selectedMenuFilters.includes(menu.text_1) ? `${activeTheme.main} text-white shadow-md` : 'text-gray-500 hover:text-gray-800 hover:bg-gray-200'
-                      }`}>
-                      {menu.text_1}
-                    </button>
-                  ))}
+                  <button onClick={() => setViewMode('grid')} className={`p-2.5 rounded-xl transition-all duration-300 ${viewMode === 'grid' ? `${activeTheme.main} text-white shadow-md` : 'text-gray-400 hover:text-gray-700 hover:bg-gray-200'}`}>
+                    <Grid size={18} />
+                  </button>
                 </div>
-              </div>
-            )}
+              )}
 
-            {/* Filter Mobile Expand */}
-            {selectedMenu === 'Overview' && showStatusFilter && (
-              <div className="sm:hidden flex flex-col gap-4 mt-2 animate-in slide-in-from-top-4 fade-in duration-300 border-t border-gray-100 pt-4">
-                <div className="flex gap-2 bg-gray-50 rounded-2xl p-1.5 shadow-inner">
-                  {['all', 'lunas', 'belum'].map(status => (
-                    <button key={status} onClick={() => { setFilterStatus(status); setPage(1); setShowStatusFilter(false); }}
-                      className={`flex-1 py-2.5 text-xs font-black uppercase tracking-wider rounded-xl transition-all ${
-                        filterStatus === status ? `${activeTheme.main} text-white shadow-md` : 'text-gray-500 hover:bg-gray-200'
-                      }`}>
-                      {status === 'all' ? 'Semua' : status}
-                    </button>
-                  ))}
-                </div>
-                <div className="flex flex-wrap gap-2 bg-gray-50 rounded-2xl p-1.5 shadow-inner">
-                  <button onClick={() => { setSelectedMenuFilters([]); setPage(1); setShowStatusFilter(false); }}
+              {/* Tombol filter desktop (Overview) */}
+              {selectedMenu === 'Overview' && (
+                <button
+                  onClick={() => setShowDesktopFilters(!showDesktopFilters)}
+                  className="hidden sm:flex items-center justify-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-xl text-sm font-bold shadow-sm hover:bg-gray-50 transition-all"
+                >
+                  <Filter size={16} />
+                  Filter
+                </button>
+              )}
+
+              {/* Tombol filter mobile (Overview) */}
+              {selectedMenu === 'Overview' && (
+                <button
+                  onClick={() => setShowStatusFilter(!showStatusFilter)}
+                  className="sm:hidden flex flex-1 items-center justify-center gap-2 py-3 bg-white border border-gray-200 rounded-2xl text-sm font-bold shadow-sm active:scale-95 transition-all"
+                >
+                  <Filter size={18} />
+                  {showStatusFilter ? 'Tutup Filter' : 'Filter'}
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Filter Desktop (muncul jika showDesktopFilters true) */}
+          {selectedMenu === 'Overview' && (
+            <div className={`flex-wrap items-center gap-4 border-t border-gray-100 pt-4 ${showDesktopFilters ? 'flex' : 'hidden'}`}>
+              {/* Filter status */}
+              <div className="flex flex-wrap items-center bg-gray-50 border border-gray-200 rounded-2xl p-1.5 shadow-inner">
+                {['all', 'lunas', 'belum'].map(status => (
+                  <button key={status} onClick={() => { setFilterStatus(status); setPage(1); }}
+                    className={`px-5 py-2 text-xs md:text-xs font-black uppercase tracking-wider rounded-xl transition-all duration-300 ${
+                      filterStatus === status ? `${activeTheme.main} text-white shadow-md scale-95` : 'text-gray-500 hover:text-gray-800 hover:bg-gray-200'
+                    }`}>
+                    {status === 'all' ? 'Semua' : status}
+                  </button>
+                ))}
+              </div>
+
+              {/* Filter jenis menu */}
+              <div className="flex flex-wrap items-center bg-gray-50 border border-gray-200 rounded-2xl p-1.5 shadow-inner gap-1">
+                <button onClick={() => setSelectedMenuFilters([])}
+                  className={`px-4 py-2 text-xs md:text-xm font-black uppercase tracking-wider rounded-xl transition-all duration-300 ${
+                    selectedMenuFilters.length === 0 ? `${activeTheme.main} text-white shadow-md` : 'text-gray-500 hover:text-gray-800 hover:bg-gray-200'
+                  }`}>
+                  Semua Jenis
+                </button>
+                {menuOptions.filter(m => m.text_1 !== 'Overview').map(menu => (
+                  <button key={menu.id}
+                    onClick={() => {
+                      setSelectedMenuFilters(prev => prev.includes(menu.text_1) ? prev.filter(j => j !== menu.text_1) : [...prev, menu.text_1]);
+                      setPage(1);
+                    }}
+                    className={`px-4 py-2 text-xs md:text-xs font-black uppercase tracking-wider rounded-xl transition-all duration-300 ${
+                      selectedMenuFilters.includes(menu.text_1) ? `${activeTheme.main} text-white shadow-md` : 'text-gray-500 hover:text-gray-800 hover:bg-gray-200'
+                    }`}>
+                    {menu.text_1}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Filter Mobile Expand (muncul jika showStatusFilter true) */}
+          {selectedMenu === 'Overview' && showStatusFilter && (
+            <div className="sm:hidden flex flex-col gap-4 mt-2 animate-in slide-in-from-top-4 fade-in duration-300 border-t border-gray-100 pt-4">
+              <div className="flex gap-2 bg-gray-50 rounded-2xl p-1.5 shadow-inner">
+                {['all', 'lunas', 'belum'].map(status => (
+                  <button key={status} onClick={() => { setFilterStatus(status); setPage(1); setShowStatusFilter(false); }}
+                    className={`flex-1 py-2.5 text-xs font-black uppercase tracking-wider rounded-xl transition-all ${
+                      filterStatus === status ? `${activeTheme.main} text-white shadow-md` : 'text-gray-500 hover:bg-gray-200'
+                    }`}>
+                    {status === 'all' ? 'Semua' : status}
+                  </button>
+                ))}
+              </div>
+              <div className="flex flex-wrap gap-2 bg-gray-50 rounded-2xl p-1.5 shadow-inner">
+                <button onClick={() => { setSelectedMenuFilters([]); setPage(1); setShowStatusFilter(false); }}
+                  className={`flex-1 min-w-[45%] py-2.5 text-xs font-black uppercase tracking-wider rounded-xl transition-all ${
+                    selectedMenuFilters.length === 0 ? `${activeTheme.main} text-white shadow-md` : 'text-gray-500 hover:bg-gray-200'
+                  }`}>
+                  Semua Jenis
+                </button>
+                {menuOptions.filter(m => m.text_1 !== 'Overview').map(menu => (
+                  <button key={menu.id}
+                    onClick={() => {
+                      setSelectedMenuFilters(prev => prev.includes(menu.text_1) ? prev.filter(j => j !== menu.text_1) : [...prev, menu.text_1]);
+                      setPage(1);
+                      setShowStatusFilter(false);
+                    }}
                     className={`flex-1 min-w-[45%] py-2.5 text-xs font-black uppercase tracking-wider rounded-xl transition-all ${
-                      selectedMenuFilters.length === 0 ? `${activeTheme.main} text-white shadow-md` : 'text-gray-500 hover:bg-gray-200'
+                      selectedMenuFilters.includes(menu.text_1) ? `${activeTheme.main} text-white shadow-md` : 'text-gray-500 hover:bg-gray-200'
                     }`}>
-                    Semua Jenis
+                    {menu.text_1}
                   </button>
-                  {menuOptions.filter(m => m.text_1 !== 'Overview').map(menu => (
-                    <button key={menu.id} onClick={() => { /* logika sama dengan di atas */ setSelectedMenuFilters(prev => prev.includes(menu.text_1) ? prev.filter(j => j !== menu.text_1) : [...prev, menu.text_1]); setPage(1); setShowStatusFilter(false); }}
-                      className={`flex-1 min-w-[45%] py-2.5 text-xs font-black uppercase tracking-wider rounded-xl transition-all ${
-                        selectedMenuFilters.includes(menu.text_1) ? `${activeTheme.main} text-white shadow-md` : 'text-gray-500 hover:bg-gray-200'
-                      }`}>
-                      {menu.text_1}
-                    </button>
-                  ))}
-                </div>
+                ))}
               </div>
-            )}
+            </div>
+          )}
         </div>
 
         {/* Content Dynamic - Wrapper */}
-        <div className={`flex-1 overflow-y-auto pr-2 custom-scrollbar pb-10 transition-colors duration-500 rounded-3xl`}>
+        <div ref={scrollContainerRef} className={`flex-1 overflow-y-auto pr-2 custom-scrollbar pb-10 transition-colors duration-500 rounded-3xl`}>
           
           {loading ? ( 
             <div className="h-full flex flex-col items-center justify-center gap-4">
@@ -1423,7 +1487,7 @@ export default function MenuPage() {
         </div> 
 
         {/* Pagination - Glassmorphism */}
-        <div className="mt-auto flex justify-between items-center bg-white/80 backdrop-blur-md p-3 md:p-4 rounded-3xl border border-gray-100 shadow-lg shrink-0"> 
+        <div className="mt-auto flex justify-between items-center bg-white/80 backdrop-blur-md p-2 md:p-2 rounded-3xl border border-gray-100 shadow-lg shrink-0"> 
           <p className="text-[10px] md:text-[11px] font-black text-slate-400 uppercase tracking-widest ml-4 md:ml-6">Hal {page} / {totalPages}</p> 
           <div className="flex gap-2 md:gap-3"> 
             <button onClick={() => setPage(p => Math.max(1, p-1))} className={`p-3 md:p-4 bg-slate-50 rounded-2xl hover:${activeTheme.light} hover:${activeTheme.text} transition-colors border border-transparent hover:border-gray-200`}><ChevronLeft size={20}/></button> 
