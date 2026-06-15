@@ -1217,77 +1217,78 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
                 </div>
               </div>
             </div>
-          </div>
 
-          {/* Bagian Upload File Gambar */}
-          <div className="bg-yellow-50/30 p-4 rounded-xl border border-yellow-100 space-y-3">
-            <div className="flex justify-between items-center">
-              <label className="text-[11px] font-black text-yellow-600 uppercase tracking-wider flex items-center gap-2">
-                <ImagePlus size={16} /> Gambar Produk
-              </label>
-              <label 
-                htmlFor="product-file-input" 
-                className="cursor-pointer text-[10px] font-black bg-white px-4 py-2 rounded-xl shadow-sm hover:scale-105 active:scale-95 transition-all border border-yellow-200 text-yellow-600"
-              >
-                + Upload
-              </label>
-              <input 
-                id="product-file-input"
-                type="file" 
-                multiple 
-                accept="image/*,video/*" 
-                className="hidden" 
-                onChange={e => {
-                  const selectedFiles = Array.from(e.target.files || []);
-                  if (selectedFiles.length > 0) {
-                    setProductFiles(prev => [...prev, ...selectedFiles]);
-                  }
-                  e.target.value = '';
-                }} 
-              />
-            </div>
-            {productPreviewUrls.length === 0 ? (
-              <div className="text-center py-5 rounded-2xl border-2 border-dashed border-yellow-200">
-                <p className="text-[10px] font-bold text-yellow-600 opacity-70">Belum ada file gambar</p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
-                {productPreviewUrls.map((url, idx) => (
-                  <div key={idx} className="relative group rounded-xl overflow-hidden border border-white shadow-sm aspect-square bg-white">
-                    {productFiles[idx] && typeof productFiles[idx] === 'object' && 'isOld' in productFiles[idx] && productFiles[idx].isOld ? (
-                      <img src={url} alt={`preview-${idx}`} className="w-full h-full object-cover transition-transform group-hover:scale-110 duration-500" />
-                    ) : (
-                      productFiles[idx] instanceof File && productFiles[idx].type.startsWith('video/') ? (
-                        <video src={url} className="w-full h-full object-cover opacity-80" muted />
-                      ) : (
-                        <img src={url} alt={`preview-${idx}`} className="w-full h-full object-cover transition-transform group-hover:scale-110 duration-500" />
-                      )
-                    )}
-                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                      <button 
-                        type="button" 
-                        onClick={() => setProductFiles(prev => prev.filter((_, i) => i !== idx))} 
-                        className="w-8 h-8 bg-rose-500 text-white rounded-full flex items-center justify-center hover:scale-110 active:scale-95 shadow-lg"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-            {productFiles.length > 0 && (
-              <div className="flex justify-between items-center pt-2 border-t border-yellow-200">
-                <span className="text-[11px] font-black text-yellow-600">{productFiles.length} file terpilih</span>
-                <button
-                  type="button"
-                  onClick={() => setProductFiles([])}
-                  className="text-[10px] font-black text-rose-500 hover:text-rose-700 bg-rose-50 px-3 py-1.5 rounded-lg transition-colors"
+            {/* Bagian Upload File Gambar */}
+            <div className="bg-yellow-50/30 p-4 rounded-xl border border-yellow-100 space-y-3">
+              <div className="flex justify-between items-center">
+                <label className="text-[11px] font-black text-yellow-600 uppercase tracking-wider flex items-center gap-2">
+                  <ImagePlus size={16} /> Gambar Produk
+                </label>
+                <label 
+                  htmlFor="product-file-input" 
+                  className="cursor-pointer text-[10px] font-black bg-white px-4 py-2 rounded-xl shadow-sm hover:scale-105 active:scale-95 transition-all border border-yellow-200 text-yellow-600"
                 >
-                  Hapus Semua
-                </button>
+                  + Upload
+                </label>
+                <input 
+                  id="product-file-input"
+                  type="file" 
+                  multiple 
+                  accept="image/*,video/*" 
+                  className="hidden" 
+                  onChange={e => {
+                    const selectedFiles = Array.from(e.target.files || []);
+                    if (selectedFiles.length > 0) {
+                      setProductFiles(prev => [...prev, ...selectedFiles]);
+                    }
+                    e.target.value = '';
+                  }} 
+                />
               </div>
-            )}
+              {productPreviewUrls.length === 0 ? (
+                <div className="text-center py-5 rounded-2xl border-2 border-dashed border-yellow-200">
+                  <p className="text-[10px] font-bold text-yellow-600 opacity-70">Belum ada file gambar</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
+                  {productPreviewUrls.map((url, idx) => (
+                    <div key={idx} className="relative group rounded-xl overflow-hidden border border-white shadow-sm aspect-square bg-white">
+                      {productFiles[idx] && typeof productFiles[idx] === 'object' && 'isOld' in productFiles[idx] && productFiles[idx].isOld ? (
+                        <img src={url} alt={`preview-${idx}`} className="w-full h-full object-cover transition-transform group-hover:scale-110 duration-500" />
+                      ) : (
+                        productFiles[idx] instanceof File && productFiles[idx].type.startsWith('video/') ? (
+                          <video src={url} className="w-full h-full object-cover opacity-80" muted />
+                        ) : (
+                          <img src={url} alt={`preview-${idx}`} className="w-full h-full object-cover transition-transform group-hover:scale-110 duration-500" />
+                        )
+                      )}
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                        <button 
+                          type="button" 
+                          onClick={() => setProductFiles(prev => prev.filter((_, i) => i !== idx))} 
+                          className="w-8 h-8 bg-rose-500 text-white rounded-full flex items-center justify-center hover:scale-110 active:scale-95 shadow-lg"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {productFiles.length > 0 && (
+                <div className="flex justify-between items-center pt-2 border-t border-yellow-200">
+                  <span className="text-[11px] font-black text-yellow-600">{productFiles.length} file terpilih</span>
+                  <button
+                    type="button"
+                    onClick={() => setProductFiles([])}
+                    className="text-[10px] font-black text-rose-500 hover:text-rose-700 bg-rose-50 px-3 py-1.5 rounded-lg transition-colors"
+                  >
+                    Hapus Semua
+                  </button>
+                </div>
+              )}
+            </div>
+
           </div>
 
           <div className="flex gap-3 pt-4 border-t">
