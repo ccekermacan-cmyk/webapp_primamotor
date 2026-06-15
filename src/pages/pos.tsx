@@ -1512,51 +1512,69 @@ export default function MenuPage() {
                       </div>
 
                       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mt-4 pt-4 border-t border-slate-100/60 gap-3">
+  
+                        {/* Kontrol QTY (kiri) */}
                         <div className={`flex items-center gap-1 border-2 ${activeTheme.border} rounded-2xl bg-white overflow-hidden shadow-sm w-fit`}>
                           <button
                             onClick={() => updateQty(item.id, -1, item.stok_3)}
-                            className={`w-10 h-10 flex items-center justify-center text-slate-500 hover:${activeTheme.text} hover:${activeTheme.light} transition-colors text-xl font-medium`}
+                            className={`w-11 h-11 flex items-center justify-center text-slate-600 hover:${activeTheme.text} hover:${activeTheme.light} active:scale-95 transition-all duration-200 text-2xl font-bold`}
+                            aria-label="Kurangi jumlah"
                           >
                             −
                           </button>
-                          <span className={`w-10 text-center text-base font-black ${activeTheme.text}`}>
-                            {item.qty}
-                          </span>
+                          <input
+                            type="number"
+                            value={item.qty}
+                            onChange={(e) => {
+                              const val = parseInt(e.target.value) || 0;
+                              updateQty(item.id, val - item.qty, item.stok_3);
+                            }}
+                            className={`w-14 text-center text-base font-black ${activeTheme.text} bg-transparent outline-none p-0 border-none focus:ring-0 [-moz-appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none`}
+                            min="1"
+                            max={item.stok_3}
+                          />
                           <button
                             onClick={() => updateQty(item.id, 1, item.stok_3)}
-                            className={`w-10 h-10 flex items-center justify-center text-slate-500 hover:${activeTheme.text} hover:${activeTheme.light} transition-colors text-xl font-medium`}
+                            className={`w-11 h-11 flex items-center justify-center text-slate-600 hover:${activeTheme.text} hover:${activeTheme.light} active:scale-95 transition-all duration-200 text-2xl font-bold`}
+                            aria-label="Tambah jumlah"
                           >
                             +
                           </button>
                         </div>
                         
+                        {/* Kontrol Harga (kanan) */}
                         <div className="flex items-center justify-between sm:justify-end gap-3 w-full sm:w-auto">
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-[10px] md:text-xs text-slate-400 font-bold">@</span>
+                          
+                          {/* Harga Satuan (@) */}
+                          <div className="flex items-center gap-1.5 flex-1 sm:flex-none">
+                            <span className="text-[11px] md:text-xs text-slate-400 font-bold shrink-0">@</span>
                             {canEditPrice ? (
-                              <div className="relative inline-block">
+                              <div className="relative inline-block w-full sm:w-36">
                                 <input
                                   type="number"
-                                  className={`w-28 md:w-32 py-2 pl-7 pr-3 text-right text-xs md:text-sm font-black text-slate-700 bg-white border-2 ${activeTheme.border} rounded-xl ${activeTheme.focusRing} outline-none transition-all`}
+                                  className={`w-full py-2.5 pl-8 pr-3 text-right text-sm font-black text-slate-700 bg-white border-2 ${activeTheme.border} rounded-xl ${activeTheme.focusRing} outline-none transition-all [&::-webkit-inner-spin-button]:appearance-none`}
                                   value={item.manualPrice !== undefined ? item.manualPrice : item.priceSelected}
                                   onChange={e => updatePrice(item.id, Number(e.target.value))}
+                                  placeholder="0"
                                 />
-                                <span className={`absolute left-3 top-1/2 -translate-y-1/2 text-[10px] md:text-xs font-black ${activeTheme.text}`}>
+                                <span className={`absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-black ${activeTheme.text}`}>
                                   Rp
                                 </span>
                               </div>
                             ) : (
-                              <span className={`text-sm font-black ${activeTheme.text}`}>
+                              <span className={`text-sm font-black ${activeTheme.text} px-2 truncate max-w-[120px]`}>
                                 {item.priceSelected.toLocaleString('id-ID')}
                               </span>
                             )}
                           </div>
                           
-                          <div className={`text-sm md:text-base font-black text-slate-900 bg-white px-4 py-2 rounded-xl border-2 ${activeTheme.border} shadow-sm`}>
+                          {/* Total Harga (Qty × Price) */}
+                          <div className={`text-sm md:text-base font-black text-white bg-gradient-to-r ${activeTheme.main} px-4 py-2.5 rounded-xl shadow-md flex-1 sm:flex-none text-right min-w-[110px]`}>
                             Rp {(item.qty * item.priceSelected).toLocaleString('id-ID')}
                           </div>
                         </div>
                       </div>
+
                     </div>
                   );
                 })}

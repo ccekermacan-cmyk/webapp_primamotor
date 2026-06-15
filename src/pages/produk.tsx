@@ -111,8 +111,13 @@ export default function Produk() {
         const bindings: any = {};
 
         terms.forEach((term, idx) => {
-          // Gunakan operator ~ untuk SEMUA field, tanpa perlakuan khusus numerik
-          searchConditions.push(`(id_lama ~ {:t${idx}} || kategori ~ {:t${idx}} || merk ~ {:t${idx}} || jenis ~ {:t${idx}} || varian ~ {:t${idx}} || keterangan ~ {:t${idx}} || tipe ~ {:t${idx}})`);
+          // Untuk id_lama, tambahkan juga pencarian exact match dengan nilai numerik tanpa leading zero
+          const numericValue = parseInt(term, 10);
+          let idCondition = `id_lama ~ {:t${idx}}`;
+          if (!isNaN(numericValue)) {
+            idCondition = `(id_lama ~ {:t${idx}} || id_lama = "${numericValue}")`;
+          }
+          searchConditions.push(`(${idCondition} || kategori ~ {:t${idx}} || merk ~ {:t${idx}} || jenis ~ {:t${idx}} || varian ~ {:t${idx}} || keterangan ~ {:t${idx}} || tipe ~ {:t${idx}})`);
           bindings[`t${idx}`] = term;
         });
         const searchFilter = pb.filter(searchConditions.join(' && '), bindings);
@@ -1106,20 +1111,47 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
 
             <div className="bg-green-50/50 p-4 rounded-xl border border-green-100 space-y-4">
               <h4 className="font-bold text-green-700 text-sm border-b border-green-200 pb-2">
-                Manajemen Stok {isReadOnly && <span className="text-[10px] text-gray-400">(Read-Only)</span>}
+                Manajemen Stok {isReadOnly && !['6','7','10'].includes(userLevel) && <span className="text-[10px] text-gray-400">(Read-Only)</span>}
+                {['6','7','10'].includes(userLevel) && <span className="text-[10px] text-amber-500 ml-2">(Edit hanya stok menipis)</span>}
               </h4>
               <div className="grid grid-cols-3 gap-4">
+                {/* Stok Awal - hanya level 1 yang bisa edit */}
                 <div>
                   <label className="text-xs font-bold text-gray-500">Stok Awal</label>
-                  <input type="number" name="stok_1" disabled={isReadOnly} value={formData.stok_1 ?? ''} onChange={handleInputChange} className={`w-full p-2 border rounded-lg outline-none ${isReadOnly ? 'bg-gray-100 text-gray-500' : 'bg-white'}`}/>
+                  <input 
+                    type="number" 
+                    name="stok_1" 
+                    disabled={userLevel !== '1'} 
+                    value={formData.stok_1 ?? ''} 
+                    onChange={handleInputChange} 
+                    className={`w-full p-2 border rounded-lg outline-none ${userLevel !== '1' ? 'bg-gray-100 text-gray-500' : 'bg-white'}`}
+                  />
                 </div>
+                
+                {/* Stok Menipis - level 1,6,7,10 bisa edit */}
                 <div>
                   <label className="text-xs font-bold text-gray-500">Stok Menipis</label>
-                  <input type="number" name="stok_2" disabled={isReadOnly} value={formData.stok_2 ?? ''} onChange={handleInputChange} className={`w-full p-2 border rounded-lg outline-none ${isReadOnly ? 'bg-gray-100 text-gray-500' : 'bg-white'}`}/>
+                  <input 
+                    type="number" 
+                    name="stok_2" 
+                    disabled={!['1','6','7','10'].includes(userLevel)} 
+                    value={formData.stok_2 ?? ''} 
+                    onChange={handleInputChange} 
+                    className={`w-full p-2 border rounded-lg outline-none font-bold ${!['1','6','7','10'].includes(userLevel) ? 'bg-gray-100 text-gray-500' : 'bg-white text-amber-700'}`}
+                  />
                 </div>
+                
+                {/* Stok Realtime - hanya level 1 yang bisa edit */}
                 <div>
                   <label className="text-xs font-bold text-green-600">Stok Realtime</label>
-                  <input type="number" name="stok_3" disabled={isReadOnly} value={formData.stok_3 ?? ''} onChange={handleInputChange} className={`w-full p-2 border rounded-lg outline-none font-bold ${isReadOnly ? 'bg-gray-100 text-gray-500' : 'bg-green-50'}`}/>
+                  <input 
+                    type="number" 
+                    name="stok_3" 
+                    disabled={userLevel !== '1'} 
+                    value={formData.stok_3 ?? ''} 
+                    onChange={handleInputChange} 
+                    className={`w-full p-2 border rounded-lg outline-none font-bold ${userLevel !== '1' ? 'bg-gray-100 text-gray-500' : 'bg-green-50'}`}
+                  />
                 </div>
               </div>
             </div>

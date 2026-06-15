@@ -13,3 +13,13 @@
     background-color: var(--color-gray-100); 
   }
 }
+
+/* Hilangkan spinner input number */
+input::-webkit-outer-spin-button,
+input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type=number] {
+  -moz-appearance: textfield;
+}
