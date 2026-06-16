@@ -825,7 +825,7 @@ export default function MenuPage() {
       menuFormData.append('cashback', String(formBayar.cashback));
       menuFormData.append('admin', String(formBayar.adminFee));
       menuFormData.append('status', statusBaru);
-      menuFormData.append('total', String(totalBelanja));
+      menuFormData.append('total', String(grandTotal));
       menuFormData.append('dibayar', String(totalDibayar));
       if (dateLunas) menuFormData.append('date_lunas', dateLunas);
 
@@ -904,25 +904,32 @@ export default function MenuPage() {
       }
 
       // Alokasikan alur pembagian komisi upah ke sub-koleksi ongkos (Khusus Jenis Service)
-      // Alokasikan alur pembagian komisi upah ke sub-koleksi ongkos (Khusus Jenis Service)
       if (menuLower.includes('service')) {
+        // Filter mekanik yang valid (ada idLama dan ongkos > 0)
         const mekanikValid = formBayar.mekanikList.filter(m => m.idLama && m.ongkos > 0);
+        
         if (mekanikValid.length > 0) {
           try {
+            // Buat array promise dengan $autoCancel: false
             const ongkosPromises = mekanikValid.map(mek => 
-              pb.collection('ongkos').create({
-                id_lama: '',
-                date: timestamp,
-                person: mek.idLama,
-                ongkos: mek.ongkos,
-                operator: operatorName,
-                ref: '',
-                ref_baru: menuRecordId
-              })
+              pb.collection('ongkos').create(
+                {
+                  id_lama: '',
+                  date: timestamp,
+                  person: mek.idLama,
+                  ongkos: mek.ongkos,
+                  operator: operatorName,
+                  ref: '',
+                  ref_baru: menuRecordId
+                },
+                { '$autoCancel': false } // Nonaktifkan auto-cancellation per request
+              )
             );
+            // Jalankan semua promise secara paralel
             await Promise.all(ongkosPromises);
           } catch (error) {
             console.error('Gagal menyimpan ongkos:', error);
+            // Lempar error agar user tahu ada masalah
             throw new Error('Gagal menyimpan data ongkos mekanik. Periksa input mekanik.');
           }
         }
@@ -2275,9 +2282,15 @@ export default function MenuPage() {
                       return person ? `${person.text_1} - ${person.text_2 || ''}` : (showDetailHistory.person || 'PELANGGAN UMUM');
                     })()}
                   </h4>
-                  <div className="mt-3 inline-block bg-white/10 backdrop-blur-md border border-white/20 px-5 py-2 rounded-2xl">
-                    <p className="text-sm font-black text-white/90 uppercase tracking-widest text-[10px]">Total Invoice</p>
-                    <p className="text-2xl font-black text-white">Rp {grandTotal.toLocaleString('id-ID')}</p>
+                  <div className="mt-3 flex flex-col items-center gap-1">
+                    <div className="inline-block bg-white/10 backdrop-blur-md border border-white/20 px-5 py-2 rounded-2xl">
+                      <p className="text-sm font-black text-white/90 uppercase tracking-widest text-[10px]">Total Invoice</p>
+                      <p className="text-2xl font-black text-white">Rp {grandTotal.toLocaleString('id-ID')}</p>
+                    </div>
+                    <div className="inline-block bg-black/20 backdrop-blur-sm px-4 py-1.5 rounded-xl border border-white/10">
+                      <p className="text-[10px] font-black text-white/80 uppercase tracking-widest">Dibayar</p>
+                      <p className="text-sm font-black text-white">Rp {showDetailHistory?.dibayar?.toLocaleString('id-ID') || 0}</p>
+                    </div>
                   </div>
                 </div>
 
@@ -2379,8 +2392,8 @@ export default function MenuPage() {
               </div>
 
               {/* Cashflow & Ongkos */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-                <div className="p-5 bg-slate-50 rounded-3xl border-2 border-slate-100 shadow-sm relative overflow-hidden h-fit">
+              <div className="grid grid-cols-1 gap-4 text-xs">
+                <div className="p-5 bg-slate-50 rounded-3xl border-2 border-slate-100 shadow-sm relative overflow-hidden">
                   <div className="absolute top-0 right-0 w-24 h-24 bg-blue-500 blur-3xl opacity-5 rounded-full" />
                   <p className="font-black text-blue-500 text-[11px] uppercase tracking-widest flex items-center gap-1.5 mb-3 border-b border-blue-100 pb-2 relative z-10">
                     <Wallet size={14}/> Rekaman Jurnal Kas
