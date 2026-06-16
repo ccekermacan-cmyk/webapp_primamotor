@@ -8,6 +8,7 @@ import {
   ArrowRight, Calendar, History, Sparkles, DollarSign, Wallet, AlertTriangle, Info, Wrench, Edit, TrendingUp, TrendingDown, Filter,
   // Tambahan ikon baru untuk UI yang diperbarui:
   ListOrdered, List, Grid, Users, CreditCard, ShoppingBag, FileText, EyeOff, ImagePlus, Save, CheckCircle2, Box, User, ExternalLink,
+  Package
 } from 'lucide-react';
 
 // --- INTERFACES ---
@@ -903,18 +904,26 @@ export default function MenuPage() {
       }
 
       // Alokasikan alur pembagian komisi upah ke sub-koleksi ongkos (Khusus Jenis Service)
+      // Alokasikan alur pembagian komisi upah ke sub-koleksi ongkos (Khusus Jenis Service)
       if (menuLower.includes('service')) {
-        for (const mek of formBayar.mekanikList) {
-          if (mek.idLama && mek.ongkos > 0) {
-            await pb.collection('ongkos').create({
-              id_lama: '',
-              date: timestamp,
-              person: mek.idLama,
-              ongkos: mek.ongkos,
-              operator: operatorName,
-              ref: '',
-              ref_baru: menuRecordId
-            });
+        const mekanikValid = formBayar.mekanikList.filter(m => m.idLama && m.ongkos > 0);
+        if (mekanikValid.length > 0) {
+          try {
+            const ongkosPromises = mekanikValid.map(mek => 
+              pb.collection('ongkos').create({
+                id_lama: '',
+                date: timestamp,
+                person: mek.idLama,
+                ongkos: mek.ongkos,
+                operator: operatorName,
+                ref: '',
+                ref_baru: menuRecordId
+              })
+            );
+            await Promise.all(ongkosPromises);
+          } catch (error) {
+            console.error('Gagal menyimpan ongkos:', error);
+            throw new Error('Gagal menyimpan data ongkos mekanik. Periksa input mekanik.');
           }
         }
       }
@@ -1315,18 +1324,21 @@ export default function MenuPage() {
               <div className={`w-16 h-16 border-4 border-slate-200 border-t-transparent ${activeTheme.text.replace('text-', 'border-t-')} rounded-full animate-spin`} />
               <p className={`font-black uppercase tracking-widest text-xs ${activeTheme.text} animate-pulse`}>Memuat Data...</p>
             </div> 
-          ) : ( 
+          ) : (
             <div className="space-y-10">
                 
               {/* 1. LIST PRODUK (PENJUALAN/SERVICE/PEMBELIAN) */} 
-              {selectedMenu.toLowerCase() !== 'overview' && !selectedMenu.toLowerCase().includes('gaji') && ( 
+              {selectedMenu && 
+              selectedMenu.toLowerCase() !== 'overview' && 
+              !selectedMenu.toLowerCase().includes('gaji') && 
+              products && products.length > 0 && (
                 <div className={
                   viewMode === 'grid' 
                     ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 will-change-transform" 
                     : "flex flex-col gap-4 will-change-transform"
                 }>
                   {products.map(p => ( 
-                    <div key={p.id} onClick={() => addToCart(p)} 
+                    <div key={p.id} onClick={() => addToCart && addToCart(p)} 
                       className={`bg-white rounded-3xl border-2 border-transparent hover:${activeTheme.border} shadow-sm hover:shadow-2xl hover:-translate-y-1 transition-all duration-300 cursor-pointer group relative overflow-hidden ${
                         viewMode === 'grid' ? 'flex flex-col justify-between h-72 p-6' : 'flex flex-row items-center justify-between p-4 min-h-[120px]'
                       }`}> 
@@ -1336,13 +1348,15 @@ export default function MenuPage() {
                       
                       <div className={`relative z-10 ${viewMode === 'list' ? 'flex-1 pr-6' : ''}`}> 
                         <div className={`flex items-start mb-4 ${viewMode === 'grid' ? 'justify-between' : 'gap-4'}`}> 
-                          <span className="text-[10px] font-black bg-slate-100 text-slate-500 px-3 py-1.5 rounded-xl tracking-tighter">#{formatIdLamaDisplay(p.id_lama)}</span>
+                          <span className="text-[10px] font-black bg-slate-100 text-slate-500 px-3 py-1.5 rounded-xl tracking-tighter">
+                            #{formatIdLamaDisplay ? formatIdLamaDisplay(p.id_lama) : p.id_lama}
+                          </span>
                           <div className={`px-3 py-1.5 rounded-xl font-black text-[10px] uppercase shadow-sm ${p.stok_3 > 5 ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' : 'bg-rose-50 text-rose-600 border border-rose-100 animate-pulse'}`}> 
                             SISA: {p.stok_3} {p.unit} 
                           </div> 
                         </div> 
                         <h3 className={`font-black text-slate-800 text-sm md:text-base uppercase leading-snug ${activeTheme.groupHoverText} line-clamp-2 md:line-clamp-3 tracking-tight transition-colors`}>
-                          {getFullLabel(p)}
+                          {typeof getFullLabel === 'function' ? getFullLabel(p) : `${p.nama || p.kategori} ${p.merk || ''}`}
                         </h3>
                       </div> 
                       
@@ -1350,7 +1364,7 @@ export default function MenuPage() {
                         viewMode === 'grid' ? 'p-4 mt-4' : 'p-3 px-5 min-w-[200px]'
                       }`}> 
                         <p className={`font-black ${activeTheme.text} group-hover:text-white text-base md:text-lg tracking-tighter transition-colors`}>
-                          Rp {p.sell_6.toLocaleString('id-ID')}
+                          Rp {(p.sell_6 || 0).toLocaleString('id-ID')}
                         </p> 
                         <div className={`w-10 h-10 bg-white rounded-xl flex items-center justify-center ${activeTheme.text} shadow-sm group-hover:scale-110 transition-transform`}>
                           <Plus size={20} strokeWidth={3}/>
@@ -1358,27 +1372,41 @@ export default function MenuPage() {
                       </div>
                     </div> 
                   ))}
-                </div> 
+                </div>
+              )}
+
+              {/* Jika produk kosong dan menu bukan overview/gaji */}
+              {selectedMenu && 
+              selectedMenu.toLowerCase() !== 'overview' && 
+              !selectedMenu.toLowerCase().includes('gaji') && 
+              (!products || products.length === 0) && (
+                <div className="flex flex-col items-center justify-center py-20 opacity-50">
+                  <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center mb-4">
+                    <Package size={32} className="text-slate-400" />
+                  </div>
+                  <span className="text-slate-400 font-bold text-sm uppercase tracking-widest">Tidak ada produk</span>
+                </div>
               )}
 
               {/* LIST OVERVIEW */} 
-              {selectedMenu.toLowerCase() === 'overview' && Object.entries(groupedHistory).map(([date, items]) => ( 
-                <div key={date} className="space-y-6"> 
-                  <div className="flex items-center gap-4 px-2"> 
-                    <div className={`w-2 h-2 rounded-full ${activeTheme.main}`} />
-                    <span className="text-slate-500 text-[11px] font-black uppercase tracking-widest">{date}</span> 
-                    <div className="h-[2px] flex-1 bg-gradient-to-r from-slate-200 to-transparent rounded-full" /> 
-                  </div> 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"> 
-                    {items.map(h => ( 
-                      <div key={h.id} onClick={() => loadHistorySubDetails(h)} className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:shadow-xl hover:-translate-y-1 hover:border-slate-300 transition-all cursor-pointer group h-auto min-h-[15rem] flex flex-col justify-between relative overflow-hidden">
-                        
-                        {/* Glow effect based on status */}
-                        <div className={`absolute top-0 right-0 w-24 h-24 blur-3xl opacity-20 transition-opacity group-hover:opacity-40 ${h.status === 'lunas' ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+              {selectedMenu && selectedMenu.toLowerCase() === 'overview' && groupedHistory && Object.keys(groupedHistory).length > 0 && (
+                Object.entries(groupedHistory).map(([date, items]) => ( 
+                  <div key={date} className="space-y-6"> 
+                    <div className="flex items-center gap-4 px-2"> 
+                      <div className={`w-2 h-2 rounded-full ${activeTheme.main}`} />
+                      <span className="text-slate-500 text-[11px] font-black uppercase tracking-widest">{date}</span> 
+                      <div className="h-[2px] flex-1 bg-gradient-to-r from-slate-200 to-transparent rounded-full" /> 
+                    </div> 
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"> 
+                      {items.map(h => ( 
+                        <div key={h.id} onClick={() => loadHistorySubDetails && loadHistorySubDetails(h)} className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:shadow-xl hover:-translate-y-1 hover:border-slate-300 transition-all cursor-pointer group h-auto min-h-[15rem] flex flex-col justify-between relative overflow-hidden">
+                          
+                          {/* Glow effect based on status */}
+                          <div className={`absolute top-0 right-0 w-24 h-24 blur-3xl opacity-20 transition-opacity group-hover:opacity-40 ${h.status === 'lunas' ? 'bg-emerald-500' : 'bg-rose-500'}`} />
 
-                        <div className="flex justify-between items-start relative z-10"> 
+                          <div className="flex justify-between items-start relative z-10"> 
                             <div className="flex flex-wrap items-center gap-2">
-                              <span className={`text-[9px] font-black px-2.5 py-1 rounded-lg uppercase tracking-widest ${getJenisColor(h.jenis)} shadow-sm`}>
+                              <span className={`text-[9px] font-black px-2.5 py-1 rounded-lg uppercase tracking-widest ${typeof getJenisColor === 'function' ? getJenisColor(h.jenis) : 'bg-gray-100 text-gray-700'}`}>
                                 {h.jenis}
                               </span>
                               <span className={`text-[9px] font-black px-2.5 py-1 rounded-lg uppercase tracking-widest shadow-sm ${
@@ -1388,12 +1416,12 @@ export default function MenuPage() {
                               </span>
                             </div>
                             <div className={`p-2 rounded-xl transition-colors ${activeTheme.light} ${activeTheme.text} opacity-50 group-hover:opacity-100`}><History size={16} strokeWidth={2.5} /></div> 
-                        </div> 
-                        
-                        <div className="relative z-10 mt-4"> 
+                          </div> 
+                          
+                          <div className="relative z-10 mt-4"> 
                             <h4 className="font-black text-slate-800 text-lg uppercase leading-tight mb-2 truncate group-hover:text-blue-600 transition-colors">
                               {(() => {
-                                const person = allPersons.find(p => p.id_lama === h.person);
+                                const person = allPersons && allPersons.find(p => p.id_lama === h.person);
                                 return person ? `${person.text_1} - ${person.text_2 || ''}` : (h.person || 'PELANGGAN UMUM');
                               })()}
                             </h4>
@@ -1402,41 +1430,52 @@ export default function MenuPage() {
                               Operator: {h.operator || '-'}
                             </div>
                             <p className="text-xs font-bold text-slate-500 line-clamp-2 italic mt-3 bg-slate-50/50 p-2 rounded-xl border border-slate-100">"{h.text || 'Tanpa deskripsi nota.'}"</p> 
-                        </div> 
-                        
-                        <div className="flex justify-between items-center border-t border-slate-100 pt-4 mt-4 relative z-10"> 
-                          <div className="flex flex-col gap-1">
-                                                        <span className="text-[10px] font-black text-slate-400 flex items-center gap-1.5"><Calendar size={12} /> {formatLocalDateTime(h.created_at)}</span>
-                            {h.status === 'lunas' ? (
-                              <span className="text-xs font-black text-emerald-600">Total: Rp {(h.total || 0).toLocaleString('id-ID')}</span>
-                            ) : (
-                              <div className="flex flex-col">
-                                <span className="text-[10px] font-black text-slate-500 line-through">Rp {(h.total || 0).toLocaleString('id-ID')}</span>
-                                <span className="text-xs font-black text-rose-600">Terbayar: Rp {(h.dibayar || 0).toLocaleString('id-ID')}</span>
-                              </div>
-                            )}
-                          </div>
-                          <div className={`font-black text-white ${activeTheme.main} shadow-md shadow-${activeTheme.main.replace('bg-', '')}/30 px-3 py-1.5 rounded-xl text-xs`}>
-                            {h.qty} Item
                           </div> 
+                          
+                          <div className="flex justify-between items-center border-t border-slate-100 pt-4 mt-4 relative z-10"> 
+                            <div className="flex flex-col gap-1">
+                              <span className="text-[10px] font-black text-slate-400 flex items-center gap-1.5"><Calendar size={12} /> {formatLocalDateTime ? formatLocalDateTime(h.created_at) : h.created_at}</span>
+                              {h.status === 'lunas' ? (
+                                <span className="text-xs font-black text-emerald-600">Total: Rp {(h.total || 0).toLocaleString('id-ID')}</span>
+                              ) : (
+                                <div className="flex flex-col">
+                                  <span className="text-[10px] font-black text-slate-500 line-through">Rp {(h.total || 0).toLocaleString('id-ID')}</span>
+                                  <span className="text-xs font-black text-rose-600">Terbayar: Rp {(h.dibayar || 0).toLocaleString('id-ID')}</span>
+                                </div>
+                              )}
+                            </div>
+                            <div className={`font-black text-white ${activeTheme.main} shadow-md shadow-${activeTheme.main.replace('bg-', '')}/30 px-3 py-1.5 rounded-xl text-xs`}>
+                              {h.qty} Item
+                            </div> 
+                          </div>
                         </div>
-                      </div>
-                    ))} 
+                      ))} 
+                    </div> 
                   </div> 
-                </div> 
-              ))} 
+                ))
+              )}
+
+              {/* Jika overview kosong */}
+              {selectedMenu && selectedMenu.toLowerCase() === 'overview' && (!groupedHistory || Object.keys(groupedHistory).length === 0) && (
+                <div className="flex flex-col items-center justify-center py-20 opacity-50">
+                  <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center mb-4">
+                    <Calendar size={32} className="text-slate-400" />
+                  </div>
+                  <span className="text-slate-400 font-bold text-sm uppercase tracking-widest">Belum ada riwayat transaksi</span>
+                </div>
+              )}
 
               {/* LIST GAJI */}
-              {selectedMenu.toLowerCase().includes('gaji') && (
-                Object.keys(groupedHistory).length === 0 ? (
+              {selectedMenu && selectedMenu.toLowerCase().includes('gaji') && (
+                groupedHistory && Object.keys(groupedHistory).length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-20 opacity-50">
-                    <div className={`w-20 h-20 bg-teal-50 rounded-full flex items-center justify-center mb-4`}>
+                    <div className="w-20 h-20 bg-teal-50 rounded-full flex items-center justify-center mb-4">
                       <Calendar size={32} className="text-teal-500" />
                     </div>
                     <span className="text-slate-400 font-bold text-sm uppercase tracking-widest">Belum ada data gaji</span>
                   </div>
                 ) : (
-                  Object.entries(groupedHistory).map(([date, items]) => (
+                  Object.entries(groupedHistory || {}).map(([date, items]) => (
                     <div key={date} className="space-y-6">
                       <div className="flex items-center gap-4 px-2">
                         <div className="w-2 h-2 rounded-full bg-teal-500" />
@@ -1444,39 +1483,39 @@ export default function MenuPage() {
                         <div className="h-[2px] flex-1 bg-gradient-to-r from-teal-100 to-transparent rounded-full" />
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                        {items.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).map(item => (
-                            <div key={item.id} onClick={() => loadHistorySubDetails(item)}
-                              className="bg-white p-6 rounded-3xl border border-teal-100 shadow-sm hover:shadow-xl hover:-translate-y-1 hover:border-teal-300 transition-all cursor-pointer group h-52 flex flex-col justify-between relative overflow-hidden">
-                              
-                              <div className="absolute top-0 right-0 w-32 h-32 bg-teal-500 blur-3xl opacity-10 transition-opacity group-hover:opacity-30 pointer-events-none" />
+                        {(items || []).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).map(item => (
+                          <div key={item.id} onClick={() => loadHistorySubDetails && loadHistorySubDetails(item)}
+                            className="bg-white p-6 rounded-3xl border border-teal-100 shadow-sm hover:shadow-xl hover:-translate-y-1 hover:border-teal-300 transition-all cursor-pointer group h-52 flex flex-col justify-between relative overflow-hidden">
+                            
+                            <div className="absolute top-0 right-0 w-32 h-32 bg-teal-500 blur-3xl opacity-10 transition-opacity group-hover:opacity-30 pointer-events-none" />
 
-                              <div className="flex justify-between items-start relative z-10">
-                                <span className="text-[10px] font-black bg-teal-50 text-teal-600 border border-teal-100 px-3 py-1.5 rounded-xl uppercase tracking-widest shadow-sm">
-                                  GAJI KARYAWAN
-                                </span>
-                                <div className="p-2 bg-slate-50 rounded-xl text-slate-300 group-hover:text-teal-500 group-hover:bg-teal-50 transition-colors">
-                                  <History size={16} />
-                                </div>
-                              </div>
-                              <div className="relative z-10 mt-4">
-                                <h4 className="font-black text-slate-800 text-lg uppercase leading-tight mb-2 truncate group-hover:text-teal-600 transition-colors">
-                                  {item.person}
-                                </h4>
-                                <p className="text-[10px] font-bold text-slate-400 bg-slate-50 w-fit px-2 py-1 rounded-md">
-                                  Operator: {item.operator || '-'}
-                                </p>
-                                <p className="text-xs font-bold text-slate-500 line-clamp-2 italic mt-3 bg-slate-50/50 p-2 rounded-xl border border-slate-100">
-                                  "{item.text || 'Tanpa deskripsi'}"
-                                </p>
-                              </div>
-                              <div className="flex justify-between items-center border-t border-slate-100 pt-4 mt-4 relative z-10">
-                                                            <span className="text-[10px] font-black text-slate-400 flex items-center gap-1.5"><Calendar size={12} /> {formatLocalDateTime(h.created_at)}</span>
-                                <div className="font-black text-white bg-teal-500 shadow-md shadow-teal-500/30 px-3 py-1.5 rounded-xl text-xs">
-                                  {item.qty} Item
-                                </div>
+                            <div className="flex justify-between items-start relative z-10">
+                              <span className="text-[10px] font-black bg-teal-50 text-teal-600 border border-teal-100 px-3 py-1.5 rounded-xl uppercase tracking-widest shadow-sm">
+                                GAJI KARYAWAN
+                              </span>
+                              <div className="p-2 bg-slate-50 rounded-xl text-slate-300 group-hover:text-teal-500 group-hover:bg-teal-50 transition-colors">
+                                <History size={16} />
                               </div>
                             </div>
-                          ))}
+                            <div className="relative z-10 mt-4">
+                              <h4 className="font-black text-slate-800 text-lg uppercase leading-tight mb-2 truncate group-hover:text-teal-600 transition-colors">
+                                {item.person}
+                              </h4>
+                              <p className="text-[10px] font-bold text-slate-400 bg-slate-50 w-fit px-2 py-1 rounded-md">
+                                Operator: {item.operator || '-'}
+                              </p>
+                              <p className="text-xs font-bold text-slate-500 line-clamp-2 italic mt-3 bg-slate-50/50 p-2 rounded-xl border border-slate-100">
+                                "{item.text || 'Tanpa deskripsi'}"
+                              </p>
+                            </div>
+                            <div className="flex justify-between items-center border-t border-slate-100 pt-4 mt-4 relative z-10">
+                              <span className="text-[10px] font-black text-slate-400 flex items-center gap-1.5"><Calendar size={12} /> {formatLocalDateTime ? formatLocalDateTime(item.created_at) : item.created_at}</span>
+                              <div className="font-black text-white bg-teal-500 shadow-md shadow-teal-500/30 px-3 py-1.5 rounded-xl text-xs">
+                                {item.qty} Item
+                              </div>
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     </div>
                   ))
@@ -1484,7 +1523,7 @@ export default function MenuPage() {
               )}
             </div>
           )}
-        </div> 
+        </div>
 
         {/* Pagination - Glassmorphism */}
         <div className="mt-auto flex justify-between items-center bg-white/80 backdrop-blur-md p-2 md:p-2 rounded-3xl border border-gray-100 shadow-lg shrink-0"> 
@@ -1873,12 +1912,12 @@ export default function MenuPage() {
                         <Wrench size={16}/> Alokasi Mekanik & Ongkos
                       </span>
                       <button
-                        onClick={() =>
-                          setFormBayar({
-                            ...formBayar,
-                            mekanikList: [...formBayar.mekanikList, { idLama: '', ongkos: 0 }],
-                          })
-                        }
+                        onClick={() => {
+                          setFormBayar(prev => ({
+                            ...prev,
+                            mekanikList: [...prev.mekanikList, { idLama: '', ongkos: 0 }]
+                          }));
+                        }}
                         className={`text-[10px] font-black bg-white ${activeTheme.text} px-4 py-2 rounded-xl shadow-sm hover:scale-105 active:scale-95 transition-all border border-transparent hover:${activeTheme.border}`}
                       >
                         + Tambah Mekanik

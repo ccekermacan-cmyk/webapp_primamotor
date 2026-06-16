@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { pb } from '../lib/pocketbase';
 import Modal from '../components/modal';
-import { Package, Search, Trash2, Edit, Copy, ChevronLeft, ChevronRight, X, Filter, LayoutGrid, List, ArrowUp, ArrowDown, ImagePlus, ExternalLink } from 'lucide-react';
+import { Package, Search, Trash2, Edit, Copy, ChevronLeft, ChevronRight, X, Filter, LayoutGrid, List, ArrowUp, ArrowDown, ImagePlus, ExternalLink, Plus } from 'lucide-react';
 interface Produk {
   [key: string]: any; 
   id: string;
@@ -55,6 +55,12 @@ export default function Produk() {
   const [filterStok, setFilterStok] = useState<string>('all');
   const [showMobileFilters, setShowMobileFilters] = useState(false);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+
+  // ========== SCROLL HEADER & FLOATING BUTTON ==========
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [showHeader, setShowHeader] = useState(true);
+  const [lastScrollTop, setLastScrollTop] = useState(0);
+  const [showFloatingAdd, setShowFloatingAdd] = useState(false);
 
   // Modal States
   const [modalType, setModalType] = useState<'detail' | 'form' | 'delete' | null>(null);
@@ -240,6 +246,30 @@ useEffect(() => {
   };
   fetchKategoriOptions();
 }, []);
+
+  // Deteksi scroll untuk menyembunyikan header dan menampilkan floating button
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    const handleScroll = () => {
+      const scrollTop = container.scrollTop;
+      // Jika scroll ke bawah > 50px, sembunyikan header
+      if (scrollTop > 50 && scrollTop > lastScrollTop) {
+        setShowHeader(false);
+        setShowFloatingAdd(true);
+      } 
+      // Jika scroll ke atas (mendekati top), tampilkan header
+      else if (scrollTop < 30) {
+        setShowHeader(true);
+        setShowFloatingAdd(false);
+      }
+      setLastScrollTop(scrollTop);
+    };
+
+    container.addEventListener('scroll', handleScroll);
+    return () => container.removeEventListener('scroll', handleScroll);
+  }, [lastScrollTop]);
 
 // Effect untuk membuat preview URLs dari productFiles
 useEffect(() => {
@@ -448,8 +478,13 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
 
   return (
     <div className="p-8 h-full flex flex-col">
-      {/* Header Halaman */}
-      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-end gap-3 sm:gap-0 mb-6 sm:mb-8 shrink-0">
+      {/* Header Halaman - akan hilang saat scroll ke bawah */}
+      <div 
+        className={`flex flex-col sm:flex-row sm:justify-between sm:items-end gap-3 sm:gap-0 mb-6 sm:mb-8 shrink-0 transition-all duration-300 ${
+          showHeader ? 'opacity-100 max-h-40' : 'opacity-0 max-h-0 pointer-events-none mb-0'
+        }`}
+        style={{ overflow: 'hidden' }}
+      >
         <div>
           <h2 className="text-2xl sm:text-3xl font-extrabold text-gray-800 tracking-tight">Manajemen Produk</h2>
           <p className="text-gray-500 mt-1 text-sm sm:text-base">Total {totalItems} produk terdaftar</p>
@@ -594,7 +629,7 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
         </div>
 
         {/* List Grid Produk */}
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className="flex-1 overflow-y-auto p-6" ref={scrollContainerRef}>
           {loading ? (
             <div className="flex flex-col items-center justify-center h-full text-gray-400">
               <div className="w-12 h-12 border-4 border-orange-200 border-t-orange-500 rounded-full animate-spin"></div>
@@ -607,57 +642,57 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
           ) : 
             viewMode === 'grid' ? (
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-              {sortedProducts.map((prod) => (
-                <div 
-                  key={prod.id} 
-                  onClick={() => handleOpenDetail(prod)}
-                  className="group bg-white border border-orange-200 p-5 rounded-2xl hover:border-orange-500 hover:shadow-lg hover:shadow-orange-300 transition-all duration-300 cursor-pointer flex flex-col justify-between"
-                >
-                  <div className="flex justify-between items-start mb-4">
-                    <div>
-                      <span className="inline-block px-2 py-1 bg-gray-100 text-gray-600 text-xs font-bold rounded-lg mb-2">
-                        ID: {formatIdLamaDisplay(prod.id_lama)}
-                      </span>
-                      <h3 className="font-bold text-gray-800 text-lg leading-tight group-hover:text-orange-600 line-clamp-2">
-                        {`${prod.kategori} ${prod.merk} ${prod.jenis} ${prod.varian} ${prod.keterangan || ''} ${prod.tipe || ''}`.trim()}
-                      </h3>
+                {sortedProducts.map((prod) => (
+                  <div 
+                    key={prod.id} 
+                    onClick={() => handleOpenDetail(prod)}
+                    className="group bg-white border border-orange-200 p-5 rounded-2xl hover:border-orange-500 hover:shadow-lg hover:shadow-orange-300 transition-all duration-300 cursor-pointer flex flex-col justify-between"
+                  >
+                    <div className="flex justify-between items-start mb-4">
+                      <div>
+                        <span className="inline-block px-2 py-1 bg-gray-100 text-gray-600 text-xs font-bold rounded-lg mb-2">
+                          ID: {formatIdLamaDisplay(prod.id_lama)}
+                        </span>
+                        <h3 className="font-bold text-gray-800 text-lg leading-tight group-hover:text-orange-600 line-clamp-2">
+                          {`${prod.kategori} ${prod.merk} ${prod.jenis} ${prod.varian} ${prod.keterangan || ''} ${prod.tipe || ''}`.trim()}
+                        </h3>
+                      </div>
+                      <div className="text-right">
+                        <span className="inline-block px-2 py-1 bg-orange-100 text-orange-600 text-xs font-bold rounded-lg">
+                          {prod.unit || '-'}
+                        </span>
+                      </div>
                     </div>
-                    <div className="text-right">
-                      <span className="inline-block px-2 py-1 bg-orange-100 text-orange-600 text-xs font-bold rounded-lg">
-                        {prod.unit || '-'}
-                      </span>
+                    
+                    <div className="grid grid-cols-2 gap-4 mt-4 p-4 bg-gray-50 rounded-xl mb-4">
+                      <div>
+                        <p className="text-xs text-gray-500 font-medium mb-1">Stok (Realtime)</p>
+                        <p className={`font-black text-lg ${prod.stok_3 <= 0 ? 'text-red-500' : 'text-green-600'}`}>
+                          {prod.stok_3} <span className="text-xs font-medium text-gray-500">{prod.unit}</span>
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xs text-gray-500 font-medium mb-1">Harga Default</p>
+                        <p className="font-black text-blue-600">Rp {prod.sell_6?.toLocaleString('id-ID') || 0}</p>
+                        <p className="text-xs font-bold text-purple-600 mt-1">Plg: Rp {prod.sell_5?.toLocaleString('id-ID') || 0}</p>
+                      </div>
                     </div>
-                  </div>
-                  
-                  <div className="grid grid-cols-2 gap-4 mt-4 p-4 bg-gray-50 rounded-xl mb-4">
-                    <div>
-                      <p className="text-xs text-gray-500 font-medium mb-1">Stok (Realtime)</p>
-                      <p className={`font-black text-lg ${prod.stok_3 <= 0 ? 'text-red-500' : 'text-green-600'}`}>
-                        {prod.stok_3} <span className="text-xs font-medium text-gray-500">{prod.unit}</span>
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-xs text-gray-500 font-medium mb-1">Harga Default</p>
-                      <p className="font-black text-blue-600">Rp {prod.sell_6?.toLocaleString('id-ID') || 0}</p>
-                      <p className="text-xs font-bold text-purple-600 mt-1">Plg: Rp {prod.sell_5?.toLocaleString('id-ID') || 0}</p>
-                    </div>
-                  </div>
 
-                  {/* Tombol Aksi */}
-                  <div className="flex gap-2 justify-end border-t border-gray-100 pt-4">
-                    <button onClick={(e) => handleOpenEdit(prod, e)} className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg">
-                      <Edit size={14} /> Edit
-                    </button>
-                    <button onClick={(e) => handleOpenCopy(prod, e)} className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-green-600 bg-green-50 hover:bg-green-100 rounded-lg">
-                      <Copy size={14} /> Copy
-                    </button>
-                    <button onClick={(e) => handleOpenDelete(prod, e)} className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded-lg">
-                      <Trash2 size={14} /> Hapus
-                    </button>
+                    {/* Tombol Aksi */}
+                    <div className="flex gap-2 justify-end border-t border-gray-100 pt-4">
+                      <button onClick={(e) => handleOpenEdit(prod, e)} className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg">
+                        <Edit size={14} /> Edit
+                      </button>
+                      <button onClick={(e) => handleOpenCopy(prod, e)} className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-green-600 bg-green-50 hover:bg-green-100 rounded-lg">
+                        <Copy size={14} /> Copy
+                      </button>
+                      <button onClick={(e) => handleOpenDelete(prod, e)} className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded-lg">
+                        <Trash2 size={14} /> Hapus
+                      </button>
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm border-collapse">
@@ -734,6 +769,23 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
               </div>
           )}
         </div>
+
+        {/* Floating Add Button (muncul saat header hilang) */}
+        {showFloatingAdd && (
+          <div className="sticky bottom-0 z-10 p-3 bg-white border-t border-gray-100 shadow-[0_-4px_10px_-2px_rgba(0,0,0,0.05)]">
+            <button 
+              onClick={() => {
+                setSelectedProduct(null);
+                setFormData({ id_lama: generateRawRandomId() });
+                setProductFiles([]);
+                setModalType('form');
+              }}
+              className="w-full bg-gradient-to-r from-orange-500 to-amber-500 text-white py-3 rounded-xl font-bold shadow-lg shadow-orange-500/30 flex items-center justify-center gap-2 transition-all hover:-translate-y-0.5"
+            >
+              <Plus size={20} /> Tambah Produk Baru
+            </button>
+          </div>
+        )}
 
         {/* Pagination */}
         <div className="p-4 border-t border-gray-100 bg-white flex justify-between items-center shrink-0">
