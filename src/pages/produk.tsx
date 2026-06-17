@@ -353,6 +353,9 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
     const { id, created, updated, ...restData } = prod;
     const copyData: Partial<Produk> = { ...restData };
     copyData.id_lama = generateRawRandomId();
+    // Reset stok ke 0 saat membuat salinan baru
+    copyData.stok_1 = 0; 
+    copyData.stok_3 = 0; 
     
     setSelectedProduct(null); 
     setFormData(copyData);
@@ -1161,20 +1164,20 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
 
             <div className="bg-green-50/50 p-4 rounded-xl border border-green-100 space-y-4">
               <h4 className="font-bold text-green-700 text-sm border-b border-green-200 pb-2">
-                Manajemen Stok {isReadOnly && !['6','7','10'].includes(userLevel) && <span className="text-[10px] text-gray-400">(Read-Only)</span>}
+                Manajemen Stok {isReadOnly && !['5','6','7','10'].includes(userLevel) && <span className="text-[10px] text-gray-400">(Read-Only)</span>}
                 {['6','7','10'].includes(userLevel) && <span className="text-[10px] text-amber-500 ml-2">(Edit hanya stok menipis)</span>}
               </h4>
               <div className="grid grid-cols-3 gap-4">
-                {/* Stok Awal - hanya level 1 yang bisa edit */}
+                {/* Stok Awal - level 1, 5, atau saat pembuatan baru/salinan */}
                 <div>
                   <label className="text-xs font-bold text-gray-500">Stok Awal</label>
                   <input 
                     type="number" 
                     name="stok_1" 
-                    disabled={userLevel !== '1'} 
+                    disabled={!(userLevel === '1' || userLevel === '5' || !isEditMode)} 
                     value={formData.stok_1 ?? ''} 
                     onChange={handleInputChange} 
-                    className={`w-full p-2 border rounded-lg outline-none ${userLevel !== '1' ? 'bg-gray-100 text-gray-500' : 'bg-white'}`}
+                    className={`w-full p-2 border rounded-lg outline-none ${!(userLevel === '1' || userLevel === '5' || !isEditMode) ? 'bg-gray-100 text-gray-500' : 'bg-white'}`}
                   />
                 </div>
                 
@@ -1191,16 +1194,16 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
                   />
                 </div>
                 
-                {/* Stok Realtime - hanya level 1 yang bisa edit */}
+                {/* Stok Realtime - level 1, 5, atau saat pembuatan baru/salinan */}
                 <div>
                   <label className="text-xs font-bold text-green-600">Stok Realtime</label>
                   <input 
                     type="number" 
                     name="stok_3" 
-                    disabled={userLevel !== '1'} 
+                    disabled={!(userLevel === '1' || userLevel === '5' || !isEditMode)} 
                     value={formData.stok_3 ?? ''} 
                     onChange={handleInputChange} 
-                    className={`w-full p-2 border rounded-lg outline-none font-bold ${userLevel !== '1' ? 'bg-gray-100 text-gray-500' : 'bg-green-50'}`}
+                    className={`w-full p-2 border rounded-lg outline-none font-bold ${!(userLevel === '1' || userLevel === '5' || !isEditMode) ? 'bg-gray-100 text-gray-500' : 'bg-green-50'}`}
                   />
                 </div>
               </div>
