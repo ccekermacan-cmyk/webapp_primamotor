@@ -84,6 +84,38 @@ export default function ReportPage() {
   const [cashflowFilterAccount, setCashflowFilterAccount] = useState<string>('semua');
   const [cashflowFilterJenis, setCashflowFilterJenis] = useState<string>('semua');
 
+  // State untuk status filter menu & sorting tabel
+  // State untuk status filter menu & sorting tabel
+  const [menuFilterStatus, setMenuFilterStatus] = useState<string>('semua');
+  const [menuSort, setMenuSort] = useState({ key: 'created_at', dir: 'desc' });
+  const [logStockSort, setLogStockSort] = useState({ key: 'created_at', dir: 'desc' });
+  const [cashflowSort, setCashflowSort] = useState({ key: 'created_at', dir: 'desc' });
+  
+  // TAMBAHAN STATE PENCARIAN DI MODAL
+  const [detailSearchTerm, setDetailSearchTerm] = useState('');
+
+  // Fungsi helper memproses sort klik
+
+  // Fungsi helper memproses sort klik
+  const handleSort = (tab: string, key: string) => {
+    if (tab === 'menu') setMenuSort(p => ({ key, dir: p.key === key && p.dir === 'asc' ? 'desc' : 'asc' }));
+    else if (tab === 'logstock') setLogStockSort(p => ({ key, dir: p.key === key && p.dir === 'asc' ? 'desc' : 'asc' }));
+    else if (tab === 'cashflow') setCashflowSort(p => ({ key, dir: p.key === key && p.dir === 'asc' ? 'desc' : 'asc' }));
+  };
+
+  // Fungsi helper merender th / header tabel
+  const renderSortHeader = (tab: string, key: string, label: string, align: string = 'left') => {
+    const isSorted = tab === 'menu' ? menuSort.key === key : tab === 'logstock' ? logStockSort.key === key : cashflowSort.key === key;
+    const dir = tab === 'menu' ? menuSort.dir : tab === 'logstock' ? logStockSort.dir : cashflowSort.dir;
+    return (
+      <th onClick={() => handleSort(tab, key)} className={`p-3 text-${align} font-black text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-200 select-none transition-colors`}>
+        {label} <span className="ml-1 inline-block w-2 text-slate-400">{isSorted ? (dir === 'asc' ? '↑' : '↓') : '↕'}</span>
+      </th>
+    );
+  };
+
+  // Tambahkan setelah formatDate
+
   // Tambahkan setelah formatDate
   const getDayRange = (date: Date) => {
     const start = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0));
@@ -574,6 +606,7 @@ export default function ReportPage() {
         const logStockItems = await pb.collection('log_stock').getFullList({
           filter: logStockFilter,
           sort: 'created_at',
+          expand: 'item_baru', // Menarik detail data nama produk
           $autoCancel: false,
         });
 
@@ -1058,7 +1091,7 @@ export default function ReportPage() {
                 {['overview', 'menu', 'logstock', 'cashflow'].map((tab) => (
                   <button
                     key={tab}
-                    onClick={() => setActiveDetailTab(tab as any)}
+                    onClick={() => { setActiveDetailTab(tab as any); setDetailSearchTerm(''); }}
                     className={`px-6 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider transition-all ${
                       activeDetailTab === tab
                         ? 'bg-blue-600 text-white shadow-md'
@@ -1115,7 +1148,35 @@ export default function ReportPage() {
                     </div>
                   </div>
                 ) : activeDetailTab === 'menu' ? (() => {
-                  const filteredMenu = reportDetailData?.menu.filter(m => menuFilterJenis === 'semua' || m.jenis === menuFilterJenis) || [];
+                  let filteredMenu = reportDetailData?.menu.filter(m => menuFilterJenis === 'semua' || m.jenis === menuFilterJenis) || [];
+                  filteredMenu = filteredMenu.filter(m => menuFilterStatus === 'semua' || m.status === menuFilterStatus);
+                  
+                  // Pencarian Berdasarkan Teks
+                  if (detailSearchTerm.trim() !== '') {
+                    const term = detailSearchTerm.toLowerCase();
+                    filteredMenu = filteredMenu.filter(m => 
+                      (m.id && m.id.toLowerCase().includes(term)) ||
+                      (m.operator && m.operator.toLowerCase().includes(term)) ||
+                      (m.person && m.person.toLowerCase().includes(term)) ||
+                      (m.person_baru && m.person_baru.toLowerCase().includes(term)) ||
+                      (m.jenis && m.jenis.toLowerCase().includes(term)) ||
+                      (m.payment && m.payment.toLowerCase().includes(term)) ||
+                      (m.marketplace && m.marketplace.toLowerCase().includes(term)) ||
+                      (m.text && m.text.toLowerCase().includes(term)) ||
+                      (m.note && m.note.toLowerCase().includes(term))
+                    );
+                  }
+
+                  // Sorting Lanjutan
+                  filteredMenu.sort((a, b) => {
+                    let valA = a[menuSort.key]; let valB = b[menuSort.key];
+                    if (typeof valA === 'string') valA = valA.toLowerCase();
+                    if (typeof valB === 'string') valB = valB.toLowerCase();
+                    if (valA < valB) return menuSort.dir === 'asc' ? -1 : 1;
+                    if (valA > valB) return menuSort.dir === 'asc' ? 1 : -1;
+                    return 0;
+                  });
+
                   const sumQty = filteredMenu.reduce((acc, m) => acc + (m.qty || 0), 0);
                   const sumTotal = filteredMenu.reduce((acc, m) => acc + (m.total || 0), 0);
                   const sumDibayar = filteredMenu.reduce((acc, m) => acc + (m.dibayar || 0), 0);
@@ -1125,45 +1186,56 @@ export default function ReportPage() {
 
                   return (
                     <div>
-                      <div className="flex gap-2 mb-4">
-                        <select
-                          className="p-2 border border-slate-200 rounded-xl text-sm font-bold bg-white"
-                          value={menuFilterJenis}
-                          onChange={(e) => setMenuFilterJenis(e.target.value)}
-                        >
-                          <option value="semua">Semua Jenis Menu</option>
-                          {[...new Set(reportDetailData?.menu.map(m => m.jenis) || [])].map(j => (
-                            <option key={String(j)} value={String(j)}>{j}</option>
-                          ))}
-                        </select>
+                      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
+                        <div className="flex flex-wrap gap-2">
+                          <select className="p-2 border border-slate-200 rounded-xl text-sm font-bold bg-white" value={menuFilterJenis} onChange={(e) => setMenuFilterJenis(e.target.value)}>
+                            <option value="semua">Semua Jenis Menu</option>
+                            {[...new Set(reportDetailData?.menu.map(m => m.jenis) || [])].map(j => <option key={String(j)} value={String(j)}>{j}</option>)}
+                          </select>
+                          <select className="p-2 border border-slate-200 rounded-xl text-sm font-bold bg-white" value={menuFilterStatus} onChange={(e) => setMenuFilterStatus(e.target.value)}>
+                            <option value="semua">Semua Status</option>
+                            <option value="lunas">Lunas</option>
+                            <option value="belum">Belum Lunas</option>
+                          </select>
+                        </div>
+                        <div className="relative w-full sm:w-64 shrink-0">
+                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                          <input type="text" placeholder="Cari di Menu..." value={detailSearchTerm} onChange={e => setDetailSearchTerm(e.target.value)} className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-500/20 transition-all shadow-sm" />
+                        </div>
                       </div>
                       <div className="overflow-x-auto overflow-y-auto max-h-[50vh] custom-scrollbar rounded-xl border border-slate-200 shadow-sm relative">
                         <table className="w-full text-xs border-collapse whitespace-nowrap">
                           <thead className="bg-slate-100 sticky top-0 z-10">
                             <tr className="border-b border-slate-200">
-                              <th className="p-3 text-left font-black text-slate-500 uppercase">Waktu</th>
-                              <th className="p-3 text-left font-black text-slate-500 uppercase">Operator</th>
-                              <th className="p-3 text-left font-black text-slate-500 uppercase">Pihak/Orang</th>
-                              <th className="p-3 text-left font-black text-slate-500 uppercase">Jenis</th>
-                              <th className="p-3 text-left font-black text-slate-500 uppercase">Metode</th>
-                              <th className="p-3 text-left font-black text-slate-500 uppercase">Status</th>
-                              <th className="p-3 text-right font-black text-slate-500 uppercase">Qty</th>
-                              <th className="p-3 text-right font-black text-slate-500 uppercase">Marketplace</th>
-                              <th className="p-3 text-right font-black text-slate-500 uppercase">Admin</th>
-                              <th className="p-3 text-right font-black text-slate-500 uppercase">Cashback</th>
-                              <th className="p-3 text-right font-black text-slate-800 uppercase">Total Invoice</th>
-                              <th className="p-3 text-right font-black text-emerald-600 uppercase">Terbayar</th>
-                              <th className="p-3 text-left font-black text-slate-500 uppercase">Catatan</th>
+                              {renderSortHeader('menu', 'id', 'ID Ref')}
+                              {renderSortHeader('menu', 'created_at', 'Waktu')}
+                              {renderSortHeader('menu', 'operator', 'Operator')}
+                              {renderSortHeader('menu', 'person', 'Pihak/Orang')}
+                              {renderSortHeader('menu', 'jenis', 'Jenis')}
+                              {renderSortHeader('menu', 'payment', 'Metode')}
+                              {renderSortHeader('menu', 'status', 'Status')}
+                              {renderSortHeader('menu', 'qty', 'Qty', 'right')}
+                              {renderSortHeader('menu', 'marketplace', 'Marketplace')}
+                              {renderSortHeader('menu', 'admin', 'Admin', 'right')}
+                              {renderSortHeader('menu', 'cashback', 'Cashback', 'right')}
+                              {renderSortHeader('menu', 'total', 'Total Invoice', 'right')}
+                              {renderSortHeader('menu', 'dibayar', 'Terbayar', 'right')}
+                              {renderSortHeader('menu', 'note', 'Catatan')}
                             </tr>
                           </thead>
                           <tbody className="bg-white">
                             {reportDetailData === null ? (
-                              <tr><td colSpan={13} className="p-4 text-center text-slate-400">Memuat data...</td></tr>
+                              <tr><td colSpan={14} className="p-4 text-center text-slate-400">Memuat data...</td></tr>
                             ) : filteredMenu.length === 0 ? (
-                              <tr><td colSpan={13} className="p-4 text-center text-slate-400">Tidak ada data menu.</td></tr>
+                              <tr><td colSpan={14} className="p-4 text-center text-slate-400">Tidak ada data menu.</td></tr>
                             ) : (
                               filteredMenu.map((m, idx) => (
-                                <tr key={idx} className="border-b border-slate-100 hover:bg-slate-50 text-slate-600 font-medium">
+                                <tr key={idx} 
+                                    onClick={() => { setLogStockFilterRefJenis(m.id); setActiveDetailTab('logstock'); }}
+                                    className="border-b border-slate-100 hover:bg-blue-50 cursor-pointer text-slate-600 font-medium transition-colors"
+                                    title="Klik untuk melihat rincian barang/servis di Log Stock"
+                                >
+                                  <td className="p-3 font-mono text-[10px] text-blue-500">{m.id.slice(-6)}</td>
                                   <td className="p-3 font-mono text-[10px]">{new Date(m.created_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}</td>
                                   <td className="p-3 font-bold">{m.operator || '-'}</td>
                                   <td className="p-3 text-blue-600">{m.person || m.person_baru || 'Umum'}</td>
@@ -1171,7 +1243,7 @@ export default function ReportPage() {
                                   <td className="p-3">{m.payment || '-'}</td>
                                   <td className="p-3"><span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase ${m.status === 'belum' ? 'bg-rose-100 text-rose-600' : 'bg-emerald-100 text-emerald-600'}`}>{m.status}</span></td>
                                   <td className="p-3 text-right font-bold">{m.qty || 0}</td>
-                                  <td className="p-3 text-right">{m.marketplace || '-'}</td>
+                                  <td className="p-3">{m.marketplace || '-'}</td>
                                   <td className="p-3 text-right text-rose-500">{formatRp(m.admin)}</td>
                                   <td className="p-3 text-right text-emerald-500">{formatRp(m.cashback)}</td>
                                   <td className="p-3 text-right font-black text-slate-800">{formatRp(m.total)}</td>
@@ -1186,35 +1258,46 @@ export default function ReportPage() {
                       
                       {/* SUMMARY MENU */}
                       <div className="mt-4 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
-                        <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
-                          <p className="text-[10px] font-black text-slate-400 uppercase">Jml Transaksi</p>
-                          <p className="text-sm font-black text-slate-800 mt-0.5">{filteredMenu.length} Nota</p>
-                        </div>
-                        <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
-                          <p className="text-[10px] font-black text-slate-400 uppercase">Total Qty</p>
-                          <p className="text-sm font-black text-slate-800 mt-0.5">{sumQty} Item</p>
-                        </div>
-                        <div className="bg-rose-50 p-3 rounded-xl border border-rose-200">
-                          <p className="text-[10px] font-black text-rose-500 uppercase">Total Admin MP</p>
-                          <p className="text-sm font-black text-rose-600 mt-0.5">{formatRp(sumAdmin)}</p>
-                        </div>
-                        <div className="bg-blue-50 p-3 rounded-xl border border-blue-200">
-                          <p className="text-[10px] font-black text-blue-500 uppercase">Total Transaksi</p>
-                          <p className="text-sm font-black text-blue-600 mt-0.5">{formatRp(sumTotal)}</p>
-                        </div>
-                        <div className="bg-emerald-50 p-3 rounded-xl border border-emerald-200">
-                          <p className="text-[10px] font-black text-emerald-500 uppercase">Telah Dibayar</p>
-                          <p className="text-sm font-black text-emerald-600 mt-0.5">{formatRp(sumDibayar)}</p>
-                        </div>
-                        <div className="bg-amber-50 p-3 rounded-xl border border-amber-200">
-                          <p className="text-[10px] font-black text-amber-500 uppercase">Kurang / Piutang</p>
-                          <p className="text-sm font-black text-amber-600 mt-0.5">{formatRp(sumBelum)}</p>
-                        </div>
+                        <div className="bg-slate-50 p-3 rounded-xl border border-slate-200"><p className="text-[10px] font-black text-slate-400 uppercase">Jml Transaksi</p><p className="text-sm font-black text-slate-800 mt-0.5">{filteredMenu.length} Nota</p></div>
+                        <div className="bg-slate-50 p-3 rounded-xl border border-slate-200"><p className="text-[10px] font-black text-slate-400 uppercase">Total Qty</p><p className="text-sm font-black text-slate-800 mt-0.5">{sumQty} Item</p></div>
+                        <div className="bg-rose-50 p-3 rounded-xl border border-rose-200"><p className="text-[10px] font-black text-rose-500 uppercase">Total Admin MP</p><p className="text-sm font-black text-rose-600 mt-0.5">{formatRp(sumAdmin)}</p></div>
+                        <div className="bg-blue-50 p-3 rounded-xl border border-blue-200"><p className="text-[10px] font-black text-blue-500 uppercase">Total Transaksi</p><p className="text-sm font-black text-blue-600 mt-0.5">{formatRp(sumTotal)}</p></div>
+                        <div className="bg-emerald-50 p-3 rounded-xl border border-emerald-200"><p className="text-[10px] font-black text-emerald-500 uppercase">Telah Dibayar</p><p className="text-sm font-black text-emerald-600 mt-0.5">{formatRp(sumDibayar)}</p></div>
+                        <div className="bg-amber-50 p-3 rounded-xl border border-amber-200"><p className="text-[10px] font-black text-amber-500 uppercase">Kurang / Piutang</p><p className="text-sm font-black text-amber-600 mt-0.5">{formatRp(sumBelum)}</p></div>
                       </div>
                     </div>
                   );
                 })() : activeDetailTab === 'logstock' ? (() => {
-                  const filteredLogStock = reportDetailData?.logStock.filter(l => logStockFilterRefJenis === 'semua' || l.ref_baru === logStockFilterRefJenis) || [];
+                  let filteredLogStock = reportDetailData?.logStock.filter(l => logStockFilterRefJenis === 'semua' || l.ref_baru === logStockFilterRefJenis) || [];
+                  
+                  // Filter Pencarian
+                  if (detailSearchTerm.trim() !== '') {
+                    const term = detailSearchTerm.toLowerCase();
+                    filteredLogStock = filteredLogStock.filter(l => {
+                      const produkExpanded = l.expand?.item_baru;
+                      const produkName = produkExpanded ? `${produkExpanded.kategori || ''} ${produkExpanded.merk || ''} ${produkExpanded.jenis || ''}`.trim() : l.item_baru;
+                      return (
+                        (l.id && l.id.toLowerCase().includes(term)) ||
+                        (l.operator && l.operator.toLowerCase().includes(term)) ||
+                        (l.item && l.item.toLowerCase().includes(term)) ||
+                        (produkName && produkName.toLowerCase().includes(term)) ||
+                        (l.ref_baru && l.ref_baru.toLowerCase().includes(term)) ||
+                        (l.note && l.note.toLowerCase().includes(term)) ||
+                        (l.text && l.text.toLowerCase().includes(term))
+                      );
+                    });
+                  }
+
+                  // Sorting Logstock
+                  filteredLogStock.sort((a, b) => {
+                    let valA = a[logStockSort.key]; let valB = b[logStockSort.key];
+                    if (typeof valA === 'string') valA = valA.toLowerCase();
+                    if (typeof valB === 'string') valB = valB.toLowerCase();
+                    if (valA < valB) return logStockSort.dir === 'asc' ? -1 : 1;
+                    if (valA > valB) return logStockSort.dir === 'asc' ? 1 : -1;
+                    return 0;
+                  });
+
                   const sumQtyIn = filteredLogStock.filter(l => l.boolean === 'in').reduce((acc, l) => acc + (l.qty || 0), 0);
                   const sumQtyOut = filteredLogStock.filter(l => l.boolean === 'out').reduce((acc, l) => acc + (l.qty || 0), 0);
                   const sumNilaiJual = filteredLogStock.reduce((acc, l) => acc + ((l.price_1 || 0) * (l.qty || 0)), 0);
@@ -1223,34 +1306,34 @@ export default function ReportPage() {
 
                   return (
                     <div>
-                      <div className="flex gap-2 mb-4">
-                        <select
-                          className="p-2 border border-slate-200 rounded-xl text-sm font-bold bg-white"
-                          value={logStockFilterRefJenis}
-                          onChange={(e) => setLogStockFilterRefJenis(e.target.value)}
-                        >
-                          <option value="semua">Semua Referensi (Nota)</option>
-                          {[...new Set(reportDetailData?.logStock.map(l => l.ref_baru) || [])].map(r => (
-                            <option key={String(r)} value={String(r)}>{r}</option>
-                          ))}
-                        </select>
+                      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
+                        <div className="flex flex-wrap gap-2">
+                          <select className="p-2 border border-slate-200 rounded-xl text-sm font-bold bg-white" value={logStockFilterRefJenis} onChange={(e) => setLogStockFilterRefJenis(e.target.value)}>
+                            <option value="semua">Semua Referensi (Nota)</option>
+                            {[...new Set(reportDetailData?.logStock.map(l => l.ref_baru) || [])].map(r => <option key={String(r)} value={String(r)}>{r}</option>)}
+                          </select>
+                        </div>
+                        <div className="relative w-full sm:w-64 shrink-0">
+                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                          <input type="text" placeholder="Cari di Log Stock..." value={detailSearchTerm} onChange={e => setDetailSearchTerm(e.target.value)} className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-500/20 transition-all shadow-sm" />
+                        </div>
                       </div>
                       <div className="overflow-x-auto overflow-y-auto max-h-[50vh] custom-scrollbar rounded-xl border border-slate-200 shadow-sm relative">
                         <table className="w-full text-xs border-collapse whitespace-nowrap">
                           <thead className="bg-slate-100 sticky top-0 z-10">
                             <tr className="border-b border-slate-200">
-                              <th className="p-3 text-left font-black text-slate-500 uppercase">Waktu</th>
-                              <th className="p-3 text-left font-black text-slate-500 uppercase">Operator</th>
-                              <th className="p-3 text-center font-black text-slate-500 uppercase">In/Out</th>
-                              <th className="p-3 text-left font-black text-slate-500 uppercase">ID Item</th>
-                              <th className="p-3 text-left font-black text-slate-500 uppercase">Nama Produk</th>
-                              <th className="p-3 text-right font-black text-slate-500 uppercase">Qty</th>
-                              <th className="p-3 text-right font-black text-slate-500 uppercase">Harga Satuan</th>
+                              {renderSortHeader('logstock', 'created_at', 'Waktu')}
+                              {renderSortHeader('logstock', 'operator', 'Operator')}
+                              {renderSortHeader('logstock', 'boolean', 'In/Out', 'center')}
+                              {renderSortHeader('logstock', 'item', 'ID Lama')}
+                              {renderSortHeader('logstock', 'item_baru', 'Nama Barang')}
+                              {renderSortHeader('logstock', 'qty', 'Qty', 'right')}
+                              {renderSortHeader('logstock', 'price_1', 'Harga Satuan', 'right')}
                               <th className="p-3 text-right font-black text-slate-500 uppercase">Subtotal Jual</th>
                               <th className="p-3 text-right font-black text-slate-500 uppercase">Subtotal Modal</th>
                               <th className="p-3 text-right font-black text-emerald-600 uppercase">Laba Kotor</th>
-                              <th className="p-3 text-left font-black text-slate-500 uppercase">Ref Nota</th>
-                              <th className="p-3 text-left font-black text-slate-500 uppercase">Catatan</th>
+                              {renderSortHeader('logstock', 'ref_baru', 'Ref Nota')}
+                              {renderSortHeader('logstock', 'note', 'Catatan')}
                             </tr>
                           </thead>
                           <tbody className="bg-white">
@@ -1263,17 +1346,20 @@ export default function ReportPage() {
                                 const subJual = (l.price_1 || 0) * (l.qty || 0);
                                 const subModal = (l.price_2 || 0) * (l.qty || 0);
                                 const labaItem = subJual - subModal;
+                                
+                                // Tarik nama lengkap dari record produk yang di-expand
+                                const produkExpanded = l.expand?.item_baru;
+                                const produkName = produkExpanded ? `${produkExpanded.kategori || ''} ${produkExpanded.merk || ''} ${produkExpanded.jenis || ''}`.trim() : l.item_baru;
+
                                 return (
                                   <tr key={idx} className="border-b border-slate-100 hover:bg-slate-50 text-slate-600 font-medium">
                                     <td className="p-3 font-mono text-[10px]">{new Date(l.created_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}</td>
                                     <td className="p-3 font-bold">{l.operator || '-'}</td>
                                     <td className="p-3 text-center">
-                                      <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider ${l.boolean === 'in' ? 'bg-blue-100 text-blue-600' : 'bg-orange-100 text-orange-600'}`}>
-                                        {l.boolean}
-                                      </span>
+                                      <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider ${l.boolean === 'in' ? 'bg-blue-100 text-blue-600' : 'bg-orange-100 text-orange-600'}`}>{l.boolean}</span>
                                     </td>
                                     <td className="p-3 font-mono text-[10px]">{l.item || '-'}</td>
-                                    <td className="p-3 font-black text-slate-800 max-w-[200px] truncate" title={l.item_baru}>{l.item_baru}</td>
+                                    <td className="p-3 font-black text-slate-800 max-w-[200px] truncate" title={produkName}>{produkName}</td>
                                     <td className="p-3 text-right font-bold">{l.qty}</td>
                                     <td className="p-3 text-right">{formatRp(l.price_1)}</td>
                                     <td className="p-3 text-right font-bold">{formatRp(subJual)}</td>
@@ -1288,39 +1374,19 @@ export default function ReportPage() {
                           </tbody>
                         </table>
                       </div>
-
-                      {/* SUMMARY LOG STOCK */}
                       <div className="mt-4 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-                        <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
-                          <p className="text-[10px] font-black text-slate-400 uppercase">Jml Pergerakan</p>
-                          <p className="text-sm font-black text-slate-800 mt-0.5">{filteredLogStock.length} Baris</p>
-                        </div>
-                        <div className="bg-blue-50 p-3 rounded-xl border border-blue-200">
-                          <p className="text-[10px] font-black text-blue-500 uppercase">Total Qty In</p>
-                          <p className="text-sm font-black text-blue-600 mt-0.5">{sumQtyIn} Item</p>
-                        </div>
-                        <div className="bg-orange-50 p-3 rounded-xl border border-orange-200">
-                          <p className="text-[10px] font-black text-orange-500 uppercase">Total Qty Out</p>
-                          <p className="text-sm font-black text-orange-600 mt-0.5">{sumQtyOut} Item</p>
-                        </div>
-                        <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
-                          <p className="text-[10px] font-black text-slate-500 uppercase">Estimasi Penjualan</p>
-                          <p className="text-sm font-black text-slate-800 mt-0.5">{formatRp(sumNilaiJual)}</p>
-                        </div>
-                        <div className="bg-rose-50 p-3 rounded-xl border border-rose-200">
-                          <p className="text-[10px] font-black text-rose-500 uppercase">Total Modal</p>
-                          <p className="text-sm font-black text-rose-600 mt-0.5">{formatRp(sumNilaiModal)}</p>
-                        </div>
-                        <div className="bg-emerald-50 p-3 rounded-xl border border-emerald-200">
-                          <p className="text-[10px] font-black text-emerald-500 uppercase">Laba Kotor Est.</p>
-                          <p className="text-sm font-black text-emerald-600 mt-0.5">{formatRp(sumLaba)}</p>
-                        </div>
+                        <div className="bg-slate-50 p-3 rounded-xl border border-slate-200"><p className="text-[10px] font-black text-slate-400 uppercase">Jml Pergerakan</p><p className="text-sm font-black text-slate-800 mt-0.5">{filteredLogStock.length} Baris</p></div>
+                        <div className="bg-blue-50 p-3 rounded-xl border border-blue-200"><p className="text-[10px] font-black text-blue-500 uppercase">Total Qty In</p><p className="text-sm font-black text-blue-600 mt-0.5">{sumQtyIn} Item</p></div>
+                        <div className="bg-orange-50 p-3 rounded-xl border border-orange-200"><p className="text-[10px] font-black text-orange-500 uppercase">Total Qty Out</p><p className="text-sm font-black text-orange-600 mt-0.5">{sumQtyOut} Item</p></div>
+                        <div className="bg-slate-50 p-3 rounded-xl border border-slate-200"><p className="text-[10px] font-black text-slate-500 uppercase">Estimasi Penjualan</p><p className="text-sm font-black text-slate-800 mt-0.5">{formatRp(sumNilaiJual)}</p></div>
+                        <div className="bg-rose-50 p-3 rounded-xl border border-rose-200"><p className="text-[10px] font-black text-rose-500 uppercase">Total Modal</p><p className="text-sm font-black text-rose-600 mt-0.5">{formatRp(sumNilaiModal)}</p></div>
+                        <div className="bg-emerald-50 p-3 rounded-xl border border-emerald-200"><p className="text-[10px] font-black text-emerald-500 uppercase">Laba Kotor Est.</p><p className="text-sm font-black text-emerald-600 mt-0.5">{formatRp(sumLaba)}</p></div>
                       </div>
                     </div>
                   );
                 })() : (() => {
                   // Cashflow Tab
-                  const filteredCashflow = reportDetailData?.cashflow.filter(c => {
+                  let filteredCashflow = reportDetailData?.cashflow.filter(c => {
                     let match = true;
                     if (cashflowFilterMutasi !== 'semua') match = match && c.mutasi === cashflowFilterMutasi;
                     if (cashflowFilterAccount !== 'semua') match = match && (c.acc1 === cashflowFilterAccount || c.acc2 === cashflowFilterAccount);
@@ -1328,60 +1394,73 @@ export default function ReportPage() {
                     return match;
                   }) || [];
 
+                  // Pencarian Berdasarkan Teks
+                  if (detailSearchTerm.trim() !== '') {
+                    const term = detailSearchTerm.toLowerCase();
+                    filteredCashflow = filteredCashflow.filter(c => 
+                      (c.id && c.id.toLowerCase().includes(term)) ||
+                      (c.operator && c.operator.toLowerCase().includes(term)) ||
+                      (c.persontext && c.persontext.toLowerCase().includes(term)) ||
+                      (c.person && c.person.toLowerCase().includes(term)) ||
+                      (c.jenis && c.jenis.toLowerCase().includes(term)) ||
+                      (c.acc1 && c.acc1.toLowerCase().includes(term)) ||
+                      (c.acc2 && c.acc2.toLowerCase().includes(term)) ||
+                      (c.ref_baru && c.ref_baru.toLowerCase().includes(term)) ||
+                      (c.note && c.note.toLowerCase().includes(term))
+                    );
+                  }
+
+                  // Sorting Cashflow
+                  filteredCashflow.sort((a, b) => {
+                    let valA = a[cashflowSort.key]; let valB = b[cashflowSort.key];
+                    if (typeof valA === 'string') valA = valA.toLowerCase();
+                    if (typeof valB === 'string') valB = valB.toLowerCase();
+                    if (valA < valB) return cashflowSort.dir === 'asc' ? -1 : 1;
+                    if (valA > valB) return cashflowSort.dir === 'asc' ? 1 : -1;
+                    return 0;
+                  });
+
                   const sumMasuk = filteredCashflow.filter(c => c.mutasi === 'in' || c.mutasi === 'Masuk').reduce((acc, c) => acc + (c.nominal || 0), 0);
                   const sumKeluar = filteredCashflow.filter(c => c.mutasi === 'out' || c.mutasi === 'Keluar').reduce((acc, c) => acc + (c.nominal || 0), 0);
                   const nett = sumMasuk - sumKeluar;
 
                   return (
                     <div>
-                      <div className="flex flex-wrap gap-2 mb-4">
-                        <select
-                          className="p-2 border border-slate-200 rounded-xl text-sm font-bold bg-white"
-                          value={cashflowFilterMutasi}
-                          onChange={(e) => setCashflowFilterMutasi(e.target.value)}
-                        >
-                          <option value="semua">Semua Mutasi</option>
-                          <option value="in">Masuk (In)</option>
-                          <option value="out">Keluar (Out)</option>
-                        </select>
-                        <select
-                          className="p-2 border border-slate-200 rounded-xl text-sm font-bold bg-white"
-                          value={cashflowFilterAccount}
-                          onChange={(e) => setCashflowFilterAccount(e.target.value)}
-                        >
-                          <option value="semua">Semua Akun</option>
-                          {[...new Set([
-                            ...(reportDetailData?.cashflow.map(c => c.acc1) || []),
-                            ...(reportDetailData?.cashflow.map(c => c.acc2) || [])
-                          ].filter(Boolean))].map(a => (
-                            <option key={String(a)} value={String(a)}>{a}</option>
-                          ))}
-                        </select>
-                        <select
-                          className="p-2 border border-slate-200 rounded-xl text-sm font-bold bg-white"
-                          value={cashflowFilterJenis}
-                          onChange={(e) => setCashflowFilterJenis(e.target.value)}
-                        >
-                          <option value="semua">Semua Jenis Cashflow</option>
-                          {[...new Set(reportDetailData?.cashflow.map(c => c.jenis) || [])].map(j => (
-                            <option key={String(j)} value={String(j)}>{j}</option>
-                          ))}
-                        </select>
+                      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
+                        <div className="flex flex-wrap gap-2">
+                          <select className="p-2 border border-slate-200 rounded-xl text-sm font-bold bg-white" value={cashflowFilterMutasi} onChange={(e) => setCashflowFilterMutasi(e.target.value)}>
+                            <option value="semua">Semua Mutasi</option>
+                            <option value="in">Masuk (In)</option>
+                            <option value="out">Keluar (Out)</option>
+                          </select>
+                          <select className="p-2 border border-slate-200 rounded-xl text-sm font-bold bg-white" value={cashflowFilterAccount} onChange={(e) => setCashflowFilterAccount(e.target.value)}>
+                            <option value="semua">Semua Akun</option>
+                            {[...new Set([...(reportDetailData?.cashflow.map(c => c.acc1) || []), ...(reportDetailData?.cashflow.map(c => c.acc2) || [])].filter(Boolean))].map(a => <option key={String(a)} value={String(a)}>{a}</option>)}
+                          </select>
+                          <select className="p-2 border border-slate-200 rounded-xl text-sm font-bold bg-white" value={cashflowFilterJenis} onChange={(e) => setCashflowFilterJenis(e.target.value)}>
+                            <option value="semua">Semua Jenis Kas</option>
+                            {[...new Set(reportDetailData?.cashflow.map(c => c.jenis) || [])].map(j => <option key={String(j)} value={String(j)}>{j}</option>)}
+                          </select>
+                        </div>
+                        <div className="relative w-full sm:w-64 shrink-0">
+                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                          <input type="text" placeholder="Cari di Cashflow..." value={detailSearchTerm} onChange={e => setDetailSearchTerm(e.target.value)} className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-500/20 transition-all shadow-sm" />
+                        </div>
                       </div>
                       <div className="overflow-x-auto overflow-y-auto max-h-[50vh] custom-scrollbar rounded-xl border border-slate-200 shadow-sm relative">
                         <table className="w-full text-xs border-collapse whitespace-nowrap">
                           <thead className="bg-slate-100 sticky top-0 z-10">
                             <tr className="border-b border-slate-200">
-                              <th className="p-3 text-left font-black text-slate-500 uppercase">Waktu</th>
-                              <th className="p-3 text-left font-black text-slate-500 uppercase">Operator</th>
-                              <th className="p-3 text-left font-black text-slate-500 uppercase">Pihak / Note</th>
-                              <th className="p-3 text-left font-black text-slate-500 uppercase">Jenis</th>
-                              <th className="p-3 text-center font-black text-slate-500 uppercase">Mutasi</th>
-                              <th className="p-3 text-left font-black text-slate-500 uppercase">Akun Sumber</th>
-                              <th className="p-3 text-left font-black text-slate-500 uppercase">Akun Tujuan</th>
-                              <th className="p-3 text-right font-black text-slate-800 uppercase">Nominal</th>
-                              <th className="p-3 text-left font-black text-slate-500 uppercase">Ref Nota</th>
-                              <th className="p-3 text-left font-black text-slate-500 uppercase">Catatan Tambahan</th>
+                              {renderSortHeader('cashflow', 'created_at', 'Waktu')}
+                              {renderSortHeader('cashflow', 'operator', 'Operator')}
+                              {renderSortHeader('cashflow', 'persontext', 'Pihak / Note')}
+                              {renderSortHeader('cashflow', 'jenis', 'Jenis')}
+                              {renderSortHeader('cashflow', 'mutasi', 'Mutasi', 'center')}
+                              {renderSortHeader('cashflow', 'acc1', 'Akun Sumber')}
+                              {renderSortHeader('cashflow', 'acc2', 'Akun Tujuan')}
+                              {renderSortHeader('cashflow', 'nominal', 'Nominal', 'right')}
+                              {renderSortHeader('cashflow', 'ref_baru', 'Ref Nota')}
+                              {renderSortHeader('cashflow', 'note', 'Catatan Tambahan')}
                             </tr>
                           </thead>
                           <tbody className="bg-white">
@@ -1399,15 +1478,11 @@ export default function ReportPage() {
                                   <td className="p-3 text-blue-600">{c.persontext || c.person || '-'}</td>
                                   <td className="p-3 font-black text-slate-700">{c.jenis}</td>
                                   <td className="p-3 text-center">
-                                    <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider ${isIn ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>
-                                      {c.mutasi}
-                                    </span>
+                                    <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider ${isIn ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>{c.mutasi}</span>
                                   </td>
                                   <td className="p-3 font-bold">{c.acc1 || c.account_1 || '-'}</td>
                                   <td className="p-3 font-bold">{c.acc2 || c.account_2 || '-'}</td>
-                                  <td className={`p-3 text-right font-black ${isIn ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                    {isIn ? '+' : '-'}{formatRp(c.nominal)}
-                                  </td>
+                                  <td className={`p-3 text-right font-black ${isIn ? 'text-emerald-600' : 'text-rose-600'}`}>{isIn ? '+' : '-'}{formatRp(c.nominal)}</td>
                                   <td className="p-3 font-mono text-[10px] text-blue-500">{c.ref_baru || '-'}</td>
                                   <td className="p-3 text-[10px] max-w-[150px] truncate" title={c.note}>{c.note || '-'}</td>
                                 </tr>
@@ -1417,25 +1492,11 @@ export default function ReportPage() {
                           </tbody>
                         </table>
                       </div>
-
-                      {/* SUMMARY CASHFLOW */}
                       <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3">
-                        <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
-                          <p className="text-[10px] font-black text-slate-400 uppercase">Total Jurnal Kas</p>
-                          <p className="text-base font-black text-slate-800 mt-0.5">{filteredCashflow.length} Aktivitas</p>
-                        </div>
-                        <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-200">
-                          <p className="text-[10px] font-black text-emerald-500 uppercase">Total Kas Masuk</p>
-                          <p className="text-base font-black text-emerald-600 mt-0.5">+{formatRp(sumMasuk)}</p>
-                        </div>
-                        <div className="bg-rose-50 p-4 rounded-xl border border-rose-200">
-                          <p className="text-[10px] font-black text-rose-500 uppercase">Total Kas Keluar</p>
-                          <p className="text-base font-black text-rose-600 mt-0.5">-{formatRp(sumKeluar)}</p>
-                        </div>
-                        <div className={`p-4 rounded-xl border ${nett >= 0 ? 'bg-blue-50 border-blue-200' : 'bg-orange-50 border-orange-200'}`}>
-                          <p className={`text-[10px] font-black uppercase ${nett >= 0 ? 'text-blue-500' : 'text-orange-500'}`}>Nett / Selisih Kas</p>
-                          <p className={`text-base font-black mt-0.5 ${nett >= 0 ? 'text-blue-600' : 'text-orange-600'}`}>{formatRp(nett)}</p>
-                        </div>
+                        <div className="bg-slate-50 p-4 rounded-xl border border-slate-200"><p className="text-[10px] font-black text-slate-400 uppercase">Total Jurnal Kas</p><p className="text-base font-black text-slate-800 mt-0.5">{filteredCashflow.length} Aktivitas</p></div>
+                        <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-200"><p className="text-[10px] font-black text-emerald-500 uppercase">Total Kas Masuk</p><p className="text-base font-black text-emerald-600 mt-0.5">+{formatRp(sumMasuk)}</p></div>
+                        <div className="bg-rose-50 p-4 rounded-xl border border-rose-200"><p className="text-[10px] font-black text-rose-500 uppercase">Total Kas Keluar</p><p className="text-base font-black text-rose-600 mt-0.5">-{formatRp(sumKeluar)}</p></div>
+                        <div className={`p-4 rounded-xl border ${nett >= 0 ? 'bg-blue-50 border-blue-200' : 'bg-orange-50 border-orange-200'}`}><p className={`text-[10px] font-black uppercase ${nett >= 0 ? 'text-blue-500' : 'text-orange-500'}`}>Nett / Selisih Kas</p><p className={`text-base font-black mt-0.5 ${nett >= 0 ? 'text-blue-600' : 'text-orange-600'}`}>{formatRp(nett)}</p></div>
                       </div>
                     </div>
                   );
