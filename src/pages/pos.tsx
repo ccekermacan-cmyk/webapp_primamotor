@@ -848,26 +848,28 @@ export default function MenuPage() {
       }
 
       // ========== PERUBAHAN ADA DI SINI ==========
-        for (const item of cartWithTierPrice) {
-          const booleanValue = (menuLower.includes('penjualan') || menuLower.includes('service')) ? 'out' : 'in';
-          
-          // [MODIFIED] Menambahkan field 'normal' yang berisi sell_6 * qty
-          await pb.collection('log_stock').create({
-            id_lama: '',
-            created_at: timestamp,
-            operator: operatorName,
-            item: item.id_lama,
-            qty: item.qty,
-            item_baru: item.id,
-            price_1: item.priceSelected,
-            price_2: item.beli * item.qty,
-            number_1: 0,
-            number_2: 0,
-            boolean: booleanValue,
-            ref_baru: menuRecordId,
-            normal: item.sell_6 * item.qty   // <--- TAMBAHAN BARU
-          });
-        }
+      // ========== PENYIMPANAN LOG STOCK (ITEM BARU) ==========
+      for (const item of cartWithTierPrice) {
+        const booleanValue = (menuLower.includes('penjualan') || menuLower.includes('service')) ? 'out' : 'in';
+        
+        await pb.collection('log_stock').create({
+          id_lama: '',
+          created_at: timestamp,
+          operator: operatorName,
+          item: item.id_lama,
+          qty: item.qty,
+          item_baru: item.id,
+          price_1: item.priceSelected, // Harga jual satuan
+          // Menggunakan fallback (|| 0) untuk mencegah nilai NaN jika data master produk kosong
+          price_2: (item.beli || 0) * item.qty, 
+          number_1: 0,
+          number_2: 0,
+          boolean: booleanValue,
+          ref_baru: menuRecordId,
+          // Menyimpan total harga normal (eceran)
+          normal: (item.sell_6 || 0) * item.qty
+        });
+      }
 
             // Cari person record ID berdasarkan personIdLama (jika ada)
       let personRecordId = '';
@@ -1205,7 +1207,7 @@ export default function MenuPage() {
         </div>
 
         {/* Search Bar & Filters - Glassmorphism & Theme Sync */}
-        <div className="p-3 sm:p-4 md:p-6 mb-3 sm:mb-4 border border-gray-100 bg-white/80 backdrop-blur-xl rounded-2xl sm:rounded-3xl shadow-sm shrink-0 flex flex-col gap-2 sm:gap-3 md:gap-4">
+        <div className="p-2 sm:p-3 md:p-4 mb-2 sm:mb-3 border border-gray-100 bg-white/80 backdrop-blur-xl rounded-2xl sm:rounded-3xl shadow-sm shrink-0 flex flex-col gap-1 sm:gap-2 md:gap-3">
           
           {/* Baris atas: input pencarian + Toggle View & Filter Mobile */}
           <div className="flex flex-col sm:flex-row sm:items-center gap-3">
@@ -2329,15 +2331,15 @@ export default function MenuPage() {
                         })()}
                       </h4>
                       <div className="mt-3 flex flex-col items-center gap-1">
-                        <div className="inline-block bg-white/10 backdrop-blur-md border border-white/20 px-5 py-2 rounded-2xl">
-                          <p className="text-sm font-black text-white/90 uppercase tracking-widest text-[10px]">Total Invoice</p>
-                          <p className="text-2xl font-black text-white">Rp {(showDetailHistory?.total || 0).toLocaleString('id-ID')}</p>
-                        </div>
-                        <div className="inline-block bg-black/20 backdrop-blur-sm px-4 py-1.5 rounded-xl border border-white/10">
-                          <p className="text-[10px] font-black text-white/80 uppercase tracking-widest">Dibayar</p>
-                          <p className="text-sm font-black text-white">Rp {(showDetailHistory?.dibayar || 0).toLocaleString('id-ID')}</p>
-                        </div>
+                      <div className="inline-block bg-white/10 backdrop-blur-md border border-white/20 px-5 py-2 rounded-2xl">
+                        <p className="text-sm font-black text-white/90 uppercase tracking-widest text-[10px]">Total Invoice</p>
+                        <p className="text-2xl font-black text-white">Rp {(showDetailHistory?.total || 0).toLocaleString('id-ID')}</p>
                       </div>
+                      <div className="inline-block bg-black/20 backdrop-blur-sm px-4 py-1.5 rounded-xl border border-white/10">
+                        <p className="text-[10px] font-black text-white/80 uppercase tracking-widest">Dibayar</p>
+                        <p className="text-sm font-black text-white">Rp {(showDetailHistory?.dibayar || 0).toLocaleString('id-ID')}</p>
+                      </div>
+                    </div>
                     </div>
 
                     <div className="flex flex-wrap justify-center gap-3 mt-5 relative z-10">

@@ -477,7 +477,7 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
   const isEditMode = !!(selectedProduct && selectedProduct.id);
 
   return (
-    <div className="p-8 h-full flex flex-col">
+    <div className={`h-full flex flex-col transition-all duration-300 ${showHeader ? 'p-8' : 'px-4 pb-4 pt-0'}`}>
       {/* Header Halaman - akan hilang saat scroll ke bawah */}
       <div 
         className={`flex flex-col sm:flex-row sm:justify-between sm:items-end gap-3 sm:gap-0 mb-6 sm:mb-8 shrink-0 transition-all duration-300 ${
@@ -772,19 +772,17 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
 
         {/* Floating Add Button (muncul saat header hilang) */}
         {showFloatingAdd && (
-          <div className="sticky bottom-0 z-10 p-3 bg-white border-t border-gray-100 shadow-[0_-4px_10px_-2px_rgba(0,0,0,0.05)]">
-            <button 
-              onClick={() => {
-                setSelectedProduct(null);
-                setFormData({ id_lama: generateRawRandomId() });
-                setProductFiles([]);
-                setModalType('form');
-              }}
-              className="w-full bg-gradient-to-r from-orange-500 to-amber-500 text-white py-3 rounded-xl font-bold shadow-lg shadow-orange-500/30 flex items-center justify-center gap-2 transition-all hover:-translate-y-0.5"
-            >
-              <Plus size={20} /> Tambah Produk Baru
-            </button>
-          </div>
+          <button 
+            onClick={() => {
+              setSelectedProduct(null);
+              setFormData({ id_lama: generateRawRandomId() });
+              setProductFiles([]);
+              setModalType('form');
+            }}
+            className="fixed bottom-27 right-10 z-50 w-15 h-15 bg-gradient-to-r from-orange-500 to-amber-500 text-white rounded-full shadow-2xl shadow-orange-500/50 flex items-center justify-center transition-all hover:scale-110 active:scale-95"
+          >
+            <Plus size={28} strokeWidth={2.5} />
+          </button>
         )}
 
         {/* Pagination */}

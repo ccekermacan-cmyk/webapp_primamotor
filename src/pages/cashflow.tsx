@@ -1,4 +1,4 @@
-  import React, { useState, useEffect, useMemo } from 'react';
+  import React, { useState, useEffect, useMemo, useRef } from 'react';
   import { useNavigate } from 'react-router-dom';
   import { pb } from '../lib/pocketbase';
   import Modal from '../components/modal';
@@ -59,6 +59,12 @@
       });
     };
 
+    // ========== SCROLL BEHAVIOR ==========
+    const scrollContainerRef = useRef<HTMLDivElement>(null);
+    const [showHeader, setShowHeader] = useState(true);
+    const [showTabs, setShowTabs] = useState(true);
+    const [lastScrollTop, setLastScrollTop] = useState(0);
+
     // Helper untuk mengkonversi tanggal lokal (dari input date picker) ke ISO UTC
     const toLocalDateISO = (dateStr: string, endOfDay = false) => {
       const [year, month, day] = dateStr.split('-').map(Number);
@@ -93,6 +99,8 @@
     const perPage = 20; 
 
     const [isMobileFilterOpen, setIsMobileFilterOpen] = useState(false);
+
+    const [activeFilter, setActiveFilter] = useState<'account' | 'jenis' | 'tanggal' | 'search' | null>(null);
 
     // Tambahkan state ini untuk mengatur animasi buka/tutup UI
     const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -344,6 +352,42 @@
       }
     }, [formData.mutasi, jenisOptionsIn, jenisOptionsOut]);
 
+    useEffect(() => {
+      const containerHistory = scrollContainerRef.current;
+      const containerAccounts = scrollContainerAccountsRef.current;
+
+      const handleScroll = () => {
+        const activeContainer = activeTab === 'history' ? containerHistory : containerAccounts;
+        if (!activeContainer) return;
+
+        const scrollTop = activeContainer.scrollTop;
+
+        if (scrollTop > 20) {
+          setShowHeader(false);
+          setShowTabs(false);
+        } else {
+          setShowHeader(true);
+          setShowTabs(true);
+        }
+      };
+
+      if (containerHistory) {
+        containerHistory.addEventListener('scroll', handleScroll);
+      }
+      if (containerAccounts) {
+        containerAccounts.addEventListener('scroll', handleScroll);
+      }
+
+      return () => {
+        if (containerHistory) {
+          containerHistory.removeEventListener('scroll', handleScroll);
+        }
+        if (containerAccounts) {
+          containerAccounts.removeEventListener('scroll', handleScroll);
+        }
+      };
+    }, [activeTab]);
+
     const groupedTransactions = useMemo(() => {
       const groups: { [key: string]: Cashflow[] } = {};
       transactions.forEach(tx => {
@@ -528,13 +572,23 @@
     // Ditambahkan pengecekan agar jika filename kosong/undefined tidak memicu crash
     const isVideo = (filename: string | undefined) => filename ? !!filename.match(/\.(mp4|webm|ogg)$/i) : false;
 
+    const scrollContainerAccountsRef = useRef<HTMLDivElement>(null);
+
     return (
       <div className="p-4 md:p-8 h-full bg-slate-50 flex flex-col overflow-hidden font-sans">
         {/* PEMBUNGKUS UTAMA */}
         <div className="max-w-6xl mx-auto w-full h-full flex flex-col relative">
           
+          {/* ============================================================ */}
           {/* HEADER */}
-          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-end gap-4 mb-8 shrink-0">
+          {/* ============================================================ */}
+          <div
+            className={`flex flex-col sm:flex-row sm:justify-between sm:items-end gap-4 mb-8 shrink-0 transition-all duration-300 ${
+              showHeader
+                ? 'opacity-100 max-h-40'
+                : 'opacity-0 max-h-0 pointer-events-none mb-0 overflow-hidden'
+            }`}
+          >
             <div>
               <h2 className="text-3xl font-extrabold text-slate-800 tracking-tight flex items-center gap-3">
                 <div className="p-2.5 bg-emerald-500 rounded-2xl text-white shadow-lg shadow-emerald-200">
@@ -542,14 +596,18 @@
                 </div>
                 Arus Kas
               </h2>
-              <p className="text-slate-500 mt-2 font-medium">Monitoring perputaran modal Prima Motor</p>
+              <p className="text-slate-500 mt-2 font-medium">
+                Monitoring perputaran modal Prima Motor
+              </p>
             </div>
-            {/* Tombol hanya muncul di Desktop/Tablet */}
-            <button 
+            <button
               onClick={() => {
                 setSelectedTx(null);
                 setFiles([]);
-                setFormData({ mutasi: 'Masuk', created_at: formatToLocalDatetimeInput(new Date().toISOString()) });
+                setFormData({
+                  mutasi: 'Masuk',
+                  created_at: formatToLocalDatetimeInput(new Date().toISOString()),
+                });
                 setModalType('form');
               }}
               className="hidden md:flex bg-slate-900 hover:bg-black text-white px-6 py-3.5 rounded-2xl font-black text-sm shadow-xl shadow-slate-200 transition-all active:scale-95 items-center justify-center gap-2"
@@ -558,12 +616,20 @@
             </button>
           </div>
 
+          {/* ============================================================ */}
           {/* TAB NAVIGATION */}
-          <div className="flex p-1.5 bg-slate-200/60 rounded-2xl mb-6 w-full sm:w-fit shrink-0">
+          {/* ============================================================ */}
+          <div
+            className={`flex p-1.5 bg-slate-200/60 rounded-2xl mb-6 w-full sm:w-fit shrink-0 transition-all duration-300 ${
+              showTabs
+                ? 'opacity-100 max-h-20'
+                : 'opacity-0 max-h-0 pointer-events-none mb-0 overflow-hidden'
+            }`}
+          >
             <button
               onClick={() => {
                 setActiveTab('accounts');
-                fetchWallets(); // Tarik data dompet terbaru
+                fetchWallets();
               }}
               className={`flex-1 sm:w-40 py-2.5 text-xs font-black uppercase tracking-wider rounded-xl transition-all duration-300 ${
                 activeTab === 'accounts'
@@ -576,8 +642,8 @@
             <button
               onClick={() => {
                 setActiveTab('history');
-                setPage(1); // Reset halaman ke 1
-                fetchCashflow(); // Tarik data history kas terbaru
+                setPage(1);
+                fetchCashflow();
               }}
               className={`flex-1 sm:w-40 py-2.5 text-xs font-black uppercase tracking-wider rounded-xl transition-all duration-300 ${
                 activeTab === 'history'
@@ -589,293 +655,470 @@
             </button>
           </div>
 
-          {/* CONTAINER HISTORY */}
-          {activeTab === 'history' && (
-            <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/40 border border-slate-100 flex-1 flex flex-col overflow-hidden">
-              {/* FILTER SEARCH BAR & TANGGAL */}
-              <div className="p-4 border-b border-slate-100 flex flex-col xl:flex-row gap-3 items-center justify-between shrink-0 bg-white">
-                
-                {/* ROW UTAMA SMARTPHONE: Mutasi + Trigger Filter */}
-                <div className="flex items-center gap-2 w-full xl:flex-1">
-                  {/* 1. Toggle Mutasi (Masuk/Keluar) */}
-                  <div className="flex bg-slate-100 p-1 rounded-xl flex-1 w-full">
-                    {['semua', 'masuk', 'keluar'].map(tab => (
-                      <button 
-                        key={tab} 
-                        onClick={() => { setFilterMutasi(tab); setPage(1); }} 
-                        className={`flex-1 py-2 rounded-lg font-black text-[10px] uppercase tracking-wider transition-all duration-300 ${
-                          filterMutasi === tab 
-                            ? 'bg-white text-emerald-600 shadow-sm' 
-                            : 'text-slate-400 hover:text-slate-600'
-                        }`}
-                      >
-                        {tab}
-                      </button>
-                    ))}
-                  </div>
+      {/* ============================================================ */}
+      {/* CONTAINER HISTORY */}
+      {/* ============================================================ */}
+      {activeTab === 'history' && (
+        <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/40 border border-slate-100 flex-1 min-h-0 flex flex-col overflow-hidden relative">
+          
+          {/* FILTER BAR - STICKY TOP */}
+          <div className="sticky top-0 z-10 p-3 border-b border-slate-100 bg-white flex items-center gap-2 shrink-0">
+            
+            {/* === KIRI: Toggle Mutasi (flex-1, max-w-60%) === */}
+            <div className="flex bg-slate-100 p-0.5 rounded-lg flex-1 max-w-[60%] min-w-0">
+              {['semua', 'masuk', 'keluar'].map((tab) => (
+                <button
+                  key={tab}
+                  onClick={() => {
+                    setFilterMutasi(tab);
+                    setPage(1);
+                  }}
+                  className={`flex-1 py-1.5 rounded-md font-bold text-[10px] uppercase tracking-wider transition-all duration-300 ${
+                    filterMutasi === tab
+                      ? 'bg-white text-emerald-600 shadow-sm'
+                      : 'text-slate-400 hover:text-slate-600'
+                  }`}
+                >
+                  {tab}
+                </button>
+              ))}
+            </div>
 
-                  {/* 2. Tombol Filter Trigger (Mobile Only) */}
-                  <button 
-                    onClick={() => setIsMobileFilterOpen(true)}
-                    className="md:hidden w-10 h-10 flex items-center justify-center bg-slate-100 border border-slate-200 rounded-xl text-slate-600 shadow-sm shrink-0"
-                  >
-                    <Filter size={16} />
-                  </button>
-                </div>
-
-                {/* Kanan: Filter Akun, Tanggal & Search Bar (Desktop/Tablet) */}
-                <div className={`hidden md:flex items-center gap-3 justify-end transition-all duration-300 ${isAccountFilterOpen || filterAccounts.length > 0 ? 'w-full xl:w-[70%]' : 'w-full xl:w-auto'}`}>
-                  
-                  {/* 1. Filter Akun Expandable (Multiselect) */}
-                  <div className={`relative transition-all duration-300 ease-out flex justify-end ${isAccountFilterOpen || filterAccounts.length > 0 ? 'flex-1 max-w-[60%]' : 'w-10 h-10 shrink-0'}`}>
-                    {!isAccountFilterOpen && filterAccounts.length === 0 ? (
-                      <button onClick={() => setIsAccountFilterOpen(true)} className="w-10 h-10 flex items-center justify-center bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100 text-slate-400 hover:text-emerald-500 transition-all shadow-sm" title="Buka Filter Akun"><Wallet size={16} /></button>
-                    ) : (
-                      <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-1.5 h-10 shadow-sm focus-within:bg-white focus-within:border-emerald-300 transition-all w-full">
-                        <Wallet size={14} className="text-emerald-500 shrink-0 ml-1.5" />
-                        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar flex-1 h-full py-1.5 px-1">
-                          {accountOptions.map(acc => (
-                            <button 
-                              key={acc.id}
-                              onClick={() => toggleFilterAccount(acc.id)}
-                              className={`whitespace-nowrap px-2.5 py-1 text-[10px] font-black rounded-lg transition-all border ${filterAccounts.includes(acc.id) ? 'bg-emerald-500 border-emerald-500 text-white shadow-sm' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-100'}`}
-                            >
-                              {acc.text_1}
-                            </button>
-                          ))}
-                        </div>
-                        <button onClick={() => { setFilterAccounts([]); setIsAccountFilterOpen(false); setPage(1); }} className="p-1 text-rose-500 shrink-0"><X size={14} /></button>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Filter Jenis Expandable (selalu tampil, tapi dinonaktifkan saat mutasi 'semua') */}
-                  <div className={`relative transition-all duration-300 ease-out flex justify-end ${isJenisFilterOpen || filterJenis.length > 0 ? 'flex-none w-auto' : 'w-10 h-10 shrink-0'}`}>
-                    {!isJenisFilterOpen && filterJenis.length === 0 ? (
-                      <button 
-                        onClick={() => { if (filterMutasi !== 'semua') setIsJenisFilterOpen(true); }}
-                        className={`w-10 h-10 flex items-center justify-center bg-slate-50 border border-slate-200 rounded-xl transition-all shadow-sm ${
-                          filterMutasi === 'semua' 
-                            ? 'opacity-50 cursor-not-allowed text-slate-300' 
-                            : 'hover:bg-slate-100 text-slate-400 hover:text-emerald-500'
-                        }`}
-                        title={filterMutasi === 'semua' ? "Pilih masuk/keluar dulu" : "Filter Jenis"}
-                        disabled={filterMutasi === 'semua'}
-                      >
-                        <Layers size={16} />
-                      </button>
-                    ) : (
-                      <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-1.5 h-10 shadow-sm focus-within:bg-white focus-within:border-emerald-300 transition-all w-full">
-                        <Layers size={14} className="text-emerald-500 shrink-0 ml-1.5" />
-                        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar flex-1 h-full py-1.5 px-1">
-                          {/* Hanya tampilkan opsi jika mutasi sudah dipilih (bukan 'semua') */}
-                          {(filterMutasi === 'masuk' ? jenisOptionsIn : filterMutasi === 'keluar' ? jenisOptionsOut : []).map(opt => (
-                            <button
-                              key={opt.id}
-                              onClick={() => toggleFilterJenis(opt.id_lama || opt.id)}
-                              className={`whitespace-nowrap px-2.5 py-1 text-[10px] font-black rounded-lg transition-all border ${
-                                filterJenis.includes(opt.id_lama || opt.id) 
-                                  ? 'bg-emerald-500 border-emerald-500 text-white shadow-sm' 
-                                  : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-100'
-                              }`}
-                            >
-                              {opt.text_1}
-                            </button>
-                          ))}
-                        </div>
-                        <button onClick={() => { setFilterJenis([]); setIsJenisFilterOpen(false); setPage(1); }} className="p-1 text-rose-500 shrink-0"><X size={14} /></button>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* 2. Filter Tanggal Expandable */}
-                  <div className={`relative transition-all duration-300 ease-out flex justify-end ${isDateOpen || dateRange.start || dateRange.end ? 'w-auto' : 'w-10 h-10'}`}>
-                    {!isDateOpen && !dateRange.start && !dateRange.end ? (
-                      <button onClick={() => setIsDateOpen(true)} className="w-10 h-10 flex items-center justify-center bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100 text-slate-400 hover:text-emerald-500 transition-all shadow-sm" title="Buka Filter Tanggal"><Calendar size={16} /></button>
-                    ) : (
-                      <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 h-10 shadow-sm focus-within:bg-white focus-within:border-emerald-300 transition-all">
-                        <Calendar size={14} className="text-emerald-500" />
-                        <input type="date" className="bg-transparent text-[10px] font-bold text-slate-600 outline-none w-24 cursor-pointer" value={dateRange.start} onChange={(e) => { setDateRange({...dateRange, start: e.target.value}); setPage(1); }} />
-                        <span className="text-slate-300">-</span>
-                        <input type="date" className="bg-transparent text-[10px] font-bold text-slate-600 outline-none w-24 cursor-pointer" value={dateRange.end} onChange={(e) => { setDateRange({...dateRange, end: e.target.value}); setPage(1); }} />
-                        <button onClick={() => { setDateRange({ start: '', end: '' }); setIsDateOpen(false); setPage(1); }} className="p-1 text-rose-500"><X size={14} /></button>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* 3. Search Bar Expandable */}
-                  <div className={`relative transition-all duration-300 ease-out group ${isSearchOpen || searchInput ? 'w-64' : 'w-10 h-10'}`}>
-                    {!isSearchOpen && !searchInput && (
-                      <button onClick={() => { setIsSearchOpen(true); setTimeout(() => document.getElementById('search-input-cf')?.focus(), 100); }} className="absolute inset-0 w-10 h-10 flex items-center justify-center bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100 text-slate-400 hover:text-emerald-500 shadow-sm" title="Cari"><Search size={16} /></button>
-                    )}
-                    <div className={`flex items-center w-full h-10 bg-slate-50 border border-slate-200 rounded-xl focus-within:bg-white focus-within:border-emerald-300 transition-all shadow-sm overflow-hidden ${isSearchOpen || searchInput ? 'opacity-100' : 'opacity-0'}`}>
-                      <Search className="absolute left-3.5 text-slate-400" size={16} />
-                      <input id="search-input-cf" type="text" placeholder="Cari..." className="w-full pl-9 pr-4 py-2 bg-transparent outline-none text-xs font-bold text-slate-700" value={searchInput} onChange={(e) => setSearchInput(e.target.value)} onBlur={() => !searchInput && setIsSearchOpen(false)} />
+            {/* === TENGAH: Expandable Filter Area (flex-1 saat aktif, max-w-40%) === */}
+            <div className="flex-1 min-w-0 flex items-center">
+              <div
+                className={`transition-all duration-300 overflow-hidden ${
+                  activeFilter ? 'max-w-[40%] opacity-100 flex-1' : 'max-w-0 opacity-0 flex-0'
+                }`}
+              >
+                {activeFilter === 'account' && (
+                  <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 h-8 w-full">
+                    <Wallet size={14} className="text-emerald-500 shrink-0" />
+                    <div className="flex items-center gap-1 overflow-x-auto no-scrollbar flex-1">
+                      {accountOptions.map((acc) => (
+                        <button
+                          key={acc.id}
+                          onClick={() => toggleFilterAccount(acc.id)}
+                          className={`whitespace-nowrap px-2 py-0.5 text-[9px] font-bold rounded-md transition-all border ${
+                            filterAccounts.includes(acc.id)
+                              ? 'bg-emerald-500 border-emerald-500 text-white'
+                              : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-100'
+                          }`}
+                        >
+                          {acc.text_1}
+                        </button>
+                      ))}
                     </div>
+                    <button
+                      onClick={() => setActiveFilter(null)}
+                      className="p-0.5 text-rose-500 shrink-0"
+                    >
+                      <X size={12} />
+                    </button>
                   </div>
-                </div>
+                )}
+
+                {activeFilter === 'jenis' && (
+                  <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 h-8 w-full">
+                    <Layers size={14} className="text-emerald-500 shrink-0" />
+                    <div className="flex items-center gap-1 overflow-x-auto no-scrollbar flex-1">
+                      {(filterMutasi === 'masuk'
+                        ? jenisOptionsIn
+                        : filterMutasi === 'keluar'
+                        ? jenisOptionsOut
+                        : []
+                      ).map((opt) => (
+                        <button
+                          key={opt.id}
+                          onClick={() => toggleFilterJenis(opt.id_lama || opt.id)}
+                          className={`whitespace-nowrap px-2 py-0.5 text-[9px] font-bold rounded-md transition-all border ${
+                            filterJenis.includes(opt.id_lama || opt.id)
+                              ? 'bg-emerald-500 border-emerald-500 text-white'
+                              : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-100'
+                          }`}
+                        >
+                          {opt.text_1}
+                        </button>
+                      ))}
+                    </div>
+                    <button
+                      onClick={() => setActiveFilter(null)}
+                      className="p-0.5 text-rose-500 shrink-0"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                )}
+
+                {activeFilter === 'tanggal' && (
+                  <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 h-8 w-full">
+                    <Calendar size={14} className="text-emerald-500 shrink-0" />
+                    <input
+                      type="date"
+                      className="bg-transparent text-[10px] font-bold text-slate-600 outline-none w-20 cursor-pointer"
+                      value={dateRange.start}
+                      onChange={(e) => {
+                        setDateRange({ ...dateRange, start: e.target.value });
+                        setPage(1);
+                      }}
+                    />
+                    <span className="text-slate-300 text-xs">-</span>
+                    <input
+                      type="date"
+                      className="bg-transparent text-[10px] font-bold text-slate-600 outline-none w-20 cursor-pointer"
+                      value={dateRange.end}
+                      onChange={(e) => {
+                        setDateRange({ ...dateRange, end: e.target.value });
+                        setPage(1);
+                      }}
+                    />
+                    <button
+                      onClick={() => {
+                        setDateRange({ start: '', end: '' });
+                        setActiveFilter(null);
+                        setPage(1);
+                      }}
+                      className="p-0.5 text-rose-500 shrink-0"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                )}
+
+                {activeFilter === 'search' && (
+                  <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 h-8 w-full">
+                    <Search size={14} className="text-emerald-500 shrink-0" />
+                    <input
+                      type="text"
+                      placeholder="Cari..."
+                      className="bg-transparent text-[10px] font-bold text-slate-700 outline-none flex-1 min-w-0"
+                      value={searchInput}
+                      onChange={(e) => setSearchInput(e.target.value)}
+                    />
+                    <button
+                      onClick={() => {
+                        setSearchInput('');
+                        setActiveFilter(null);
+                      }}
+                      className="p-0.5 text-rose-500 shrink-0"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                )}
               </div>
+            </div>
 
-              {/* DAFTAR TRANSAKSI */}
-              <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-8 scroll-smooth custom-scrollbar">
-                {loading ? (
-                  <div className="flex justify-center py-20"><div className="w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" /></div>
-                ) : Object.keys(groupedTransactions).length === 0 ? (
-                  <div className="text-center py-20 text-slate-400 font-bold bg-slate-50 rounded-3xl border-2 border-dashed border-slate-200">
-                    Belum ada data transaksi kas ditemukan.
+            {/* === KANAN: Ikon-ikon Filter (tetap di posisi) === */}
+            <div className="flex items-center gap-1 flex-shrink-0">
+              <button
+                onClick={() => setActiveFilter(activeFilter === 'account' ? null : 'account')}
+                className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all shadow-sm ${
+                  activeFilter === 'account'
+                    ? 'bg-emerald-100 text-emerald-600 border border-emerald-300'
+                    : 'bg-slate-50 border border-slate-200 text-slate-400 hover:text-emerald-500 hover:bg-slate-100'
+                }`}
+                title="Filter Akun"
+              >
+                <Wallet size={16} />
+              </button>
+
+              <button
+                onClick={() => setActiveFilter(activeFilter === 'jenis' ? null : 'jenis')}
+                className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all shadow-sm ${
+                  activeFilter === 'jenis'
+                    ? 'bg-emerald-100 text-emerald-600 border border-emerald-300'
+                    : 'bg-slate-50 border border-slate-200 text-slate-400 hover:text-emerald-500 hover:bg-slate-100'
+                }`}
+                title="Filter Jenis"
+              >
+                <Layers size={16} />
+              </button>
+
+              <button
+                onClick={() => setActiveFilter(activeFilter === 'tanggal' ? null : 'tanggal')}
+                className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all shadow-sm ${
+                  activeFilter === 'tanggal'
+                    ? 'bg-emerald-100 text-emerald-600 border border-emerald-300'
+                    : 'bg-slate-50 border border-slate-200 text-slate-400 hover:text-emerald-500 hover:bg-slate-100'
+                }`}
+                title="Filter Tanggal"
+              >
+                <Calendar size={16} />
+              </button>
+
+              <button
+                onClick={() => setActiveFilter(activeFilter === 'search' ? null : 'search')}
+                className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all shadow-sm ${
+                  activeFilter === 'search'
+                    ? 'bg-emerald-100 text-emerald-600 border border-emerald-300'
+                    : 'bg-slate-50 border border-slate-200 text-slate-400 hover:text-emerald-500 hover:bg-slate-100'
+                }`}
+                title="Cari"
+              >
+                <Search size={16} />
+              </button>
+
+              {/* Tombol filter mobile (muncul di layar kecil) */}
+              <button
+                onClick={() => setIsMobileFilterOpen(true)}
+                className="md:hidden w-8 h-8 flex items-center justify-center bg-slate-100 border border-slate-200 rounded-lg text-slate-600 shadow-sm"
+              >
+                <Filter size={16} />
+              </button>
+            </div>
+          </div>
+
+          {/* DAFTAR TRANSAKSI - SCROLLABLE */}
+          <div
+            ref={scrollContainerRef}
+            className="flex-1 overflow-y-auto p-4 md:p-6 space-y-8 scroll-smooth custom-scrollbar"
+          >
+            {loading ? (
+              <div className="flex justify-center py-20">
+                <div className="w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+              </div>
+            ) : Object.keys(groupedTransactions).length === 0 ? (
+              <div className="text-center py-20 text-slate-400 font-bold bg-slate-50 rounded-3xl border-2 border-dashed border-slate-200">
+                Belum ada data transaksi kas ditemukan.
+              </div>
+            ) : (
+              Object.entries(groupedTransactions).map(([date, items]) => (
+                <div key={date} className="space-y-4">
+                  <div className="flex items-center gap-4">
+                    <span className="bg-slate-800 px-4 py-1.5 rounded-full text-[10px] font-black text-white uppercase tracking-widest text-center shadow-sm">
+                      {date !== 'Tanpa Tanggal' ? date : 'Tanpa Tanggal'}
+                    </span>
+                    <div className="h-[2px] flex-1 bg-slate-100" />
                   </div>
-                ) : (
-                  Object.entries(groupedTransactions).map(([date, items]) => (
-                    <div key={date} className="space-y-4">
-                      <div className="flex items-center gap-4">
-                        <span className="bg-slate-800 px-4 py-1.5 rounded-full text-[10px] font-black text-white uppercase tracking-widest text-center shadow-sm">
-                          {date !== 'Tanpa Tanggal' ? date : 'Tanpa Tanggal'}
-                        </span>
-                        <div className="h-[2px] flex-1 bg-slate-100" />
-                      </div>
-                      
-                      <div className="grid gap-3">
-                        {items.map((tx) => {
-                          const isMasuk = tx.mutasi.toLowerCase() === 'in';
-                          return (
-                            <div 
-                              key={tx.id} 
-                              onClick={() => { setSelectedTx(tx); setModalType('detail'); }} 
-                              className="group bg-white border-2 border-slate-100 rounded-2xl hover:border-emerald-300 hover:shadow-lg hover:shadow-emerald-500/10 transition-all cursor-pointer overflow-hidden"
-                            >
-                              {/* Baris utama: Ikon + Info Ringkas + Nominal */}
-                              <div className="p-4 md:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                                {/* Kiri: Ikon dan ID */}
-                                <div className="flex items-start sm:items-center gap-3 shrink-0">
-                                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-sm ${isMasuk ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
-                                    {isMasuk ? <ArrowDownRight strokeWidth={2.5}/> : <ArrowUpRight strokeWidth={2.5}/>}
-                                  </div>
-                                  <div className="flex flex-col">
-                                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider">{tx.id?.slice(-6) || tx.ref?.slice(-6)}</span>
-                                    <span className="text-[10px] font-black text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200 mt-0.5 text-center">
-                                      {tx.jenis}
-                                    </span>
-                                  </div>
-                                </div>
-
-                                {/* Tengah: Informasi Utama (Catatan, Person, Akun, Operator) */}
-                                <div className="flex-1 min-w-0">
-                                  <h4 className="font-bold text-slate-800 text-sm md:text-base truncate">{tx.note || '-'}</h4>
-                                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 text-xs">
-                                    <span className="text-slate-500 flex items-center gap-1"><User size={12}/> {getPersonName(tx.person)}</span>
-                                    <span className="text-slate-500 flex items-center gap-1"><Wallet size={12}/> {getAccountName(tx.account_1)}</span>
-                                    {tx.account_2 && <span className="text-slate-500 flex items-center gap-1"><ArrowRight size={12}/> {getAccountName(tx.account_2)}</span>}
-                                    <span className="text-slate-500 flex items-center gap-1"><User size={12}/> {tx.operator || '-'}</span>
-                                  </div>
-                                </div>
-
-                                {/* Kanan: Nominal */}
-                                <div className="flex items-center justify-end shrink-0">
-                                  <p className={`text-base md:text-lg font-black tracking-tight ${isMasuk ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                    {isMasuk ? '+' : '-'} {formatRupiah(tx.nominal)}
-                                  </p>
-                                </div>
+                  <div className="grid gap-3">
+                    {items.map((tx) => {
+                      const isMasuk = tx.mutasi.toLowerCase() === 'in';
+                      return (
+                        <div
+                          key={tx.id}
+                          onClick={() => {
+                            setSelectedTx(tx);
+                            setModalType('detail');
+                          }}
+                          className="group bg-white border-2 border-slate-100 rounded-2xl hover:border-emerald-300 hover:shadow-lg hover:shadow-emerald-500/10 transition-all cursor-pointer overflow-hidden"
+                        >
+                          <div className="p-4 md:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                            <div className="flex items-start sm:items-center gap-3 shrink-0">
+                              <div
+                                className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-sm ${
+                                  isMasuk
+                                    ? 'bg-emerald-50 text-emerald-600'
+                                    : 'bg-rose-50 text-rose-600'
+                                }`}
+                              >
+                                {isMasuk ? (
+                                  <ArrowDownRight strokeWidth={2.5} />
+                                ) : (
+                                  <ArrowUpRight strokeWidth={2.5} />
+                                )}
                               </div>
-                              
-                              {/* Baris opsional: Waktu transaksi (jam) untuk detail ekstra */}
-                              <div className="px-4 pb-3 md:px-5 md:pb-4 border-t border-slate-100 bg-slate-50/50 flex justify-end">
-                                <span className="text-[9px] font-mono text-slate-400">
-                                  {tx.created_at ? new Date(tx.created_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : '-'}
+                              <div className="flex flex-col">
+                                <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider">
+                                  {tx.id?.slice(-6) || tx.ref?.slice(-6)}
+                                </span>
+                                <span className="text-[10px] font-black text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200 mt-0.5 text-center">
+                                  {tx.jenis}
                                 </span>
                               </div>
                             </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-
-              {/* Paginasi */}
-              <div className="p-4 md:p-6 border-t border-slate-100 bg-white flex justify-between items-center shrink-0 rounded-b-3xl">
-                <p className="text-xs font-black text-slate-400 uppercase tracking-widest bg-slate-100 px-4 py-2 rounded-xl">Hal. {page} / {totalPages || 1}</p>
-                <div className="flex gap-2">
-                  <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="w-10 h-10 flex items-center justify-center bg-white rounded-xl border border-slate-200 hover:bg-slate-50 hover:border-slate-300 disabled:opacity-30 transition-all shadow-sm text-slate-600"><ChevronLeft size={20}/></button>
-                  <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages} className="w-10 h-10 flex items-center justify-center bg-white rounded-xl border border-slate-200 hover:bg-slate-50 hover:border-slate-300 disabled:opacity-30 transition-all shadow-sm text-slate-600"><ChevronRight size={20}/></button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* CONTAINER ACCOUNTS / WALLET */}
-          {activeTab === 'accounts' && (
-            <div className="flex-1 overflow-y-auto custom-scrollbar pb-10">
-              <div className="mb-6">
-                <h3 className="text-xl font-black text-slate-800 flex items-center gap-2">
-                  Buku Rekening & Kas
-                </h3>
-                <p className="text-sm font-medium text-slate-500 mt-1">Sisa saldo aktif untuk setiap penyimpanan</p>
-              </div>
-              
-              {loadingWallets ? (
-                <div className="flex justify-center py-20"><div className="w-10 h-10 border-4 border-emerald-200 border-t-emerald-600 rounded-full animate-spin" /></div>
-              ) : wallets.length === 0 ? (
-                <div className="text-center py-20 text-slate-400 font-bold bg-white rounded-3xl border border-slate-200 shadow-sm">
-                  Tidak ada dompet yang tersedia.
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {wallets.map(wallet => {
-                    const getInitials = (name: string) => name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
-                    const stringToColor = (str: string) => {
-                      let hash = 0;
-                      for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
-                      const c = (hash & 0x00FFFFFF).toString(16).toUpperCase();
-                      return '#' + '00000'.substring(0, 6 - c.length) + c;
-                    };
-                    const bgColor = wallet.link_image && wallet.link_image.startsWith('#') ? wallet.link_image : stringToColor(wallet.text_1);
-
-                    return (
-                      <div 
-                        key={wallet.id} 
-                        onClick={() => {
-                          setFilterAccounts([wallet.id]); // Otomatis set filter ke akun ini
-                          setActiveTab('history'); // Pindah ke tab histori
-                          setPage(1); // Reset halaman ke awal
-                        }}
-                        style={{ background: `linear-gradient(135deg, ${bgColor}CC 0%, ${bgColor} 100%)` }}
-                        className="relative overflow-hidden rounded-[2rem] p-6 text-white shadow-xl hover:-translate-y-1.5 transition-transform duration-300 group cursor-pointer"
-                      >
-                        {/* Efek Lingkaran Blur Dekoratif */}
-                        <div className="absolute -top-10 -right-10 w-40 h-40 bg-white/20 rounded-full blur-3xl group-hover:bg-white/30 transition-colors duration-500 pointer-events-none" />
-                        
-                        <div className="flex justify-between items-start mb-8 relative z-10">
-                          <div className="relative group/avatar">
-                            <div className="absolute -inset-1 bg-white/20 rounded-2xl blur opacity-0 group-hover/avatar:opacity-100 transition duration-500"></div>
-                            <div className="relative w-14 h-14 bg-white/10 rounded-2xl border border-white/20 flex items-center justify-center backdrop-blur-md shadow-lg overflow-hidden transition-all duration-300 group-hover:scale-105">
-                              {wallet.link_image && !wallet.link_image.startsWith('#') ? (
-                                <>
-                                  <img src={pb.files.getUrl(wallet, wallet.link_image)} alt="PP" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" onError={(e) => { e.currentTarget.classList.add('hidden'); e.currentTarget.nextElementSibling?.classList.remove('hidden'); }} />
-                                  <span className="hidden font-black text-lg tracking-tight transition-transform duration-300 group-hover:scale-110">{getInitials(wallet.text_1)}</span>
-                                </>
-                              ) : (
-                                <span className="font-black text-lg tracking-tight transition-transform duration-300 group-hover:scale-110">{getInitials(wallet.text_1)}</span>
-                              )}
+                            <div className="flex-1 min-w-0">
+                              <h4 className="font-bold text-slate-800 text-sm md:text-base truncate">
+                                {tx.note || '-'}
+                              </h4>
+                              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 text-xs">
+                                <span className="text-slate-500 flex items-center gap-1">
+                                  <User size={12} /> {getPersonName(tx.person)}
+                                </span>
+                                <span className="text-slate-500 flex items-center gap-1">
+                                  <Wallet size={12} /> {getAccountName(tx.account_1)}
+                                </span>
+                                {tx.account_2 && (
+                                  <span className="text-slate-500 flex items-center gap-1">
+                                    <ArrowRight size={12} />{' '}
+                                    {getAccountName(tx.account_2)}
+                                  </span>
+                                )}
+                                <span className="text-slate-500 flex items-center gap-1">
+                                  <User size={12} /> {tx.operator || '-'}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="flex items-center justify-end shrink-0">
+                              <p
+                                className={`text-base md:text-lg font-black tracking-tight ${
+                                  isMasuk ? 'text-emerald-600' : 'text-rose-600'
+                                }`}
+                              >
+                                {isMasuk ? '+' : '-'} {formatRupiah(tx.nominal)}
+                              </p>
                             </div>
                           </div>
-                          <span className="text-[9px] font-black uppercase tracking-widest text-white bg-white/10 border border-white/20 px-3 py-1.5 rounded-full backdrop-blur-sm shadow-sm">{wallet.jenis || 'DOMPET'}</span>
+                          <div className="px-4 pb-3 md:px-5 md:pb-4 border-t border-slate-100 bg-slate-50/50 flex justify-end">
+                            <span className="text-[9px] font-mono text-slate-400">
+                              {tx.created_at
+                                ? new Date(tx.created_at).toLocaleTimeString(
+                                    'id-ID',
+                                    { hour: '2-digit', minute: '2-digit' }
+                                  )
+                                : '-'}
+                            </span>
+                          </div>
                         </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
 
-                        <div className="relative z-10">
-                          <p className="text-sm font-medium text-white/70 mb-1">{wallet.text_1}</p>
-                          <p className="text-3xl font-black tracking-tighter text-white">{formatRupiah(wallet.number_1 || 0)}</p>
+          {/* PAGINASI */}
+          <div className="p-4 md:p-6 border-t border-slate-100 bg-white flex justify-between items-center shrink-0 rounded-b-3xl">
+            <p className="text-xs font-black text-slate-400 uppercase tracking-widest bg-slate-100 px-4 py-2 rounded-xl">
+              Hal. {page} / {totalPages || 1}
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page === 1}
+                className="w-10 h-10 flex items-center justify-center bg-white rounded-xl border border-slate-200 hover:bg-slate-50 hover:border-slate-300 disabled:opacity-30 transition-all shadow-sm text-slate-600"
+              >
+                <ChevronLeft size={20} />
+              </button>
+              <button
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page >= totalPages}
+                className="w-10 h-10 flex items-center justify-center bg-white rounded-xl border border-slate-200 hover:bg-slate-50 hover:border-slate-300 disabled:opacity-30 transition-all shadow-sm text-slate-600"
+              >
+                <ChevronRight size={20} />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* CONTAINER ACCOUNTS / WALLET */}
+      {/* ============================================================ */}
+      {activeTab === 'accounts' && (
+        <div
+          ref={scrollContainerAccountsRef}
+          className="flex-1 min-h-0 overflow-y-auto custom-scrollbar pb-10"
+        >
+          <div className="mb-6">
+            <h3 className="text-xl font-black text-slate-800 flex items-center gap-2">
+              Buku Rekening & Kas
+            </h3>
+            <p className="text-sm font-medium text-slate-500 mt-1">
+              Sisa saldo aktif untuk setiap penyimpanan
+            </p>
+          </div>
+
+          {loadingWallets ? (
+            <div className="flex justify-center py-20">
+              <div className="w-10 h-10 border-4 border-emerald-200 border-t-emerald-600 rounded-full animate-spin" />
+            </div>
+          ) : wallets.length === 0 ? (
+            <div className="text-center py-20 text-slate-400 font-bold bg-white rounded-3xl border border-slate-200 shadow-sm">
+              Tidak ada dompet yang tersedia.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {wallets.map((wallet) => {
+                const getInitials = (name: string) =>
+                  name
+                    .split(' ')
+                    .map((n) => n[0])
+                    .join('')
+                    .substring(0, 2)
+                    .toUpperCase();
+                const stringToColor = (str: string) => {
+                  let hash = 0;
+                  for (let i = 0; i < str.length; i++)
+                    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+                  const c = (hash & 0x00ffffff).toString(16).toUpperCase();
+                  return '#' + '00000'.substring(0, 6 - c.length) + c;
+                };
+                const bgColor =
+                  wallet.link_image && wallet.link_image.startsWith('#')
+                    ? wallet.link_image
+                    : stringToColor(wallet.text_1);
+
+                return (
+                  <div
+                    key={wallet.id}
+                    onClick={() => {
+                      setFilterAccounts([wallet.id]);
+                      setActiveTab('history');
+                      setPage(1);
+                    }}
+                    style={{
+                      background: `linear-gradient(135deg, ${bgColor}CC 0%, ${bgColor} 100%)`,
+                    }}
+                    className="relative overflow-hidden rounded-[2rem] p-6 text-white shadow-xl hover:-translate-y-1.5 transition-transform duration-300 group cursor-pointer"
+                  >
+                    <div className="absolute -top-10 -right-10 w-40 h-40 bg-white/20 rounded-full blur-3xl group-hover:bg-white/30 transition-colors duration-500 pointer-events-none" />
+                    <div className="flex justify-between items-start mb-8 relative z-10">
+                      <div className="relative group/avatar">
+                        <div className="absolute -inset-1 bg-white/20 rounded-2xl blur opacity-0 group-hover/avatar:opacity-100 transition duration-500" />
+                        <div className="relative w-14 h-14 bg-white/10 rounded-2xl border border-white/20 flex items-center justify-center backdrop-blur-md shadow-lg overflow-hidden transition-all duration-300 group-hover:scale-105">
+                          {wallet.link_image &&
+                          !wallet.link_image.startsWith('#') ? (
+                            <>
+                              <img
+                                src={pb.files.getUrl(wallet, wallet.link_image)}
+                                alt="PP"
+                                className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                                onError={(e) => {
+                                  e.currentTarget.classList.add('hidden');
+                                  e.currentTarget.nextElementSibling?.classList.remove(
+                                    'hidden'
+                                  );
+                                }}
+                              />
+                              <span className="hidden font-black text-lg tracking-tight transition-transform duration-300 group-hover:scale-110">
+                                {getInitials(wallet.text_1)}
+                              </span>
+                            </>
+                          ) : (
+                            <span className="font-black text-lg tracking-tight transition-transform duration-300 group-hover:scale-110">
+                              {getInitials(wallet.text_1)}
+                            </span>
+                          )}
                         </div>
                       </div>
-                    );
-                  })}
-                </div>
-              )}
+                      <span className="text-[9px] font-black uppercase tracking-widest text-white bg-white/10 border border-white/20 px-3 py-1.5 rounded-full backdrop-blur-sm shadow-sm">
+                        {wallet.jenis || 'DOMPET'}
+                      </span>
+                    </div>
+                    <div className="relative z-10">
+                      <p className="text-sm font-medium text-white/70 mb-1">
+                        {wallet.text_1}
+                      </p>
+                      <p className="text-3xl font-black tracking-tighter text-white">
+                        {formatRupiah(wallet.number_1 || 0)}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
+        </div>
+      )}
 
           {/* MODAL TRANSAKSI FORM */}
-          <Modal isOpen={modalType === 'form'} onClose={handleCloseModal} title={isEditMode ? "Revisi Transaksi Kas" : "Catat Transaksi Kas Baru"}>
+          <Modal
+            isOpen={modalType === 'form'}
+            onClose={handleCloseModal}
+            title={isEditMode ? 'Revisi Transaksi Kas' : 'Catat Transaksi Kas Baru'}
+          >
             <form onSubmit={submitForm} className="flex flex-col max-h-[75vh] md:max-h-[80vh] overflow-y-auto custom-scrollbar p-1">
               <div className="space-y-5">
                 
@@ -1099,7 +1342,11 @@
           </Modal>
 
           {/* MODAL FILTER MOBILE */}
-          <Modal isOpen={isMobileFilterOpen} onClose={() => setIsMobileFilterOpen(false)} title="Filter Transaksi">
+          <Modal
+            isOpen={isMobileFilterOpen}
+            onClose={() => setIsMobileFilterOpen(false)}
+            title="Filter Transaksi"
+          >
             <div className="space-y-6 p-2">
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1.5"><Wallet size={14}/> Filter Dompet / Akun</label>
@@ -1154,7 +1401,11 @@
           </Modal>
 
           {/* MODAL DETAIL */}
-          <Modal isOpen={modalType === 'detail'} onClose={() => setModalType(null)} title="Detail Log Transaksi Kas">
+          <Modal
+            isOpen={modalType === 'detail'}
+            onClose={() => setModalType(null)}
+            title="Detail Log Transaksi Kas"
+          >
             {selectedTx && (() => {
               const isMasuk = selectedTx.mutasi?.toLowerCase() === 'in';
               const txtColor = isMasuk ? 'text-emerald-600' : 'text-rose-600';
@@ -1263,14 +1514,17 @@
 
         </div>
         
-        {/* Tombol Floating Mobile */}
-        <button 
-          onClick={() => { 
-            setSelectedTx(null); 
-            setFiles([]); 
-            setFormData({ mutasi: 'Masuk', created_at: formatToLocalDatetimeInput(new Date().toISOString()) }); 
-            setModalType('form'); 
-          }} 
+        {/* TOMBOL FLOATING MOBILE */}
+        <button
+          onClick={() => {
+            setSelectedTx(null);
+            setFiles([]);
+            setFormData({
+              mutasi: 'Masuk',
+              created_at: formatToLocalDatetimeInput(new Date().toISOString()),
+            });
+            setModalType('form');
+          }}
           className="md:hidden fixed bottom-6 right-6 z-50 w-16 h-16 bg-slate-900 text-white rounded-full shadow-2xl shadow-slate-500/50 flex items-center justify-center hover:scale-105 active:scale-95 transition-all duration-300"
         >
           <Plus size={30} strokeWidth={3} />
