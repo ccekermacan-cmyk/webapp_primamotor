@@ -616,16 +616,16 @@ export default function MenuPage() {
     }); 
   }, [grandTotal, isAutoLunas]);
 
-  // --- 5. GUARDS & INTERACTION HANDLERS --
   // --- CHECKOUT SAFETY GUARD ---
   const handleCheckoutValidation = () => {
-    // 1. Validasi keranjang tidak boleh kosong
-    if (cart.length === 0) {
+    const menuLower = selectedMenu.toLowerCase();
+
+    // 1. Validasi keranjang tidak boleh kosong (KECUALI menu Service)
+    if (cart.length === 0 && !menuLower.includes('service')) {
       setDialog({ show: true, title: 'Validasi Gagal', message: 'Isi keranjang dengan item terlebih dahulu!', type: 'alert' });
       return;
     }
 
-    const menuLower = selectedMenu.toLowerCase();
     const totalDibayar = formBayar.cashflowList.reduce((sum, cf) => sum + (cf.nominal || 0), 0);
     let perluKonfirmasiLunas = false;
     let pesanKonfirmasi = '';
@@ -847,11 +847,18 @@ export default function MenuPage() {
         menuRecordId = menuRecord.id;
       }
 
-      // ========== PERUBAHAN ADA DI SINI ==========
       // ========== PENYIMPANAN LOG STOCK (ITEM BARU) ==========
       for (const item of cartWithTierPrice) {
         const booleanValue = (menuLower.includes('penjualan') || menuLower.includes('service')) ? 'out' : 'in';
         
+        let price2Value = (item.beli || 0) * item.qty;
+        let normalValue = (item.sell_6 || 0) * item.qty;
+
+        if (booleanValue === 'in') {
+            price2Value = 0;
+            normalValue = 0;
+        }
+
         await pb.collection('log_stock').create({
           id_lama: '',
           created_at: timestamp,
@@ -860,14 +867,12 @@ export default function MenuPage() {
           qty: item.qty,
           item_baru: item.id,
           price_1: item.priceSelected, // Harga jual satuan
-          // Menggunakan fallback (|| 0) untuk mencegah nilai NaN jika data master produk kosong
-          price_2: (item.beli || 0) * item.qty, 
+          price_2: price2Value, 
           number_1: 0,
           number_2: 0,
           boolean: booleanValue,
           ref_baru: menuRecordId,
-          // Menyimpan total harga normal (eceran)
-          normal: (item.sell_6 || 0) * item.qty
+          normal: normalValue
         });
       }
 
@@ -1577,7 +1582,7 @@ export default function MenuPage() {
         title="Keranjang Belanja"
       >
         <div className="flex flex-col max-h-[75vh] md:max-h-[85vh] bg-white">
-          {cart.length === 0 ? (
+          {cart.length === 0 && !selectedMenu.toLowerCase().includes('service') ? (
             <div className="flex flex-col items-center justify-center py-16 text-center space-y-5">
               <div className={`w-28 h-28 ${activeTheme.light} rounded-full flex items-center justify-center shadow-inner border border-white`}>
                 <ShoppingCart size={56} className={`${activeTheme.text} opacity-80`} />
@@ -1597,6 +1602,11 @@ export default function MenuPage() {
             <>
               {/* DAFTAR ITEM – DYNAMIC COLOR */}
               <div className="space-y-4 overflow-y-auto pr-2 mt-2 custom-scrollbar">
+                {cart.length === 0 && selectedMenu.toLowerCase().includes('service') && (
+                  <div className="text-center py-8 text-slate-400 font-bold text-sm bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                    Tidak ada sparepart/item fisik. Hanya mencatat nota jasa service.
+                  </div>
+                )}
                 {cartWithTierPrice.map(item => {
                   const canEditPrice =
                     userLevel === '1' ||
@@ -1760,8 +1770,8 @@ export default function MenuPage() {
                   </div>
                 </div>
 
-                {/* TOGGLE AUTO LUNAS (MUNCUL JIKA ADA ITEM DI KERANJANG) */}
-                {cart.length > 0 && (
+                {/* TOGGLE AUTO LUNAS (MUNCUL JIKA ADA ITEM ATAU MENU SERVICE) */}
+                {(cart.length > 0 || selectedMenu.toLowerCase().includes('service')) && (
                   <div className="flex justify-between items-center p-6 border-b border-gray-100 bg-gradient-to-r from-gray-50 to-white rounded-2xl shadow-sm mb-4 border-2 border-slate-100">
                     <div>
                       <h4 className={`text-sm font-black ${activeTheme.text} flex items-center gap-2`}>

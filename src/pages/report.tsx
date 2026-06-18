@@ -56,6 +56,8 @@ export default function ReportPage() {
   const [generating, setGenerating] = useState(false);
   const [todayReportExists, setTodayReportExists] = useState(false);
 
+  const [userLevel, setUserLevel] = useState<string>(() => localStorage.getItem('user_level') || '');
+
   // --- FORMATTER HELPER ---
   const formatRp = (num: number | undefined) => {
     const val = num ?? 0;
@@ -63,8 +65,10 @@ export default function ReportPage() {
   };
   const formatDate = (dateStr: string) => {
     if (!dateStr) return '-';
-    const date = new Date(dateStr);
-    return date.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
+    const part = dateStr.split(' ')[0].split('T')[0]; // Ambil YYYY-MM-DD
+    const [year, month, day] = part.split('-');
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Ags', 'Sep', 'Okt', 'Nov', 'Des'];
+    return `${day} ${months[parseInt(month, 10) - 1]} ${year}`;
   };
 
   const [detailModal, setDetailModal] = useState<{ type: string; title: string; items: { label: string; value: number }[] } | null>(null);
@@ -95,8 +99,6 @@ export default function ReportPage() {
   const [detailSearchTerm, setDetailSearchTerm] = useState('');
 
   // Fungsi helper memproses sort klik
-
-  // Fungsi helper memproses sort klik
   const handleSort = (tab: string, key: string) => {
     if (tab === 'menu') setMenuSort(p => ({ key, dir: p.key === key && p.dir === 'asc' ? 'desc' : 'asc' }));
     else if (tab === 'logstock') setLogStockSort(p => ({ key, dir: p.key === key && p.dir === 'asc' ? 'desc' : 'asc' }));
@@ -117,10 +119,12 @@ export default function ReportPage() {
   // Tambahkan setelah formatDate
 
   // Tambahkan setelah formatDate
-  const getDayRange = (date: Date) => {
-    const start = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0));
-    const end = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999));
-    return { start, end };
+  const getDayRangeStr = (dateStr: string) => {
+    const startISO = `${dateStr} 00:00:00.000Z`;
+    const next = new Date(dateStr);
+    next.setDate(next.getDate() + 1);
+    const endISO = `${next.toISOString().split('T')[0]} 00:00:00.000Z`;
+    return { startISO, endISO };
   };
 
   // --- FETCH DATA ---
@@ -136,25 +140,24 @@ export default function ReportPage() {
         params.search = debouncedSearch; 
       }
       
-      // Filter Tanggal - INI KUNCINYA
-      // Helper function - letakkan di dalam komponen (setelah deklarasi state)
-      const toLocalDateISO = (dateStr: string, endOfDay = false) => {
-        const [year, month, day] = dateStr.split('-').map(Number);
-        const hour = endOfDay ? 23 : 0;
-        const minute = endOfDay ? 59 : 0;
-        const second = endOfDay ? 59 : 0;
-        const localDate = new Date(year, month - 1, day, hour, minute, second);
-        return localDate.toISOString();
-      };
-
-      // Kemudian di dalam fetchReports, ganti filter dengan:
-      if (dateRange.start) {
-        conditions.push(`created_at >= {:start}`);
-        params.start = toLocalDateISO(dateRange.start, false);
-      }
-      if (dateRange.end) {
-        conditions.push(`created_at <= {:end}`);
-        params.end = toLocalDateISO(dateRange.end, true);
+      // Filter Tanggal Baru (Logika < H+1)
+      if (dateRange.start && dateRange.end) {
+        const endObj = new Date(dateRange.end);
+        endObj.setDate(endObj.getDate() + 1);
+        conditions.push(`created_at >= {:start} && created_at < {:end}`);
+        params.start = `${dateRange.start} 00:00:00.000Z`;
+        params.end = `${endObj.toISOString().split('T')[0]} 00:00:00.000Z`;
+      } else if (dateRange.start) {
+        const startObj = new Date(dateRange.start);
+        startObj.setDate(startObj.getDate() + 1);
+        conditions.push(`created_at >= {:start} && created_at < {:end}`);
+        params.start = `${dateRange.start} 00:00:00.000Z`;
+        params.end = `${startObj.toISOString().split('T')[0]} 00:00:00.000Z`;
+      } else if (dateRange.end) {
+        const endObj = new Date(dateRange.end);
+        endObj.setDate(endObj.getDate() + 1);
+        conditions.push(`created_at < {:end}`);
+        params.end = `${endObj.toISOString().split('T')[0]} 00:00:00.000Z`;
       }
 
       const filterStr = conditions.length > 0 ? pb.filter(conditions.join(' && '), params) : '';
@@ -195,11 +198,11 @@ export default function ReportPage() {
   useEffect(() => {
     const checkTodayReport = async () => {
       const now = new Date();
-      const todayUtc = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0));
-      const { start, end } = getDayRange(todayUtc);
+      const localDateStr = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().split('T')[0];
+      const { startISO, endISO } = getDayRangeStr(localDateStr);
       try {
         const res = await pb.collection('report').getList(1, 1, {
-          filter: pb.filter('created_at >= {:start} && created_at <= {:end}', { start: start.toISOString(), end: end.toISOString() }),
+          filter: pb.filter('created_at >= {:start} && created_at < {:end}', { start: startISO, end: endISO }),
         });
         setTodayReportExists(res.totalItems > 0);
       } catch (e) {
@@ -300,26 +303,17 @@ export default function ReportPage() {
       setAddingReport(true);
       try {
         // 1. Dapatkan tanggal hari ini dalam zona waktu lokal (WIB)
+        // 1. Dapatkan tanggal hari ini
         const now = new Date();
-        const todayLocal = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        // todayLocal adalah 00:00:00 WIB hari ini
-
-        // Buat created_at = 00:00 UTC pada tanggal hari ini (lokal)
-        // Karena WIB = UTC+7, 00:00 UTC = 07:00 WIB
-        const todayUtc = new Date(Date.UTC(
-          todayLocal.getFullYear(),
-          todayLocal.getMonth(),
-          todayLocal.getDate(),
-          0, 0, 0, 0
-        ));
-        const created_at = todayUtc.toISOString();
+        const todayStr = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().split('T')[0];
+        const { startISO: startToday, endISO: endToday } = getDayRangeStr(todayStr);
+        const created_at = startToday;
 
         // CEK APAKAH LAPORAN HARI INI SUDAH ADA
-        const { start, end } = getDayRange(todayUtc);
         const existing = await pb.collection('report').getList(1, 1, {
-          filter: pb.filter('created_at >= {:start} && created_at <= {:end}', { 
-            start: start.toISOString(), 
-            end: end.toISOString() 
+          filter: pb.filter('created_at >= {:start} && created_at < {:end}', { 
+            start: startToday, 
+            end: endToday 
           }),
         });
         if (existing.totalItems > 0) {
@@ -328,27 +322,15 @@ export default function ReportPage() {
           return;
         }
 
-        // 2. Cari laporan kemarin (berdasarkan tanggal lokal)
-        const yesterdayLocal = new Date(todayLocal);
-        yesterdayLocal.setDate(yesterdayLocal.getDate() - 1);
-        
-        // Rentang UTC untuk kemarin: dari 00:00:00 UTC sampai 23:59:59.999 UTC
-        const startYesterday = new Date(Date.UTC(
-          yesterdayLocal.getFullYear(),
-          yesterdayLocal.getMonth(),
-          yesterdayLocal.getDate(),
-          0, 0, 0, 0
-        ));
-        const endYesterday = new Date(Date.UTC(
-          yesterdayLocal.getFullYear(),
-          yesterdayLocal.getMonth(),
-          yesterdayLocal.getDate(),
-          23, 59, 59, 999
-        ));
+        // 2. Cari laporan kemarin
+        const yesterdayObj = new Date(todayStr);
+        yesterdayObj.setDate(yesterdayObj.getDate() - 1);
+        const yesterdayStr = yesterdayObj.toISOString().split('T')[0];
+        const { startISO: startYesterday, endISO: endYesterday } = getDayRangeStr(yesterdayStr);
 
         const yesterdayFilter = pb.filter(
-          'created_at >= {:start} && created_at <= {:end}',
-          { start: startYesterday.toISOString(), end: endYesterday.toISOString() }
+          'created_at >= {:start} && created_at < {:end}',
+          { start: startYesterday, end: endYesterday }
         );
 
         const yesterdayReports = await pb.collection('report').getList(1, 1, {
@@ -394,36 +376,34 @@ export default function ReportPage() {
     // Tambahkan setelah handleAddReport
 
     const calculateReportData = async (targetDate: Date) => {
-      const targetDateStr = targetDate.toISOString().split('T')[0]; // YYYY-MM-DD
+      const targetDateStr = targetDate.toISOString().split('T')[0];
+
+      const { startISO, endISO } = getDayRangeStr(targetDateStr);
 
       // --- 1. Ambil semua produk untuk mapping kategori ---
       const allProducts = await pb.collection('produk').getFullList({ fields: 'id,kategori' });
       const productMap = allProducts.reduce((acc, p) => { acc[p.id] = p.kategori; return acc; }, {});
 
-      // --- 2. Log Stock (ambil semua, filter manual) ---
-      const yearMonth = targetDateStr.substring(0, 7); // YYYY-MM
-      const logStockFilter = pb.filter('created_at >= {:start} && created_at <= {:end}', {
-        start: `${yearMonth}-01T00:00:00.000Z`,
-        end: `${yearMonth}-31T23:59:59.999Z`
+      // --- 2. Log Stock (filter created_at dengan rentang hari) ---
+      const logStockFilter = pb.filter('created_at >= {:start} && created_at < {:end}', {
+        start: startISO,
+        end: endISO
       });
       const logStockItems = await pb.collection('log_stock').getFullList({
         filter: logStockFilter,
         fields: 'created_at, item_baru, price_1, price_2, qty',
       });
 
-      // Variabel untuk menyimpan hasil aggregasi
-      let totalOmsetSemua = 0;      // total price_1 * qty semua produk
-      let totalModalSemua = 0;      // total price_2 * qty semua produk
-      let omsetPenjualan = 0;       // untuk omset_toko (non-minuman)
-      let omsetMinuman = 0;         // untuk omset_minuman
+      let totalOmsetSemua = 0;
+      let totalModalSemua = 0;
+      let omsetPenjualan = 0;
+      let omsetMinuman = 0;
 
       logStockItems.forEach(item => {
-        const itemDate = new Date(item.created_at).toISOString().split('T')[0];
-        if (itemDate !== targetDateStr) return;
-
+        // Tidak perlu check tanggal lagi, karena filter sudah memastikan
         const kategori = productMap[item.item_baru] || '';
         const nilaiJual = (item.price_1 || 0) * (item.qty || 0);
-        const nilaiModal = (item.price_2 || 0) * (item.qty || 0);
+        const nilaiModal = (item.price_2 || 0);
 
         totalOmsetSemua += nilaiJual;
         totalModalSemua += nilaiModal;
@@ -435,19 +415,19 @@ export default function ReportPage() {
         }
       });
 
-      // --- 3. Ongkos Servis (filter manual) ---
-      const ongkosAll = await pb.collection('ongkos').getFullList({ fields: 'date, ongkos' });
-      let omsetServis = 0;
-      ongkosAll.forEach(item => {
-        if (item.date === targetDateStr) {
-          omsetServis += item.ongkos || 0;
-        }
+      // --- 3. Ongkos Servis (field date hanya berisi tanggal) ---
+      const ongkosFilter = pb.filter('date = {:date}', { date: targetDateStr });
+      const ongkosAll = await pb.collection('ongkos').getFullList({
+        filter: ongkosFilter,
+        fields: 'ongkos',
+        $autoCancel: false
       });
+      const omsetServis = ongkosAll.reduce((sum, item) => sum + (item.ongkos || 0), 0);
 
-      // --- 4. Cashflow ---
-      const cashflowFilter = pb.filter('created_at >= {:start} && created_at <= {:end}', {
-        start: `${yearMonth}-01T00:00:00.000Z`,
-        end: `${yearMonth}-31T23:59:59.999Z`
+      // --- 4. Cashflow (filter created_at dengan rentang hari) ---
+      const cashflowFilter = pb.filter('created_at >= {:start} && created_at < {:end}', {
+        start: startISO,
+        end: endISO
       });
       const cashflowItems = await pb.collection('cashflow').getFullList({
         filter: cashflowFilter,
@@ -460,9 +440,6 @@ export default function ReportPage() {
       let cashKasir = 0;
 
       cashflowItems.forEach(cf => {
-        const itemDate = new Date(cf.created_at).toISOString().split('T')[0];
-        if (itemDate !== targetDateStr) return;
-
         const jenis = (cf.jenis || '').toLowerCase();
         const nominal = cf.nominal || 0;
         if (jenis.includes('operasional')) {
@@ -485,10 +462,10 @@ export default function ReportPage() {
         }
       });
 
-      // --- 5. Menu untuk Hutang & Piutang ---
-      const menuFilter = pb.filter('created_at >= {:start} && created_at <= {:end}', {
-        start: `${yearMonth}-01T00:00:00.000Z`,
-        end: `${yearMonth}-31T23:59:59.999Z`
+      // --- 5. Menu untuk Hutang & Piutang (filter created_at dengan rentang hari) ---
+      const menuFilter = pb.filter('created_at >= {:start} && created_at < {:end}', {
+        start: startISO,
+        end: endISO
       });
       const menuItems = await pb.collection('menu').getFullList({
         filter: menuFilter,
@@ -501,9 +478,6 @@ export default function ReportPage() {
       let totalDibayarHutang = 0;
 
       menuItems.forEach(m => {
-        const itemDate = new Date(m.created_at).toISOString().split('T')[0];
-        if (itemDate !== targetDateStr) return;
-
         const status = (m.status || '').toLowerCase();
         if (status === 'belum') {
           const total = m.total || 0;
@@ -522,7 +496,7 @@ export default function ReportPage() {
       const hutangFinal = totalHutang - totalDibayarHutang;
       const piutangFinal = totalPiutangPembelian - totalDibayarNonPembelian;
 
-      // --- 6. Laba Penjualan (total omset semua produk - total modal semua produk) ---
+      // --- 6. Laba Penjualan ---
       const labaPenjualan = totalOmsetSemua - totalModalSemua;
 
       return {
@@ -543,33 +517,216 @@ export default function ReportPage() {
       if (generating) return;
       setGenerating(true);
       try {
-        let targetDate: Date;
-        if (dateStr) {
-          const parts = dateStr.split('-').map(Number);
-          targetDate = new Date(Date.UTC(parts[0], parts[1]-1, parts[2], 0, 0, 0, 0));
-        } else {
-          const now = new Date();
-          targetDate = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0));
-        }
+        // 1. Tentukan targetDate
+        const now = new Date();
+        const localDateStr = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().split('T')[0];
+        const targetDateStr = dateStr || localDateStr;
+        
+        const yearMonth = targetDateStr.substring(0, 7);
+        const [yyyy, mm] = yearMonth.split('-');
+        const nextMonthObj = new Date(parseInt(yyyy), parseInt(mm), 1);
+        const nextMonthStr = `${nextMonthObj.getFullYear()}-${String(nextMonthObj.getMonth() + 1).padStart(2, '0')}-01`;
 
-        const { start, end } = getDayRange(targetDate);
+        // 2. Cek apakah laporan sudah ada
+        const { startISO, endISO } = getDayRangeStr(targetDateStr);
         const existing = await pb.collection('report').getList(1, 1, {
-          filter: pb.filter('created_at >= {:start} && created_at <= {:end}', { start: start.toISOString(), end: end.toISOString() }),
+          filter: pb.filter('created_at >= {:start} && created_at < {:end}', {
+            start: startISO,
+            end: endISO
+          }),
         });
         if (existing.totalItems > 0) {
-          if (!window.confirm(`Laporan untuk tanggal ${targetDate.toISOString().split('T')[0]} sudah ada. Hapus & buat ulang?`)) {
+          if (!window.confirm(`Laporan untuk tanggal ${targetDateStr} sudah ada. Hapus & buat ulang?`)) {
             setGenerating(false);
             return;
           }
           await pb.collection('report').delete(existing.items[0].id);
         }
 
-        const reportData = await calculateReportData(targetDate);
+        // --- AMBIL DATA PRODUK UNTUK MAPPING ---
+        const allProducts = await pb.collection('produk').getFullList({ fields: 'id, kategori, beli' });
+        const productMap: Record<string, string> = {};
+        const productBeliMap: Record<string, number> = {};
+        allProducts.forEach(p => {
+          productMap[p.id] = p.kategori || '';
+          productBeliMap[p.id] = p.beli || 0;
+        });
+
+        // --- LOG STOCK (HANYA OUT, EXCLUDE PEMBELIAN) ---
+        const filterStartBulan = `${yearMonth}-01 00:00:00.000Z`;
+        const filterEndBulan = `${nextMonthStr} 00:00:00.000Z`;
+        
+        // Log Stock
+        const logStockFilter = pb.filter('created_at >= {:start} && created_at < {:end}', {
+          start: filterStartBulan,
+          end: filterEndBulan
+        });
+        
+        // (Lakukan juga untuk Menu, Cashflow, dan Menu Hutang memakai filterStartBulan dan filterEndBulan ini)
+        const logStockItems = await pb.collection('log_stock').getFullList({
+          filter: logStockFilter,
+          fields: 'created_at, item_baru, price_1, price_2, qty, boolean, ref_baru',
+          $autoCancel: false,
+        });
+
+        // Ambil menu untuk cek jenis (pembelian atau bukan)
+        const menuFilter = pb.filter('created_at >= {:start} && created_at <= {:end}', {
+          start: `${yearMonth}-01T00:00:00.000Z`,
+          end: `${yearMonth}-31T23:59:59.999Z`
+        });
+        const menuItems = await pb.collection('menu').getFullList({
+          filter: menuFilter,
+          fields: 'id, jenis',
+          $autoCancel: false,
+        });
+        const menuMap: Record<string, string> = {};
+        menuItems.forEach(m => {
+          menuMap[m.id] = (m.jenis || '').toLowerCase();
+        });
+
+        let totalOmsetPenjualan = 0;
+        let totalOmsetMinuman = 0;
+        let totalLaba = 0;
+
+        logStockItems.forEach(item => {
+          const itemDate = (item.created_at || '').split(' ')[0].split('T')[0];
+          if (itemDate !== targetDateStr) return;
+          
+          const booleanVal = (item.boolean || '').toLowerCase();
+          if (booleanVal !== 'out') return;
+
+          // Skip jika menu terkait adalah PEMBELIAN
+          const menuJenis = menuMap[item.ref_baru] || '';
+          if (menuJenis.includes('pembelian')) return;
+
+          const kategori = productMap[item.item_baru] || '';
+          const qty = item.qty || 0;
+          const price1 = item.price_1 || 0;
+          const price2 = item.price_2 || 0;
+          const nilaiJual = price1 * qty;
+          const nilaiModal = price2;
+
+          if (kategori.toLowerCase() !== 'minuman') {
+            totalOmsetPenjualan += nilaiJual;
+          } else {
+            totalOmsetMinuman += nilaiJual;
+          }
+
+          totalLaba += (nilaiJual - nilaiModal);
+        });
+
+        // --- ONGKOS SERVIS (FIELD 'DATE') ---
+        const ongkosFilter = pb.filter('date = {:date}', { date: targetDateStr });
+        const ongkosAll = await pb.collection('ongkos').getFullList({
+          filter: ongkosFilter,
+          fields: 'ongkos',
+          $autoCancel: false,
+        });
+        let omsetServis = 0;
+        ongkosAll.forEach(item => {
+          omsetServis += item.ongkos || 0;
+        });
+
+        // --- CASHFLOW (TETAP SAMA) ---
+        const cashflowFilter = pb.filter('created_at >= {:start} && created_at <= {:end}', {
+          start: `${yearMonth}-01T00:00:00.000Z`,
+          end: `${yearMonth}-31T23:59:59.999Z`
+        });
+        const cashflowItems = await pb.collection('cashflow').getFullList({
+          filter: cashflowFilter,
+          fields: 'created_at, jenis, nominal, acc1, acc2, mutasi',
+          $autoCancel: false,
+        });
+
+        let operasionalToko = 0;
+        let pengeluaranLain = 0;
+        let pemasukanLain = 0;
+        let cashKasir = 0;
+
+        cashflowItems.forEach(cf => {
+          const itemDate = (cf.created_at || '').split(' ')[0].split('T')[0];
+          if (itemDate !== targetDateStr) return;
+
+          const jenis = (cf.jenis || '').toLowerCase();
+          const nominal = cf.nominal || 0;
+          if (jenis.includes('operasional')) {
+            operasionalToko += nominal;
+          } else if (jenis.includes('pengeluaran')) {
+            pengeluaranLain += nominal;
+          } else if (jenis.includes('pemasukan')) {
+            pemasukanLain += nominal;
+          }
+
+          const acc1 = (cf.acc1 || '').toLowerCase();
+          const acc2 = (cf.acc2 || '').toLowerCase();
+          const mutasi = (cf.mutasi || '').toLowerCase();
+          if (acc1 === 'cashkasir' && mutasi === 'in') {
+            cashKasir += nominal;
+          } else if (acc2 === 'cashkasir' && mutasi === 'out') {
+            cashKasir += nominal;
+          } else if (acc1 === 'cashkasir' && mutasi === 'out') {
+            cashKasir -= nominal;
+          }
+        });
+
+        // --- HUTANG & PIUTANG ---
+        const menuHutangFilter = pb.filter('created_at >= {:start} && created_at <= {:end}', {
+          start: `${yearMonth}-01T00:00:00.000Z`,
+          end: `${yearMonth}-31T23:59:59.999Z`
+        });
+        const menuHutangItems = await pb.collection('menu').getFullList({
+          filter: menuHutangFilter,
+          fields: 'created_at, status, jenis, total, dibayar',
+          $autoCancel: false,
+        });
+
+        let totalPiutangPembelian = 0;
+        let totalDibayarNonPembelian = 0;
+        let totalHutang = 0;
+        let totalDibayarHutang = 0;
+
+        menuHutangItems.forEach(m => {
+          const itemDate = (m.created_at || '').split(' ')[0].split('T')[0];
+          if (itemDate !== targetDateStr) return;
+
+          const status = (m.status || '').toLowerCase();
+          if (status === 'belum') {
+            const total = m.total || 0;
+            const dibayar = m.dibayar || 0;
+            const jenis = (m.jenis || '').toLowerCase();
+            totalHutang += total;
+            totalDibayarHutang += dibayar;
+            if (jenis === 'pembelian') {
+              totalPiutangPembelian += total;
+            } else {
+              totalDibayarNonPembelian += dibayar;
+            }
+          }
+        });
+
+        const hutangFinal = totalHutang - totalDibayarHutang;
+        const piutangFinal = totalPiutangPembelian - totalDibayarNonPembelian;
+
+        // --- BUAT REPORT ---
+        const reportData = {
+          omset_toko: totalOmsetPenjualan,
+          omset_servis: omsetServis,
+          omset_minuman: totalOmsetMinuman,
+          laba_penjualan: totalLaba,
+          operasional_toko: operasionalToko,
+          pengeluaran_lain: pengeluaranLain,
+          pemasukan_lain: pemasukanLain,
+          hutang: hutangFinal,
+          piutang: piutangFinal,
+          kasir_toko: cashKasir,
+        };
+
         const newReport = {
           ...reportData,
-          text: `Laporan otomatis ${targetDate.toISOString().split('T')[0]}`,
-          created_at: targetDate.toISOString(),
+          text: `Laporan otomatis ${targetDateStr}`,
+          created_at: startISO,
         };
+
         await pb.collection('report').create(newReport);
         await fetchReports();
         setShowGenerateModal(false);
@@ -587,14 +744,11 @@ export default function ReportPage() {
       setReportDetailLoading(true);
       try {
         // AMAN: Ambil tanggal mentah YYYY-MM-DD langsung dari database
-        const targetDateStr = report.created_at.split(' ')[0]; 
+        const targetDateStr = report.created_at.split(' ')[0].split('T')[0]; 
+        const { startISO, endISO } = getDayRangeStr(targetDateStr);
 
-        // Buat range UTC penuh untuk hari tersebut
-        const startISO = `${targetDateStr} 00:00:00`;
-        const endISO = `${targetDateStr} 23:59:59`;
-
-        // Ambil data menu
-        const menuFilter = pb.filter('created_at >= {:start} && created_at <= {:end}', { start: startISO, end: endISO });
+        // Ambil data menu (Ganti <= menjadi < pada ketiga filter: Menu, Log Stock, dan Cashflow di fungsi ini)
+        const menuFilter = pb.filter('created_at >= {:start} && created_at < {:end}', { start: startISO, end: endISO });
         const menuItems = await pb.collection('menu').getFullList({
           filter: menuFilter,
           sort: 'created_at',
@@ -631,6 +785,63 @@ export default function ReportPage() {
       }
     };
 
+    // --- FUNGSI BARU: SESUAIKAN HARGA BELI HARI INI ---
+    const [fixingPrices, setFixingPrices] = useState(false);
+    const handleFixLogStockPrice = async () => {
+      if (!selectedReport || !reportDetailData) return;
+      const targetDateStr = selectedReport.created_at.split(' ')[0];
+      if (!window.confirm(`Yakin ingin menyesuaikan harga beli (modal) untuk semua transaksi keluar di tanggal ${targetDateStr}?`)) return;
+
+      setFixingPrices(true);
+      try {
+        const allProducts = await pb.collection('produk').getFullList({ fields: 'id, beli' });
+        const productBeliMap = allProducts.reduce((acc: any, p) => {
+          acc[p.id] = p.beli || 0;
+          return acc;
+        }, {});
+
+        let updateCount = 0;
+        let skipCount = 0;
+
+        for (const log of reportDetailData.logStock) {
+          // Debug: lihat nilai asli field
+          console.log(`[log ${log.id}]`, { boolean: log.boolean, mutasi: log.mutasi, item_baru: log.item_baru });
+
+          // Handle berbagai format nilai mutasi
+          const rawMutasi = log.mutasi ?? log.boolean ?? '';
+          const mutasiStr = String(rawMutasi).toLowerCase().trim();
+
+          if (mutasiStr !== 'out') {
+            skipCount++;
+            continue;
+          }
+
+          const hargaBeliTerbaru = productBeliMap[log.item_baru] ?? 0;
+          const hargaModalBaru = hargaBeliTerbaru * (log.qty || 0);
+
+          console.log(`[log ${log.id}] price_2: ${log.price_2} → ${hargaModalBaru}`);
+
+          if (log.price_2 !== hargaModalBaru) {
+            await pb.collection('log_stock').update(log.id, { price_2: hargaModalBaru }, { $autoCancel: false });
+            updateCount++;
+          }
+        }
+
+        console.log(`Selesai: ${updateCount} diupdate, ${skipCount} dilewati`);
+        alert(`Penyesuaian selesai! ${updateCount} baris berhasil diperbarui.`);
+        await fetchReportDetails(selectedReport);
+      } catch (error) {
+        console.error('Gagal menyesuaikan harga:', error);
+        alert('Terjadi kesalahan saat menyesuaikan harga beli.');
+      } finally {
+        setFixingPrices(false);
+      }
+    };
+
+
+    // ==========================================
+    // RENDER UI JSX DI SINI (SATU SAJA DI BAWAH)
+    // ==========================================
     return (
       <div className="flex flex-col min-h-screen bg-slate-50 font-sans p-4 md:p-8 pt-16 md:pt-10">
         
@@ -1267,6 +1478,7 @@ export default function ReportPage() {
                       </div>
                     </div>
                   );
+                  
                 })() : activeDetailTab === 'logstock' ? (() => {
                   let filteredLogStock = reportDetailData?.logStock.filter(l => logStockFilterRefJenis === 'semua' || l.ref_baru === logStockFilterRefJenis) || [];
                   
@@ -1298,11 +1510,30 @@ export default function ReportPage() {
                     return 0;
                   });
 
-                  const sumQtyIn = filteredLogStock.filter(l => l.boolean === 'in').reduce((acc, l) => acc + (l.qty || 0), 0);
-                  const sumQtyOut = filteredLogStock.filter(l => l.boolean === 'out').reduce((acc, l) => acc + (l.qty || 0), 0);
-                  const sumNilaiJual = filteredLogStock.reduce((acc, l) => acc + ((l.price_1 || 0) * (l.qty || 0)), 0);
-                  const sumNilaiModal = filteredLogStock.reduce((acc, l) => acc + ((l.price_2 || 0) * (l.qty || 0)), 0);
-                  const sumLaba = sumNilaiJual - sumNilaiModal;
+                  // ... setelah sorting filteredLogStock ...
+
+                  const sumQtyIn = filteredLogStock
+                    .filter(l => (l.boolean || '').toLowerCase() === 'in')
+                    .reduce((acc, l) => acc + (l.qty || 0), 0);
+
+                  const sumQtyOut = filteredLogStock
+                    .filter(l => (l.boolean || '').toLowerCase() === 'out')
+                    .reduce((acc, l) => acc + (l.qty || 0), 0);
+
+                  // Estimasi Penjualan: hanya OUT, price_1 * qty
+                  const sumPenjualan = filteredLogStock
+                    .filter(l => (l.boolean || '').toLowerCase() === 'out')
+                    .reduce((acc, l) => acc + ((l.price_1 || 0) * (l.qty || 0)), 0);
+
+                  // Total Pembelian: hanya IN, price_1 * qty
+                  const sumPembelian = filteredLogStock
+                    .filter(l => (l.boolean || '').toLowerCase() === 'in')
+                    .reduce((acc, l) => acc + ((l.price_1 || 0) * (l.qty || 0)), 0);
+
+                  // Laba Kotor Est.: hanya OUT, (price_1 * qty) - price_2
+                  const sumLaba = filteredLogStock
+                    .filter(l => (l.boolean || '').toLowerCase() === 'out')
+                    .reduce((acc, l) => acc + (((l.price_1 || 0) * (l.qty || 0)) - (l.price_2 || 0)), 0);
 
                   return (
                     <div>
@@ -1313,9 +1544,21 @@ export default function ReportPage() {
                             {[...new Set(reportDetailData?.logStock.map(l => l.ref_baru) || [])].map(r => <option key={String(r)} value={String(r)}>{r}</option>)}
                           </select>
                         </div>
-                        <div className="relative w-full sm:w-64 shrink-0">
-                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                          <input type="text" placeholder="Cari di Log Stock..." value={detailSearchTerm} onChange={e => setDetailSearchTerm(e.target.value)} className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-500/20 transition-all shadow-sm" />
+                        <div className="flex flex-1 sm:flex-none w-full sm:w-auto items-center gap-2 justify-end">
+                          {/* Tombol Perbaikan Harga (Hanya untuk Level 1) */}
+                          {userLevel === '1' && (
+                            <button
+                              onClick={handleFixLogStockPrice}
+                              disabled={fixingPrices}
+                              className="px-4 py-2 bg-rose-50 border border-rose-200 text-rose-600 rounded-xl font-bold text-xs hover:bg-rose-100 transition-colors flex items-center gap-2 disabled:opacity-50 shrink-0"
+                            >
+                              {fixingPrices ? 'Menyinkronkan...' : 'Sesuaikan Harga Beli Hari Ini'}
+                            </button>
+                          )}
+                          <div className="relative w-full sm:w-64 shrink-0">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                            <input type="text" placeholder="Cari di Log Stock..." value={detailSearchTerm} onChange={e => setDetailSearchTerm(e.target.value)} className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-500/20 transition-all shadow-sm" />
+                          </div>
                         </div>
                       </div>
                       <div className="overflow-x-auto overflow-y-auto max-h-[50vh] custom-scrollbar rounded-xl border border-slate-200 shadow-sm relative">
@@ -1344,7 +1587,7 @@ export default function ReportPage() {
                             ) : (
                               filteredLogStock.map((l, idx) => {
                                 const subJual = (l.price_1 || 0) * (l.qty || 0);
-                                const subModal = (l.price_2 || 0) * (l.qty || 0);
+                                const subModal = (l.price_2 || 0) ;
                                 const labaItem = subJual - subModal;
                                 
                                 // Tarik nama lengkap dari record produk yang di-expand
@@ -1375,12 +1618,30 @@ export default function ReportPage() {
                         </table>
                       </div>
                       <div className="mt-4 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-                        <div className="bg-slate-50 p-3 rounded-xl border border-slate-200"><p className="text-[10px] font-black text-slate-400 uppercase">Jml Pergerakan</p><p className="text-sm font-black text-slate-800 mt-0.5">{filteredLogStock.length} Baris</p></div>
-                        <div className="bg-blue-50 p-3 rounded-xl border border-blue-200"><p className="text-[10px] font-black text-blue-500 uppercase">Total Qty In</p><p className="text-sm font-black text-blue-600 mt-0.5">{sumQtyIn} Item</p></div>
-                        <div className="bg-orange-50 p-3 rounded-xl border border-orange-200"><p className="text-[10px] font-black text-orange-500 uppercase">Total Qty Out</p><p className="text-sm font-black text-orange-600 mt-0.5">{sumQtyOut} Item</p></div>
-                        <div className="bg-slate-50 p-3 rounded-xl border border-slate-200"><p className="text-[10px] font-black text-slate-500 uppercase">Estimasi Penjualan</p><p className="text-sm font-black text-slate-800 mt-0.5">{formatRp(sumNilaiJual)}</p></div>
-                        <div className="bg-rose-50 p-3 rounded-xl border border-rose-200"><p className="text-[10px] font-black text-rose-500 uppercase">Total Modal</p><p className="text-sm font-black text-rose-600 mt-0.5">{formatRp(sumNilaiModal)}</p></div>
-                        <div className="bg-emerald-50 p-3 rounded-xl border border-emerald-200"><p className="text-[10px] font-black text-emerald-500 uppercase">Laba Kotor Est.</p><p className="text-sm font-black text-emerald-600 mt-0.5">{formatRp(sumLaba)}</p></div>
+                        <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
+                          <p className="text-[10px] font-black text-slate-400 uppercase">Jml Pergerakan</p>
+                          <p className="text-sm font-black text-slate-800 mt-0.5">{filteredLogStock.length} Baris</p>
+                        </div>
+                        <div className="bg-blue-50 p-3 rounded-xl border border-blue-200">
+                          <p className="text-[10px] font-black text-blue-500 uppercase">Total Qty In</p>
+                          <p className="text-sm font-black text-blue-600 mt-0.5">{sumQtyIn} Item</p>
+                        </div>
+                        <div className="bg-orange-50 p-3 rounded-xl border border-orange-200">
+                          <p className="text-[10px] font-black text-orange-500 uppercase">Total Qty Out</p>
+                          <p className="text-sm font-black text-orange-600 mt-0.5">{sumQtyOut} Item</p>
+                        </div>
+                        <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
+                          <p className="text-[10px] font-black text-slate-500 uppercase">Estimasi Penjualan</p>
+                          <p className="text-sm font-black text-slate-800 mt-0.5">{formatRp(sumPenjualan)}</p>
+                        </div>
+                        <div className="bg-rose-50 p-3 rounded-xl border border-rose-200">
+                          <p className="text-[10px] font-black text-rose-500 uppercase">Total Pembelian</p>
+                          <p className="text-sm font-black text-rose-600 mt-0.5">{formatRp(sumPembelian)}</p>
+                        </div>
+                        <div className="bg-emerald-50 p-3 rounded-xl border border-emerald-200">
+                          <p className="text-[10px] font-black text-emerald-500 uppercase">Laba Kotor Est.</p>
+                          <p className="text-sm font-black text-emerald-600 mt-0.5">{formatRp(sumLaba)}</p>
+                        </div>
                       </div>
                     </div>
                   );

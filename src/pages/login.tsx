@@ -59,20 +59,30 @@ export default function Login({ setAuth }: { setAuth: (status: boolean) => void 
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-      <div className="max-w-md w-full bg-white rounded-[2.5rem] shadow-2xl shadow-slate-200 overflow-hidden border border-white">
-        <div className="bg-gradient-to-br from-red-600 to-red-700 p-10 text-center relative">
-          <div className="absolute top-0 left-0 w-full h-full opacity-10 pointer-events-none">
-            <Wrench size={120} className="-rotate-12 translate-x-40" />
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 md:p-8">
+      {/* Container utama diubah menjadi flex baris di desktop (lg:flex-row) */}
+      <div className="max-w-md lg:max-w-4xl w-full bg-white rounded-[2.5rem] shadow-2xl shadow-slate-200 overflow-hidden border border-white flex flex-col lg:flex-row">
+        
+        {/* --- BAGIAN BRANDING KIRI (Desktop) / ATAS (Mobile & Tablet) --- */}
+        <div className="bg-gradient-to-br from-red-600 to-red-800 p-10 lg:p-14 text-center lg:text-left relative flex flex-col justify-center lg:w-1/2 overflow-hidden">
+          <div className="absolute inset-0 w-full h-full opacity-10 pointer-events-none flex items-center justify-center lg:justify-end">
+            <Wrench size={240} className="-rotate-12 translate-x-10 lg:translate-x-24" />
           </div>
-          <div className="mx-auto bg-white w-20 h-20 rounded-3xl flex items-center justify-center mb-4 shadow-xl rotate-3">
+          <div className="mx-auto lg:mx-0 bg-white w-20 h-20 lg:w-24 lg:h-24 rounded-3xl flex items-center justify-center mb-6 shadow-xl rotate-3 relative z-10">
             <Wrench className="text-red-600" size={40} />
           </div>
-          <h1 className="text-3xl font-black text-white tracking-tighter">PRIMA MOTOR</h1>
-          <p className="text-red-100 font-bold text-xs tracking-[0.2em] uppercase mt-1">Gladag POS System</p>
+          {/* Tag br disembunyikan di HP agar tidak patah, tampilkan di PC */}
+          <h1 className="text-3xl lg:text-5xl font-black text-white tracking-tighter relative z-10 leading-tight mb-2">PRIMA <br className="hidden lg:block"/>MOTOR</h1>
+          <p className="text-red-100 font-bold text-xs lg:text-sm tracking-[0.2em] uppercase relative z-10">Gladag POS System</p>
         </div>
         
-        <div className="p-10">
+        {/* --- BAGIAN FORM KANAN (Desktop) / BAWAH (Mobile & Tablet) --- */}
+        <div className="p-10 lg:p-14 flex flex-col justify-center lg:w-1/2 bg-white">
+          <div className="mb-8 hidden lg:block">
+            <h2 className="text-2xl font-black text-slate-800 tracking-tight">Selamat Datang!</h2>
+            <p className="text-sm font-bold text-slate-400 mt-1">Silakan masuk menggunakan kredensial Anda.</p>
+          </div>
+
           <form onSubmit={handleLogin} className="space-y-6">
             <div className="space-y-1">
               <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Username / Email</label>
@@ -115,24 +125,19 @@ export default function Login({ setAuth }: { setAuth: (status: boolean) => void 
         </div>
       </div>
 
+      {/* --- PENGGUNAAN ULANG MODAL SEBAGAI ALERT --- */}
       <Modal 
         isOpen={errorModal.show} 
         onClose={() => setErrorModal({ ...errorModal, show: false })} 
+        isAlert={true}
+        showCancel={false}
         title="Opps! Ada Kendala"
-      >
-        <div className="text-center p-4">
-          <div className="w-20 h-20 bg-red-50 text-red-600 rounded-full flex items-center justify-center mx-auto mb-6">
-            <AlertCircle size={44} />
-          </div>
-          <p className="font-bold text-slate-700 text-lg leading-tight">{errorModal.message}</p>
-          <button 
-            onClick={() => setErrorModal({ ...errorModal, show: false })}
-            className="w-full mt-8 py-4 bg-slate-100 hover:bg-slate-200 text-slate-800 font-black rounded-2xl transition-all"
-          >
-            SAYA MENGERTI
-          </button>
-        </div>
-      </Modal>
+        alertDescription={errorModal.message}
+        alertIcon={<AlertCircle size={28} />}
+        alertIconBg="bg-red-50 text-red-600 border-red-100"
+        confirmText="SAYA MENGERTI"
+        confirmBg="bg-slate-900 hover:bg-slate-800 shadow-slate-200"
+      />
     </div>
   );
 }

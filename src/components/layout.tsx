@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Link, useLocation, Outlet, useNavigate } from 'react-router-dom';
 import { ShoppingCart, Package, Wallet, FileText, UserCircle, Settings, LogOut, Users, ShieldAlert, Menu, X } from 'lucide-react';
 import { pb } from '../lib/pocketbase';
+import Modal from '../components/modal';
 
 export default function Layout({ setAuth }: { setAuth: (status: boolean) => void }) {
   const location = useLocation();
@@ -12,24 +13,11 @@ export default function Layout({ setAuth }: { setAuth: (status: boolean) => void
   const [navTarget, setNavTarget] = useState<string | null>(null);
   const [showConfirmNav, setShowConfirmNav] = useState(false);
   const [serverTime, setServerTime] = useState<string>('');
+  const [systemAlert, setSystemAlert] = useState({ show: false, title: '', message: '', onConfirm: () => {} });
   
   const userName = pb.authStore.model?.name || pb.authStore.model?.username || 'Guest';
   const [userLevel, setUserLevel] = useState<string | null>(localStorage.getItem('user_level'));
   const isUserLoggedIn = pb.authStore.isValid;
-
-  // REVISI TOTAL: Guard Sesi
-  useEffect(() => {
-    const validateSession = () => {
-      const storedLevel = localStorage.getItem('user_level');
-      if (!pb.authStore.isValid || !storedLevel || storedLevel === 'undefined') {
-        console.warn("Sesi tidak valid, mengalihkan ke login...");
-        forceLogout();
-      } else {
-        setUserLevel(storedLevel);
-      }
-    };
-    validateSession();
-  }, [location.pathname]);
 
   // Proteksi awal jika user_level hilang saat reload
   useEffect(() => {
@@ -38,18 +26,38 @@ export default function Layout({ setAuth }: { setAuth: (status: boolean) => void
     }
   }, [userLevel, isUserLoggedIn]);
 
-  // Perbaikan blok Security Guard
+  // Security Guard dengan URL Protection
   useEffect(() => {
     const checkSecurityGuard = async () => {
-      if (!pb.authStore.isValid || !pb.authStore.model || localStorage.getItem('user_level') === null) {
+      const currentLevel = localStorage.getItem('user_level');
+      if (!pb.authStore.isValid || !pb.authStore.model || currentLevel === null) {
         forceLogout();
         return;
       }
+
+      // --- URL FORCE GUARD START ---
+      const path = location.pathname;
+      if (path === '/settings' && currentLevel !== '1') {
+        navigate('/'); // Pental kembali ke beranda
+        setSystemAlert({ show: true, title: "Akses Ditolak", message: "Anda tidak memiliki izin ke halaman Pengaturan.", onConfirm: () => setSystemAlert(prev => ({...prev, show: false})) });
+        return;
+      }
+      if (path === '/report' && !['1','2','3','4','5','6'].includes(currentLevel)) {
+        navigate('/'); // Pental kembali ke beranda
+        setSystemAlert({ show: true, title: "Akses Ditolak", message: "Anda tidak memiliki izin ke halaman Report.", onConfirm: () => setSystemAlert(prev => ({...prev, show: false})) });
+        return;
+      }
+      if (path === '/person' && !['1','2','3','4','5','6','7'].includes(currentLevel)) {
+        navigate('/'); // Pental kembali ke beranda
+        setSystemAlert({ show: true, title: "Akses Ditolak", message: "Anda tidak memiliki izin ke halaman Person.", onConfirm: () => setSystemAlert(prev => ({...prev, show: false})) });
+        return;
+      }
+      // --- URL FORCE GUARD END ---
+
       try {
         const freshUser = await pb.collection('user').getOne(pb.authStore.model.id, { $autoCancel: false });
         if (!freshUser || freshUser.status?.toLowerCase() !== 'active') {
-          alert("Sesi Anda ditolak. Akun Anda tidak aktif atau ditangguhkan.");
-          forceLogout();
+          setSystemAlert({ show: true, title: "Sesi Ditolak", message: "Akun Anda tidak aktif atau ditangguhkan. Sesi Anda akan ditutup.", onConfirm: () => { setSystemAlert(prev => ({...prev, show: false})); forceLogout(); } });
         }
       } catch (err) {
         if ((err as any)?.status === 401) {
@@ -58,7 +66,7 @@ export default function Layout({ setAuth }: { setAuth: (status: boolean) => void
       }
     };
     checkSecurityGuard();
-  }, [location.pathname]);
+  }, [location.pathname, navigate]);
 
   // Jam Detik Digital
   useEffect(() => {
@@ -106,11 +114,11 @@ export default function Layout({ setAuth }: { setAuth: (status: boolean) => void
   `;
 
   const allMenus = [
-    { name: 'Kasir', path: '/', icon: ShoppingCart, color: 'text-blue-500', activeBg: 'bg-blue-50 border-blue-200' },
-    { name: 'Produk', path: '/produk', icon: Package, color: 'text-orange-500', activeBg: 'bg-orange-50 border-orange-200' },
-    { name: 'Person', path: '/person', icon: Users, color: 'text-cyan-500', activeBg: 'bg-cyan-50 border-cyan-200', show: isUserLoggedIn && userLevel && ['1','2','3','4','5','6','7'].includes(userLevel) },
-    { name: 'Cashflow', path: '/cashflow', icon: Wallet, color: 'text-green-500', activeBg: 'bg-green-50 border-green-200' },
-    { name: 'Report', path: '/report', icon: FileText, color: 'text-purple-500', activeBg: 'bg-purple-50 border-purple-200' },
+    { name: 'Kasir', path: '/', icon: ShoppingCart, color: 'text-blue-500', activeBg: 'bg-blue-50 border-blue-200', show: true },
+    { name: 'Produk', path: '/produk', icon: Package, color: 'text-orange-500', activeBg: 'bg-orange-50 border-orange-200', show: true },
+    { name: 'Person', path: '/person', icon: Users, color: 'text-cyan-500', activeBg: 'bg-cyan-50 border-cyan-200', show: isUserLoggedIn && userLevel !== null && ['1','2','3','4','5','6','7'].includes(userLevel) },
+    { name: 'Cashflow', path: '/cashflow', icon: Wallet, color: 'text-green-500', activeBg: 'bg-green-50 border-green-200', show: true },
+    { name: 'Report', path: '/report', icon: FileText, color: 'text-purple-500', activeBg: 'bg-purple-50 border-purple-200', show: isUserLoggedIn && userLevel !== null && ['1','2','3','4','5','6'].includes(userLevel) },
     { name: 'Akun', path: '/akun', icon: UserCircle, color: 'text-pink-500', activeBg: 'bg-pink-50 border-pink-200', show: isUserLoggedIn },
     { name: 'Settings', path: '/settings', icon: Settings, color: 'text-slate-500', activeBg: 'bg-gray-100 border-gray-300', show: isUserLoggedIn && userLevel === "1" },
   ];
@@ -131,7 +139,7 @@ export default function Layout({ setAuth }: { setAuth: (status: boolean) => void
       {/* Sidebar (Sembunyi di HP, Tampil di PC) */}
       <div className={`fixed md:relative w-64 md:w-52 lg:w-64 bg-white h-screen shadow-2xl md:shadow-sm flex flex-col z-40 border-r border-gray-100 transform transition-transform duration-300 ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
         
-        {/* HEADER SIDEBAR (Diperbaiki strukturnya) */}
+        {/* HEADER SIDEBAR */}
         <div className="p-8 border-b border-gray-50 text-center shrink-0 relative">
           <button onClick={() => setIsMobileMenuOpen(false)} className="md:hidden absolute top-4 right-4 p-2 text-slate-400 hover:text-rose-500 bg-slate-50 rounded-full transition-colors">
             <X size={18} />
@@ -223,62 +231,54 @@ export default function Layout({ setAuth }: { setAuth: (status: boolean) => void
       </main>
 
       {/* --- MODAL CONFIRMATION LOGOUT --- */}
-      {showLogoutDialog && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 animate-fadeIn">
-          <div className="bg-white p-6 max-w-sm w-full rounded-[2rem] shadow-2xl border border-slate-100 text-center space-y-4">
-            <div className="w-12 h-12 bg-rose-50 text-rose-500 rounded-full flex items-center justify-center mx-auto border border-rose-100 shadow-sm">
-              <ShieldAlert size={24} />
-            </div>
-            <div>
-              <h3 className="font-black text-slate-800 text-lg uppercase tracking-tight">Konfirmasi Keluar</h3>
-              <p className="text-xs text-slate-400 font-medium mt-1">Apakah Anda yakin ingin menutup sesi kasir saat ini? Anda harus login kembali untuk bertransaksi.</p>
-            </div>
-            <div className="flex gap-2 pt-2">
-              <button 
-                onClick={() => setShowLogoutDialog(false)} 
-                className="flex-1 py-3 bg-slate-50 hover:bg-slate-100 text-slate-500 border rounded-xl font-bold text-xs uppercase tracking-wider transition-colors"
-              >
-                Batal
-              </button>
-              <button 
-                onClick={performLogout} 
-                className="flex-1 py-3 bg-rose-600 hover:bg-rose-500 text-white rounded-xl font-black text-xs uppercase tracking-wider shadow-md shadow-rose-200 transition-colors"
-              >
-                Ya, Keluar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <Modal
+        isOpen={showLogoutDialog}
+        onClose={() => setShowLogoutDialog(false)}
+        isAlert={true}
+        title="Konfirmasi Keluar"
+        alertDescription="Apakah Anda yakin ingin menutup sesi kasir saat ini? Anda harus login kembali untuk bertransaksi."
+        alertIcon={<ShieldAlert size={24} />}
+        alertIconBg="bg-rose-50 text-rose-500 border-rose-100"
+        onConfirm={performLogout}
+        confirmText="Ya, Keluar"
+        cancelText="Batal"
+        confirmBg="bg-rose-600 hover:bg-rose-500 shadow-rose-200"
+      />
 
       {/* --- MODAL CONFIRMATION NAVIGATION LEAVE EDIT MODE --- */}
-      {showConfirmNav && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 animate-fadeIn">
-          <div className="bg-white p-6 max-w-sm w-full rounded-[2rem] shadow-2xl border border-slate-100 text-center space-y-4">
-            <div className="w-12 h-12 bg-amber-50 text-amber-500 rounded-full flex items-center justify-center mx-auto border border-amber-100 shadow-sm">
-              <ShieldAlert size={24} />
-            </div>
-            <div>
-              <h3 className="font-black text-slate-800 text-lg uppercase tracking-tight">Hapus Perubahan?</h3>
-              <p className="text-xs text-slate-400 font-medium mt-1">Anda terdeteksi sedang mengubah data transaksi di Keranjang. Meninggalkan halaman akan membatalkan perubahan data.</p>
-            </div>
-            <div className="flex gap-2 pt-2">
-              <button 
-                onClick={() => setShowConfirmNav(false)} 
-                className="flex-1 py-3 bg-slate-50 hover:bg-slate-100 text-slate-500 border rounded-xl font-bold text-xs uppercase tracking-wider transition-colors"
-              >
-                Tidak
-              </button>
-              <button 
-                onClick={() => { localStorage.removeItem('is_editing'); setShowConfirmNav(false); setIsMobileMenuOpen(false); navigate(navTarget!); }} 
-                className="flex-1 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-black text-xs uppercase tracking-wider shadow-md shadow-blue-200 transition-colors"
-              >
-                Ya, Hapus
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <Modal
+        isOpen={showConfirmNav}
+        onClose={() => setShowConfirmNav(false)}
+        isAlert={true}
+        title="Hapus Perubahan?"
+        alertDescription="Anda terdeteksi sedang mengubah data transaksi di Keranjang. Meninggalkan halaman akan membatalkan perubahan data."
+        alertIcon={<ShieldAlert size={24} />}
+        alertIconBg="bg-amber-50 text-amber-500 border-amber-100"
+        onConfirm={() => {
+          localStorage.removeItem('is_editing');
+          setShowConfirmNav(false);
+          setIsMobileMenuOpen(false);
+          navigate(navTarget!);
+        }}
+        confirmText="Ya, Hapus"
+        cancelText="Tidak"
+        confirmBg="bg-blue-600 hover:bg-blue-500 shadow-blue-200"
+      />
+
+      {/* --- MODAL SYSTEM ALERT (Pengganti alert bawaan browser) --- */}
+      <Modal
+        isOpen={systemAlert.show}
+        onClose={systemAlert.onConfirm}
+        isAlert={true}
+        title={systemAlert.title}
+        alertDescription={systemAlert.message}
+        alertIcon={<ShieldAlert size={24} />}
+        alertIconBg="bg-rose-50 text-rose-500 border-rose-100"
+        onConfirm={systemAlert.onConfirm}
+        confirmText="Mengerti"
+        cancelText="Tutup"
+        confirmBg="bg-rose-600 hover:bg-rose-500 shadow-rose-200"
+      />
     </div>
   );
 }

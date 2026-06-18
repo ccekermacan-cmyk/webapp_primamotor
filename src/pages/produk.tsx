@@ -63,7 +63,7 @@ export default function Produk() {
   const [showFloatingAdd, setShowFloatingAdd] = useState(false);
 
   // Modal States
-  const [modalType, setModalType] = useState<'detail' | 'form' | 'delete' | null>(null);
+  const [modalType, setModalType] = useState<'detail' | 'form' | 'delete' | 'copy' | null>(null);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [selectedProduct, setSelectedProduct] = useState<Produk | null>(null);
   const [formData, setFormData] = useState<Partial<Produk>>({});
@@ -350,7 +350,13 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
 
   const handleOpenCopy = (prod: Produk, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
-    const { id, created, updated, ...restData } = prod;
+    setSelectedProduct(prod);
+    setModalType('copy'); // Buka dialog konfirmasi terlebih dahulu
+  };
+
+  const executeCopy = () => {
+    if (!selectedProduct) return;
+    const { id, created, updated, ...restData } = selectedProduct;
     const copyData: Partial<Produk> = { ...restData };
     copyData.id_lama = generateRawRandomId();
     // Reset stok ke 0 saat membuat salinan baru
@@ -360,7 +366,7 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
     setSelectedProduct(null); 
     setFormData(copyData);
     setProductFiles([]); // reset file
-    setModalType('form');
+    setModalType('form'); // Lanjut buka form setelah dikonfirmasi
   };
 
   const handleOpenDelete = (prod: Produk, e?: React.MouseEvent) => {
@@ -683,10 +689,10 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
 
                     {/* Tombol Aksi */}
                     <div className="flex gap-2 justify-end border-t border-gray-100 pt-4">
-                      <button onClick={(e) => handleOpenEdit(prod, e)} className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg">
+                      <button onClick={(e) => handleOpenEdit(prod, e)} className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg">
                         <Edit size={14} /> Edit
                       </button>
-                      <button onClick={(e) => handleOpenCopy(prod, e)} className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-green-600 bg-green-50 hover:bg-green-100 rounded-lg">
+                      <button onClick={(e) => handleOpenCopy(prod, e)} className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg">
                         <Copy size={14} /> Copy
                       </button>
                       <button onClick={(e) => handleOpenDelete(prod, e)} className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded-lg">
@@ -754,10 +760,10 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
                         </td>
                         <td className="py-3 px-4 text-center whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                           <div className="flex gap-1 justify-center">
-                            <button onClick={(e) => handleOpenEdit(prod, e)} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-md transition" title="Edit">
+                            <button onClick={(e) => handleOpenEdit(prod, e)} className="p-1.5 text-slate-600 hover:bg-slate-100 rounded-md transition" title="Edit">
                               <Edit size={14} />
                             </button>
-                            <button onClick={(e) => handleOpenCopy(prod, e)} className="p-1.5 text-green-600 hover:bg-green-50 rounded-md transition" title="Copy">
+                            <button onClick={(e) => handleOpenCopy(prod, e)} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-md transition" title="Copy">
                               <Copy size={14} />
                             </button>
                             <button onClick={(e) => handleOpenDelete(prod, e)} className="p-1.5 text-red-600 hover:bg-red-50 rounded-md transition" title="Hapus">
@@ -801,7 +807,8 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
       {/* ========================================================= */}
       {/* 1. MODAL DETAIL PRODUK */}
       {/* ========================================================= */}
-      <Modal isOpen={modalType === 'detail'} onClose={() => setModalType(null)} title="Detail Spesifikasi Produk">
+      {/* Tambahkan maxWidth agar tabel/konten tidak saling berhimpitan di layar */}
+      <Modal isOpen={modalType === 'detail'} onClose={() => setModalType(null)} title="Detail Spesifikasi Produk" maxWidth="max-w-2xl">
         {selectedProduct && (
           <div className="space-y-6">
             <div className="flex gap-4 items-center p-4 bg-orange-50 rounded-2xl border border-orange-100">
@@ -874,8 +881,8 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
             </div>
 
             <div className="flex justify-end gap-2 border-b pb-4">
-              <button onClick={() => handleOpenEdit(selectedProduct)} className="flex items-center gap-1 px-4 py-2 text-sm font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-xl transition-colors"><Edit size={16} /> Edit Data</button>
-              <button onClick={() => handleOpenCopy(selectedProduct)} className="flex items-center gap-1 px-4 py-2 text-sm font-bold text-green-600 bg-green-50 hover:bg-green-100 rounded-xl transition-colors"><Copy size={16} /> Salin</button>
+              <button onClick={() => handleOpenEdit(selectedProduct)} className="flex items-center gap-1 px-4 py-2 text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors"><Edit size={16} /> Edit Data</button>
+              <button onClick={() => handleOpenCopy(selectedProduct)} className="flex items-center gap-1 px-4 py-2 text-sm font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-xl transition-colors"><Copy size={16} /> Salin</button>
               <button onClick={() => handleOpenDelete(selectedProduct)} className="flex items-center gap-1 px-4 py-2 text-sm font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded-xl transition-colors"><Trash2 size={16} /> Hapus</button>
             </div>
 
@@ -1071,7 +1078,8 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
       {/* ========================================================= */}
       {/* 2. MODAL FORM (TAMBAH / EDIT / COPY) */}
       {/* ========================================================= */}
-      <Modal isOpen={modalType === 'form'} onClose={() => setModalType(null)} title={isEditMode ? "Edit Produk" : "Tambah/Copy Produk"}>
+      {/* Modal Form ini input-annya sangat banyak, butuh space yang lebih lebar */}
+      <Modal isOpen={modalType === 'form'} onClose={() => setModalType(null)} title={isEditMode ? "Edit Produk" : "Tambah/Copy Produk"} maxWidth="max-w-4xl">
         <form onSubmit={submitForm} className="space-y-4">
           <div className="max-h-[60vh] overflow-y-auto pr-2 space-y-6">
             
@@ -1386,22 +1394,38 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
       </Modal>
 
       {/* ========================================================= */}
-      {/* 3. MODAL HAPUS */}
+      {/* 3. MODAL HAPUS (Dikonversi ke Modal Alert Dinamis) */}
       {/* ========================================================= */}
-      <Modal isOpen={modalType === 'delete'} onClose={() => setModalType(null)} title="Konfirmasi Hapus">
-        <div className="text-center">
-          <div className="mx-auto w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mb-4"><Trash2 size={32} /></div>
-          <h3 className="text-lg font-bold text-gray-800 mb-2">Hapus Produk Ini?</h3>
-          <p className="text-gray-500 mb-6">Yakin menghapus <span className="font-bold">{selectedProduct?.varian}</span>?</p>
-          
-          <div className="flex gap-3">
-            <button onClick={() => setModalType(null)} className="flex-1 py-3 bg-gray-100 text-gray-700 font-bold rounded-xl">Batal</button>
-            <button onClick={submitDelete} disabled={isProcessing} className="flex-1 py-3 bg-red-600 text-white font-bold rounded-xl disabled:opacity-50">
-              {isProcessing ? 'Menghapus...' : 'Hapus'}
-            </button>
-          </div>
-        </div>
-      </Modal>
+      <Modal 
+        isOpen={modalType === 'delete'} 
+        onClose={() => setModalType(null)} 
+        isAlert={true}
+        title="Hapus Produk Ini?"
+        alertDescription={<>Yakin ingin menghapus produk <span className="font-bold text-slate-800">{selectedProduct?.kategori} {selectedProduct?.merk} {selectedProduct?.jenis} {selectedProduct?.varian}</span> secara permanen?</>}
+        alertIcon={<Trash2 size={24} />}
+        alertIconBg="bg-rose-50 text-rose-500 border-rose-100"
+        onConfirm={submitDelete}
+        confirmText={isProcessing ? 'Menghapus...' : 'Ya, Hapus'}
+        cancelText="Batal"
+        confirmBg="bg-rose-600 hover:bg-rose-500 shadow-rose-200"
+      />
+
+      {/* ========================================================= */}
+      {/* 4. MODAL KONFIRMASI COPY (Alert Dinamis) */}
+      {/* ========================================================= */}
+      <Modal
+        isOpen={modalType === 'copy'}
+        onClose={() => setModalType(null)}
+        isAlert={true}
+        title="Salin Produk Ini?"
+        alertDescription={<>Anda akan menduplikasi semua atribut dari <span className="font-bold text-slate-800">{selectedProduct?.kategori} {selectedProduct?.merk} {selectedProduct?.jenis} {selectedProduct?.varian}</span>. Stok awal pada produk baru akan di-reset menjadi 0.</>}
+        alertIcon={<Copy size={24} />}
+        alertIconBg="bg-blue-50 text-blue-600 border-blue-100"
+        onConfirm={executeCopy}
+        confirmText="Ya, Salin Data"
+        cancelText="Batal"
+        confirmBg="bg-blue-600 hover:bg-blue-500 shadow-blue-200"
+      />
       
     </div>
   );
