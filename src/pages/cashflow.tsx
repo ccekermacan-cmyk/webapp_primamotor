@@ -6,7 +6,7 @@
     Wallet, Search, Trash2, Edit, ChevronLeft, ChevronRight, 
     ArrowDownRight, ArrowUpRight, Calendar, User,
     ExternalLink, Layers, X, DollarSign, ImagePlus, Save, FileText,
-    ArrowRight, Filter, Plus, ChevronDown
+    ArrowRight, Filter, Plus, ChevronDown, AlertCircle
   } from 'lucide-react';
 
   interface Cashflow {
@@ -137,8 +137,16 @@
     const [loadingWallets, setLoadingWallets] = useState(false);
     const [activeTab, setActiveTab] = useState<'accounts' | 'history'>('history');
     const [isFormDirty, setIsFormDirty] = useState(false);
+    
+    // TAMBAHAN: State untuk System Alert/Confirm Modal
+    const [systemAlert, setSystemAlert] = useState({ show: false, title: '', message: '', type: 'alert' as 'alert'|'confirm', onConfirm: () => {} });
 
     const isEditMode = !!(selectedTx && selectedTx.id);
+
+    // TAMBAHAN: Helper memanggil alert
+    const showAlert = (title: string, message: string) => {
+      setSystemAlert({ show: true, title, message, type: 'alert', onConfirm: () => setSystemAlert(prev => ({...prev, show: false})) });
+    };
 
     const checkFormDirty = () => {
       return !!(formData.jenis || formData.account_1 || formData.nominal || formData.note);
@@ -435,10 +443,17 @@
 
     const handleCloseModal = () => {
       if (checkFormDirty()) {
-        if (window.confirm("Ada perubahan yang belum disimpan. Yakin ingin menutup?")) {
-          setModalType(null);
-          setIsFormDirty(false);
-        }
+        setSystemAlert({
+          show: true,
+          title: "Tutup Form?",
+          message: "Ada perubahan yang belum disimpan. Yakin ingin menutup?",
+          type: 'confirm',
+          onConfirm: () => {
+            setModalType(null);
+            setIsFormDirty(false);
+            setSystemAlert(prev => ({ ...prev, show: false }));
+          }
+        });
       } else {
         setModalType(null);
       }
@@ -448,23 +463,23 @@
       e.preventDefault();
 
       if (!formData.jenis) {
-        alert("Jenis Cashflow wajib dipilih!");
+        showAlert("Validasi Gagal", "Jenis Cashflow wajib dipilih!");
         return;
       }
       if (!formData.account_1) {
-        alert("Akun Pembayaran wajib dipilih!");
+        showAlert("Validasi Gagal", "Akun Pembayaran wajib dipilih!");
         return;
       }
       if (!formData.nominal || formData.nominal <= 0) {
-        alert("Nominal harus diisi dan lebih dari 0!");
+        showAlert("Validasi Gagal", "Nominal harus diisi dan lebih dari 0!");
         return;
       }
       if (!formData.note || formData.note.trim() === '') {
-        alert("Keterangan wajib diisi!");
+        showAlert("Validasi Gagal", "Keterangan wajib diisi!");
         return;
       }
       if (formData.jenis?.toLowerCase() === 'transfer' && !formData.account_2) {
-        alert("Akun Tujuan wajib dipilih untuk transaksi Transfer!");
+        showAlert("Validasi Gagal", "Akun Tujuan wajib dipilih untuk transaksi Transfer!");
         return;
       }
 
@@ -549,7 +564,7 @@
         setFiles([]);
         fetchCashflow();
       } catch (error: any) {
-        alert("Gagal simpan: " + (error.data?.message || "Terjadi kesalahan"));
+        showAlert("Gagal Simpan", error.data?.message || "Terjadi kesalahan saat menyimpan transaksi.");
       } finally {
         setIsProcessing(false);
       }
@@ -563,7 +578,7 @@
         setModalType(null);
         fetchCashflow();
       } catch (error) {
-        alert("Gagal menghapus.");
+        showAlert("Gagal Menghapus", "Terjadi kesalahan saat menghapus data.");
       } finally {
         setIsProcessing(false);
       }
@@ -1118,6 +1133,7 @@
             isOpen={modalType === 'form'}
             onClose={handleCloseModal}
             title={isEditMode ? 'Revisi Transaksi Kas' : 'Catat Transaksi Kas Baru'}
+            maxWidth="max-w-3xl"
           >
             <form onSubmit={submitForm} className="flex flex-col max-h-[75vh] md:max-h-[80vh] overflow-y-auto custom-scrollbar p-1">
               <div className="space-y-5">
@@ -1343,9 +1359,10 @@
 
           {/* MODAL FILTER MOBILE */}
           <Modal
-            isOpen={isMobileFilterOpen}
-            onClose={() => setIsMobileFilterOpen(false)}
-            title="Filter Transaksi"
+            isOpen={modalType === 'detail'}
+            onClose={() => setModalType(null)}
+            title="Detail Log Transaksi Kas"
+            maxWidth="max-w-2xl"
           >
             <div className="space-y-6 p-2">
               <div>
@@ -1413,25 +1430,33 @@
 
               return (
                 <div className="flex flex-col max-h-[75vh] md:max-h-[80vh] overflow-y-auto custom-scrollbar p-1">
-                  <div className={`p-6 md:p-8 rounded-[2rem] text-center text-white relative shadow-xl overflow-hidden ${isMasuk ? 'bg-emerald-500' : 'bg-rose-500'}`}>
-                    <div className="absolute top-0 right-0 w-40 h-40 bg-white rounded-full blur-3xl opacity-20 pointer-events-none" />
-                    <span className="text-[10px] font-black bg-black/20 border border-white/20 px-3 py-1.5 rounded-full uppercase tracking-widest backdrop-blur-md relative z-10 shadow-sm">{selectedTx.ref || selectedTx.id}</span>
-                    <div className="mt-4 relative z-10">
-                      <p className="text-[11px] font-black uppercase tracking-widest text-white/80 mb-1">{mutasiLabel}</p>
-                      <p className="text-4xl md:text-5xl font-black tracking-tight drop-shadow-sm">Rp {selectedTx.nominal?.toLocaleString('id-ID')}</p>
+                  <div className={`p-5 sm:p-6 md:p-8 rounded-3xl sm:rounded-[2rem] text-center text-white relative shadow-xl overflow-hidden ${isMasuk ? 'bg-emerald-500' : 'bg-rose-500'}`}>
+                    <div className="absolute top-0 right-0 w-32 h-32 sm:w-40 sm:h-40 bg-white rounded-full blur-3xl opacity-20 pointer-events-none" />
+                    
+                    <span className="inline-block max-w-[90%] truncate text-[9px] sm:text-[10px] font-black bg-black/20 border border-white/20 px-3 py-1.5 rounded-full uppercase tracking-widest backdrop-blur-md relative z-10 shadow-sm">
+                      {selectedTx.ref || selectedTx.id}
+                    </span>
+                    
+                    <div className="mt-3 sm:mt-4 relative z-10 flex flex-col items-center">
+                      <p className="text-[10px] sm:text-[11px] font-black uppercase tracking-widest text-white/80 mb-1">{mutasiLabel}</p>
+                      
+                      {/* Teks nominal menggunakan ukuran yang mengecil di layar HP dan truncate agar tidak merusak layout */}
+                      <p className="text-2xl min-[360px]:text-3xl sm:text-4xl md:text-5xl font-black tracking-tight drop-shadow-sm truncate w-full px-2">
+                        Rp {selectedTx.nominal?.toLocaleString('id-ID')}
+                      </p>
                     </div>
                   </div>
 
                   <div className="mt-5 flex flex-col gap-4 text-xs font-medium">
                     <div className="bg-slate-50 p-5 rounded-[1.5rem] border-2 border-slate-100 shadow-sm space-y-3">
                       <p className={`font-black text-[11px] ${txtColor} uppercase border-b-2 border-slate-200 pb-3 mb-2 flex items-center gap-2`}><Layers size={16} /> Entitas: Data Jurnal Kas</p>
-                      <p className="flex justify-between items-center"><span className="text-slate-400 font-bold">Waktu Transaksi:</span> <span className="font-bold text-slate-700">{formatLocalDateTime(selectedTx.created_at)}</span></p>
-                      <p className="flex justify-between items-center"><span className="text-slate-400 font-bold">Operator:</span> <span className="font-bold text-slate-700">{selectedTx.operator || '-'}</span></p>
-                      <p className="flex justify-between items-center mt-2 pt-2 border-t border-dashed border-slate-200"><span className="text-slate-400 font-bold">Kategori/Jenis:</span> <span className="font-black text-slate-700 bg-slate-200 px-2 py-0.5 rounded uppercase">{selectedTx.jenis}</span></p>
-                      <p className="flex justify-between items-center"><span className="text-slate-400 font-bold">Akun Sumber:</span> <span className="font-bold text-slate-700">{getAccountName(selectedTx.account_1)}</span></p>
-                      {selectedTx.account_2 && <p className="flex justify-between items-center"><span className="text-slate-400 font-bold">Akun Tujuan:</span> <span className="font-bold text-blue-600">{getAccountName(selectedTx.account_2)}</span></p>}
-                      <p className="flex justify-between items-center"><span className="text-slate-400 font-bold">Pihak Terkait:</span> <span className="font-bold text-slate-700">{getPersonName(selectedTx.person)}</span></p>
-                      {selectedTx.ref_baru && <p className="flex justify-between items-center mt-2 pt-2 border-t border-dashed border-slate-200"><span className="text-slate-400 font-bold">Ref Transaksi POS:</span> <span className="font-bold text-blue-500 bg-blue-50 px-2 py-0.5 rounded border border-blue-100">{selectedTx.ref_baru}</span></p>}
+                      <p className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1"><span className="text-slate-400 font-bold">Waktu Transaksi:</span> <span className="font-bold text-slate-700 sm:text-right">{formatLocalDateTime(selectedTx.created_at)}</span></p>
+                      <p className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1"><span className="text-slate-400 font-bold">Operator:</span> <span className="font-bold text-slate-700 sm:text-right">{selectedTx.operator || '-'}</span></p>
+                      <p className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 mt-2 pt-2 border-t border-dashed border-slate-200"><span className="text-slate-400 font-bold">Kategori/Jenis:</span> <span className="font-black text-slate-700 bg-slate-200 px-2 py-0.5 rounded uppercase self-start sm:self-auto">{selectedTx.jenis}</span></p>
+                      <p className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1"><span className="text-slate-400 font-bold">Akun Sumber:</span> <span className="font-bold text-slate-700 sm:text-right">{getAccountName(selectedTx.account_1)}</span></p>
+                      {selectedTx.account_2 && <p className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1"><span className="text-slate-400 font-bold">Akun Tujuan:</span> <span className="font-bold text-blue-600 sm:text-right">{getAccountName(selectedTx.account_2)}</span></p>}
+                      <p className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1"><span className="text-slate-400 font-bold">Pihak Terkait:</span> <span className="font-bold text-slate-700 sm:text-right">{getPersonName(selectedTx.person)}</span></p>
+                      {selectedTx.ref_baru && <p className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1 mt-2 pt-2 border-t border-dashed border-slate-200"><span className="text-slate-400 font-bold">Ref Transaksi POS:</span> <span className="font-bold text-blue-500 bg-blue-50 px-2 py-0.5 rounded border border-blue-100 self-start sm:self-auto">{selectedTx.ref_baru}</span></p>}
                     </div>
 
                     <div className="bg-slate-50 p-5 rounded-[1.5rem] border-2 border-slate-100 shadow-sm flex flex-col">
@@ -1457,55 +1482,67 @@
                     )}
                   </div>
 
-                  <div className="mt-6 flex flex-wrap md:flex-nowrap gap-3 pt-5 border-t-2 border-slate-100 sticky bottom-0 bg-white">
-                    {/* Tombol Hapus */}
-                    <button 
-                      onClick={() => { if(window.confirm('Hapus permanen?')) submitDelete(); }} 
-                      className="w-14 h-14 flex-shrink-0 bg-rose-50 text-rose-600 rounded-2xl hover:bg-rose-500 hover:text-white border border-rose-100 hover:shadow-lg transition-all flex justify-center items-center group"
-                      title="Hapus transaksi"
-                    >
-                      <Trash2 size={22} className="group-hover:scale-110 transition-transform"/>
-                    </button>
-                    
-                    {/* Tombol Edit */}
-                    <button 
-                      onClick={() => { 
-                        const localCreatedAt = selectedTx.created_at ? formatToLocalDatetimeInput(selectedTx.created_at) : '';
-                        
-                        // JAUH LEBIH CEPAT: Jangan download filenya, cukup oper URL dan tandai sebagai 'isOld'
-                        const oldFiles = (selectedTx.file || []).map(fileName => ({
-                          isOld: true,
-                          name: fileName, // diperlukan fungsi isVideo (pengecekan ekstensi)
-                          url: pb.files.getUrl(selectedTx, fileName)
-                        }));
-                        
-                        setFiles(oldFiles); // Langsung tampil di kotak preview!
-                        
-                        setFormData({
-                          mutasi: selectedTx.mutasi?.toLowerCase() === 'in' ? 'Masuk' : 'Keluar', 
-                          created_at: localCreatedAt, 
-                          jenis: selectedTx.jenis, 
-                          account_1: selectedTx.account_1, 
-                          account_2: selectedTx.account_2 || '', 
-                          person: selectedTx.person || '', 
-                          persontext: selectedTx.persontext || '', 
-                          nominal: selectedTx.nominal, 
-                          note: selectedTx.note 
-                        }); 
-                        setModalType('form'); 
-                      }}
-                      className="flex-1 py-3 bg-blue-500 text-white rounded-xl font-black text-xs uppercase tracking-widest hover:bg-blue-600 transition-all"
-                    >
-                      Edit Transaksi
-                    </button>
-                    
-                    {/* Tombol Tutup */}
-                    <button 
-                      onClick={() => setModalType(null)} 
-                      className="flex-[2] py-4 bg-slate-900 hover:bg-slate-800 text-white rounded-2xl font-black text-xs tracking-widest shadow-xl transition-all active:scale-95 uppercase"
-                    >
-                      TUTUP DETAIL
-                    </button>
+                  <div className="mt-6 pt-4 pb-2 border-t-2 border-slate-100 sticky bottom-0 bg-white z-20">
+                    <div className="grid grid-cols-4 md:flex gap-3">
+                      {/* Tombol Hapus */}
+                      <button 
+                        onClick={() => {
+                          setSystemAlert({
+                            show: true,
+                            title: "Hapus Transaksi?",
+                            message: "Yakin ingin menghapus transaksi kas ini secara permanen?",
+                            type: 'confirm',
+                            onConfirm: () => {
+                              setSystemAlert(prev => ({...prev, show: false}));
+                              submitDelete();
+                            }
+                          });
+                        }} 
+                        className="col-span-1 md:w-14 h-12 md:h-14 flex-shrink-0 bg-rose-50 text-rose-600 rounded-2xl hover:bg-rose-500 hover:text-white border border-rose-100 hover:shadow-lg transition-all flex justify-center items-center group"
+                        title="Hapus transaksi"
+                      >
+                        <Trash2 size={20} className="group-hover:scale-110 transition-transform"/>
+                      </button>
+                      
+                      {/* Tombol Edit */}
+                      <button 
+                        onClick={() => { 
+                          const localCreatedAt = selectedTx.created_at ? formatToLocalDatetimeInput(selectedTx.created_at) : '';
+                          
+                          const oldFiles = (selectedTx.file || []).map(fileName => ({
+                            isOld: true,
+                            name: fileName,
+                            url: pb.files.getUrl(selectedTx, fileName)
+                          }));
+                          
+                          setFiles(oldFiles); 
+                          
+                          setFormData({
+                            mutasi: selectedTx.mutasi?.toLowerCase() === 'in' ? 'Masuk' : 'Keluar', 
+                            created_at: localCreatedAt, 
+                            jenis: selectedTx.jenis, 
+                            account_1: selectedTx.account_1, 
+                            account_2: selectedTx.account_2 || '', 
+                            person: selectedTx.person || '', 
+                            persontext: selectedTx.persontext || '', 
+                            nominal: selectedTx.nominal, 
+                            note: selectedTx.note 
+                          }); 
+                          setModalType('form'); 
+                        }}
+                        className="col-span-3 md:flex-1 h-12 md:h-14 bg-blue-500 text-white rounded-xl font-black text-[11px] md:text-xs uppercase tracking-widest hover:bg-blue-600 transition-all flex items-center justify-center"
+                      >
+                        Edit Transaksi
+                      </button>
+                      
+                      {/* Tombol Tutup */}
+                      <button 
+                        onClick={() => setModalType(null)} 
+                        className="col-span-4 md:flex-[2] h-12 md:h-14 bg-slate-900 hover:bg-slate-800 text-white rounded-2xl font-black text-xs tracking-widest shadow-xl transition-all active:scale-95 uppercase flex items-center justify-center"
+                      >
+                        TUTUP DETAIL
+                      </button>
+                    </div>
                   </div>
                 </div>
               );
@@ -1529,6 +1566,22 @@
         >
           <Plus size={30} strokeWidth={3} />
         </button>
+
+        {/* SYSTEM ALERT & CONFIRMATION MODAL */}
+        <Modal
+          isOpen={systemAlert.show}
+          onClose={() => setSystemAlert(prev => ({...prev, show: false}))}
+          isAlert={true}
+          title={systemAlert.title}
+          alertDescription={systemAlert.message}
+          showCancel={systemAlert.type === 'confirm'}
+          alertIcon={systemAlert.type === 'confirm' ? <Trash2 size={24} /> : <AlertCircle size={24} />}
+          alertIconBg={systemAlert.type === 'confirm' ? "bg-amber-50 text-amber-500 border-amber-100" : "bg-rose-50 text-rose-500 border-rose-100"}
+          onConfirm={systemAlert.onConfirm}
+          confirmText={systemAlert.type === 'confirm' ? "Ya, Lanjutkan" : "SAYA MENGERTI"}
+          cancelText="Batal"
+          confirmBg={systemAlert.type === 'confirm' ? "bg-blue-600 hover:bg-blue-500 shadow-blue-200" : "bg-slate-900 hover:bg-slate-800 shadow-slate-200"}
+        />
       </div>
     );
   }

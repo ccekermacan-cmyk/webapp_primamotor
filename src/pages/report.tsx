@@ -65,7 +65,8 @@ export default function ReportPage() {
   };
   const formatDate = (dateStr: string) => {
     if (!dateStr) return '-';
-    const part = dateStr.split(' ')[0].split('T')[0]; // Ambil YYYY-MM-DD
+    // Mengambil YYYY-MM-DD secara mentah untuk menghindari konversi zona waktu browser
+    const part = dateStr.split(' ')[0].split('T')[0]; 
     const [year, month, day] = part.split('-');
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Ags', 'Sep', 'Okt', 'Nov', 'Des'];
     return `${day} ${months[parseInt(month, 10) - 1]} ${year}`;
@@ -75,7 +76,7 @@ export default function ReportPage() {
 
   // State untuk detail report
   const [selectedReport, setSelectedReport] = useState<ReportRecord | null>(null);
-  const [reportDetailData, setReportDetailData] = useState<{ menu: any[]; logStock: any[]; cashflow: any[] } | null>(null);
+  const [reportDetailData, setReportDetailData] = useState<{ menu: any[]; logStock: any[]; cashflow: any[]; ongkos: any[] } | null>(null);
   const [reportDetailLoading, setReportDetailLoading] = useState(false);
   const [activeDetailTab, setActiveDetailTab] = useState<'overview' | 'menu' | 'logstock' | 'cashflow'>('overview');
 
@@ -744,11 +745,14 @@ export default function ReportPage() {
       setReportDetailLoading(true);
       try {
         // AMAN: Ambil tanggal mentah YYYY-MM-DD langsung dari database
-        const targetDateStr = report.created_at.split(' ')[0].split('T')[0]; 
+        const targetDateStr = report.created_at.split(' ')[0].split('T')[0];
         const { startISO, endISO } = getDayRangeStr(targetDateStr);
 
-        // Ambil data menu (Ganti <= menjadi < pada ketiga filter: Menu, Log Stock, dan Cashflow di fungsi ini)
-        const menuFilter = pb.filter('created_at >= {:start} && created_at < {:end}', { start: startISO, end: endISO });
+        // Ambil data menu (Gunakan < endISO agar mencakup seluruh hari)
+        const menuFilter = pb.filter('created_at >= {:start} && created_at < {:end}', {
+          start: startISO,
+          end: endISO,
+        });
         const menuItems = await pb.collection('menu').getFullList({
           filter: menuFilter,
           sort: 'created_at',
@@ -756,7 +760,10 @@ export default function ReportPage() {
         });
 
         // Ambil data log_stock
-        const logStockFilter = pb.filter('created_at >= {:start} && created_at <= {:end}', { start: startISO, end: endISO });
+        const logStockFilter = pb.filter('created_at >= {:start} && created_at < {:end}', {
+          start: startISO,
+          end: endISO,
+        });
         const logStockItems = await pb.collection('log_stock').getFullList({
           filter: logStockFilter,
           sort: 'created_at',
@@ -765,21 +772,38 @@ export default function ReportPage() {
         });
 
         // Ambil data cashflow
-        const cashflowFilter = pb.filter('created_at >= {:start} && created_at <= {:end}', { start: startISO, end: endISO });
+        const cashflowFilter = pb.filter('created_at >= {:start} && created_at < {:end}', {
+          start: startISO,
+          end: endISO,
+        });
         const cashflowItems = await pb.collection('cashflow').getFullList({
           filter: cashflowFilter,
           sort: 'created_at',
           $autoCancel: false,
         });
 
+        // Ambil data ongkos berdasarkan field date (format YYYY-MM-DD)
+        const ongkosItems = await pb.collection('ongkos').getFullList({
+          filter: pb.filter('date >= {:start} && date < {:end}', { start: startISO, end: endISO }),
+          $autoCancel: false,
+        });
+
+        // Set semua data ke state
         setReportDetailData({
           menu: menuItems,
           logStock: logStockItems,
           cashflow: cashflowItems,
+          ongkos: ongkosItems,
         });
       } catch (error) {
         console.error('Gagal mengambil detail:', error);
-        setReportDetailData({ menu: [], logStock: [], cashflow: [] });
+        // Set state dengan array kosong untuk semua kategori agar tidak error di UI
+        setReportDetailData({
+          menu: [],
+          logStock: [],
+          cashflow: [],
+          ongkos: [],
+        });
       } finally {
         setReportDetailLoading(false);
       }
@@ -1298,12 +1322,12 @@ export default function ReportPage() {
               </div>
 
               {/* Tab Navigation */}
-              <div className="flex gap-1 p-4 border-b border-slate-100 bg-slate-50/50 shrink-0">
-                {['overview', 'menu', 'logstock', 'cashflow'].map((tab) => (
+              <div className="flex flex-wrap gap-1 p-4 border-b border-slate-100 bg-slate-50/50 shrink-0">
+                {['overview', 'menu', 'logstock', 'cashflow', 'ongkos'].map((tab) => (
                   <button
                     key={tab}
                     onClick={() => { setActiveDetailTab(tab as any); setDetailSearchTerm(''); }}
-                    className={`px-6 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider transition-all ${
+                    className={`px-4 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider transition-all ${
                       activeDetailTab === tab
                         ? 'bg-blue-600 text-white shadow-md'
                         : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
@@ -1311,7 +1335,8 @@ export default function ReportPage() {
                   >
                     {tab === 'overview' ? '📊 Overview' : 
                      tab === 'menu' ? '📋 Menu' : 
-                     tab === 'logstock' ? '📦 Log Stock' : '💰 Cashflow'}
+                     tab === 'logstock' ? '📦 Log' : 
+                     tab === 'cashflow' ? '💰 Kas' : '🔧 Ongkos'}
                   </button>
                 ))}
               </div>
@@ -1323,7 +1348,9 @@ export default function ReportPage() {
                     <div className="w-10 h-10 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
                   </div>
                 ) : activeDetailTab === 'overview' ? (
-                  // Overview
+                  // ============================
+                  // TAB OVERVIEW
+                  // ============================
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                     <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
                       <p className="text-xs font-black text-slate-400 uppercase">Omset Toko</p>
@@ -1358,11 +1385,14 @@ export default function ReportPage() {
                       <p className="text-xl font-black text-purple-600">{formatRp(selectedReport.hutang)}</p>
                     </div>
                   </div>
+
                 ) : activeDetailTab === 'menu' ? (() => {
+                  // ============================
+                  // TAB MENU
+                  // ============================
                   let filteredMenu = reportDetailData?.menu.filter(m => menuFilterJenis === 'semua' || m.jenis === menuFilterJenis) || [];
                   filteredMenu = filteredMenu.filter(m => menuFilterStatus === 'semua' || m.status === menuFilterStatus);
-                  
-                  // Pencarian Berdasarkan Teks
+
                   if (detailSearchTerm.trim() !== '') {
                     const term = detailSearchTerm.toLowerCase();
                     filteredMenu = filteredMenu.filter(m => 
@@ -1378,7 +1408,6 @@ export default function ReportPage() {
                     );
                   }
 
-                  // Sorting Lanjutan
                   filteredMenu.sort((a, b) => {
                     let valA = a[menuSort.key]; let valB = b[menuSort.key];
                     if (typeof valA === 'string') valA = valA.toLowerCase();
@@ -1466,8 +1495,6 @@ export default function ReportPage() {
                           </tbody>
                         </table>
                       </div>
-                      
-                      {/* SUMMARY MENU */}
                       <div className="mt-4 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
                         <div className="bg-slate-50 p-3 rounded-xl border border-slate-200"><p className="text-[10px] font-black text-slate-400 uppercase">Jml Transaksi</p><p className="text-sm font-black text-slate-800 mt-0.5">{filteredMenu.length} Nota</p></div>
                         <div className="bg-slate-50 p-3 rounded-xl border border-slate-200"><p className="text-[10px] font-black text-slate-400 uppercase">Total Qty</p><p className="text-sm font-black text-slate-800 mt-0.5">{sumQty} Item</p></div>
@@ -1478,11 +1505,12 @@ export default function ReportPage() {
                       </div>
                     </div>
                   );
-                  
                 })() : activeDetailTab === 'logstock' ? (() => {
+                  // ============================
+                  // TAB LOG STOCK
+                  // ============================
                   let filteredLogStock = reportDetailData?.logStock.filter(l => logStockFilterRefJenis === 'semua' || l.ref_baru === logStockFilterRefJenis) || [];
-                  
-                  // Filter Pencarian
+
                   if (detailSearchTerm.trim() !== '') {
                     const term = detailSearchTerm.toLowerCase();
                     filteredLogStock = filteredLogStock.filter(l => {
@@ -1500,7 +1528,6 @@ export default function ReportPage() {
                     });
                   }
 
-                  // Sorting Logstock
                   filteredLogStock.sort((a, b) => {
                     let valA = a[logStockSort.key]; let valB = b[logStockSort.key];
                     if (typeof valA === 'string') valA = valA.toLowerCase();
@@ -1510,8 +1537,6 @@ export default function ReportPage() {
                     return 0;
                   });
 
-                  // ... setelah sorting filteredLogStock ...
-
                   const sumQtyIn = filteredLogStock
                     .filter(l => (l.boolean || '').toLowerCase() === 'in')
                     .reduce((acc, l) => acc + (l.qty || 0), 0);
@@ -1520,17 +1545,14 @@ export default function ReportPage() {
                     .filter(l => (l.boolean || '').toLowerCase() === 'out')
                     .reduce((acc, l) => acc + (l.qty || 0), 0);
 
-                  // Estimasi Penjualan: hanya OUT, price_1 * qty
                   const sumPenjualan = filteredLogStock
                     .filter(l => (l.boolean || '').toLowerCase() === 'out')
                     .reduce((acc, l) => acc + ((l.price_1 || 0) * (l.qty || 0)), 0);
 
-                  // Total Pembelian: hanya IN, price_1 * qty
                   const sumPembelian = filteredLogStock
                     .filter(l => (l.boolean || '').toLowerCase() === 'in')
                     .reduce((acc, l) => acc + ((l.price_1 || 0) * (l.qty || 0)), 0);
 
-                  // Laba Kotor Est.: hanya OUT, (price_1 * qty) - price_2
                   const sumLaba = filteredLogStock
                     .filter(l => (l.boolean || '').toLowerCase() === 'out')
                     .reduce((acc, l) => acc + (((l.price_1 || 0) * (l.qty || 0)) - (l.price_2 || 0)), 0);
@@ -1545,7 +1567,6 @@ export default function ReportPage() {
                           </select>
                         </div>
                         <div className="flex flex-1 sm:flex-none w-full sm:w-auto items-center gap-2 justify-end">
-                          {/* Tombol Perbaikan Harga (Hanya untuk Level 1) */}
                           {userLevel === '1' && (
                             <button
                               onClick={handleFixLogStockPrice}
@@ -1587,10 +1608,9 @@ export default function ReportPage() {
                             ) : (
                               filteredLogStock.map((l, idx) => {
                                 const subJual = (l.price_1 || 0) * (l.qty || 0);
-                                const subModal = (l.price_2 || 0) ;
+                                const subModal = (l.price_2 || 0);
                                 const labaItem = subJual - subModal;
-                                
-                                // Tarik nama lengkap dari record produk yang di-expand
+
                                 const produkExpanded = l.expand?.item_baru;
                                 const produkName = produkExpanded ? `${produkExpanded.kategori || ''} ${produkExpanded.merk || ''} ${produkExpanded.jenis || ''}`.trim() : l.item_baru;
 
@@ -1611,7 +1631,7 @@ export default function ReportPage() {
                                     <td className="p-3 font-mono text-[10px] text-blue-500">{l.ref_baru || '-'}</td>
                                     <td className="p-3 text-[10px] max-w-[150px] truncate" title={l.note}>{l.note || '-'}</td>
                                   </tr>
-                                )
+                                );
                               })
                             )}
                           </tbody>
@@ -1645,8 +1665,10 @@ export default function ReportPage() {
                       </div>
                     </div>
                   );
-                })() : (() => {
-                  // Cashflow Tab
+                })() : activeDetailTab === 'cashflow' ? (() => {
+                  // ============================
+                  // TAB CASHFLOW
+                  // ============================
                   let filteredCashflow = reportDetailData?.cashflow.filter(c => {
                     let match = true;
                     if (cashflowFilterMutasi !== 'semua') match = match && c.mutasi === cashflowFilterMutasi;
@@ -1655,7 +1677,6 @@ export default function ReportPage() {
                     return match;
                   }) || [];
 
-                  // Pencarian Berdasarkan Teks
                   if (detailSearchTerm.trim() !== '') {
                     const term = detailSearchTerm.toLowerCase();
                     filteredCashflow = filteredCashflow.filter(c => 
@@ -1671,7 +1692,6 @@ export default function ReportPage() {
                     );
                   }
 
-                  // Sorting Cashflow
                   filteredCashflow.sort((a, b) => {
                     let valA = a[cashflowSort.key]; let valB = b[cashflowSort.key];
                     if (typeof valA === 'string') valA = valA.toLowerCase();
@@ -1725,31 +1745,31 @@ export default function ReportPage() {
                             </tr>
                           </thead>
                           <tbody className="bg-white">
-                          {reportDetailData === null ? (
-                            <tr><td colSpan={10} className="p-4 text-center text-slate-400">Memuat data...</td></tr>
-                          ) : filteredCashflow.length === 0 ? (
-                            <tr><td colSpan={10} className="p-4 text-center text-slate-400">Tidak ada data cashflow.</td></tr>
-                          ) : (
-                            filteredCashflow.map((c, idx) => {
-                              const isIn = c.mutasi === 'in' || c.mutasi === 'Masuk';
-                              return (
-                                <tr key={idx} className="border-b border-slate-100 hover:bg-slate-50 text-slate-600 font-medium">
-                                  <td className="p-3 font-mono text-[10px]">{new Date(c.created_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}</td>
-                                  <td className="p-3 font-bold">{c.operator || '-'}</td>
-                                  <td className="p-3 text-blue-600">{c.persontext || c.person || '-'}</td>
-                                  <td className="p-3 font-black text-slate-700">{c.jenis}</td>
-                                  <td className="p-3 text-center">
-                                    <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider ${isIn ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>{c.mutasi}</span>
-                                  </td>
-                                  <td className="p-3 font-bold">{c.acc1 || c.account_1 || '-'}</td>
-                                  <td className="p-3 font-bold">{c.acc2 || c.account_2 || '-'}</td>
-                                  <td className={`p-3 text-right font-black ${isIn ? 'text-emerald-600' : 'text-rose-600'}`}>{isIn ? '+' : '-'}{formatRp(c.nominal)}</td>
-                                  <td className="p-3 font-mono text-[10px] text-blue-500">{c.ref_baru || '-'}</td>
-                                  <td className="p-3 text-[10px] max-w-[150px] truncate" title={c.note}>{c.note || '-'}</td>
-                                </tr>
-                              )
-                            })
-                          )}
+                            {reportDetailData === null ? (
+                              <tr><td colSpan={10} className="p-4 text-center text-slate-400">Memuat data...</td></tr>
+                            ) : filteredCashflow.length === 0 ? (
+                              <tr><td colSpan={10} className="p-4 text-center text-slate-400">Tidak ada data cashflow.</td></tr>
+                            ) : (
+                              filteredCashflow.map((c, idx) => {
+                                const isIn = c.mutasi === 'in' || c.mutasi === 'Masuk';
+                                return (
+                                  <tr key={idx} className="border-b border-slate-100 hover:bg-slate-50 text-slate-600 font-medium">
+                                    <td className="p-3 font-mono text-[10px]">{new Date(c.created_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}</td>
+                                    <td className="p-3 font-bold">{c.operator || '-'}</td>
+                                    <td className="p-3 text-blue-600">{c.persontext || c.person || '-'}</td>
+                                    <td className="p-3 font-black text-slate-700">{c.jenis}</td>
+                                    <td className="p-3 text-center">
+                                      <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider ${isIn ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>{c.mutasi}</span>
+                                    </td>
+                                    <td className="p-3 font-bold">{c.acc1 || c.account_1 || '-'}</td>
+                                    <td className="p-3 font-bold">{c.acc2 || c.account_2 || '-'}</td>
+                                    <td className={`p-3 text-right font-black ${isIn ? 'text-emerald-600' : 'text-rose-600'}`}>{isIn ? '+' : '-'}{formatRp(c.nominal)}</td>
+                                    <td className="p-3 font-mono text-[10px] text-blue-500">{c.ref_baru || '-'}</td>
+                                    <td className="p-3 text-[10px] max-w-[150px] truncate" title={c.note}>{c.note || '-'}</td>
+                                  </tr>
+                                );
+                              })
+                            )}
                           </tbody>
                         </table>
                       </div>
@@ -1761,12 +1781,129 @@ export default function ReportPage() {
                       </div>
                     </div>
                   );
-                })()}
+                })() : activeDetailTab === 'ongkos' ? (() => {
+                  // ============================
+                  // TAB ONGKOS
+                  // ============================
+                  let filteredOngkos = reportDetailData?.ongkos || [];
+
+                  if (detailSearchTerm.trim() !== '') {
+                    const term = detailSearchTerm.toLowerCase();
+                    filteredOngkos = filteredOngkos.filter((o: any) =>
+                      (o.id && o.id.toLowerCase().includes(term)) ||
+                      (o.id_lama && o.id_lama.toLowerCase().includes(term)) ||
+                      (o.person && o.person.toLowerCase().includes(term)) ||
+                      (o.operator && o.operator.toLowerCase().includes(term)) ||
+                      (o.ref && o.ref.toLowerCase().includes(term)) ||
+                      (o.ref_baru && o.ref_baru.toLowerCase().includes(term))
+                    );
+                  }
+
+                  const totalOngkos = filteredOngkos.reduce((acc: number, o: any) => acc + (o.ongkos || 0), 0);
+
+                  // Rekap per mekanik
+                  const rekapPerMekanik: Record<string, number> = {};
+                  filteredOngkos.forEach((o: any) => {
+                    const nama = o.person || 'Tidak diketahui';
+                    rekapPerMekanik[nama] = (rekapPerMekanik[nama] || 0) + (o.ongkos || 0);
+                  });
+
+                  return (
+                    <div>
+                      {/* Search */}
+                      <div className="flex justify-between items-center gap-3 mb-4">
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                          {filteredOngkos.length} Data Ongkos
+                        </p>
+                        <div className="relative w-full sm:w-64 shrink-0">
+                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                          <input
+                            type="text"
+                            placeholder="Cari di Ongkos..."
+                            value={detailSearchTerm}
+                            onChange={e => setDetailSearchTerm(e.target.value)}
+                            className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-500/20 transition-all shadow-sm"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Tabel */}
+                      <div className="overflow-x-auto overflow-y-auto max-h-[40vh] custom-scrollbar rounded-xl border border-slate-200 shadow-sm relative">
+                        <table className="w-full text-xs border-collapse whitespace-nowrap">
+                          <thead className="bg-slate-100 sticky top-0 z-10">
+                            <tr className="border-b border-slate-200">
+                              <th className="p-3 text-left font-black text-slate-500 uppercase tracking-wider">ID Lama</th>
+                              <th className="p-3 text-left font-black text-slate-500 uppercase tracking-wider">Mekanik</th>
+                              <th className="p-3 text-left font-black text-slate-500 uppercase tracking-wider">Operator</th>
+                              <th className="p-3 text-left font-black text-slate-500 uppercase tracking-wider">Ref</th>
+                              <th className="p-3 text-left font-black text-slate-500 uppercase tracking-wider">Ref Nota</th>
+                              <th className="p-3 text-left font-black text-slate-500 uppercase tracking-wider">Tanggal</th>
+                              <th className="p-3 text-right font-black text-emerald-600 uppercase tracking-wider">Ongkos</th>
+                            </tr>
+                          </thead>
+                          <tbody className="bg-white">
+                            {reportDetailData === null ? (
+                              <tr><td colSpan={7} className="p-4 text-center text-slate-400">Memuat data...</td></tr>
+                            ) : filteredOngkos.length === 0 ? (
+                              <tr><td colSpan={7} className="p-4 text-center text-slate-400">Tidak ada data ongkos.</td></tr>
+                            ) : (
+                              filteredOngkos.map((o: any, idx: number) => (
+                                <tr key={o.id || idx} className="border-b border-slate-100 hover:bg-slate-50 text-slate-600 font-medium transition-colors">
+                                  <td className="p-3 font-mono text-[10px] text-slate-400">{o.id_lama || '-'}</td>
+                                  <td className="p-3 font-black text-slate-800">{o.person || '-'}</td>
+                                  <td className="p-3 font-bold">{o.operator || '-'}</td>
+                                  <td className="p-3 font-mono text-[10px] text-blue-500">{o.ref || '-'}</td>
+                                  <td className="p-3 font-mono text-[10px] text-blue-500">{o.ref_baru || '-'}</td>
+                                  <td className="p-3 font-mono text-[10px]">
+                                    {o.date ? o.date.split(' ')[0].split('T')[0] : '-'}
+                                  </td>
+                                  <td className="p-3 text-right font-black text-emerald-600">{formatRp(o.ongkos)}</td>
+                                </tr>
+                              ))
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* Summary */}
+                      <div className="mt-4 grid grid-cols-2 md:grid-cols-3 gap-3">
+                        <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
+                          <p className="text-[10px] font-black text-slate-400 uppercase">Jml Transaksi</p>
+                          <p className="text-sm font-black text-slate-800 mt-0.5">{filteredOngkos.length} Entri</p>
+                        </div>
+                        <div className="bg-emerald-50 p-3 rounded-xl border border-emerald-200 md:col-span-2">
+                          <p className="text-[10px] font-black text-emerald-500 uppercase">Total Ongkos</p>
+                          <p className="text-sm font-black text-emerald-600 mt-0.5">{formatRp(totalOngkos)}</p>
+                        </div>
+                      </div>
+
+                      {/* Rekap per mekanik */}
+                      {Object.keys(rekapPerMekanik).length > 0 && (
+                        <div className="mt-4">
+                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Rekap per Mekanik</p>
+                          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                            {Object.entries(rekapPerMekanik).map(([nama, total]) => (
+                              <div key={nama} className="bg-white border border-slate-200 p-3 rounded-xl shadow-sm flex flex-col gap-1">
+                                <span className="text-[10px] font-black text-slate-500 uppercase truncate" title={nama}>{nama}</span>
+                                <span className="text-sm font-black text-emerald-600">{formatRp(total)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })() : null}
               </div>
 
               {/* Footer Modal */}
-              <div className="p-4 border-t border-slate-100 bg-white rounded-b-3xl shrink-0 flex justify-end">
-                <button onClick={() => { setSelectedReport(null); setReportDetailData(null); }} className="px-6 py-3 bg-slate-200 rounded-xl font-bold text-sm text-slate-600 hover:bg-slate-300">Tutup</button>
+              <div className="p-4 border-t border-slate-100 bg-white rounded-b-3xl shrink-0 flex gap-3">
+                <button 
+                  onClick={() => { setSelectedReport(null); setReportDetailData(null); }} 
+                  className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-black text-xs uppercase tracking-widest transition-colors"
+                >
+                  TUTUP
+                </button>
               </div>
             </div>
           </div>
