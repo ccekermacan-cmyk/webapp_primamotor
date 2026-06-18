@@ -8,7 +8,7 @@ import {
   ArrowRight, Calendar, History, Sparkles, DollarSign, Wallet, AlertTriangle, Info, Wrench, Edit, TrendingUp, TrendingDown, Filter,
   // Tambahan ikon baru untuk UI yang diperbarui:
   ListOrdered, List, Grid, Users, CreditCard, ShoppingBag, FileText, EyeOff, ImagePlus, Save, CheckCircle2, Box, User, ExternalLink,
-  Package
+  Package, Eye
 } from 'lucide-react';
 
 // --- INTERFACES ---
@@ -176,7 +176,8 @@ export default function MenuPage() {
       noteMenu: '',
       marketplace: '',
       adminFee: 0,
-      cashback: 0
+      cashback: 0,
+        createdDate: new Date().toISOString().split('T')[0], // 🆕 default hari ini (YYYY-MM-DD)
   });
 
   const isOnlinePerson = useMemo(() => {
@@ -401,73 +402,110 @@ export default function MenuPage() {
       if (searchTerm) {
         const terms = searchTerm.trim().split(/\s+/);
         terms.forEach((t, i) => {
+          // Isi parameter untuk placeholder {:t0}, {:t1}, ...
+          params[`t${i}`] = t;
+
           if (menuLower === 'overview') {
-            conditions.push(`(id_lama ~ {:t${i}} || jenis ~ {:t${i}} || person ~ {:t${i}} || text ~ {:t${i}} || payment ~ {:t${i}})`);
-          } else if (menuLower.includes('Gaji')) {
+            // 🆕 Cari person ID yang cocok dengan nama (text_1 / text_2) dari allPersons
+            const matchedPersonIds: string[] = [];
+            allPersons.forEach(p => {
+              const text1 = (p.text_1 || '').toLowerCase();
+              const text2 = (p.text_2 || '').toLowerCase();
+              if (text1.includes(t.toLowerCase()) || text2.includes(t.toLowerCase())) {
+                matchedPersonIds.push(p.id_lama);
+              }
+            });
+
+            // Bangun kondisi OR untuk person = "id_lama"
+            const personIdConditions = matchedPersonIds.length > 0
+              ? `(${matchedPersonIds.map(id => `person = "${id}"`).join(' || ')})`
+              : '';
+
+            // Kondisi utama (termasuk operator)
+            let mainCond = `(id_lama ~ {:t${i}} || jenis ~ {:t${i}} || person ~ {:t${i}} || text ~ {:t${i}} || payment ~ {:t${i}} || operator ~ {:t${i}})`;
+
+            // Gabungkan dengan pencarian berdasarkan nama person
+            if (personIdConditions) {
+              mainCond = `(${mainCond} || ${personIdConditions})`;
+            }
+
+            conditions.push(mainCond);
+          } else if (menuLower.includes('gaji')) {
             conditions.push(`(person ~ {:t${i}} || id_lama ~ {:t${i}})`);
           } else {
+            // Menu produk (penjualan, service, pembelian, dll)
             const numericId = parseInt(t, 10);
             const isNumeric = !isNaN(numericId) && numericId.toString() === t.replace(/^0+/, '');
             if (isNumeric) {
-              conditions.push(`(id_lama ~ {:t${i}} || id_lama = {:id${i}} || kategori ~ {:t${i}} || merk ~ {:t${i}} || jenis ~ {:t${i}} || keterangan ~ {:t${i}} || tipe ~ {:t${i}} || varian ~ {:t${i}})`);
+              conditions.push(
+                `(id_lama ~ {:t${i}} || id_lama = {:id${i}} || kategori ~ {:t${i}} || merk ~ {:t${i}} || jenis ~ {:t${i}} || keterangan ~ {:t${i}} || tipe ~ {:t${i}} || varian ~ {:t${i}})`
+              );
               params[`id${i}`] = numericId.toString();
             } else {
-              conditions.push(`(id_lama ~ {:t${i}} || kategori ~ {:t${i}} || merk ~ {:t${i}} || jenis ~ {:t${i}} || keterangan ~ {:t${i}} || tipe ~ {:t${i}} || varian ~ {:t${i}})`);
+              conditions.push(
+                `(id_lama ~ {:t${i}} || kategori ~ {:t${i}} || merk ~ {:t${i}} || jenis ~ {:t${i}} || keterangan ~ {:t${i}} || tipe ~ {:t${i}} || varian ~ {:t${i}})`
+              );
             }
-            params[`t${i}`] = t;
           }
         });
-      } // ← TAMBAHKAN KURUNG TUTUP INI
+      }
+
       const filterStr = conditions.length > 0 ? pb.filter(conditions.join(' && '), params) : '';
 
       if (menuLower === 'overview') {
         let overviewFilter = filterStr;
-        // Filter status lunas/belum berdasarkan field 'status'
         if (filterStatus !== 'all') {
           const statusValue = filterStatus === 'lunas' ? 'lunas' : 'belum';
-          if (overviewFilter) {
-            overviewFilter = `(${overviewFilter}) && status = "${statusValue}"`;
-          } else {
-            overviewFilter = `status = "${statusValue}"`;
-          }
+          overviewFilter = overviewFilter
+            ? `(${overviewFilter}) && status = "${statusValue}"`
+            : `status = "${statusValue}"`;
         }
-        // Filter jenis menu (multi-select)
         if (selectedMenuFilters.length > 0) {
-          // Langsung masukkan nilai lowercase ke dalam string filter
-          const jenisConditions = selectedMenuFilters.map(jenis => `jenis = "${jenis.toLowerCase()}"`).join(' || ');
-          if (overviewFilter) {
-            overviewFilter = `(${overviewFilter}) && (${jenisConditions})`;
-          } else {
-            overviewFilter = `(${jenisConditions})`;
-          }
+          const jenisConditions = selectedMenuFilters.map(j => `jenis = "${j.toLowerCase()}"`).join(' || ');
+          overviewFilter = overviewFilter
+            ? `(${overviewFilter}) && (${jenisConditions})`
+            : `(${jenisConditions})`;
         }
         console.log("Overview Filter yang dikirim:", overviewFilter);
-        const res = await pb.collection('menu').getList<HistoryMenu>(page, perPage, { sort: '-created_at', filter: overviewFilter, $autoCancel: false });
+        const res = await pb.collection('menu').getList<HistoryMenu>(page, perPage, {
+          sort: '-created_at',
+          filter: overviewFilter,
+          params: params,
+          $autoCancel: false
+        });
         console.log("Jumlah data ditemukan:", res.items.length);
         setHistoryMenu(res.items);
         setTotalPages(res.totalPages);
       } else if (menuLower.includes('gaji')) {
-        // Ambil dari koleksi menu dengan jenis = gaji
-        const res = await pb.collection('menu').getList<HistoryMenu>(page, perPage, { 
-          sort: '-created_at', 
-          filter: filterStr ? `jenis = 'gaji' && (${filterStr})` : `jenis = 'gaji'`,
-          $autoCancel: false 
+        const gajiFilter = filterStr ? `jenis = 'gaji' && (${filterStr})` : `jenis = 'gaji'`;
+        const res = await pb.collection('menu').getList<HistoryMenu>(page, perPage, {
+          sort: '-created_at',
+          filter: gajiFilter,
+          params: params,
+          $autoCancel: false
         });
         setHistoryMenu(res.items);
         setTotalPages(res.totalPages);
-        } else {
-          // Menu: pembelian, rusak, opname → tampilkan semua produk (termasuk stok 0)
-          const showAllStock = ['pembelian', 'rusak', 'opname'].some(keyword => menuLower.includes(keyword));
-          let baseFilter = showAllStock ? '' : 'stok_3 > 0';
-          if (filterStr) {
-            baseFilter = baseFilter ? `(${baseFilter}) && (${filterStr})` : filterStr;
-          }
-          const res = await pb.collection('produk').getList<Produk>(page, perPage, { sort: '-created', filter: baseFilter, $autoCancel: false });
-          setProducts(res.items);
-          setTotalPages(res.totalPages);
+      } else {
+        const showAllStock = ['pembelian', 'rusak', 'opname'].some(keyword => menuLower.includes(keyword));
+        let baseFilter = showAllStock ? '' : 'stok_3 > 0';
+        if (filterStr) {
+          baseFilter = baseFilter ? `(${baseFilter}) && (${filterStr})` : filterStr;
         }
-    } catch (e) { console.error(e); }
-    finally { setLoading(false); }
+        const res = await pb.collection('produk').getList<Produk>(page, perPage, {
+          sort: '-created',
+          filter: baseFilter,
+          params: params,
+          $autoCancel: false
+        });
+        setProducts(res.items);
+        setTotalPages(res.totalPages);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Deteksi tipe perangkat
@@ -626,11 +664,62 @@ export default function MenuPage() {
       return;
     }
 
+    // --- VALIDASI KHUSUS SERVICE ---
+    if (menuLower.includes('service')) {
+      // Minimal 1 mekanik harus diisi dengan ongkos > 0
+      const mekanikValid = formBayar.mekanikList.filter(m => m.idLama && m.ongkos > 0);
+      if (mekanikValid.length === 0) {
+        setDialog({
+          show: true,
+          title: 'Validasi Gagal',
+          message: 'Untuk menu SERVICE, minimal 1 mekanik harus diisi dengan ongkos yang valid (> 0).',
+          type: 'alert'
+        });
+        return;
+      }
+
+      // Jika ada mekanik yang idLama diisi tapi ongkos = 0
+      const mekanikTanpaOngkos = formBayar.mekanikList.some(m => m.idLama && m.ongkos === 0);
+      if (mekanikTanpaOngkos) {
+        setDialog({
+          show: true,
+          title: 'Ongkos Mekanik Kosong',
+          message: 'Mekanik yang dipilih harus memiliki ongkos kerja yang valid (harus > 0). Silakan isi ongkos untuk semua mekanik.',
+          type: 'alert'
+        });
+        return;
+      }
+    }
+
+    // --- VALIDASI CASHFLOW (account_1 diisi tapi nominal 0) ---
+    const cashflowInvalid = formBayar.cashflowList.some(cf => cf.accountId && cf.nominal === 0);
+    if (cashflowInvalid) {
+      setDialog({
+        show: true,
+        title: 'Nominal Pembayaran Kosong',
+        message: 'Akun kas yang dipilih harus memiliki nominal pembayaran yang valid (harus > 0).',
+        type: 'alert'
+      });
+      return;
+    }
+
+    // --- VALIDASI CASHFLOW (nominal > 0 tapi account_1 kosong) ---
+    const cashflowTanpaAkun = formBayar.cashflowList.some(cf => !cf.accountId && cf.nominal > 0);
+    if (cashflowTanpaAkun) {
+      setDialog({
+        show: true,
+        title: 'Akun Kas Belum Dipilih',
+        message: 'Nominal pembayaran dimasukkan tetapi akun kas belum dipilih. Silakan pilih akun kas terlebih dahulu.',
+        type: 'alert'
+      });
+      return;
+    }
+
+    // --- CEK STATUS LUNAS / BELUM (konfirmasi) ---
     const totalDibayar = formBayar.cashflowList.reduce((sum, cf) => sum + (cf.nominal || 0), 0);
     let perluKonfirmasiLunas = false;
     let pesanKonfirmasi = '';
 
-    // --- Cek kondisi belum lunas dari cashflow ---
     const isCashflowKosong = formBayar.cashflowList.length === 0 ||
       formBayar.cashflowList.every(cf => !cf.accountId && cf.nominal === 0);
     const adaCashflowBelumLengkap = formBayar.cashflowList.some(cf => (!cf.accountId && cf.nominal > 0) || (cf.accountId && cf.nominal <= 0));
@@ -639,18 +728,6 @@ export default function MenuPage() {
     if (isCashflowKosong || adaCashflowBelumLengkap || totalKurang) {
       perluKonfirmasiLunas = true;
       pesanKonfirmasi = `Apakah Anda yakin ingin melanjutkan simpan menu ${selectedMenu} ini dalam keadaan BELUM LUNAS?`;
-    }
-
-    // --- Cek kondisi belum lunas dari mekanik (khusus service) ---
-    let mekanikKosong = false;
-    if (menuLower.includes('service')) {
-      const adaMekanikTerisi = formBayar.mekanikList.some(mek => mek.idLama && mek.ongkos > 0);
-      const adaMekanikTidakLengkap = formBayar.mekanikList.some(mek => (mek.idLama && mek.ongkos <= 0) || (!mek.idLama && mek.ongkos > 0));
-      if (!adaMekanikTerisi || adaMekanikTidakLengkap) {
-        mekanikKosong = true;
-        perluKonfirmasiLunas = true;
-        pesanKonfirmasi = `Apakah Anda yakin ingin melanjutkan simpan menu SERVICE ini dalam keadaan BELUM LUNAS (tanpa ongkos mekanik)?`;
-      }
     }
 
     // Jika perlu konfirmasi, tampilkan dialog
@@ -662,11 +739,10 @@ export default function MenuPage() {
         type: 'confirm',
         onConfirm: () => {
           setDialog(prev => ({ ...prev, show: false }));
-          // Lanjut ke validasi selanjutnya (mandatory)
           lanjutkanValidasiMandatory();
         }
       });
-      return; // tunggu konfirmasi user
+      return;
     }
 
     // Jika tidak perlu konfirmasi (sudah lunas), langsung lanjut
@@ -692,11 +768,42 @@ export default function MenuPage() {
         return;
       }
 
+      // ===== BLOK KHUSUS PEMBELIAN =====
       if (menuLower.includes('pembelian')) {
-        if (!formBayar.noteMenu.trim()) {
+        let noteMenu = formBayar.noteMenu;
+
+        // 1. Jika payment = Tempo, tanggal jatuh tempo wajib
+        if (formBayar.payment === 'Tempo') {
+          if (!formBayar.note) {
+            setDialog({
+              show: true,
+              title: 'Validasi Gagal',
+              message: 'Tanggal jatuh tempo wajib diisi untuk pembelian dengan pembayaran Tempo.',
+              type: 'alert'
+            });
+            return;
+          }
+
+          // 2. Jika noteMenu kosong, isi otomatis dengan keterangan tempo
+          if (!noteMenu.trim()) {
+            const tglTransaksi = formBayar.createdDate ? new Date(formBayar.createdDate) : new Date();
+            const tglJatuhTempo = new Date(formBayar.note);
+            const diffTime = tglJatuhTempo.getTime() - tglTransaksi.getTime();
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+            const options: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short', year: '2-digit' };
+            const formattedDate = tglJatuhTempo.toLocaleDateString('id-ID', options);
+            noteMenu = `Tempo: ${formattedDate} (${diffDays} hari)`;
+            // Update state agar UI tercermin
+            setFormBayar(prev => ({ ...prev, noteMenu }));
+          }
+        }
+
+        // Validasi noteMenu (jika masih kosong setelah auto-fill)
+        if (!noteMenu.trim()) {
           setDialog({ show: true, title: 'Catatan Kosong', message: 'Isi nota dari customer pada catatan nota!', type: 'alert' });
           return;
         }
+
         // Validasi Media Bukti (Pembelian)
         if (menuFiles.length === 0 && !editSession?.menuId) {
           setDialog({ show: true, title: 'Media Kosong', message: 'Isi media foto nota pembelian!', type: 'alert' });
@@ -732,7 +839,8 @@ export default function MenuPage() {
             noteMenu: '',
             marketplace: '',
             adminFee: 0,
-            cashback: 0
+            cashback: 0,
+            createdDate: new Date().toISOString().split('T')[0],
           }));
         }
       });
@@ -780,7 +888,11 @@ export default function MenuPage() {
     try {
       const isEditing = editSession?.isEditing && editSession?.menuId;
       // Gunakan waktu buatan baru jika buat nota baru, pertahankan waktu lama jika sesi edit
-      const timestamp = isEditing ? editSession.createdAt : new Date().toISOString();
+      const timestamp = isEditing
+      ? editSession.createdAt
+      : (formBayar.createdDate
+          ? new Date(formBayar.createdDate).toISOString()
+          : new Date().toISOString());
       const menuLower = selectedMenu.toLowerCase();
 
       const selectedPersonRecordId = personOptions.find(p => p.id_lama === formBayar.personIdLama)?.id || '';
@@ -985,7 +1097,8 @@ export default function MenuPage() {
         marketplace: '',
         adminFee: 0,
         cashback: 0,
-        cashflowList: [{ accountId: '', nominal: 0 }]
+        cashflowList: [{ accountId: '', nominal: 0 }],
+        createdDate: new Date().toISOString().split('T')[0], // ✅ tambahkan ini
       });
 
       fetchData(); // Muat ulang grid inventaris barang & list overview di screen utama
@@ -1100,8 +1213,8 @@ export default function MenuPage() {
             ...prev, 
             personIdLama: menuItem.person, 
             payment: paymentValue,
-            noteMenu: menuItem.text, 
-            note: cfNote,
+            noteMenu: menuItem.text,
+            note: menuItem.tempo || cfNote,  // prioritaskan tempo jika ada
             marketplace: menuItem.marketplace || '',
             adminFee: menuItem.admin || 0,
             cashback: menuItem.cashback || 0,
@@ -1734,6 +1847,23 @@ export default function MenuPage() {
                 {isPaymentFormOpen && (
                   <div className="space-y-5 animate-in fade-in slide-in-from-top-4 duration-300">
                 
+
+                {/* 🆕 Tanggal Transaksi */}
+                <div className="grid grid-cols-1 gap-4">
+                  <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                    <label className={`text-[10px] md:text-[11px] font-black ${activeTheme.text} uppercase tracking-wider ml-1 flex items-center gap-1.5`}>
+                      <Calendar size={14} /> Tanggal Transaksi
+                    </label>
+                    <input
+                      type="date"
+                      value={formBayar.createdDate}
+                      onChange={e => setFormBayar({ ...formBayar, createdDate: e.target.value })}
+                      className={`w-full mt-2 p-3 text-xs md:text-sm font-bold text-slate-700 bg-white border-2 ${activeTheme.border} rounded-xl ${activeTheme.focusRing} outline-none transition-all shadow-sm`}
+                    />
+                  </div>
+                </div>
+
+                
                 {/* 1. Pelanggan & Bayar */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
@@ -2079,15 +2209,30 @@ export default function MenuPage() {
                           ) : (
                             <img src={url} alt={`preview-${idx}`} className="w-full h-full object-cover transition-transform group-hover:scale-110 duration-500" />
                           )}
-                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                          
+                          {/* Overlay dengan tombol Lihat & Hapus */}
+                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                            {/* Tombol Lihat */}
+                            <button
+                              type="button"
+                              onClick={() => window.open(url, '_blank')}
+                              className="w-10 h-10 bg-blue-500 text-white rounded-full flex items-center justify-center hover:scale-110 active:scale-95 transition-transform shadow-lg"
+                              title="Lihat file di tab baru"
+                            >
+                              <Eye size={16} />
+                            </button>
+                            {/* Tombol Hapus */}
                             <button
                               type="button"
                               onClick={() => setMenuFiles(prev => prev.filter((_, i) => i !== idx))}
                               className="w-10 h-10 bg-rose-500 text-white rounded-full flex items-center justify-center hover:scale-110 active:scale-95 transition-transform shadow-lg"
+                              title="Hapus file"
                             >
                               <Trash2 size={16} />
                             </button>
                           </div>
+
+                          {/* Nama file di bagian bawah */}
                           <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent pt-4 pb-2 px-2 text-white text-[9px] truncate font-bold">
                             {menuFiles[idx]?.name}
                           </div>
@@ -2097,19 +2242,19 @@ export default function MenuPage() {
                   )}
 
                   {/* Tampilkan file lama (jika ada) saat edit */}
-                  {existingMenuFiles.length > 0 && !isEditMode && (
-                    <div className="mt-4 pt-2 border-t border-emerald-200">
-                      <p className="text-[10px] font-black text-emerald-600 mb-2">📎 File yang sudah ada (akan dipertahankan):</p>
-                      <div className="flex flex-wrap gap-2">
-                        {existingMenuFiles.map((file, idx) => (
-                          <div key={idx} className="flex items-center gap-1 bg-white px-2 py-1 rounded-full text-xs shadow-sm">
-                            <span className="w-4 h-4 bg-slate-200 rounded-full flex items-center justify-center text-[8px]">📄</span>
-                            <span className="truncate max-w-[150px]">{file.name}</span>
-                          </div>
-                        ))}
-                      </div>
+                  {existingMenuFiles.length > 0 && !editSession?.isEditing && (
+                  <div className="mt-4 pt-2 border-t border-emerald-200">
+                    <p className="text-[10px] font-black text-emerald-600 mb-2">📎 File yang sudah ada (akan dipertahankan):</p>
+                    <div className="flex flex-wrap gap-2">
+                      {existingMenuFiles.map((file, idx) => (
+                        <div key={idx} className="flex items-center gap-1 bg-white px-2 py-1 rounded-full text-xs shadow-sm">
+                          <span className="w-4 h-4 bg-slate-200 rounded-full flex items-center justify-center text-[8px]">📄</span>
+                          <span className="truncate max-w-[150px]">{file.name}</span>
+                        </div>
+                      ))}
                     </div>
-                  )}
+                  </div>
+                )}
 
                   {menuFiles.length > 0 && (
                     <div className="flex justify-between items-center pt-2 border-t border-black/5">
