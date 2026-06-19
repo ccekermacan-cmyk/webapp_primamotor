@@ -242,6 +242,21 @@ export default function MenuPage() {
     });
   };
 
+  // Helper untuk mengubah YYYY-MM-DD menjadi UTC 0 00:00:00
+  const toUTCDateISO = (dateStr: string) => {
+    if (!dateStr) return new Date().toISOString();
+    const parts = dateStr.split('-').map(Number);
+    const date = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2], 0, 0, 0, 0));
+    return date.toISOString();
+  };
+
+  // Helper untuk mengambil YYYY-MM-DD dari ISO string
+  const formatDateToInput = (isoString: string) => {
+    if (!isoString) return new Date().toISOString().split('T')[0];
+    const date = new Date(isoString);
+    return date.toISOString().split('T')[0];
+  };
+
   // --- HELPER WARNA TEMA DINAMIS ---
   const getThemeConfig = (menuName: string) => {
     const lower = menuName.toLowerCase();
@@ -461,7 +476,7 @@ export default function MenuPage() {
             : `status = "${statusValue}"`;
         }
         if (selectedMenuFilters.length > 0) {
-          const jenisConditions = selectedMenuFilters.map(j => `jenis = "${j.toLowerCase()}"`).join(' || ');
+          const jenisConditions = selectedMenuFilters.map(jenis => `jenis ~ "${jenis.toLowerCase()}"`).join(' || ');
           overviewFilter = overviewFilter
             ? `(${overviewFilter}) && (${jenisConditions})`
             : `(${jenisConditions})`;
@@ -844,7 +859,7 @@ export default function MenuPage() {
           }));
         }
       });
-    } else if (selectedMenu === menuName && menuName === 'Overview') {
+    } else if (selectedMenu.toLowerCase() === menuName.toLowerCase() && menuName.toLowerCase() === 'overview') {
       // Refresh data Overview saat tab diklik ulang
       fetchData();
     } else { 
@@ -891,7 +906,7 @@ export default function MenuPage() {
       const timestamp = isEditing
       ? editSession.createdAt
       : (formBayar.createdDate
-          ? new Date(formBayar.createdDate).toISOString()
+          ? toUTCDateISO(formBayar.createdDate)
           : new Date().toISOString());
       const menuLower = selectedMenu.toLowerCase();
 
@@ -1214,12 +1229,13 @@ export default function MenuPage() {
             personIdLama: menuItem.person, 
             payment: paymentValue,
             noteMenu: menuItem.text,
-            note: menuItem.tempo || cfNote,  // prioritaskan tempo jika ada
+            note: menuItem.tempo || cfNote,
             marketplace: menuItem.marketplace || '',
             adminFee: menuItem.admin || 0,
             cashback: menuItem.cashback || 0,
             mekanikList: loadedMekanik,
-            cashflowList: cashflowList
+            cashflowList: cashflowList,
+            createdDate: formatDateToInput(menuItem.created_at) // tambahkan ini
           }));
           
           // Satu kali panggil set state sudah cukup

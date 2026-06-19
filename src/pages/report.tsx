@@ -4,7 +4,7 @@ import {
   Search, Calendar, ChevronLeft, ChevronRight, Download, 
   TrendingUp, TrendingDown, DollarSign, Wallet, FileText, 
   Filter, RefreshCw, BarChart3, Lightbulb, Coffee, Wrench, Store, X,
-  Plus
+  Plus, Trash2
 } from 'lucide-react';
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Line
@@ -296,83 +296,6 @@ export default function ReportPage() {
       };
     }, [reports]);
 
-    const [addingReport, setAddingReport] = useState(false);
-
-    // Fungsi untuk menambah laporan harian
-    const handleAddReport = async () => {
-      if (addingReport) return;
-      setAddingReport(true);
-      try {
-        // 1. Dapatkan tanggal hari ini dalam zona waktu lokal (WIB)
-        // 1. Dapatkan tanggal hari ini
-        const now = new Date();
-        const todayStr = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().split('T')[0];
-        const { startISO: startToday, endISO: endToday } = getDayRangeStr(todayStr);
-        const created_at = startToday;
-
-        // CEK APAKAH LAPORAN HARI INI SUDAH ADA
-        const existing = await pb.collection('report').getList(1, 1, {
-          filter: pb.filter('created_at >= {:start} && created_at < {:end}', { 
-            start: startToday, 
-            end: endToday 
-          }),
-        });
-        if (existing.totalItems > 0) {
-          alert('Laporan untuk hari ini sudah ada!');
-          setAddingReport(false);
-          return;
-        }
-
-        // 2. Cari laporan kemarin
-        const yesterdayObj = new Date(todayStr);
-        yesterdayObj.setDate(yesterdayObj.getDate() - 1);
-        const yesterdayStr = yesterdayObj.toISOString().split('T')[0];
-        const { startISO: startYesterday, endISO: endYesterday } = getDayRangeStr(yesterdayStr);
-
-        const yesterdayFilter = pb.filter(
-          'created_at >= {:start} && created_at < {:end}',
-          { start: startYesterday, end: endYesterday }
-        );
-
-        const yesterdayReports = await pb.collection('report').getList(1, 1, {
-          filter: yesterdayFilter,
-          sort: '-created_at',
-        });
-
-        // Ambil nilai dari laporan kemarin (jika ada)
-        const lastReport = yesterdayReports.items.length > 0 ? yesterdayReports.items[0] : null;
-        const kasirKemarin = lastReport?.kasir_toko ?? 0;
-        const piutangKemarin = lastReport?.piutang ?? 0;
-        const hutangKemarin = lastReport?.hutang ?? 0;
-
-        // 3. Buat data laporan baru dengan nilai default 0, kecuali yang diambil dari kemarin
-        const newReport = {
-          text: `Laporan harian ${todayLocal.toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })}`,
-          omset_toko: 0,
-          omset_servis: 0,
-          omset_minuman: 0,
-          laba_penjualan: 0,
-          operasional_toko: 0,
-          pengeluaran_lain: 0,
-          kasir_toko: kasirKemarin,
-          pemasukan_lain: 0,
-          piutang: piutangKemarin,
-          hutang: hutangKemarin,
-          created_at: created_at,
-        };
-
-        await pb.collection('report').create(newReport);
-
-        // 4. Refresh data
-        await fetchReports();
-        alert('Laporan hari ini berhasil dibuat!');
-      } catch (error) {
-        console.error(error);
-        alert('Gagal membuat laporan: ' + (error as any)?.message || '');
-      } finally {
-        setAddingReport(false);
-      }
-    };
 
     // Tambahkan setelah handleAddReport
 
@@ -557,13 +480,11 @@ export default function ReportPage() {
         const filterStartBulan = `${yearMonth}-01 00:00:00.000Z`;
         const filterEndBulan = `${nextMonthStr} 00:00:00.000Z`;
         
-        // Log Stock
         const logStockFilter = pb.filter('created_at >= {:start} && created_at < {:end}', {
           start: filterStartBulan,
           end: filterEndBulan
         });
         
-        // (Lakukan juga untuk Menu, Cashflow, dan Menu Hutang memakai filterStartBulan dan filterEndBulan ini)
         const logStockItems = await pb.collection('log_stock').getFullList({
           filter: logStockFilter,
           fields: 'created_at, item_baru, price_1, price_2, qty, boolean, ref_baru',
@@ -617,18 +538,16 @@ export default function ReportPage() {
         });
 
         // --- ONGKOS SERVIS (FIELD 'DATE') ---
+        // Mengambil data ongkos berdasarkan tanggal target, lalu menjumlahkan field ongkos
         const ongkosFilter = pb.filter('date = {:date}', { date: targetDateStr });
         const ongkosAll = await pb.collection('ongkos').getFullList({
           filter: ongkosFilter,
           fields: 'ongkos',
           $autoCancel: false,
         });
-        let omsetServis = 0;
-        ongkosAll.forEach(item => {
-          omsetServis += item.ongkos || 0;
-        });
+        const omsetServis = ongkosAll.reduce((sum, o) => sum + (o.ongkos || 0), 0);
 
-        // --- CASHFLOW (TETAP SAMA) ---
+        // --- CASHFLOW ---
         const cashflowFilter = pb.filter('created_at >= {:start} && created_at <= {:end}', {
           start: `${yearMonth}-01T00:00:00.000Z`,
           end: `${yearMonth}-31T23:59:59.999Z`
@@ -670,10 +589,9 @@ export default function ReportPage() {
           }
         });
 
-        // --- HUTANG & PIUTANG ---
-        const menuHutangFilter = pb.filter('created_at >= {:start} && created_at <= {:end}', {
-          start: `${yearMonth}-01T00:00:00.000Z`,
-          end: `${yearMonth}-31T23:59:59.999Z`
+        // --- HUTANG & PIUTANG (AKUMULASI DARI AWAL HINGGA TANGGAL TARGET) ---
+        const menuHutangFilter = pb.filter('created_at <= {:end}', {
+          end: `${targetDateStr}T23:59:59.999Z`,
         });
         const menuHutangItems = await pb.collection('menu').getFullList({
           filter: menuHutangFilter,
@@ -687,9 +605,6 @@ export default function ReportPage() {
         let totalDibayarHutang = 0;
 
         menuHutangItems.forEach(m => {
-          const itemDate = (m.created_at || '').split(' ')[0].split('T')[0];
-          if (itemDate !== targetDateStr) return;
-
           const status = (m.status || '').toLowerCase();
           if (status === 'belum') {
             const total = m.total || 0;
@@ -737,6 +652,23 @@ export default function ReportPage() {
         alert('Gagal generate laporan: ' + (error as any)?.message);
       } finally {
         setGenerating(false);
+      }
+    };
+
+    // Fungsi untuk menghapus laporan
+    const handleDeleteReport = async (report: ReportRecord) => {
+      if (!window.confirm(`Yakin ingin menghapus laporan tanggal ${formatDate(report.created_at)} secara permanen?`)) {
+        return;
+      }
+      try {
+        await pb.collection('report').delete(report.id);
+        setSelectedReport(null);
+        setReportDetailData(null);
+        await fetchReports();
+        alert('Laporan berhasil dihapus!');
+      } catch (error) {
+        console.error(error);
+        alert('Gagal menghapus laporan: ' + (error as any)?.message);
       }
     };
 
@@ -884,25 +816,6 @@ export default function ReportPage() {
               <p className="text-sm font-bold text-slate-400 mt-2">Overview Mutasi & Performa Bisnis Prima Motor</p>
             </div>
             <div className="flex gap-2 flex-wrap">
-              {!todayReportExists && (
-                <button
-                  onClick={handleAddReport}
-                  disabled={addingReport}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3 rounded-2xl font-black text-xs shadow-xl shadow-emerald-200 transition-all flex items-center gap-2 active:scale-95 disabled:opacity-50"
-                >
-                  {addingReport ? (
-                    <>
-                      <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                      MENYIMPAN...
-                    </>
-                  ) : (
-                    <>
-                      <Plus size={16} />
-                      TAMBAH LAPORAN
-                    </>
-                  )}
-                </button>
-              )}
               <button
                 onClick={() => setShowGenerateModal(true)}
                 className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-2xl font-black text-xs shadow-xl shadow-blue-200 transition-all flex items-center gap-2 active:scale-95"
@@ -1312,9 +1225,24 @@ export default function ReportPage() {
           <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => { setSelectedReport(null); setReportDetailData(null); }}>
             <div className="bg-white rounded-3xl max-w-6xl w-full max-h-[90vh] flex flex-col shadow-2xl" onClick={(e) => e.stopPropagation()}>
               <div className="flex justify-between items-center p-6 border-b border-slate-100 shrink-0">
-                <div>
-                  <h3 className="text-xl font-black text-slate-800">Detail Laporan {formatDate(selectedReport.created_at)}</h3>
-                  <p className="text-sm text-slate-500">{selectedReport.text || 'Tidak ada keterangan'}</p>
+                <div className="flex items-center gap-4">
+                  <div>
+                    <h3 className="text-xl font-black text-slate-800">Detail Laporan {formatDate(selectedReport.created_at)}</h3>
+                    <p className="text-sm text-slate-500">{selectedReport.text || 'Tidak ada keterangan'}</p>
+                  </div>
+                  {/* Tombol Refresh / Regenerate */}
+                  <button
+                    onClick={() => {
+                      if (selectedReport) {
+                        fetchReportDetails(selectedReport);
+                      }
+                    }}
+                    className="p-2.5 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-xl transition-colors flex items-center gap-2 shadow-sm border border-blue-200"
+                    title="Refresh data detail"
+                  >
+                    <RefreshCw size={18} />
+                    <span className="text-[10px] font-black uppercase tracking-wider hidden sm:inline">Refresh</span>
+                  </button>
                 </div>
                 <button onClick={() => { setSelectedReport(null); setReportDetailData(null); }} className="p-2 hover:bg-slate-100 rounded-full">
                   <X size={24} />
@@ -1358,7 +1286,11 @@ export default function ReportPage() {
                     </div>
                     <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
                       <p className="text-xs font-black text-slate-400 uppercase">Omset Servis</p>
-                      <p className="text-xl font-black text-blue-600">{formatRp(selectedReport.omset_servis)}</p>
+                      <p className="text-xl font-black text-blue-600">
+                        {formatRp(
+                          reportDetailData?.ongkos?.reduce((sum, o) => sum + (o.ongkos || 0), 0) ?? selectedReport.omset_servis
+                        )}
+                      </p>
                     </div>
                     <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
                       <p className="text-xs font-black text-slate-400 uppercase">Omset Minuman</p>
@@ -1496,12 +1428,56 @@ export default function ReportPage() {
                         </table>
                       </div>
                       <div className="mt-4 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
-                        <div className="bg-slate-50 p-3 rounded-xl border border-slate-200"><p className="text-[10px] font-black text-slate-400 uppercase">Jml Transaksi</p><p className="text-sm font-black text-slate-800 mt-0.5">{filteredMenu.length} Nota</p></div>
-                        <div className="bg-slate-50 p-3 rounded-xl border border-slate-200"><p className="text-[10px] font-black text-slate-400 uppercase">Total Qty</p><p className="text-sm font-black text-slate-800 mt-0.5">{sumQty} Item</p></div>
-                        <div className="bg-rose-50 p-3 rounded-xl border border-rose-200"><p className="text-[10px] font-black text-rose-500 uppercase">Total Admin MP</p><p className="text-sm font-black text-rose-600 mt-0.5">{formatRp(sumAdmin)}</p></div>
-                        <div className="bg-blue-50 p-3 rounded-xl border border-blue-200"><p className="text-[10px] font-black text-blue-500 uppercase">Total Transaksi</p><p className="text-sm font-black text-blue-600 mt-0.5">{formatRp(sumTotal)}</p></div>
-                        <div className="bg-emerald-50 p-3 rounded-xl border border-emerald-200"><p className="text-[10px] font-black text-emerald-500 uppercase">Telah Dibayar</p><p className="text-sm font-black text-emerald-600 mt-0.5">{formatRp(sumDibayar)}</p></div>
-                        <div className="bg-amber-50 p-3 rounded-xl border border-amber-200"><p className="text-[10px] font-black text-amber-500 uppercase">Kurang / Piutang</p><p className="text-sm font-black text-amber-600 mt-0.5">{formatRp(sumBelum)}</p></div>
+                        {filteredMenu.length > 0 && (
+                          <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
+                            <p className="text-[10px] font-black text-slate-400 uppercase">Jml Transaksi</p>
+                            <p className="text-sm font-black text-slate-800 mt-0.5">{filteredMenu.length} Nota</p>
+                          </div>
+                        )}
+                        {sumQty > 0 && (
+                          <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
+                            <p className="text-[10px] font-black text-slate-400 uppercase">Total Qty</p>
+                            <p className="text-sm font-black text-slate-800 mt-0.5">{sumQty} Item</p>
+                          </div>
+                        )}
+                        {sumAdmin > 0 && (
+                          <div className="bg-rose-50 p-3 rounded-xl border border-rose-200">
+                            <p className="text-[10px] font-black text-rose-500 uppercase">Total Admin MP</p>
+                            <p className="text-sm font-black text-rose-600 mt-0.5">{formatRp(sumAdmin)}</p>
+                          </div>
+                        )}
+                        {sumTotal > 0 && (
+                          <div className="bg-blue-50 p-3 rounded-xl border border-blue-200">
+                            <p className="text-[10px] font-black text-blue-500 uppercase">Total Transaksi</p>
+                            <p className="text-sm font-black text-blue-600 mt-0.5">{formatRp(sumTotal)}</p>
+                          </div>
+                        )}
+                        {sumDibayar > 0 && (
+                          <div className="bg-emerald-50 p-3 rounded-xl border border-emerald-200">
+                            <p className="text-[10px] font-black text-emerald-500 uppercase">Telah Dibayar</p>
+                            <p className="text-sm font-black text-emerald-600 mt-0.5">{formatRp(sumDibayar)}</p>
+                          </div>
+                        )}
+                        {sumBelum > 0 && (
+                          <div className="bg-amber-50 p-3 rounded-xl border border-amber-200">
+                            <p className="text-[10px] font-black text-amber-500 uppercase">Kurang / Piutang</p>
+                            <p className="text-sm font-black text-amber-600 mt-0.5">{formatRp(sumBelum)}</p>
+                          </div>
+                        )}
+                        {/* Card Hutang: khusus pembelian */}
+                        {(() => {
+                          const hutangData = filteredMenu.filter(m => m.jenis?.toLowerCase() === 'pembelian' && m.status === 'belum');
+                          const totalHutang = hutangData.reduce((acc, m) => acc + ((m.total || 0) - (m.dibayar || 0)), 0);
+                          if (totalHutang > 0) {
+                            return (
+                              <div className="bg-purple-50 p-3 rounded-xl border border-purple-200">
+                                <p className="text-[10px] font-black text-purple-500 uppercase">Hutang Pembelian</p>
+                                <p className="text-sm font-black text-purple-600 mt-0.5">{formatRp(totalHutang)}</p>
+                              </div>
+                            );
+                          }
+                          return null;
+                        })()}
                       </div>
                     </div>
                   );
@@ -1638,30 +1614,42 @@ export default function ReportPage() {
                         </table>
                       </div>
                       <div className="mt-4 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-                        <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
-                          <p className="text-[10px] font-black text-slate-400 uppercase">Jml Pergerakan</p>
-                          <p className="text-sm font-black text-slate-800 mt-0.5">{filteredLogStock.length} Baris</p>
-                        </div>
-                        <div className="bg-blue-50 p-3 rounded-xl border border-blue-200">
-                          <p className="text-[10px] font-black text-blue-500 uppercase">Total Qty In</p>
-                          <p className="text-sm font-black text-blue-600 mt-0.5">{sumQtyIn} Item</p>
-                        </div>
-                        <div className="bg-orange-50 p-3 rounded-xl border border-orange-200">
-                          <p className="text-[10px] font-black text-orange-500 uppercase">Total Qty Out</p>
-                          <p className="text-sm font-black text-orange-600 mt-0.5">{sumQtyOut} Item</p>
-                        </div>
-                        <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
-                          <p className="text-[10px] font-black text-slate-500 uppercase">Estimasi Penjualan</p>
-                          <p className="text-sm font-black text-slate-800 mt-0.5">{formatRp(sumPenjualan)}</p>
-                        </div>
-                        <div className="bg-rose-50 p-3 rounded-xl border border-rose-200">
-                          <p className="text-[10px] font-black text-rose-500 uppercase">Total Pembelian</p>
-                          <p className="text-sm font-black text-rose-600 mt-0.5">{formatRp(sumPembelian)}</p>
-                        </div>
-                        <div className="bg-emerald-50 p-3 rounded-xl border border-emerald-200">
-                          <p className="text-[10px] font-black text-emerald-500 uppercase">Laba Kotor Est.</p>
-                          <p className="text-sm font-black text-emerald-600 mt-0.5">{formatRp(sumLaba)}</p>
-                        </div>
+                        {filteredLogStock.length > 0 && (
+                          <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
+                            <p className="text-[10px] font-black text-slate-400 uppercase">Jml Pergerakan</p>
+                            <p className="text-sm font-black text-slate-800 mt-0.5">{filteredLogStock.length} Baris</p>
+                          </div>
+                        )}
+                        {sumQtyIn > 0 && (
+                          <div className="bg-blue-50 p-3 rounded-xl border border-blue-200">
+                            <p className="text-[10px] font-black text-blue-500 uppercase">Total Qty In</p>
+                            <p className="text-sm font-black text-blue-600 mt-0.5">{sumQtyIn} Item</p>
+                          </div>
+                        )}
+                        {sumQtyOut > 0 && (
+                          <div className="bg-orange-50 p-3 rounded-xl border border-orange-200">
+                            <p className="text-[10px] font-black text-orange-500 uppercase">Total Qty Out</p>
+                            <p className="text-sm font-black text-orange-600 mt-0.5">{sumQtyOut} Item</p>
+                          </div>
+                        )}
+                        {sumPenjualan > 0 && (
+                          <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
+                            <p className="text-[10px] font-black text-slate-500 uppercase">Estimasi Penjualan</p>
+                            <p className="text-sm font-black text-slate-800 mt-0.5">{formatRp(sumPenjualan)}</p>
+                          </div>
+                        )}
+                        {sumPembelian > 0 && (
+                          <div className="bg-rose-50 p-3 rounded-xl border border-rose-200">
+                            <p className="text-[10px] font-black text-rose-500 uppercase">Total Pembelian</p>
+                            <p className="text-sm font-black text-rose-600 mt-0.5">{formatRp(sumPembelian)}</p>
+                          </div>
+                        )}
+                        {sumLaba > 0 && (
+                          <div className="bg-emerald-50 p-3 rounded-xl border border-emerald-200">
+                            <p className="text-[10px] font-black text-emerald-500 uppercase">Laba Kotor Est.</p>
+                            <p className="text-sm font-black text-emerald-600 mt-0.5">{formatRp(sumLaba)}</p>
+                          </div>
+                        )}
                       </div>
                     </div>
                   );
@@ -1774,10 +1762,30 @@ export default function ReportPage() {
                         </table>
                       </div>
                       <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3">
-                        <div className="bg-slate-50 p-4 rounded-xl border border-slate-200"><p className="text-[10px] font-black text-slate-400 uppercase">Total Jurnal Kas</p><p className="text-base font-black text-slate-800 mt-0.5">{filteredCashflow.length} Aktivitas</p></div>
-                        <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-200"><p className="text-[10px] font-black text-emerald-500 uppercase">Total Kas Masuk</p><p className="text-base font-black text-emerald-600 mt-0.5">+{formatRp(sumMasuk)}</p></div>
-                        <div className="bg-rose-50 p-4 rounded-xl border border-rose-200"><p className="text-[10px] font-black text-rose-500 uppercase">Total Kas Keluar</p><p className="text-base font-black text-rose-600 mt-0.5">-{formatRp(sumKeluar)}</p></div>
-                        <div className={`p-4 rounded-xl border ${nett >= 0 ? 'bg-blue-50 border-blue-200' : 'bg-orange-50 border-orange-200'}`}><p className={`text-[10px] font-black uppercase ${nett >= 0 ? 'text-blue-500' : 'text-orange-500'}`}>Nett / Selisih Kas</p><p className={`text-base font-black mt-0.5 ${nett >= 0 ? 'text-blue-600' : 'text-orange-600'}`}>{formatRp(nett)}</p></div>
+                        {filteredCashflow.length > 0 && (
+                          <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                            <p className="text-[10px] font-black text-slate-400 uppercase">Total Jurnal Kas</p>
+                            <p className="text-base font-black text-slate-800 mt-0.5">{filteredCashflow.length} Aktivitas</p>
+                          </div>
+                        )}
+                        {sumMasuk > 0 && (
+                          <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-200">
+                            <p className="text-[10px] font-black text-emerald-500 uppercase">Total Kas Masuk</p>
+                            <p className="text-base font-black text-emerald-600 mt-0.5">+{formatRp(sumMasuk)}</p>
+                          </div>
+                        )}
+                        {sumKeluar > 0 && (
+                          <div className="bg-rose-50 p-4 rounded-xl border border-rose-200">
+                            <p className="text-[10px] font-black text-rose-500 uppercase">Total Kas Keluar</p>
+                            <p className="text-base font-black text-rose-600 mt-0.5">-{formatRp(sumKeluar)}</p>
+                          </div>
+                        )}
+                        {nett !== 0 && (
+                          <div className={`p-4 rounded-xl border ${nett >= 0 ? 'bg-blue-50 border-blue-200' : 'bg-orange-50 border-orange-200'}`}>
+                            <p className={`text-[10px] font-black uppercase ${nett >= 0 ? 'text-blue-500' : 'text-orange-500'}`}>Nett / Selisih Kas</p>
+                            <p className={`text-base font-black mt-0.5 ${nett >= 0 ? 'text-blue-600' : 'text-orange-600'}`}>{formatRp(nett)}</p>
+                          </div>
+                        )}
                       </div>
                     </div>
                   );
@@ -1867,14 +1875,18 @@ export default function ReportPage() {
 
                       {/* Summary */}
                       <div className="mt-4 grid grid-cols-2 md:grid-cols-3 gap-3">
-                        <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
-                          <p className="text-[10px] font-black text-slate-400 uppercase">Jml Transaksi</p>
-                          <p className="text-sm font-black text-slate-800 mt-0.5">{filteredOngkos.length} Entri</p>
-                        </div>
-                        <div className="bg-emerald-50 p-3 rounded-xl border border-emerald-200 md:col-span-2">
-                          <p className="text-[10px] font-black text-emerald-500 uppercase">Total Ongkos</p>
-                          <p className="text-sm font-black text-emerald-600 mt-0.5">{formatRp(totalOngkos)}</p>
-                        </div>
+                        {filteredOngkos.length > 0 && (
+                          <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
+                            <p className="text-[10px] font-black text-slate-400 uppercase">Jml Transaksi</p>
+                            <p className="text-sm font-black text-slate-800 mt-0.5">{filteredOngkos.length} Entri</p>
+                          </div>
+                        )}
+                        {totalOngkos > 0 && (
+                          <div className="bg-emerald-50 p-3 rounded-xl border border-emerald-200 md:col-span-2">
+                            <p className="text-[10px] font-black text-emerald-500 uppercase">Total Ongkos</p>
+                            <p className="text-sm font-black text-emerald-600 mt-0.5">{formatRp(totalOngkos)}</p>
+                          </div>
+                        )}
                       </div>
 
                       {/* Rekap per mekanik */}
@@ -1898,9 +1910,20 @@ export default function ReportPage() {
 
               {/* Footer Modal */}
               <div className="p-4 border-t border-slate-100 bg-white rounded-b-3xl shrink-0 flex gap-3">
-                <button 
-                  onClick={() => { setSelectedReport(null); setReportDetailData(null); }} 
-                  className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-black text-xs uppercase tracking-widest transition-colors"
+                {/* Tombol Hapus - hanya untuk level 1-5 */}
+                {['1', '2', '3', '4', '5'].includes(userLevel) && (
+                  <button
+                    onClick={() => handleDeleteReport(selectedReport)}
+                    className="flex-1 py-3 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl font-black text-xs uppercase tracking-widest transition-colors border border-rose-200 flex items-center justify-center gap-2"
+                  >
+                    <Trash2 size={16} />
+                    HAPUS LAPORAN
+                  </button>
+                )}
+                {/* Tombol Tutup - jika ada tombol hapus, fleksibel 1, jika tidak, full width */}
+                <button
+                  onClick={() => { setSelectedReport(null); setReportDetailData(null); }}
+                  className={`${['1', '2', '3', '4', '5'].includes(userLevel) ? 'flex-1' : 'w-full'} py-3 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-black text-xs uppercase tracking-widest transition-colors`}
                 >
                   TUTUP
                 </button>
