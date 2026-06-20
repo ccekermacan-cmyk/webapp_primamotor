@@ -61,6 +61,18 @@ interface Gaji {
   id: string; person: string; pokok: number; created_at: string; tunjangan: number; bonus_1: number;
 }
 
+// Helper: Konversi Date ke format "YYYY-MM-DDTHH:mm" SESUAI WAKTU LOKAL (tanpa konversi UTC ganda)
+const getLocalDatetimeInput = (dateString?: string) => {
+  if (!dateString) {
+    const now = new Date();
+    return new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  }
+  // Mencegah bug pengurangan 2x lipat dengan mengonversi spasi bawaan PocketBase menjadi standar 'T'
+  const safeString = dateString.replace(' ', 'T');
+  const d = new Date(safeString);
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+};
+
 export default function MenuPage() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -174,11 +186,12 @@ export default function MenuPage() {
       mekanikList: [{ idLama: '', ongkos: 0 }],
       note: '',
       noteMenu: '',
+      tempoDate: '', // 🟢 Pisahkan state khusus untuk Tanggal Tempo
       marketplace: '',
       adminFee: 0,
       cashback: 0,
-        createdDate: new Date().toISOString().split('T')[0], // 🆕 default hari ini (YYYY-MM-DD)
-  });
+      createdAt: getLocalDatetimeInput(), 
+});
 
   const isOnlinePerson = useMemo(() => {
   const selectedPerson = personOptions.find(p => p.id_lama === formBayar.personIdLama);
@@ -240,21 +253,6 @@ export default function MenuPage() {
       second: '2-digit',
       hour12: false
     });
-  };
-
-  // Helper untuk mengubah YYYY-MM-DD menjadi UTC 0 00:00:00
-  const toUTCDateISO = (dateStr: string) => {
-    if (!dateStr) return new Date().toISOString();
-    const parts = dateStr.split('-').map(Number);
-    const date = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2], 0, 0, 0, 0));
-    return date.toISOString();
-  };
-
-  // Helper untuk mengambil YYYY-MM-DD dari ISO string
-  const formatDateToInput = (isoString: string) => {
-    if (!isoString) return new Date().toISOString().split('T')[0];
-    const date = new Date(isoString);
-    return date.toISOString().split('T')[0];
   };
 
   // --- HELPER WARNA TEMA DINAMIS ---
@@ -558,6 +556,15 @@ export default function MenuPage() {
         adminFee: prev.adminFee || 0,
         cashback: prev.cashback || 0
       }));
+    } else {
+      // 🟢 RESET DATA: Mencegah bug Grand Total terpotong oleh angka yang tersembunyi
+      // saat user mengganti tipe pelanggan dari Online kembali ke Offline/Umum
+      setFormBayar(prev => ({
+        ...prev,
+        marketplace: '',
+        adminFee: 0,
+        cashback: 0
+      }));
     }
   }, [isOnlinePerson]);
 
@@ -801,7 +808,7 @@ export default function MenuPage() {
 
           // 2. Jika noteMenu kosong, isi otomatis dengan keterangan tempo
           if (!noteMenu.trim()) {
-            const tglTransaksi = formBayar.createdDate ? new Date(formBayar.createdDate) : new Date();
+            const tglTransaksi = formBayar.createdAt ? new Date(formBayar.createdAt) : new Date();
             const tglJatuhTempo = new Date(formBayar.note);
             const diffTime = tglJatuhTempo.getTime() - tglTransaksi.getTime();
             const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
@@ -855,7 +862,7 @@ export default function MenuPage() {
             marketplace: '',
             adminFee: 0,
             cashback: 0,
-            createdDate: new Date().toISOString().split('T')[0],
+            createdAt: getLocalDatetimeInput(), // 🟢 Menggunakan fungsi waktu lokal
           }));
         }
       });
@@ -902,12 +909,12 @@ export default function MenuPage() {
     setIsProcessing(true);
     try {
       const isEditing = editSession?.isEditing && editSession?.menuId;
-      // Gunakan waktu buatan baru jika buat nota baru, pertahankan waktu lama jika sesi edit
-      const timestamp = isEditing
-      ? editSession.createdAt
-      : (formBayar.createdDate
-          ? toUTCDateISO(formBayar.createdDate)
-          : new Date().toISOString());
+      
+      // Ambil murni dari input kalender (baik saat Edit maupun Buat Baru), lalu sesuaikan formatnya untuk PocketBase
+      const timestamp = formBayar.createdAt
+        ? new Date(formBayar.createdAt).toISOString().replace('T', ' ')
+        : new Date().toISOString().replace('T', ' ');
+        
       const menuLower = selectedMenu.toLowerCase();
 
       const selectedPersonRecordId = personOptions.find(p => p.id_lama === formBayar.personIdLama)?.id || '';
@@ -951,13 +958,19 @@ export default function MenuPage() {
       menuFormData.append('operator', operatorName);
       menuFormData.append('created_at', timestamp);
       menuFormData.append('qty', String(totalQtyKeranjang));
-      menuFormData.append('marketplace', formBayar.marketplace);
-      menuFormData.append('cashback', String(formBayar.cashback));
-      menuFormData.append('admin', String(formBayar.adminFee));
+      // 🟢 KEAMANAN GANDA: Pastikan nilai yang dikirim ke DB benar-benar 0 jika bukan pelanggan online
+      menuFormData.append('marketplace', isOnlinePerson ? formBayar.marketplace : '');
+      menuFormData.append('cashback', isOnlinePerson ? String(formBayar.cashback) : '0');
+      menuFormData.append('admin', isOnlinePerson ? String(formBayar.adminFee) : '0');
       menuFormData.append('status', statusBaru);
       menuFormData.append('total', String(grandTotal));
       menuFormData.append('dibayar', String(totalDibayar));
       if (dateLunas) menuFormData.append('date_lunas', dateLunas);
+      
+      // 🟢 Simpan tanggal tempo jika pembayaran di-set ke Tempo
+      if (formBayar.payment === 'Tempo' && formBayar.tempoDate) {
+        menuFormData.append('tempo', formBayar.tempoDate);
+      }
 
       if (menuFiles && menuFiles.length > 0) {
         menuFiles.forEach(file => menuFormData.append('file', file));
@@ -1113,7 +1126,7 @@ export default function MenuPage() {
         adminFee: 0,
         cashback: 0,
         cashflowList: [{ accountId: '', nominal: 0 }],
-        createdDate: new Date().toISOString().split('T')[0], // ✅ tambahkan ini
+        createdAt: getLocalDatetimeInput(), // 🟢 Reset dengan akurat
       });
 
       fetchData(); // Muat ulang grid inventaris barang & list overview di screen utama
@@ -1225,18 +1238,19 @@ export default function MenuPage() {
           setExistingMenuFiles(oldFiles); // optional, untuk reference
 
           setFormBayar(prev => ({ 
-            ...prev, 
-            personIdLama: menuItem.person, 
-            payment: paymentValue,
-            noteMenu: menuItem.text,
-            note: menuItem.tempo || cfNote,
-            marketplace: menuItem.marketplace || '',
-            adminFee: menuItem.admin || 0,
-            cashback: menuItem.cashback || 0,
-            mekanikList: loadedMekanik,
-            cashflowList: cashflowList,
-            createdDate: formatDateToInput(menuItem.created_at) // tambahkan ini
-          }));
+          ...prev, 
+          personIdLama: menuItem.person, 
+          payment: paymentValue,
+          noteMenu: menuItem.text,
+          note: cfNote, // 🟢 Hanya tarik cashflow note
+          tempoDate: menuItem.tempo || '', // 🟢 Tarik data tempo masuk ke kalender
+          marketplace: menuItem.marketplace || '',
+          adminFee: menuItem.admin || 0,
+          cashback: menuItem.cashback || 0,
+          mekanikList: loadedMekanik,
+          cashflowList: cashflowList,
+          createdAt: menuItem.created_at ? getLocalDatetimeInput(menuItem.created_at) : getLocalDatetimeInput() // 🟢 Waktu lama akan dikonversi akurat ke lokal
+        }));
           
           // Satu kali panggil set state sudah cukup
           setEditSession({ isEditing: true, menuId: menuItem.id, createdAt: menuItem.created_at });
@@ -1868,12 +1882,12 @@ export default function MenuPage() {
                 <div className="grid grid-cols-1 gap-4">
                   <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
                     <label className={`text-[10px] md:text-[11px] font-black ${activeTheme.text} uppercase tracking-wider ml-1 flex items-center gap-1.5`}>
-                      <Calendar size={14} /> Tanggal Transaksi
+                      <Calendar size={14} /> Waktu Transaksi
                     </label>
                     <input
-                      type="date"
-                      value={formBayar.createdDate}
-                      onChange={e => setFormBayar({ ...formBayar, createdDate: e.target.value })}
+                      type="datetime-local"
+                      value={formBayar.createdAt}
+                      onChange={e => setFormBayar({ ...formBayar, createdAt: e.target.value })}
                       className={`w-full mt-2 p-3 text-xs md:text-sm font-bold text-slate-700 bg-white border-2 ${activeTheme.border} rounded-xl ${activeTheme.focusRing} outline-none transition-all shadow-sm`}
                     />
                   </div>
@@ -2037,8 +2051,8 @@ export default function MenuPage() {
                     <label className="text-[10px] md:text-[11px] font-black text-rose-500 uppercase tracking-wider ml-1 flex items-center gap-1.5"><Calendar size={14}/> Tanggal Jatuh Tempo</label>
                     <input
                       type="date"
-                      value={formBayar.note}
-                      onChange={e => setFormBayar({ ...formBayar, note: e.target.value })}
+                      value={formBayar.tempoDate} // 🟢 Menggunakan state tempoDate
+                      onChange={e => setFormBayar({ ...formBayar, tempoDate: e.target.value })}
                       className="w-full mt-2 p-3 text-sm font-bold text-slate-700 bg-white border-2 border-rose-100 rounded-xl focus:border-rose-400 focus:ring-2 focus:ring-rose-200 outline-none transition-all shadow-sm"
                     />
                   </div>
