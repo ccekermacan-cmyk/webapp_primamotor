@@ -6,13 +6,13 @@ interface ModalProps {
   onClose: () => void;
   title?: string;
   children?: React.ReactNode;
-  maxWidth?: string;             // TAMBAHAN: Kontrol lebar dinamis untuk modal standard
+  maxWidth?: string;             // Kontrol lebar dinamis untuk modal standard
   
   // --- PROPS REUSABLE DARI LAYOUT.TSX (ALERT/CONFIRM DIALOG) ---
   isAlert?: boolean;             // Aktifkan mode alert/konfirmasi
   alertIcon?: React.ReactNode;   // Ikon di tengah atas
   alertIconBg?: string;          // Class warna ikon (cth: 'bg-rose-50 text-rose-500 border-rose-100')
-  alertDescription?: React.ReactNode; // REVISI: Mengubah ke ReactNode agar bisa menerima tag HTML (seperti <span> bold)
+  alertDescription?: React.ReactNode; // Menggunakan ReactNode agar bisa menerima tag HTML
   onConfirm?: () => void;        // Fungsi saat tombol kanan diklik
   confirmText?: string;          // Teks tombol kanan
   cancelText?: string;           // Teks tombol kiri
@@ -25,7 +25,7 @@ export default function Modal({
   onClose, 
   title, 
   children,
-  maxWidth = 'max-w-md',         // Default lebar modal jika tidak diisi
+  maxWidth = 'max-w-md',         
   isAlert = false,
   alertIcon,
   alertIconBg = 'bg-rose-50 text-rose-500 border-rose-100',

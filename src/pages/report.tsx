@@ -1,10 +1,11 @@
 import { useState, useEffect, useMemo } from 'react';
 import { pb } from '../lib/pocketbase';
+import Modal from '../components/modal'; // PENTING: Jangan dihapus agar Alert UI berjalan
 import { 
   Search, Calendar, ChevronLeft, ChevronRight, Download, 
   TrendingUp, TrendingDown, DollarSign, Wallet, FileText, 
   Filter, RefreshCw, BarChart3, Lightbulb, Coffee, Wrench, Store, X,
-  Plus, Trash2
+  Plus, Trash2, AlertTriangle, Info
 } from 'lucide-react';
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Line
@@ -55,6 +56,25 @@ export default function ReportPage() {
   const [generating, setGenerating] = useState(false);
   const [todayReportExists, setTodayReportExists] = useState(false);
 
+  // === SISTEM ALERT TERPUSAT ===
+  const [dialog, setDialog] = useState<{show: boolean, title: string, message: string, type: 'alert' | 'confirm', onConfirm?: () => void}>({
+    show: false, title: '', message: '', type: 'alert'
+  });
+
+  const showAlert = (title: string, message: string) => {
+    setDialog({ show: true, title, message, type: 'alert' });
+  };
+
+  const confirmAction = (title: string, message: string, onConfirm: () => void) => {
+    setDialog({ 
+      show: true, title, message, type: 'confirm', 
+      onConfirm: () => { 
+        setDialog(prev => ({ ...prev, show: false }));
+        onConfirm(); 
+      } 
+    });
+  };
+
   const [userLevel, setUserLevel] = useState<string>(() => localStorage.getItem('user_level') || '');
 
   // --- FORMATTER HELPER ---
@@ -65,9 +85,8 @@ export default function ReportPage() {
 
   const formatDate = (dateStr: string) => {
     if (!dateStr) return '-';
-    // Mengambil YYYY-MM-DD secara mentah untuk menghindari pergeseran timezone browser
-    const part = dateStr.replace('T', ' ').split(' ')[0]; 
-    const [year, month, day] = part.split('-');
+    const localDateStr = getLocalYYYYMMDD(new Date(dateStr));
+    const [year, month, day] = localDateStr.split('-');
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Ags', 'Sep', 'Okt', 'Nov', 'Des'];
     return `${day} ${months[parseInt(month, 10) - 1]} ${year}`;
   };
@@ -82,20 +101,16 @@ export default function ReportPage() {
 
   // Filter untuk tab Menu
   const [menuFilterJenis, setMenuFilterJenis] = useState<string>('semua');
-  // Filter untuk tab Log Stock
   const [logStockFilterRefJenis, setLogStockFilterRefJenis] = useState<string>('semua');
-  // Filter untuk tab Cashflow
   const [cashflowFilterMutasi, setCashflowFilterMutasi] = useState<string>('semua');
   const [cashflowFilterAccount, setCashflowFilterAccount] = useState<string>('semua');
   const [cashflowFilterJenis, setCashflowFilterJenis] = useState<string>('semua');
-
-  // State untuk status filter menu & sorting tabel
   const [menuFilterStatus, setMenuFilterStatus] = useState<string>('semua');
+  
   const [menuSort, setMenuSort] = useState({ key: 'created_at', dir: 'desc' });
   const [logStockSort, setLogStockSort] = useState({ key: 'created_at', dir: 'desc' });
   const [cashflowSort, setCashflowSort] = useState({ key: 'created_at', dir: 'desc' });
   
-  // TAMBAHAN STATE PENCARIAN DI MODAL
   const [detailSearchTerm, setDetailSearchTerm] = useState('');
 
   // Fungsi helper memproses sort klik
@@ -105,7 +120,6 @@ export default function ReportPage() {
     else if (tab === 'cashflow') setCashflowSort(p => ({ key, dir: p.key === key && p.dir === 'asc' ? 'desc' : 'asc' }));
   };
 
-  // Fungsi helper merender th / header tabel
   const renderSortHeader = (tab: string, key: string, label: string, align: string = 'left') => {
     const isSorted = tab === 'menu' ? menuSort.key === key : tab === 'logstock' ? logStockSort.key === key : cashflowSort.key === key;
     const dir = tab === 'menu' ? menuSort.dir : tab === 'logstock' ? logStockSort.dir : cashflowSort.dir;
@@ -124,14 +138,11 @@ export default function ReportPage() {
 
   // Helper: Buat rentang ISO (start & end) berdasarkan hari lokal DENGAN FORMAT POCKETBASE
   const getDayRangeStr = (localDateStr: string) => {
-    // localDateStr harus dalam format YYYY-MM-DD
     const startISO = `${localDateStr} 00:00:00.000Z`;
-    
     const next = new Date(localDateStr);
     next.setDate(next.getDate() + 1);
     const nextStr = new Date(next.getTime() - next.getTimezoneOffset() * 60000).toISOString().split('T')[0];
     const endISO = `${nextStr} 00:00:00.000Z`;
-    
     return { startISO, endISO };
   };
 
@@ -152,7 +163,6 @@ export default function ReportPage() {
         const endObj = new Date(dateRange.end);
         endObj.setDate(endObj.getDate() + 1);
         const endStr = new Date(endObj.getTime() - endObj.getTimezoneOffset() * 60000).toISOString().split('T')[0];
-
         conditions.push(`created_at >= {:start} && created_at < {:end}`);
         params.start = `${dateRange.start} 00:00:00.000Z`;
         params.end = `${endStr} 00:00:00.000Z`;
@@ -160,7 +170,6 @@ export default function ReportPage() {
         const startObj = new Date(dateRange.start);
         startObj.setDate(startObj.getDate() + 1);
         const endStr = new Date(startObj.getTime() - startObj.getTimezoneOffset() * 60000).toISOString().split('T')[0];
-
         conditions.push(`created_at >= {:start} && created_at < {:end}`);
         params.start = `${dateRange.start} 00:00:00.000Z`;
         params.end = `${endStr} 00:00:00.000Z`;
@@ -168,7 +177,6 @@ export default function ReportPage() {
         const endObj = new Date(dateRange.end);
         endObj.setDate(endObj.getDate() + 1);
         const endStr = new Date(endObj.getTime() - endObj.getTimezoneOffset() * 60000).toISOString().split('T')[0];
-
         conditions.push(`created_at < {:end}`);
         params.end = `${endStr} 00:00:00.000Z`;
       }
@@ -285,7 +293,7 @@ export default function ReportPage() {
         }),
       });
       if (existing.totalItems > 0) {
-        alert('Laporan untuk hari ini sudah ada!');
+        showAlert('Informasi', 'Laporan untuk hari ini sudah ada!');
         setAddingReport(false);
         return;
       }
@@ -327,16 +335,135 @@ export default function ReportPage() {
 
       await pb.collection('report').create(newReport);
       await fetchReports();
-      alert('Laporan hari ini berhasil dibuat!');
+      showAlert('Sukses', 'Laporan hari ini berhasil dibuat!');
     } catch (error) {
       console.error(error);
-      alert('Gagal membuat laporan: ' + (error as any)?.message || '');
+      showAlert('Error', 'Gagal membuat laporan: ' + (error as any)?.message || '');
     } finally {
       setAddingReport(false);
     }
   };
 
-  const handleGenerateReport = async (dateStr?: string) => {
+  // --- LOGIKA CENTRALIZED UNTUK GENERATE & KALKULASI LAPORAN ---
+  const calculateReportData = async (targetDateStr: string) => {
+    const { startISO, endISO } = getDayRangeStr(targetDateStr);
+
+    const allProducts = await pb.collection('produk').getFullList({ fields: 'id,kategori' });
+    const productMap: Record<string, string> = {};
+    allProducts.forEach(p => { productMap[p.id] = (p.kategori || '').toLowerCase(); });
+
+    const menuFilter = pb.filter('created_at >= {:start} && created_at < {:end}', { start: startISO, end: endISO });
+    const menuItems = await pb.collection('menu').getFullList({
+      filter: menuFilter,
+      fields: 'id, jenis, status, total, dibayar',
+    });
+
+    const menuMap: Record<string, string> = {};
+    let totalPiutang = 0;
+    let totalHutang = 0;
+
+    menuItems.forEach(m => {
+      const jenis = (m.jenis || '').toLowerCase();
+      menuMap[m.id] = jenis;
+
+      const status = (m.status || '').toLowerCase();
+      
+      // LOGIKA HUTANG & PIUTANG HARI INI SAJA
+      if (status === 'belum') {
+        const selisih = (m.total || 0) - (m.dibayar || 0);
+        if (selisih > 0) {
+          if (jenis.includes('penjualan') || jenis.includes('service') || jenis.includes('servis')) {
+            totalPiutang += selisih;
+          } else if (jenis.includes('pembelian')) {
+            totalHutang += selisih;
+          }
+        }
+      }
+    });
+
+    const logStockFilter = pb.filter('created_at >= {:start} && created_at < {:end}', { start: startISO, end: endISO });
+    const logStockItems = await pb.collection('log_stock').getFullList({
+      filter: logStockFilter,
+      fields: 'item_baru, price_1, price_2, qty, boolean, ref_baru',
+    });
+
+    let totalOmsetPenjualan = 0;
+    let totalOmsetMinuman = 0;
+    let totalLaba = 0;
+
+    logStockItems.forEach(item => {
+      const booleanVal = (item.boolean || '').toLowerCase();
+      if (booleanVal !== 'out') return;
+
+      const menuJenis = menuMap[item.ref_baru] || '';
+      if (menuJenis.includes('pembelian')) return;
+
+      const kategori = productMap[item.item_baru] || '';
+      const qty = item.qty || 0;
+      const nilaiJual = (item.price_1 || 0) * qty;
+      const nilaiModal = item.price_2 || 0; 
+
+      if (kategori !== 'minuman') {
+        totalOmsetPenjualan += nilaiJual;
+      } else {
+        totalOmsetMinuman += nilaiJual;
+      }
+      totalLaba += (nilaiJual - nilaiModal);
+    });
+
+    const ongkosFilter = pb.filter('date >= {:start} && date < {:end}', { start: startISO, end: endISO });
+    const ongkosAll = await pb.collection('ongkos').getFullList({
+      filter: ongkosFilter,
+      fields: 'ongkos',
+    });
+    const omsetServis = ongkosAll.reduce((sum, item) => sum + (item.ongkos || 0), 0);
+
+    const cashflowFilter = pb.filter('created_at >= {:start} && created_at < {:end}', { start: startISO, end: endISO });
+    const cashflowItems = await pb.collection('cashflow').getFullList({
+      filter: cashflowFilter,
+      fields: 'jenis, nominal, acc1, acc2, mutasi',
+    });
+
+    let operasionalToko = 0;
+    let pengeluaranLain = 0;
+    let pemasukanLain = 0;
+    let cashKasir = 0;
+
+    cashflowItems.forEach(cf => {
+      const jenis = (cf.jenis || '').toLowerCase();
+      const nominal = cf.nominal || 0;
+      const mutasi = (cf.mutasi || '').toLowerCase();
+
+      if (jenis.includes('operasional')) operasionalToko += nominal;
+      else if (jenis.includes('pengeluaran')) pengeluaranLain += nominal;
+      else if (jenis.includes('pemasukan')) pemasukanLain += nominal;
+
+      const acc1 = (cf.acc1 || '').toLowerCase();
+      const acc2 = (cf.acc2 || '').toLowerCase();
+
+      if (acc1.includes('kasir') || acc1.includes('cash')) {
+        if (mutasi === 'in' || mutasi === 'masuk') cashKasir += nominal;
+        else if (mutasi === 'out' || mutasi === 'keluar') cashKasir -= nominal;
+      } else if (acc2.includes('kasir') || acc2.includes('cash')) {
+        if (mutasi === 'out' || mutasi === 'keluar') cashKasir += nominal;
+      }
+    });
+
+    return {
+      omset_toko: totalOmsetPenjualan,
+      omset_servis: omsetServis,
+      omset_minuman: totalOmsetMinuman,
+      laba_penjualan: totalLaba,
+      operasional_toko: operasionalToko,
+      pengeluaran_lain: pengeluaranLain,
+      pemasukan_lain: pemasukanLain,
+      hutang: totalHutang,
+      piutang: totalPiutang,
+      kasir_toko: cashKasir,
+    };
+  };
+
+  const handleGenerateReport = async (dateStr?: string, forceReplace: boolean = false) => {
     if (generating) return;
     setGenerating(true);
     try {
@@ -344,150 +471,24 @@ export default function ReportPage() {
       const { startISO, endISO } = getDayRangeStr(targetDateStr);
 
       const existing = await pb.collection('report').getList(1, 1, {
-        filter: pb.filter('created_at >= {:start} && created_at < {:end}', {
-          start: startISO,
-          end: endISO
-        }),
+        filter: pb.filter('created_at >= {:start} && created_at < {:end}', { start: startISO, end: endISO }),
       });
       
-      if (existing.totalItems > 0) {
-        if (!window.confirm(`Laporan untuk tanggal ${targetDateStr} sudah ada. Hapus & buat ulang?`)) {
-          setGenerating(false);
-          return;
-        }
+      if (existing.totalItems > 0 && !forceReplace) {
+        confirmAction(
+          'Laporan Sudah Ada', 
+          `Laporan untuk tanggal ${targetDateStr} sudah ada. Hapus & buat ulang?`, 
+          () => handleGenerateReport(targetDateStr, true)
+        );
+        setGenerating(false);
+        return;
+      }
+
+      if (existing.totalItems > 0 && forceReplace) {
         await pb.collection('report').delete(existing.items[0].id);
       }
 
-      // --- MAPPING PRODUK ---
-      const allProducts = await pb.collection('produk').getFullList({ fields: 'id, kategori' });
-      const productMap: Record<string, string> = {};
-      allProducts.forEach(p => {
-        productMap[p.id] = (p.kategori || '').toLowerCase();
-      });
-
-      // --- HITUNG HUTANG & PIUTANG HARI ITU ---
-      const menuFilter = pb.filter('created_at >= {:start} && created_at < {:end}', { start: startISO, end: endISO });
-      const menuItems = await pb.collection('menu').getFullList({
-        filter: menuFilter,
-        fields: 'id, jenis, status, total, dibayar',
-        $autoCancel: false,
-      });
-
-      const menuMap: Record<string, string> = {};
-      let totalPiutang = 0;
-      let totalHutang = 0;
-
-      menuItems.forEach(m => {
-        const jenis = (m.jenis || '').toLowerCase();
-        menuMap[m.id] = jenis; 
-
-        const status = (m.status || '').toLowerCase();
-        
-        // Logika Piutang/Hutang DARI SELISIH TRANSAKSI DI HARI TERSEBUT
-        if (status === 'belum') {
-          const selisih = (m.total || 0) - (m.dibayar || 0);
-          if (selisih > 0) {
-            if (jenis.includes('penjualan') || jenis.includes('service') || jenis.includes('servis')) {
-              totalPiutang += selisih;
-            } else if (jenis.includes('pembelian')) {
-              totalHutang += selisih;
-            }
-          }
-        }
-      });
-
-      // --- HITUNG LOG STOCK HARI ITU ---
-      const logStockFilter = pb.filter('created_at >= {:start} && created_at < {:end}', { start: startISO, end: endISO });
-      const logStockItems = await pb.collection('log_stock').getFullList({
-        filter: logStockFilter,
-        fields: 'item_baru, price_1, price_2, qty, boolean, ref_baru',
-        $autoCancel: false,
-      });
-
-      let totalOmsetPenjualan = 0;
-      let totalOmsetMinuman = 0;
-      let totalLaba = 0;
-
-      logStockItems.forEach(item => {
-        const booleanVal = (item.boolean || '').toLowerCase();
-        if (booleanVal !== 'out') return;
-
-        const menuJenis = menuMap[item.ref_baru] || '';
-        if (menuJenis.includes('pembelian')) return;
-
-        const kategori = productMap[item.item_baru] || '';
-        const qty = item.qty || 0;
-        const nilaiJual = (item.price_1 || 0) * qty;
-        const nilaiModal = (item.price_2 || 0);
-
-        if (kategori !== 'minuman') {
-          totalOmsetPenjualan += nilaiJual;
-        } else {
-          totalOmsetMinuman += nilaiJual;
-        }
-
-        totalLaba += (nilaiJual - nilaiModal);
-      });
-
-      // --- HITUNG ONGKOS HARI ITU ---
-      const ongkosFilter = pb.filter('date >= {:start} && date < {:end}', { start: startISO, end: endISO });
-      const ongkosAll = await pb.collection('ongkos').getFullList({
-        filter: ongkosFilter,
-        fields: 'ongkos',
-        $autoCancel: false,
-      });
-      const omsetServis = ongkosAll.reduce((sum, item) => sum + (item.ongkos || 0), 0);
-
-      // --- HITUNG CASHFLOW HARI ITU ---
-      const cashflowFilter = pb.filter('created_at >= {:start} && created_at < {:end}', { start: startISO, end: endISO });
-      const cashflowItems = await pb.collection('cashflow').getFullList({
-        filter: cashflowFilter,
-        fields: 'jenis, nominal, acc1, acc2, mutasi',
-        $autoCancel: false,
-      });
-
-      let operasionalToko = 0;
-      let pengeluaranLain = 0;
-      let pemasukanLain = 0;
-      let cashKasir = 0;
-
-      cashflowItems.forEach(cf => {
-        const jenis = (cf.jenis || '').toLowerCase();
-        const nominal = cf.nominal || 0;
-        const mutasi = (cf.mutasi || '').toLowerCase();
-
-        if (jenis.includes('operasional')) {
-          operasionalToko += nominal;
-        } else if (jenis.includes('pengeluaran')) {
-          pengeluaranLain += nominal;
-        } else if (jenis.includes('pemasukan')) {
-          pemasukanLain += nominal;
-        }
-
-        const acc1 = (cf.acc1 || '').toLowerCase();
-        const acc2 = (cf.acc2 || '').toLowerCase();
-
-        if (acc1.includes('kasir') || acc1.includes('cash')) {
-          if (mutasi === 'in' || mutasi === 'masuk') cashKasir += nominal;
-          else if (mutasi === 'out' || mutasi === 'keluar') cashKasir -= nominal;
-        } else if (acc2.includes('kasir') || acc2.includes('cash')) {
-          if (mutasi === 'out' || mutasi === 'keluar') cashKasir += nominal;
-        }
-      });
-
-      // --- BUAT REPORT ---
-      const reportData = {
-        omset_toko: totalOmsetPenjualan,
-        omset_servis: omsetServis,
-        omset_minuman: totalOmsetMinuman,
-        laba_penjualan: totalLaba,
-        operasional_toko: operasionalToko,
-        pengeluaran_lain: pengeluaranLain,
-        pemasukan_lain: pemasukanLain,
-        hutang: totalHutang,
-        piutang: totalPiutang,
-        kasir_toko: cashKasir,
-      };
+      const reportData = await calculateReportData(targetDateStr);
 
       const newReport = {
         ...reportData,
@@ -498,36 +499,41 @@ export default function ReportPage() {
       await pb.collection('report').create(newReport);
       await fetchReports();
       setShowGenerateModal(false);
-      alert('Laporan berhasil di-generate!');
+      showAlert('Sukses', 'Laporan berhasil di-generate!');
     } catch (error) {
       console.error(error);
-      alert('Gagal generate laporan: ' + (error as any)?.message);
+      showAlert('Gagal', 'Gagal generate laporan: ' + (error as any)?.message);
     } finally {
       setGenerating(false);
     }
   };
 
-  const handleDeleteReport = async (report: ReportRecord) => {
-    if (!window.confirm(`Yakin ingin menghapus laporan tanggal ${formatDate(report.created_at)} secara permanen?`)) {
-      return;
-    }
-    try {
-      await pb.collection('report').delete(report.id);
-      setSelectedReport(null);
-      setReportDetailData(null);
-      await fetchReports();
-      alert('Laporan berhasil dihapus!');
-    } catch (error) {
-      console.error(error);
-      alert('Gagal menghapus laporan: ' + (error as any)?.message);
-    }
+  const handleDeleteReport = (report: ReportRecord) => {
+    if (!report) return;
+    
+    // Gunakan confirmAction agar menggunakan Modal kustom kita (bukan window.confirm bawaan browser)
+    confirmAction(
+      'Hapus Laporan',
+      `Yakin ingin menghapus laporan tanggal ${formatDate(report.created_at)} secara permanen?`,
+      async () => {
+        try {
+          await pb.collection('report').delete(report.id);
+          setSelectedReport(null);
+          setReportDetailData(null);
+          await fetchReports();
+          showAlert('Sukses', 'Laporan berhasil dihapus!');
+        } catch (error) {
+          console.error(error);
+          showAlert('Error', 'Gagal menghapus laporan: ' + (error as any)?.message);
+        }
+      }
+    );
   };
 
   const fetchReportDetails = async (report: ReportRecord) => {
     if (!report) return;
     setReportDetailLoading(true);
     try {
-      // Ambil YYYY-MM-DD aman ke lokal
       const targetDateStr = getLocalYYYYMMDD(new Date(report.created_at));
       const { startISO, endISO } = getDayRangeStr(targetDateStr);
 
@@ -566,23 +572,16 @@ export default function ReportPage() {
       });
     } catch (error) {
       console.error('Gagal mengambil detail:', error);
-      setReportDetailData({
-        menu: [],
-        logStock: [],
-        cashflow: [],
-        ongkos: [],
-      });
+      setReportDetailData({ menu: [], logStock: [], cashflow: [], ongkos: [] });
     } finally {
       setReportDetailLoading(false);
     }
   };
 
   const [fixingPrices, setFixingPrices] = useState(false);
-  const handleFixLogStockPrice = async () => {
+  
+  const executeFixLogStockPrice = async () => {
     if (!selectedReport || !reportDetailData) return;
-    const targetDateStr = getLocalYYYYMMDD(new Date(selectedReport.created_at));
-    if (!window.confirm(`Yakin ingin menyesuaikan harga beli (modal) untuk semua transaksi keluar di tanggal ${targetDateStr}?`)) return;
-
     setFixingPrices(true);
     try {
       const allProducts = await pb.collection('produk').getFullList({ fields: 'id, beli' });
@@ -611,15 +610,16 @@ export default function ReportPage() {
           updateCount++;
         }
       }
-      alert(`Penyesuaian selesai! ${updateCount} baris berhasil diperbarui.`);
+      showAlert('Sukses', `Penyesuaian selesai! ${updateCount} baris berhasil diperbarui.`);
       await fetchReportDetails(selectedReport);
     } catch (error) {
       console.error('Gagal menyesuaikan harga:', error);
-      alert('Terjadi kesalahan saat menyesuaikan harga beli.');
+      showAlert('Error', 'Terjadi kesalahan saat menyesuaikan harga beli.');
     } finally {
       setFixingPrices(false);
     }
   };
+
 
   // ==========================================
   // RENDER UI JSX
@@ -917,6 +917,33 @@ export default function ReportPage() {
           )}
         </div>
       </div>
+
+      {/* MODAL DETAIL BREAKDOWN */}
+      {detailModal && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setDetailModal(null)}>
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-xl font-black text-slate-800">{detailModal.title}</h3>
+              <button onClick={() => setDetailModal(null)} className="p-2 hover:bg-slate-100 rounded-full">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="space-y-3">
+              {detailModal.items.map((item, idx) => (
+                <div key={idx} className="flex justify-between items-center border-b border-slate-100 pb-2">
+                  <span className="font-bold text-slate-600">{item.label}</span>
+                  <span className="font-black text-slate-900">{formatRp(item.value)}</span>
+                </div>
+              ))}
+              <div className="pt-3 mt-2 border-t-2 border-slate-200 flex justify-between">
+                <span className="font-black text-slate-800">Total</span>
+                <span className="font-black text-indigo-600">{formatRp(detailModal.items.reduce((sum, i) => sum + i.value, 0))}</span>
+              </div>
+            </div>
+            <button onClick={() => setDetailModal(null)} className="mt-6 w-full py-3 bg-slate-100 rounded-xl font-bold text-slate-600">Tutup</button>
+          </div>
+        </div>
+      )}
 
       {/* MODAL GENERATE LAPORAN */}
       {showGenerateModal && (
@@ -1675,6 +1702,38 @@ export default function ReportPage() {
           </div>
         </div>
       )}
+
+      {/* DIALOG BOX POPUP ALERT / CONFIRMATION */} 
+      <Modal isOpen={dialog.show} onClose={() => setDialog(prev => ({ ...prev, show: false }))} title={dialog.title}> 
+        {/* Tentukan warna tema berdasarkan type dialog */}
+        {(() => {
+          const isAlert = dialog.type === 'alert';
+          const themeColor = isAlert ? 'rose' : 'blue';
+          
+          return (
+            <div className="text-center p-6"> 
+              <div className={`w-20 h-20 rounded-[2rem] flex items-center justify-center mx-auto mb-6 bg-${themeColor}-50 text-${themeColor}-500 shadow-inner border border-${themeColor}-100 rotate-3`}> 
+                {isAlert ? <AlertTriangle size={40} className="animate-pulse"/> : <Info size={40} />} 
+              </div> 
+              <p className="font-black text-slate-700 text-base leading-relaxed mb-8">{dialog.message}</p> 
+              <div className="flex gap-4"> 
+                {dialog.type === 'confirm' && (
+                  <button onClick={() => setDialog(prev => ({ ...prev, show: false }))} className="flex-1 py-4 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-2xl font-black text-xs tracking-widest transition-colors">
+                    BATALKAN
+                  </button>
+                )} 
+                <button 
+                  onClick={dialog.onConfirm || (() => setDialog(prev => ({ ...prev, show: false })))} 
+                  className={`flex-[2] py-4 text-white rounded-2xl font-black text-xs shadow-xl bg-${themeColor}-500 shadow-${themeColor}-500/40 hover:bg-${themeColor}-600 active:scale-95 transition-all tracking-widest`}
+                >
+                  {dialog.type === 'confirm' ? 'YA, LANJUTKAN PROSES' : 'MENGERTI'}
+                </button> 
+              </div> 
+            </div> 
+          );
+        })()}
+      </Modal>
+
     </div>
   );
 
