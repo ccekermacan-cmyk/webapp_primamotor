@@ -61,16 +61,20 @@ interface Gaji {
   id: string; person: string; pokok: number; created_at: string; tunjangan: number; bonus_1: number;
 }
 
-// Helper: Konversi Date ke format "YYYY-MM-DDTHH:mm" SESUAI WAKTU LOKAL (tanpa konversi UTC ganda)
+// Helper: Menghasilkan string "YYYY-MM-DDTHH:mm" untuk input datetime-local berdasarkan waktu lokal murni
 const getLocalDatetimeInput = (dateString?: string) => {
-  if (!dateString) {
-    const now = new Date();
-    return new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-  }
-  // Mencegah bug pengurangan 2x lipat dengan mengonversi spasi bawaan PocketBase menjadi standar 'T'
-  const safeString = dateString.replace(' ', 'T');
-  const d = new Date(safeString);
-  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  // Jika string dari PB ada (contoh: "2026-06-21 01:30:00.000Z"), ubah spasinya jadi 'T' supaya aman di-parse browser
+  const d = dateString ? new Date(dateString.replace(' ', 'T')) : new Date();
+  
+  // Ambil komponen waktu berdasarkan zona waktu lokal perangkat (tanpa offset matematis ganda)
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  const year = d.getFullYear();
+  const month = pad(d.getMonth() + 1);
+  const day = pad(d.getDate());
+  const hours = pad(d.getHours());
+  const minutes = pad(d.getMinutes());
+  
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
 };
 
 export default function MenuPage() {
@@ -199,6 +203,10 @@ export default function MenuPage() {
   const personId = formBayar.personIdLama.toLowerCase();
   return personId.includes('online1') || personText.includes('online');
   }, [formBayar.personIdLama, personOptions]);
+
+  // 🟢 State baru untuk fitur Search Pelanggan/Supplier
+  const [isPersonDropdownOpen, setIsPersonDropdownOpen] = useState(false);
+  const [personSearch, setPersonSearch] = useState('');
 
   const [isPaymentFormOpen, setIsPaymentFormOpen] = useState(false);
   const [isCartOpen, setIsCartOpen] = useState(false);
@@ -910,10 +918,10 @@ export default function MenuPage() {
     try {
       const isEditing = editSession?.isEditing && editSession?.menuId;
       
-      // Ambil murni dari input kalender (baik saat Edit maupun Buat Baru), lalu sesuaikan formatnya untuk PocketBase
+      // Browser otomatis mengubah string lokal (YYYY-MM-DDTHH:mm) menjadi format UTC (Z) yang diterima PB
       const timestamp = formBayar.createdAt
-        ? new Date(formBayar.createdAt).toISOString().replace('T', ' ')
-        : new Date().toISOString().replace('T', ' ');
+        ? new Date(formBayar.createdAt).toISOString()
+        : new Date().toISOString();
         
       const menuLower = selectedMenu.toLowerCase();
 
@@ -1106,7 +1114,7 @@ export default function MenuPage() {
         mechanics: mechanicsForPrint
       });
 
-      alert(isEditing ? "Perubahan transaksi berhasil diperbarui!" : "Transaksi berhasil disimpan!");
+      setDialog({ show: true, title: 'SUKSES', message: isEditing ? "Perubahan transaksi berhasil diperbarui!" : "Transaksi berhasil disimpan!", type: 'alert' });
       
       // Reset State Form input kasir kembali bersih
       setShowCheckoutReview(false);
@@ -1133,7 +1141,7 @@ export default function MenuPage() {
 
     } catch (err: any) {
       console.error(err);
-      alert("Gagal melakukan sinkronisasi data entri: " + (err.message || err));
+      setDialog({ show: true, title: 'Sinkronisasi Gagal', message: "Gagal menyimpan data entri: " + (err.message || err), type: 'alert' });
     } finally {
       setIsProcessing(false);
     }
@@ -1257,7 +1265,9 @@ export default function MenuPage() {
           setSelectedMenu(menuItem.jenis); 
           setShowDetailHistory(null); // Tutup modal
           window.scrollTo(0, 0);
-        } catch (e) { alert("Gagal mengambil rincian data transaksi lama."); }
+        } catch (e) { 
+          setDialog({ show: true, title: 'Error Rincian', message: 'Gagal mengambil rincian data transaksi lama.', type: 'alert' });
+        }
       }
     });
   };
@@ -1294,16 +1304,12 @@ export default function MenuPage() {
 
   const handleDeleteHistory = async (menuItem: HistoryMenu) => {
     try {
-      // Cukup hapus menu utamanya saja.
-      // Penghapusan log_stock, cashflow, ongkos, dan pengembalian stok/saldo 
-      // OTOMATIS dikerjakan oleh skrip backend (menu.pb.js)
       await pb.collection('menu').delete(menuItem.id);
-      
       fetchData();
       setShowDetailHistory(null);
     } catch (e) {
       console.error(e);
-      alert("Gagal menghapus data.");
+      setDialog({ show: true, title: 'Gagal Hapus', message: 'Gagal menghapus data transaksi.', type: 'alert' });
     }
   };
 
@@ -1898,17 +1904,65 @@ export default function MenuPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
                     <label className={`text-[10px] md:text-[11px] font-black ${activeTheme.text} uppercase tracking-wider ml-1 flex items-center gap-1.5`}><Users size={14}/> Pelanggan</label>
-                    <select
-                      value={formBayar.personIdLama}
-                      onChange={e => setFormBayar({ ...formBayar, personIdLama: e.target.value })}
-                      className={`w-full mt-2 p-3 text-xs md:text-sm font-bold text-slate-700 bg-white border-2 ${activeTheme.border} rounded-xl ${activeTheme.focusRing} outline-none transition-all shadow-sm`}
-                    >
-                      {personOptions.map(p => (
-                        <option key={p.id} value={p.id_lama}>
-                          {p.text_1}
-                        </option>
-                      ))}
-                    </select>
+                    
+                    {/* 🟢 Custom Searchable Dropdown */}
+                    <div className="relative mt-2">
+                      <div 
+                        onClick={() => setIsPersonDropdownOpen(!isPersonDropdownOpen)}
+                        className={`w-full p-3 text-xs md:text-sm font-bold text-slate-700 bg-white border-2 ${activeTheme.border} rounded-xl cursor-pointer flex justify-between items-center shadow-sm hover:border-slate-300 transition-colors`}
+                      >
+                        <span className="truncate">
+                          {personOptions.find(p => p.id_lama === formBayar.personIdLama)?.text_1 || 'Pilih Pelanggan...'}
+                        </span>
+                        {isPersonDropdownOpen ? <ChevronUp size={16} className="text-slate-400" /> : <ChevronDown size={16} className="text-slate-400" />}
+                      </div>
+
+                      {isPersonDropdownOpen && (
+                        <>
+                          {/* Overlay gaib untuk menutup dropdown jika diklik di luar area */}
+                          <div className="fixed inset-0 z-40" onClick={() => setIsPersonDropdownOpen(false)}></div>
+                          
+                          <div className={`absolute z-50 w-full mt-1 bg-white border-2 ${activeTheme.border} rounded-xl shadow-2xl overflow-hidden flex flex-col`}>
+                            {/* Area Input Pencarian */}
+                            <div className="p-3 border-b border-slate-100 bg-slate-50 flex items-center gap-2">
+                              <Search size={14} className="text-slate-400" />
+                              <input 
+                                type="text"
+                                autoFocus
+                                placeholder="Cari nama pelanggan..."
+                                className="w-full bg-transparent border-none outline-none text-xs font-bold text-slate-700 placeholder-slate-400"
+                                value={personSearch}
+                                onChange={e => setPersonSearch(e.target.value)}
+                              />
+                            </div>
+                            
+                            {/* Area List Pelanggan Terfilter */}
+                            <div className="max-h-48 overflow-y-auto custom-scrollbar bg-white">
+                              {personOptions.filter(p => p.text_1.toLowerCase().includes(personSearch.toLowerCase()) || p.id_lama.toLowerCase().includes(personSearch.toLowerCase())).length === 0 ? (
+                                <div className="p-4 text-center text-xs text-slate-400 font-bold">Pelanggan tidak ditemukan</div>
+                              ) : (
+                                personOptions
+                                  .filter(p => p.text_1.toLowerCase().includes(personSearch.toLowerCase()) || p.id_lama.toLowerCase().includes(personSearch.toLowerCase()))
+                                  .map(p => (
+                                    <div 
+                                      key={p.id}
+                                      onClick={() => {
+                                        setFormBayar({ ...formBayar, personIdLama: p.id_lama });
+                                        setIsPersonDropdownOpen(false);
+                                        setPersonSearch(''); // Bersihkan kolom pencarian setelah dipilih
+                                      }}
+                                      className={`p-3 text-xs md:text-sm font-bold cursor-pointer transition-colors border-b border-slate-50 last:border-0 flex flex-col sm:flex-row sm:items-center justify-between gap-1 ${formBayar.personIdLama === p.id_lama ? `${activeTheme.light} ${activeTheme.text}` : 'text-slate-700 hover:bg-slate-50'}`}
+                                    >
+                                      <span className="truncate">{p.text_1}</span>
+                                      <span className="text-[9px] text-slate-400 font-mono tracking-widest">{p.id_lama}</span>
+                                    </div>
+                                  ))
+                              )}
+                            </div>
+                          </div>
+                        </>
+                      )}
+                    </div>
                   </div>
                   <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
                     <label className={`text-[10px] md:text-[11px] font-black ${activeTheme.text} uppercase tracking-wider ml-1 flex items-center gap-1.5`}><CreditCard size={14}/> Tipe Bayar</label>
@@ -2139,7 +2193,7 @@ export default function MenuPage() {
                             const selectedMekanik = e.target.value;
                             const isDuplicate = formBayar.mekanikList.some((m, i) => i !== idx && m.idLama === selectedMekanik);
                             if (selectedMekanik && isDuplicate) {
-                              alert('Mekanik sudah dipilih di baris lain!');
+                              setDialog({ show: true, title: 'Mekanik Ganda', message: 'Mekanik sudah dipilih di baris lain!', type: 'alert' });
                               return;
                             }
                             const newList = [...formBayar.mekanikList];
