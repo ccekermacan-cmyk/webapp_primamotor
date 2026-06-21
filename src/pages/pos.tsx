@@ -804,7 +804,7 @@ export default function MenuPage() {
 
         // 1. Jika payment = Tempo, tanggal jatuh tempo wajib
         if (formBayar.payment === 'Tempo') {
-          if (!formBayar.note) {
+          if (!formBayar.tempoDate) { // 🟢 Perbaikan: cek formBayar.tempoDate
             setDialog({
               show: true,
               title: 'Validasi Gagal',
@@ -817,7 +817,7 @@ export default function MenuPage() {
           // 2. Jika noteMenu kosong, isi otomatis dengan keterangan tempo
           if (!noteMenu.trim()) {
             const tglTransaksi = formBayar.createdAt ? new Date(formBayar.createdAt) : new Date();
-            const tglJatuhTempo = new Date(formBayar.note);
+            const tglJatuhTempo = new Date(formBayar.tempoDate); // 🟢 Perbaikan: gunakan tempoDate
             const diffTime = tglJatuhTempo.getTime() - tglTransaksi.getTime();
             const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
             const options: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short', year: '2-digit' };

@@ -120,11 +120,23 @@ export default function ReportPage() {
   // Tambahkan setelah formatDate
 
   // Tambahkan setelah formatDate
-  const getDayRangeStr = (dateStr: string) => {
-    const startISO = `${dateStr} 00:00:00.000Z`;
-    const next = new Date(dateStr);
+  // Helper: Ambil YYYY-MM-DD dari zona waktu lokal
+  const getLocalYYYYMMDD = (date?: Date) => {
+    const d = date || new Date();
+    return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().split('T')[0];
+  };
+
+  // Helper: Buat rentang ISO (start & end) berdasarkan hari lokal
+  const getDayRangeStr = (localDateStr: string) => {
+    // localDateStr harus dalam format YYYY-MM-DD
+    const startISO = `${localDateStr}T00:00:00.000Z`;
+    
+    const next = new Date(localDateStr);
     next.setDate(next.getDate() + 1);
-    const endISO = `${next.toISOString().split('T')[0]} 00:00:00.000Z`;
+    // Format YYYY-MM-DD dari H+1
+    const nextStr = new Date(next.getTime() - next.getTimezoneOffset() * 60000).toISOString().split('T')[0];
+    const endISO = `${nextStr}T00:00:00.000Z`;
+    
     return { startISO, endISO };
   };
 
@@ -441,15 +453,16 @@ export default function ReportPage() {
       if (generating) return;
       setGenerating(true);
       try {
-        // 1. Tentukan targetDate
-        const now = new Date();
-        const localDateStr = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().split('T')[0];
-        const targetDateStr = dateStr || localDateStr;
+        // 1. Tentukan targetDate secara LOKAL
+        const targetDateStr = dateStr || getLocalYYYYMMDD();
         
         const yearMonth = targetDateStr.substring(0, 7);
         const [yyyy, mm] = yearMonth.split('-');
-        const nextMonthObj = new Date(parseInt(yyyy), parseInt(mm), 1);
-        const nextMonthStr = `${nextMonthObj.getFullYear()}-${String(nextMonthObj.getMonth() + 1).padStart(2, '0')}-01`;
+        const nextMonthObj = new Date(parseInt(yyyy, 10), parseInt(mm, 10), 1);
+        const nextMonthStr = getLocalYYYYMMDD(nextMonthObj);
+
+        // 2. Cek apakah laporan sudah ada
+        const { startISO, endISO } = getDayRangeStr(targetDateStr);
 
         // 2. Cek apakah laporan sudah ada
         const { startISO, endISO } = getDayRangeStr(targetDateStr);
@@ -1013,53 +1026,8 @@ export default function ReportPage() {
               </div>
             ) : (
               <>
-                {/* TAMPILAN MOBILE (HP) */}
-                <div className="md:hidden space-y-4">
-                  {reports.map((row) => (
-                    <div key={row.id} className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm relative overflow-hidden">
-                      <div className="absolute top-0 left-0 w-1.5 h-full bg-blue-500 rounded-l-3xl" />
-                      
-                      <div className="flex justify-between items-start mb-3 border-b border-slate-50 pb-3">
-                        <div>
-                          <span className="text-[10px] font-black bg-slate-100 text-slate-500 px-2.5 py-1 rounded-lg uppercase">{formatDate(row.created_at)}</span>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Kasir Toko</p>
-                          <p className="font-black text-slate-800 text-sm">{formatRp(row.kasir_toko)}</p>
-                        </div>
-                      </div>
-                      
-                      <p className="font-bold text-slate-700 text-sm mb-4 leading-snug">{row.text || 'Tanpa keterangan'}</p>
-                      
-                      <div className="grid grid-cols-2 gap-2 text-xs">
-                        <div className="bg-emerald-50/50 p-2.5 rounded-xl border border-emerald-100">
-                          <span className="text-[9px] font-black text-emerald-600 uppercase flex items-center gap-1"><Store size={10}/> Omset Toko</span>
-                          <span className="font-bold text-slate-700 block mt-0.5">{formatRp(row.omset_toko)}</span>
-                        </div>
-                        <div className="bg-blue-50/50 p-2.5 rounded-xl border border-blue-100">
-                          <span className="text-[9px] font-black text-blue-600 uppercase flex items-center gap-1"><Wrench size={10}/> Omset Servis</span>
-                          <span className="font-bold text-slate-700 block mt-0.5">{formatRp(row.omset_servis)}</span>
-                        </div>
-                        <div className="bg-amber-50/50 p-2.5 rounded-xl border border-amber-100">
-                          <span className="text-[9px] font-black text-amber-600 uppercase flex items-center gap-1"><Coffee size={10}/> Omset Minum</span>
-                          <span className="font-bold text-slate-700 block mt-0.5">{formatRp(row.omset_minuman)}</span>
-                        </div>
-                        <div className="bg-rose-50/50 p-2.5 rounded-xl border border-rose-100">
-                          <span className="text-[9px] font-black text-rose-600 uppercase flex items-center gap-1"><TrendingDown size={10}/> Pengeluaran</span>
-                          <span className="font-bold text-slate-700 block mt-0.5">{formatRp(row.operasional_toko + row.pengeluaran_lain)}</span>
-                        </div>
-                      </div>
-                      
-                      <div className="mt-3 pt-3 border-t border-slate-50 flex justify-between items-center">
-                        <span className="text-[10px] font-black text-emerald-600 uppercase">Laba Penjualan</span>
-                        <span className="font-black text-emerald-600">{formatRp(row.laba_penjualan)}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                {/* TAMPILAN DESKTOP */}
-                <div className="hidden md:block bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
+                {/* TAMPILAN TABEL RESPONSIVE (MOBILE & DESKTOP) */}
+                <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
                   <div className="overflow-x-auto custom-scrollbar">
                     <table className="w-full text-left border-collapse">
                       <thead className="bg-slate-50/80 border-b border-slate-100">
