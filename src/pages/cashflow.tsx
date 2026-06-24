@@ -3,7 +3,7 @@
   import { pb } from '../lib/pocketbase';
   import Modal from '../components/modal';
   import { 
-    Wallet, Search, Trash2, Edit, ChevronLeft, ChevronRight, 
+    Wallet, Search, Trash2, Edit, ChevronLeft, ChevronRight, ChevronUp,
     ArrowDownRight, ArrowUpRight, Calendar, User,
     ExternalLink, Layers, X, DollarSign, ImagePlus, Save, FileText,
     ArrowRight, Filter, Plus, ChevronDown, AlertCircle
@@ -136,12 +136,201 @@
     const [wallets, setWallets] = useState<DropdownItem[]>([]);
     const [loadingWallets, setLoadingWallets] = useState(false);
     const [activeTab, setActiveTab] = useState<'accounts' | 'history'>('history');
+    
+    // --- STATE BARU UNTUK SUB-TAB AKUN ---
+    // --- STATE BARU UNTUK SUB-TAB AKUN ---
+    const [activeAccountTab, setActiveAccountTab] = useState<'kas' | 'customer' | 'supplier' | 'karyawan'>('kas');
+    const [showZeroBalances, setShowZeroBalances] = useState(false);
+    
     const [isFormDirty, setIsFormDirty] = useState(false);
     
     // TAMBAHAN: State untuk System Alert/Confirm Modal
     const [systemAlert, setSystemAlert] = useState({ show: false, title: '', message: '', type: 'alert' as 'alert'|'confirm', onConfirm: () => {} });
 
     const isEditMode = !!(selectedTx && selectedTx.id);
+
+    // --- STATE & LOGIKA KHUSUS TAMBAH BON & GAJI ---
+    const [configBon, setConfigBon] = useState<DropdownItem | null>(null);
+    const [configGaji, setConfigGaji] = useState<DropdownItem | null>(null);
+
+    const [formDataBon, setFormDataBon] = useState({
+      catatCashflow: false,
+      created_at: formatToLocalDatetimeInput(new Date().toISOString()),
+      account_1: '', person: '', persontext: '', nominal: 0, note: ''
+    });
+
+    const [formDataGaji, setFormDataGaji] = useState({
+      catatCashflow: false,
+      created_at: formatToLocalDatetimeInput(new Date().toISOString()),
+      account_1: '', person: '', persontext: '',
+      pokok: 0, tunjangan: 0, bonus_1: 0, bonus_2: 0, bonus_3: 0, bonus_4: 0, program: 0, lembur: 0,
+      alfa: 0, sakit: 0, setengah_hari: 0, telat: 0, bpjs: 0, bon_diambil: 0, bon_dibayar: 0, ref: ''
+    });
+
+    useEffect(() => {
+      const checkConfigVisibility = async () => {
+        try {
+          const userLvl = localStorage.getItem('user_level') || '';
+          const configs = await pb.collection('dropdown').getFullList({
+            filter: `(id_lama="addbon" || id_lama="addgaji") && visibilitas ~ "${userLvl}"`,
+            $autoCancel: false
+          });
+          setConfigBon(configs.find(c => c.id_lama === 'addbon') || null);
+          setConfigGaji(configs.find(c => c.id_lama === 'addgaji') || null);
+        } catch(e) {
+          setConfigBon(null);
+          setConfigGaji(null);
+        }
+      };
+      checkConfigVisibility();
+    }, []);
+
+    const submitFormBon = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!formDataBon.person) return showAlert("Validasi Gagal", "Pihak (Person) wajib dipilih!");
+      if (!formDataBon.nominal || formDataBon.nominal <= 0) return showAlert("Validasi Gagal", "Nominal harus diisi dan lebih dari 0!");
+      if (formDataBon.catatCashflow && !formDataBon.account_1) return showAlert("Validasi Gagal", "Akun asal wajib dipilih jika dicatat ke cashflow!");
+      if (!formDataBon.note || formDataBon.note.trim() === '') return showAlert("Validasi Gagal", "Catatan wajib diisi!");
+
+      setIsProcessing(true);
+      try {
+        const currentUser = pb.authStore.model;
+        const operatorName = currentUser?.name || currentUser?.username || 'Admin';
+        
+        // Konversi waktu lokal browser -> Dimundurkan ke UTC+0 agar konsisten dengan PB
+        const localDate = new Date(formDataBon.created_at);
+        const utcDate = new Date(localDate.getTime() + localDate.getTimezoneOffset() * 60000).toISOString();
+
+        let refCashflowId = "";
+
+        // TULIS KE CASHFLOW (Jika opsi dicentang)
+        if (formDataBon.catatCashflow) {
+          const cfData = new FormData();
+          cfData.append("created_at", utcDate);
+          cfData.append("operator", operatorName);
+          cfData.append("jenis", "pengeluaranlain");
+          cfData.append("mutasi", "out");
+          cfData.append("account_1", formDataBon.account_1);
+          cfData.append("nominal", String(formDataBon.nominal));
+          cfData.append("note", formDataBon.note);
+          
+          files.forEach(f => { if (!f.isOld) cfData.append("file", f); });
+
+          const createdCf = await pb.collection('cashflow').create(cfData);
+          refCashflowId = createdCf.id;
+        }
+
+        // TULIS KE BON
+        const bonData = new FormData();
+        bonData.append("created_at", utcDate);
+        bonData.append("person", formDataBon.person);
+        bonData.append("akun_asal", formDataBon.account_1 || "");
+        if (refCashflowId) bonData.append("ref_cashflow", refCashflowId);
+        bonData.append("nominal_bon", String(formDataBon.nominal));
+        bonData.append("nominal_cashflow", formDataBon.catatCashflow ? String(formDataBon.nominal) : "0");
+        bonData.append("note_bon", formDataBon.note);
+        bonData.append("note_cashflow", formDataBon.catatCashflow ? formDataBon.note : "");
+        bonData.append("operator", operatorName);
+
+        files.forEach(f => { if (!f.isOld) bonData.append("file", f); });
+
+        await pb.collection('bon').create(bonData);
+
+        showAlert("Sukses", "Data Bon berhasil disimpan!");
+        setModalType(null);
+        setFiles([]);
+        setFormDataBon({
+          catatCashflow: false, created_at: formatToLocalDatetimeInput(new Date().toISOString()),
+          account_1: '', person: '', persontext: '', nominal: 0, note: ''
+        });
+        setIsFormDirty(false);
+        fetchCashflow();
+      } catch (error: any) {
+        showAlert("Gagal Simpan", "Gagal menyimpan data bon: " + error.message);
+      } finally {
+        setIsProcessing(false);
+      }
+    };
+
+    const submitFormGaji = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!formDataGaji.person) return showAlert("Validasi Gagal", "Karyawan wajib dipilih!");
+      if (formDataGaji.catatCashflow && !formDataGaji.account_1) return showAlert("Validasi Gagal", "Akun asal wajib dipilih jika dicatat ke cashflow!");
+
+      setIsProcessing(true);
+      try {
+        const currentUser = pb.authStore.model;
+        const operatorName = currentUser?.name || currentUser?.username || 'Admin';
+        
+        // Konversi ke UTC
+        const localDate = new Date(formDataGaji.created_at);
+        const utcDate = new Date(localDate.getTime() + localDate.getTimezoneOffset() * 60000).toISOString();
+
+        // Hitung Grand Total dari skema Akun.tsx
+        const pokok = Number(formDataGaji.pokok || 0);
+        const tunjangan = Number(formDataGaji.tunjangan || 0);
+        const pendapatanLain = Number(formDataGaji.bonus_1 || 0) + Number(formDataGaji.bonus_2 || 0) + 
+                               Number(formDataGaji.bonus_3 || 0) + Number(formDataGaji.bonus_4 || 0) + 
+                               Number(formDataGaji.program || 0) + Number(formDataGaji.lembur || 0);
+        
+        const nilaiDasar = pokok + tunjangan;
+        const potonganKehadiran = (nilaiDasar * Number(formDataGaji.alfa || 0)) +
+                                  ((nilaiDasar / 2) * Number(formDataGaji.setengah_hari || 0)) +
+                                  ((nilaiDasar * 0.9) * Number(formDataGaji.sakit || 0)) +
+                                  (Number(formDataGaji.telat || 0) * 1000);
+        
+        const potonganLain = Number(formDataGaji.bpjs || 0) + Number(formDataGaji.bon_diambil || 0) + Number(formDataGaji.bon_dibayar || 0);
+        
+        const grandTotal = pokok + tunjangan + pendapatanLain - potonganKehadiran - potonganLain;
+
+        let refCashflowId = "";
+
+        if (formDataGaji.catatCashflow) {
+          const cfData = new FormData();
+          cfData.append("created_at", utcDate);
+          cfData.append("operator", operatorName);
+          cfData.append("jenis", "pengeluaranlain"); // Jenis cashflow default untuk Gaji
+          cfData.append("mutasi", "out");
+          cfData.append("account_1", formDataGaji.account_1);
+          cfData.append("nominal", String(grandTotal));
+          cfData.append("note", formDataGaji.ref || `Pembayaran Gaji: ${formDataGaji.persontext}`);
+          
+          const createdCf = await pb.collection('cashflow').create(cfData);
+          refCashflowId = createdCf.id;
+        }
+
+        const gajiData = {
+          person: formDataGaji.person, // person ini nyimpan id_lama / username (dari personOptions)
+          pokok: pokok, tunjangan: tunjangan,
+          bonus_1: Number(formDataGaji.bonus_1), bonus_2: Number(formDataGaji.bonus_2),
+          bonus_3: Number(formDataGaji.bonus_3), bonus_4: Number(formDataGaji.bonus_4),
+          program: Number(formDataGaji.program), lembur: Number(formDataGaji.lembur),
+          alfa: Number(formDataGaji.alfa), sakit: Number(formDataGaji.sakit),
+          setengah_hari: Number(formDataGaji.setengah_hari), telat: Number(formDataGaji.telat),
+          bpjs: Number(formDataGaji.bpjs), bon_diambil: Number(formDataGaji.bon_diambil), bon_dibayar: Number(formDataGaji.bon_dibayar),
+          created_at: utcDate,
+          ref: formDataGaji.ref,
+          ref_baru: refCashflowId
+        };
+
+        await pb.collection('gaji').create(gajiData);
+
+        showAlert("Sukses", "Data Gaji berhasil disimpan!");
+        setModalType(null);
+        setFormDataGaji({
+          catatCashflow: false, created_at: formatToLocalDatetimeInput(new Date().toISOString()),
+          account_1: '', person: '', persontext: '', pokok: 0, tunjangan: 0,
+          bonus_1: 0, bonus_2: 0, bonus_3: 0, bonus_4: 0, program: 0, lembur: 0,
+          alfa: 0, sakit: 0, setengah_hari: 0, telat: 0, bpjs: 0, bon_diambil: 0, bon_dibayar: 0, ref: ''
+        });
+        setIsFormDirty(false);
+        fetchCashflow();
+      } catch (error: any) {
+        showAlert("Gagal Simpan", "Gagal menyimpan data gaji: " + error.message);
+      } finally {
+        setIsProcessing(false);
+      }
+    };
 
     // TAMBAHAN: Helper memanggil alert
     const showAlert = (title: string, message: string) => {
@@ -194,12 +383,19 @@
         const userLevel = localStorage.getItem('user_level') || '';
         const userName = currentUser?.username || '';
 
-        let filterCondition = `kategori ~ "cashflow" && jenis ~ "cashflow account"`;
-
-        // Jika level bukan 1 (bukan superadmin), tambahkan filter enum_1 dan visibilitas
+        // 1. Kondisi untuk Akun Kas (Cashflow)
+        let cashflowCond = `(kategori ~ "cashflow" && jenis ~ "cashflow account"`;
         if (userLevel !== '1') {
-          filterCondition += ` && enum_1 ~ "${userName}" && visibilitas ~ "${userLevel}"`;
+          cashflowCond += ` && enum_1 ~ "${userName}" && visibilitas ~ "${userLevel}"`;
         }
+        cashflowCond += `)`;
+
+        // 2. Kondisi untuk Person (Customer, Supplier, Karyawan)
+        // Operator ~ (LIKE) di PocketBase otomatis bersifat case-insensitive
+        let personCond = `(kategori ~ "person" && (jenis ~ "customer" || jenis ~ "supplier" || (jenis ~ "user" && enum_4 ~ "${userLevel}")))`;
+
+        // Gabungkan kedua kondisi
+        let filterCondition = `${cashflowCond} || ${personCond}`;
 
         const records = await pb.collection('dropdown').getFullList<DropdownItem>({
           filter: filterCondition,
@@ -598,7 +794,7 @@
           {/* HEADER */}
           {/* ============================================================ */}
           <div
-            className={`flex flex-col sm:flex-row sm:justify-between sm:items-end gap-4 mb-8 shrink-0 transition-all duration-300 ${
+            className={`flex flex-col md:flex-row md:justify-between md:items-end gap-4 mb-8 shrink-0 transition-all duration-300 ${
               showHeader
                 ? 'opacity-100 max-h-40'
                 : 'opacity-0 max-h-0 pointer-events-none mb-0 overflow-hidden'
@@ -615,20 +811,61 @@
                 Monitoring perputaran modal Prima Motor
               </p>
             </div>
-            <button
-              onClick={() => {
-                setSelectedTx(null);
-                setFiles([]);
-                setFormData({
-                  mutasi: 'Masuk',
-                  created_at: formatToLocalDatetimeInput(new Date().toISOString()),
-                });
-                setModalType('form');
-              }}
-              className="hidden md:flex bg-slate-900 hover:bg-black text-white px-6 py-3.5 rounded-2xl font-black text-sm shadow-xl shadow-slate-200 transition-all active:scale-95 items-center justify-center gap-2"
-            >
-              <span className="text-emerald-400 text-lg leading-none">+</span> CATAT KAS
-            </button>
+            
+            {/* CONTAINER TOMBOL AKSI */}
+            <div className="hidden md:flex items-center gap-3 flex-wrap">
+              {/* Tombol Tambah Bon (Merespon Visibilitas) */}
+              {configBon && (
+                <button
+                  onClick={() => {
+                    setFormDataBon({
+                      catatCashflow: false,
+                      created_at: formatToLocalDatetimeInput(new Date().toISOString()),
+                      account_1: '', person: '', persontext: '', nominal: 0, note: ''
+                    });
+                    setFiles([]);
+                    setModalType('formBon' as any);
+                  }}
+                  className="bg-purple-600 hover:bg-purple-700 text-white px-5 py-3.5 rounded-2xl font-black text-sm shadow-xl shadow-purple-200 transition-all active:scale-95 flex items-center justify-center gap-2"
+                >
+                  <Plus size={18} className="text-purple-300" /> TAMBAH BON
+                </button>
+              )}
+
+              {/* Tombol Tambah Gaji (Merespon Visibilitas) */}
+              {configGaji && (
+                <button
+                  onClick={() => {
+                    setFormDataGaji({
+                      catatCashflow: false, created_at: formatToLocalDatetimeInput(new Date().toISOString()),
+                      account_1: '', person: '', persontext: '', pokok: 0, tunjangan: 0,
+                      bonus_1: 0, bonus_2: 0, bonus_3: 0, bonus_4: 0, program: 0, lembur: 0,
+                      alfa: 0, sakit: 0, setengah_hari: 0, telat: 0, bpjs: 0, bon_diambil: 0, bon_dibayar: 0, ref: ''
+                    });
+                    setModalType('formGaji' as any);
+                  }}
+                  className="bg-amber-500 hover:bg-amber-600 text-white px-5 py-3.5 rounded-2xl font-black text-sm shadow-xl shadow-amber-200 transition-all active:scale-95 flex items-center justify-center gap-2"
+                >
+                  <Plus size={18} className="text-amber-200" /> TAMBAH GAJI
+                </button>
+              )}
+
+              {/* Tombol Catat Kas (Asli) */}
+              <button
+                onClick={() => {
+                  setSelectedTx(null);
+                  setFiles([]);
+                  setFormData({
+                    mutasi: 'Masuk',
+                    created_at: formatToLocalDatetimeInput(new Date().toISOString()),
+                  });
+                  setModalType('form');
+                }}
+                className="bg-slate-900 hover:bg-black text-white px-6 py-3.5 rounded-2xl font-black text-sm shadow-xl shadow-slate-200 transition-all active:scale-95 flex items-center justify-center gap-2"
+              >
+                <span className="text-emerald-400 text-lg leading-none">+</span> CATAT KAS
+              </button>
+            </div>
           </div>
 
           {/* ============================================================ */}
@@ -1031,8 +1268,36 @@
               Buku Rekening & Kas
             </h3>
             <p className="text-sm font-medium text-slate-500 mt-1">
-              Sisa saldo aktif untuk setiap penyimpanan
+              Sisa saldo aktif untuk setiap penyimpanan dan pencatatan bon
             </p>
+          </div>
+
+          {/* Sub-tab Kategori Akun */}
+          <div className="flex gap-2 mb-6 overflow-x-auto no-scrollbar pb-2">
+            {[
+              { id: 'kas', label: 'Kas & Bank', color: 'emerald' },
+              { id: 'customer', label: 'Piutang Customer', color: 'blue' },
+              { id: 'supplier', label: 'Hutang Supplier', color: 'amber' },
+              { id: 'karyawan', label: 'Bon Karyawan', color: 'purple' },
+            ].map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => {
+                  setActiveAccountTab(tab.id as any);
+                  setShowZeroBalances(false); // Reset lipatan setiap pindah tab
+                }}
+                className={`shrink-0 px-4 py-2.5 text-xs font-black uppercase tracking-wider rounded-xl transition-all duration-300 ${
+                  activeAccountTab === tab.id
+                    ? (tab.id === 'kas' ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/30' : 
+                       tab.id === 'customer' ? 'bg-blue-500 text-white shadow-md shadow-blue-500/30' :
+                       tab.id === 'supplier' ? 'bg-amber-500 text-white shadow-md shadow-amber-500/30' :
+                       'bg-purple-500 text-white shadow-md shadow-purple-500/30')
+                    : 'bg-white text-slate-500 hover:bg-slate-100 border border-slate-200'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
           </div>
 
           {loadingWallets ? (
@@ -1041,88 +1306,142 @@
             </div>
           ) : wallets.length === 0 ? (
             <div className="text-center py-20 text-slate-400 font-bold bg-white rounded-3xl border border-slate-200 shadow-sm">
-              Tidak ada dompet yang tersedia.
+              Tidak ada data yang tersedia.
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {wallets.map((wallet) => {
-                const getInitials = (name: string) =>
-                  name
-                    .split(' ')
-                    .map((n) => n[0])
-                    .join('')
-                    .substring(0, 2)
-                    .toUpperCase();
+            <div className="space-y-8">
+              {(() => {
+                const getInitials = (name: string) => name.split(' ').map((n) => n[0]).join('').substring(0, 2).toUpperCase();
                 const stringToColor = (str: string) => {
                   let hash = 0;
-                  for (let i = 0; i < str.length; i++)
-                    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+                  for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
                   const c = (hash & 0x00ffffff).toString(16).toUpperCase();
                   return '#' + '00000'.substring(0, 6 - c.length) + c;
                 };
-                const bgColor =
-                  wallet.link_image && wallet.link_image.startsWith('#')
-                    ? wallet.link_image
-                    : stringToColor(wallet.text_1);
 
-                return (
-                  <div
-                    key={wallet.id}
-                    onClick={() => {
-                      setFilterAccounts([wallet.id]);
-                      setActiveTab('history');
-                      setPage(1);
-                    }}
-                    style={{
-                      background: `linear-gradient(135deg, ${bgColor}CC 0%, ${bgColor} 100%)`,
-                    }}
-                    className="relative overflow-hidden rounded-[2rem] p-6 text-white shadow-xl hover:-translate-y-1.5 transition-transform duration-300 group cursor-pointer"
-                  >
-                    <div className="absolute -top-10 -right-10 w-40 h-40 bg-white/20 rounded-full blur-3xl group-hover:bg-white/30 transition-colors duration-500 pointer-events-none" />
-                    <div className="flex justify-between items-start mb-8 relative z-10">
-                      <div className="relative group/avatar">
-                        <div className="absolute -inset-1 bg-white/20 rounded-2xl blur opacity-0 group-hover/avatar:opacity-100 transition duration-500" />
-                        <div className="relative w-14 h-14 bg-white/10 rounded-2xl border border-white/20 flex items-center justify-center backdrop-blur-md shadow-lg overflow-hidden transition-all duration-300 group-hover:scale-105">
-                          {wallet.link_image &&
-                          !wallet.link_image.startsWith('#') ? (
-                            <>
-                              <img
-                                src={pb.files.getUrl(wallet, wallet.link_image)}
-                                alt="PP"
-                                className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
-                                onError={(e) => {
-                                  e.currentTarget.classList.add('hidden');
-                                  e.currentTarget.nextElementSibling?.classList.remove(
-                                    'hidden'
-                                  );
-                                }}
-                              />
-                              <span className="hidden font-black text-lg tracking-tight transition-transform duration-300 group-hover:scale-110">
-                                {getInitials(wallet.text_1)}
-                              </span>
-                            </>
-                          ) : (
-                            <span className="font-black text-lg tracking-tight transition-transform duration-300 group-hover:scale-110">
-                              {getInitials(wallet.text_1)}
+                // Mengambil dan mensortir data berdasarkan saldo terbesar (descending)
+                const listCashflow = wallets.filter(w => (w.kategori || '').toLowerCase().includes('cashflow')).sort((a, b) => ((b as any).number_1 || 0) - ((a as any).number_1 || 0));
+                const listCustomer = wallets.filter(w => (w.kategori || '').toLowerCase().includes('person') && (w.jenis || '').toLowerCase().includes('customer')).sort((a, b) => ((b as any).number_1 || 0) - ((a as any).number_1 || 0));
+                const listSupplier = wallets.filter(w => (w.kategori || '').toLowerCase().includes('person') && (w.jenis || '').toLowerCase().includes('supplier')).sort((a, b) => ((b as any).number_1 || 0) - ((a as any).number_1 || 0));
+                const listUser = wallets.filter(w => (w.kategori || '').toLowerCase().includes('person') && (w.jenis || '').toLowerCase().includes('user')).sort((a, b) => ((b as any).number_1 || 0) - ((a as any).number_1 || 0));
+
+                let currentList: DropdownItem[] = [];
+                let colorTheme = 'emerald';
+                let title = '';
+
+                if (activeAccountTab === 'kas') { currentList = listCashflow; colorTheme = 'emerald'; title = 'Akun Kas & Bank'; }
+                else if (activeAccountTab === 'customer') { currentList = listCustomer; colorTheme = 'blue'; title = 'Piutang Customer'; }
+                else if (activeAccountTab === 'supplier') { currentList = listSupplier; colorTheme = 'amber'; title = 'Hutang Supplier'; }
+                else if (activeAccountTab === 'karyawan') { currentList = listUser; colorTheme = 'purple'; title = 'Bon Karyawan'; }
+
+                if (currentList.length === 0) {
+                  return (
+                    <div className="text-center py-20 text-slate-400 font-bold bg-white rounded-3xl border border-dashed border-slate-200 shadow-sm">
+                      Belum ada data untuk kategori ini.
+                    </div>
+                  );
+                }
+
+                // Hitung subtotal seluruhnya di kategori ini
+                const subtotal = currentList.reduce((acc, w) => acc + ((w as any).number_1 || 0), 0);
+
+                // Pisahkan yang aktif (> 0) dan yang dilipat (<= 0)
+                const activeList = currentList.filter(w => ((w as any).number_1 || 0) > 0);
+                const zeroList = currentList.filter(w => ((w as any).number_1 || 0) <= 0);
+
+                const renderGrid = (listToRender: DropdownItem[]) => (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {listToRender.map((wallet) => {
+                      const wData = wallet as any;
+                      const bgColor = wData.link_image && wData.link_image.startsWith('#') ? wData.link_image : stringToColor(wallet.text_1);
+                      return (
+                        <div
+                          key={wallet.id}
+                          onClick={() => {
+                            setFilterAccounts([wallet.id]);
+                            setActiveTab('history');
+                            setPage(1);
+                          }}
+                          style={{ background: `linear-gradient(135deg, ${bgColor}CC 0%, ${bgColor} 100%)` }}
+                          className="relative overflow-hidden rounded-[2rem] p-6 text-white shadow-xl hover:-translate-y-1.5 transition-transform duration-300 group cursor-pointer"
+                        >
+                          <div className="absolute -top-10 -right-10 w-40 h-40 bg-white/20 rounded-full blur-3xl group-hover:bg-white/30 transition-colors duration-500 pointer-events-none" />
+                          <div className="flex justify-between items-start mb-8 relative z-10">
+                            <div className="relative group/avatar">
+                              <div className="absolute -inset-1 bg-white/20 rounded-2xl blur opacity-0 group-hover/avatar:opacity-100 transition duration-500" />
+                              <div className="relative w-14 h-14 bg-white/10 rounded-2xl border border-white/20 flex items-center justify-center backdrop-blur-md shadow-lg overflow-hidden transition-all duration-300 group-hover:scale-105">
+                                {wData.link_image && !wData.link_image.startsWith('#') ? (
+                                  <>
+                                    <img
+                                      src={pb.files.getUrl(wallet, wData.link_image)}
+                                      alt="PP"
+                                      className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                                      onError={(e) => {
+                                        e.currentTarget.classList.add('hidden');
+                                        e.currentTarget.nextElementSibling?.classList.remove('hidden');
+                                      }}
+                                    />
+                                    <span className="hidden font-black text-lg tracking-tight transition-transform duration-300 group-hover:scale-110">
+                                      {getInitials(wallet.text_1)}
+                                    </span>
+                                  </>
+                                ) : (
+                                  <span className="font-black text-lg tracking-tight transition-transform duration-300 group-hover:scale-110">
+                                    {getInitials(wallet.text_1)}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <span className="text-[9px] font-black uppercase tracking-widest text-white bg-white/10 border border-white/20 px-3 py-1.5 rounded-full backdrop-blur-sm shadow-sm">
+                              {wallet.jenis || 'DOMPET'}
                             </span>
-                          )}
+                          </div>
+                          <div className="relative z-10">
+                            <p className="text-sm font-medium text-white/70 mb-1">{wallet.text_1}</p>
+                            <p className="text-3xl font-black tracking-tighter text-white">{formatRupiah(wData.number_1 || 0)}</p>
+                          </div>
                         </div>
-                      </div>
-                      <span className="text-[9px] font-black uppercase tracking-widest text-white bg-white/10 border border-white/20 px-3 py-1.5 rounded-full backdrop-blur-sm shadow-sm">
-                        {wallet.jenis || 'DOMPET'}
-                      </span>
-                    </div>
-                    <div className="relative z-10">
-                      <p className="text-sm font-medium text-white/70 mb-1">
-                        {wallet.text_1}
-                      </p>
-                      <p className="text-3xl font-black tracking-tighter text-white">
-                        {formatRupiah(wallet.number_1 || 0)}
-                      </p>
-                    </div>
+                      );
+                    })}
                   </div>
                 );
-              })}
+
+                return (
+                  <div className="space-y-6">
+                    {/* Header Section dengan Subtotal */}
+                    <div className={`flex justify-between items-end border-b-2 border-slate-200 pb-3 px-2`}>
+                      <h4 className={`text-xl md:text-2xl font-black text-${colorTheme}-600 uppercase tracking-widest`}>{title}</h4>
+                      <div className="text-right">
+                        <span className={`text-[10px] font-black text-${colorTheme}-400 uppercase tracking-widest block`}>Subtotal Saldo</span>
+                        <span className={`text-lg md:text-xl font-black text-${colorTheme}-600`}>{formatRupiah(subtotal)}</span>
+                      </div>
+                    </div>
+
+                    {/* Menampilkan list yang saldonya > 0 */}
+                    {activeList.length > 0 ? renderGrid(activeList) : (
+                      <div className="text-sm font-bold text-slate-400 bg-slate-100 p-4 rounded-xl text-center">Tidak ada akun aktif (saldo diatas 0) di kategori ini.</div>
+                    )}
+
+                    {/* Menampilkan list yang saldonya <= 0 dalam keadaan terlipat */}
+                    {zeroList.length > 0 && (
+                      <div className="mt-8">
+                        <button 
+                          onClick={() => setShowZeroBalances(!showZeroBalances)}
+                          className="w-full py-3 flex items-center justify-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-xl font-black text-xs uppercase tracking-widest transition-colors"
+                        >
+                          {showZeroBalances ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                          {showZeroBalances ? 'Sembunyikan Akun Kosong/Minus' : `Tampilkan ${zeroList.length} Akun Kosong/Minus`}
+                        </button>
+                        
+                        {/* Area Folded Data */}
+                        <div className={`transition-all duration-500 overflow-hidden ${showZeroBalances ? 'max-h-[5000px] mt-4 opacity-100' : 'max-h-0 opacity-0'}`}>
+                           {renderGrid(zeroList)}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           )}
         </div>
@@ -1353,6 +1672,246 @@
               <div className="mt-6 flex flex-col sm:flex-row gap-3 pt-5 border-t-2 border-slate-100 sticky bottom-0 bg-white">
                 <button type="button" onClick={handleCloseModal} className="flex-1 py-4 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-2xl font-black text-xs tracking-widest transition-colors">BATALKAN</button>
                 <button type="submit" disabled={isProcessing} className={`flex-[2] py-4 text-white rounded-2xl font-black text-xs shadow-xl transition-all active:scale-95 flex justify-center items-center gap-2 ${isProcessing ? 'opacity-70 cursor-not-allowed bg-slate-400' : (formData.mutasi === 'Masuk' ? 'bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/40' : 'bg-rose-500 hover:bg-rose-600 shadow-rose-500/40')}`}>{isProcessing ? <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"/> MENYIMPAN...</> : <><Save size={16}/> SIMPAN TRANSAKSI</>}</button>
+              </div>
+            </form>
+          </Modal>
+
+          {/* ============================================================ */}
+          {/* MODAL FORM TAMBAH BON */}
+          {/* ============================================================ */}
+          <Modal isOpen={modalType === 'formBon'} onClose={() => setModalType(null)} title="Catat Transaksi Bon Baru" maxWidth="max-w-3xl">
+            <form onSubmit={submitFormBon} className="flex flex-col max-h-[75vh] md:max-h-[80vh] overflow-y-auto custom-scrollbar p-1">
+              <div className="space-y-5">
+                
+                {/* Checkbox Keluar Cashflow */}
+                <label className="flex items-center gap-3 p-4 bg-purple-50 border border-purple-200 rounded-2xl cursor-pointer hover:bg-purple-100 transition-colors shadow-sm">
+                  <div className="relative flex items-center justify-center">
+                    <input type="checkbox" className="w-5 h-5 cursor-pointer accent-purple-600" checked={formDataBon.catatCashflow} onChange={(e) => setFormDataBon({...formDataBon, catatCashflow: e.target.checked})} />
+                  </div>
+                  <div>
+                    <p className="font-black text-purple-700 text-sm">Opsi: Keluar dari Cashflow</p>
+                    <p className="text-[10px] font-bold text-purple-500">Centang jika ini memotong saldo dompet kasir/rekening Anda.</p>
+                  </div>
+                </label>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                    <label className="text-[10px] font-black text-purple-600 uppercase tracking-wider ml-1 flex items-center gap-1.5"><Calendar size={14}/> Tanggal Waktu</label>
+                    <input type="datetime-local" value={formDataBon.created_at} onChange={e => setFormDataBon({ ...formDataBon, created_at: e.target.value })} className="w-full mt-2 p-3 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none shadow-sm focus:ring-purple-500/20 focus:border-purple-400" required />
+                  </div>
+
+                  <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 relative">
+                    <label className="text-[10px] font-black text-purple-600 uppercase tracking-wider ml-1 flex items-center gap-1.5"><User size={14}/> Pilih Pihak (Karyawan / Customer)</label>
+                    <div className="relative mt-2">
+                      <div className="flex items-center gap-2">
+                        <input type="text" placeholder="Cari nama..." value={searchPerson} onChange={(e) => setSearchPerson(e.target.value)} onFocus={() => setIsPersonOpen(true)} className="flex-1 p-3 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-purple-500/20" />
+                        <button type="button" onClick={() => setIsPersonOpen(!isPersonOpen)} className="p-3 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition"><ChevronDown size={16} className={`transition-transform duration-200 ${isPersonOpen ? 'rotate-180' : ''}`} /></button>
+                      </div>
+
+                      {isPersonOpen && (
+                        <div className="absolute z-20 mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-lg max-h-60 overflow-y-auto">
+                          {personOptions.filter(p => p.source === 'user' || p.source === 'dropdown').length === 0 ? (
+                            <div className="px-4 py-3 text-xs text-slate-500 text-center">Memuat data...</div>
+                          ) : (
+                            personOptions
+                              .filter(opt => (opt.source === 'user' || opt.source === 'dropdown') && opt.text_1.toLowerCase().includes(searchPerson.toLowerCase()))
+                              .map(opt => (
+                                <div key={opt.id} onClick={() => { setFormDataBon(prev => ({ ...prev, person: opt.id, persontext: opt.text_1 })); setSearchPerson(''); setIsPersonOpen(false); }} className="px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-purple-50 cursor-pointer border-b border-slate-100 last:border-0 flex justify-between items-center">
+                                  <span>{opt.text_1}</span>
+                                  <span className="text-[9px] font-black text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">{opt.source === 'user' ? 'Karyawan' : 'Customer'}</span>
+                                </div>
+                              ))
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    {formDataBon.person && (
+                      <div className="mt-3 text-xs font-bold text-purple-700 bg-white p-2.5 rounded-lg border border-purple-100 flex items-center justify-between shadow-sm">
+                        <span>Dipilih:</span><span className="text-slate-800">{formDataBon.persontext}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className={`bg-slate-50 p-3 rounded-2xl border border-slate-100 transition-opacity ${!formDataBon.catatCashflow ? 'opacity-50 pointer-events-none' : ''}`}>
+                    <label className="text-[10px] font-black text-purple-600 uppercase tracking-wider ml-1 flex items-center gap-1.5"><Wallet size={14}/> Akun Asal Kas</label>
+                    <select value={formDataBon.account_1} onChange={e => setFormDataBon({...formDataBon, account_1: e.target.value})} className="w-full mt-2 p-3 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none shadow-sm focus:ring-purple-500/20 focus:border-purple-400" required={formDataBon.catatCashflow}>
+                      <option value="" disabled>Pilih Dompet Pengeluaran...</option>
+                      {accountOptions.map(opt => <option key={opt.id} value={opt.id}>{opt.text_1}</option>)}
+                    </select>
+                  </div>
+
+                  <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                    <label className="text-[10px] font-black text-purple-600 uppercase tracking-wider ml-1 flex items-center gap-1.5"><DollarSign size={14}/> Nominal Bon</label>
+                    <div className="relative mt-2">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-black text-purple-600">Rp</span>
+                      <input type="number" placeholder="0" value={formDataBon.nominal || ''} onChange={e => setFormDataBon({...formDataBon, nominal: Number(e.target.value)})} className="w-full pl-9 pr-3 py-3 text-sm font-black text-slate-800 bg-white border border-slate-200 rounded-xl outline-none shadow-sm focus:ring-purple-500/20 focus:border-purple-400" required />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                  <label className="text-[10px] font-black text-purple-600 uppercase tracking-wider ml-1 flex items-center gap-1.5"><FileText size={14}/> Catatan / Keterangan</label>
+                  <input type="text" placeholder="Deskripsi Bon..." value={formDataBon.note} onChange={e => setFormDataBon({...formDataBon, note: e.target.value})} className="w-full mt-2 p-3 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none shadow-sm focus:ring-purple-500/20 focus:border-purple-400" required />
+                </div>
+
+                <div className="p-4 rounded-3xl border border-purple-100 bg-purple-50/30 space-y-3">
+                  <div className="flex justify-between items-center">
+                    <label className="text-[11px] font-black text-purple-600 uppercase tracking-wider flex items-center gap-2"><ImagePlus size={16} /> Lampiran Bukti</label>
+                    <label htmlFor="bon-file-input" className="cursor-pointer text-[10px] font-black bg-white px-4 py-2 rounded-xl shadow-sm hover:scale-105 active:scale-95 transition-all border border-purple-200 text-purple-600">+ Upload</label>
+                    <input id="bon-file-input" type="file" multiple accept="image/*,video/*" className="hidden" onChange={e => { const selectedFiles = Array.from(e.target.files || []); if (selectedFiles.length > 0) setFiles(prev => [...prev, ...selectedFiles]); e.target.value = ''; }} />
+                  </div>
+                  {previewUrls.length === 0 ? (
+                    <div className="text-center py-5 rounded-2xl border-2 border-dashed border-purple-200/50"><p className="text-[10px] font-bold text-purple-600 opacity-70">Belum ada file terlampir</p></div>
+                  ) : (
+                    <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
+                      {previewUrls.map((url, idx) => (
+                        <div key={idx} className="relative group rounded-xl overflow-hidden border border-white shadow-sm aspect-square bg-white">
+                          {isVideo(files[idx]?.name) ? <video src={url} className="w-full h-full object-cover opacity-80" muted /> : <img src={url} alt={`preview-${idx}`} className="w-full h-full object-cover transition-transform group-hover:scale-110 duration-500" />}
+                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"><button type="button" onClick={() => setFiles(prev => prev.filter((_, i) => i !== idx))} className="w-8 h-8 bg-rose-500 text-white rounded-full flex items-center justify-center hover:scale-110 active:scale-95 shadow-lg"><Trash2 size={14} /></button></div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="mt-6 flex flex-col sm:flex-row gap-3 pt-5 border-t-2 border-slate-100 sticky bottom-0 bg-white">
+                <button type="button" onClick={() => setModalType(null)} className="flex-1 py-4 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-2xl font-black text-xs tracking-widest transition-colors">BATALKAN</button>
+                <button type="submit" disabled={isProcessing} className={`flex-[2] py-4 text-white rounded-2xl font-black text-xs shadow-xl transition-all active:scale-95 flex justify-center items-center gap-2 ${isProcessing ? 'opacity-70 cursor-not-allowed bg-slate-400' : 'bg-purple-600 hover:bg-purple-700 shadow-purple-500/40'}`}>
+                  {isProcessing ? <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"/> MENYIMPAN...</> : <><Save size={16}/> SIMPAN TRANSAKSI BON</>}
+                </button>
+              </div>
+            </form>
+          </Modal>
+
+          {/* ============================================================ */}
+          {/* MODAL FORM TAMBAH GAJI */}
+          {/* ============================================================ */}
+          <Modal isOpen={modalType === 'formGaji' as any} onClose={() => setModalType(null)} title="Catat Rekap Gaji Karyawan" maxWidth="max-w-3xl">
+            <form onSubmit={submitFormGaji} className="flex flex-col max-h-[75vh] md:max-h-[80vh] overflow-y-auto custom-scrollbar p-1">
+              <div className="space-y-6">
+                
+                {/* Opsi Cashflow */}
+                <label className="flex items-center gap-3 p-4 bg-amber-50 border border-amber-200 rounded-2xl cursor-pointer hover:bg-amber-100 transition-colors shadow-sm">
+                  <div className="relative flex items-center justify-center">
+                    <input type="checkbox" className="w-5 h-5 cursor-pointer accent-amber-600" checked={formDataGaji.catatCashflow} onChange={(e) => setFormDataGaji({...formDataGaji, catatCashflow: e.target.checked})} />
+                  </div>
+                  <div>
+                    <p className="font-black text-amber-700 text-sm">Opsi: Keluar dari Cashflow</p>
+                    <p className="text-[10px] font-bold text-amber-500">Mencatat otomatis Grand Total Gaji ke dalam transaksi Kas Keluar.</p>
+                  </div>
+                </label>
+
+                {/* Baris Akun Kas & Tanggal */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                    <label className="text-[10px] font-black text-amber-600 uppercase tracking-wider ml-1 flex items-center gap-1.5"><Calendar size={14}/> Tanggal Rekap</label>
+                    <input type="datetime-local" value={formDataGaji.created_at} onChange={e => setFormDataGaji({ ...formDataGaji, created_at: e.target.value })} className="w-full mt-2 p-3 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none shadow-sm focus:ring-amber-500/20 focus:border-amber-400" required />
+                  </div>
+                  <div className={`bg-slate-50 p-3 rounded-2xl border border-slate-100 transition-opacity ${!formDataGaji.catatCashflow ? 'opacity-50 pointer-events-none' : ''}`}>
+                    <label className="text-[10px] font-black text-amber-600 uppercase tracking-wider ml-1 flex items-center gap-1.5"><Wallet size={14}/> Akun Kas Pembayaran</label>
+                    <select value={formDataGaji.account_1} onChange={e => setFormDataGaji({...formDataGaji, account_1: e.target.value})} className="w-full mt-2 p-3 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none shadow-sm focus:ring-amber-500/20 focus:border-amber-400" required={formDataGaji.catatCashflow}>
+                      <option value="" disabled>Pilih Dompet Pengeluaran...</option>
+                      {accountOptions.map(opt => <option key={opt.id} value={opt.id}>{opt.text_1}</option>)}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Pilih Karyawan */}
+                <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 relative">
+                  <label className="text-[10px] font-black text-amber-600 uppercase tracking-wider ml-1 flex items-center gap-1.5"><User size={14}/> Pilih Karyawan</label>
+                  <div className="relative mt-2">
+                    <div className="flex items-center gap-2">
+                      <input type="text" placeholder="Cari nama karyawan..." value={searchPerson} onChange={(e) => setSearchPerson(e.target.value)} onFocus={() => setIsPersonOpen(true)} className="flex-1 p-3 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-amber-500/20" />
+                      <button type="button" onClick={() => setIsPersonOpen(!isPersonOpen)} className="p-3 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition"><ChevronDown size={16} className={`transition-transform duration-200 ${isPersonOpen ? 'rotate-180' : ''}`} /></button>
+                    </div>
+                    {isPersonOpen && (
+                      <div className="absolute z-20 mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-lg max-h-60 overflow-y-auto">
+                        {personOptions.filter(p => p.source === 'user').length === 0 ? (
+                          <div className="px-4 py-3 text-xs text-slate-500 text-center">Data karyawan tidak ditemukan...</div>
+                        ) : (
+                          personOptions
+                            .filter(opt => opt.source === 'user' && opt.text_1.toLowerCase().includes(searchPerson.toLowerCase()))
+                            .map(opt => (
+                              <div key={opt.id} onClick={() => { setFormDataGaji(prev => ({ ...prev, person: opt.id_lama, persontext: opt.text_1 })); setSearchPerson(''); setIsPersonOpen(false); }} className="px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-amber-50 cursor-pointer border-b border-slate-100 last:border-0 flex justify-between items-center">
+                                <span>{opt.text_1}</span><span className="text-[9px] font-black text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">Karyawan</span>
+                              </div>
+                            ))
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  {formDataGaji.person && (
+                    <div className="mt-3 text-xs font-bold text-amber-700 bg-white p-2.5 rounded-lg border border-amber-100 flex items-center justify-between shadow-sm">
+                      <span>Karyawan Dipilih:</span><span className="text-slate-800">{formDataGaji.persontext} (@{formDataGaji.person})</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Form Pendapatan Dasar */}
+                <div className="p-4 rounded-2xl border border-blue-100 bg-blue-50/50">
+                  <h4 className="font-black text-blue-600 text-[11px] mb-3 uppercase tracking-widest border-b border-blue-100 pb-2">Pendapatan Dasar</h4>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500">Gaji Pokok</label>
+                      <input type="number" value={formDataGaji.pokok || ''} onChange={e => setFormDataGaji({...formDataGaji, pokok: Number(e.target.value)})} className="w-full mt-1 p-2 text-xs font-bold bg-white border border-slate-200 rounded-lg outline-none focus:border-blue-400" placeholder="0" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500">Tunjangan</label>
+                      <input type="number" value={formDataGaji.tunjangan || ''} onChange={e => setFormDataGaji({...formDataGaji, tunjangan: Number(e.target.value)})} className="w-full mt-1 p-2 text-xs font-bold bg-white border border-slate-200 rounded-lg outline-none focus:border-blue-400" placeholder="0" />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Form Tambahan Pendapatan */}
+                <div className="p-4 rounded-2xl border border-emerald-100 bg-emerald-50/50">
+                  <h4 className="font-black text-emerald-600 text-[11px] mb-3 uppercase tracking-widest border-b border-emerald-100 pb-2">Pendapatan Tambahan</h4>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    <div><label className="text-[10px] font-bold text-slate-500">Bonus 1</label><input type="number" value={formDataGaji.bonus_1 || ''} onChange={e => setFormDataGaji({...formDataGaji, bonus_1: Number(e.target.value)})} className="w-full mt-1 p-2 text-xs font-bold bg-white border border-slate-200 rounded-lg outline-none" placeholder="0" /></div>
+                    <div><label className="text-[10px] font-bold text-slate-500">Bonus 2</label><input type="number" value={formDataGaji.bonus_2 || ''} onChange={e => setFormDataGaji({...formDataGaji, bonus_2: Number(e.target.value)})} className="w-full mt-1 p-2 text-xs font-bold bg-white border border-slate-200 rounded-lg outline-none" placeholder="0" /></div>
+                    <div><label className="text-[10px] font-bold text-slate-500">Bonus 3</label><input type="number" value={formDataGaji.bonus_3 || ''} onChange={e => setFormDataGaji({...formDataGaji, bonus_3: Number(e.target.value)})} className="w-full mt-1 p-2 text-xs font-bold bg-white border border-slate-200 rounded-lg outline-none" placeholder="0" /></div>
+                    <div><label className="text-[10px] font-bold text-slate-500">Bonus 4</label><input type="number" value={formDataGaji.bonus_4 || ''} onChange={e => setFormDataGaji({...formDataGaji, bonus_4: Number(e.target.value)})} className="w-full mt-1 p-2 text-xs font-bold bg-white border border-slate-200 rounded-lg outline-none" placeholder="0" /></div>
+                    <div><label className="text-[10px] font-bold text-slate-500">Program / KPI</label><input type="number" value={formDataGaji.program || ''} onChange={e => setFormDataGaji({...formDataGaji, program: Number(e.target.value)})} className="w-full mt-1 p-2 text-xs font-bold bg-white border border-slate-200 rounded-lg outline-none" placeholder="0" /></div>
+                    <div><label className="text-[10px] font-bold text-slate-500">Lembur</label><input type="number" value={formDataGaji.lembur || ''} onChange={e => setFormDataGaji({...formDataGaji, lembur: Number(e.target.value)})} className="w-full mt-1 p-2 text-xs font-bold bg-white border border-slate-200 rounded-lg outline-none" placeholder="0" /></div>
+                  </div>
+                </div>
+
+                {/* Form Potongan Kehadiran */}
+                <div className="p-4 rounded-2xl border border-rose-100 bg-rose-50/50">
+                  <h4 className="font-black text-rose-600 text-[11px] mb-3 uppercase tracking-widest border-b border-rose-100 pb-2">Pelanggaran & Kehadiran (X Kali)</h4>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div><label className="text-[10px] font-bold text-slate-500">Alfa (Mangkir)</label><input type="number" value={formDataGaji.alfa || ''} onChange={e => setFormDataGaji({...formDataGaji, alfa: Number(e.target.value)})} className="w-full mt-1 p-2 text-xs font-bold bg-white border border-slate-200 rounded-lg outline-none text-rose-600" placeholder="0x" /></div>
+                    <div><label className="text-[10px] font-bold text-slate-500">Sakit (Tanpa Srt)</label><input type="number" value={formDataGaji.sakit || ''} onChange={e => setFormDataGaji({...formDataGaji, sakit: Number(e.target.value)})} className="w-full mt-1 p-2 text-xs font-bold bg-white border border-slate-200 rounded-lg outline-none text-rose-600" placeholder="0x" /></div>
+                    <div><label className="text-[10px] font-bold text-slate-500">Setengah Hari</label><input type="number" value={formDataGaji.setengah_hari || ''} onChange={e => setFormDataGaji({...formDataGaji, setengah_hari: Number(e.target.value)})} className="w-full mt-1 p-2 text-xs font-bold bg-white border border-slate-200 rounded-lg outline-none text-rose-600" placeholder="0x" /></div>
+                    <div><label className="text-[10px] font-bold text-slate-500">Telat Menit</label><input type="number" value={formDataGaji.telat || ''} onChange={e => setFormDataGaji({...formDataGaji, telat: Number(e.target.value)})} className="w-full mt-1 p-2 text-xs font-bold bg-white border border-slate-200 rounded-lg outline-none text-rose-600" placeholder="0 mnt" /></div>
+                  </div>
+                </div>
+
+                {/* Form Potongan Lainnya */}
+                <div className="p-4 rounded-2xl border border-orange-100 bg-orange-50/50">
+                  <h4 className="font-black text-orange-600 text-[11px] mb-3 uppercase tracking-widest border-b border-orange-100 pb-2">Potongan Operasional Lain</h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div><label className="text-[10px] font-bold text-slate-500">Iuran BPJS</label><input type="number" value={formDataGaji.bpjs || ''} onChange={e => setFormDataGaji({...formDataGaji, bpjs: Number(e.target.value)})} className="w-full mt-1 p-2 text-xs font-bold bg-white border border-slate-200 rounded-lg outline-none text-orange-600" placeholder="Rp 0" /></div>
+                    <div><label className="text-[10px] font-bold text-slate-500">Bon Tambahan (Minta)</label><input type="number" value={formDataGaji.bon_diambil || ''} onChange={e => setFormDataGaji({...formDataGaji, bon_diambil: Number(e.target.value)})} className="w-full mt-1 p-2 text-xs font-bold bg-white border border-slate-200 rounded-lg outline-none text-orange-600" placeholder="Rp 0" /></div>
+                    <div><label className="text-[10px] font-bold text-slate-500">Cicilan Bon (Potong)</label><input type="number" value={formDataGaji.bon_dibayar || ''} onChange={e => setFormDataGaji({...formDataGaji, bon_dibayar: Number(e.target.value)})} className="w-full mt-1 p-2 text-xs font-bold bg-white border border-slate-200 rounded-lg outline-none text-orange-600" placeholder="Rp 0" /></div>
+                  </div>
+                </div>
+
+                {/* Note/Ref */}
+                <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                  <label className="text-[10px] font-black text-amber-600 uppercase tracking-wider ml-1 flex items-center gap-1.5"><FileText size={14}/> Catatan / Reference ID</label>
+                  <input type="text" placeholder="Periode Gaji Bulan X..." value={formDataGaji.ref} onChange={e => setFormDataGaji({...formDataGaji, ref: e.target.value})} className="w-full mt-2 p-3 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none shadow-sm focus:ring-amber-500/20 focus:border-amber-400" />
+                </div>
+
+              </div>
+
+              <div className="mt-6 flex flex-col sm:flex-row gap-3 pt-5 border-t-2 border-slate-100 sticky bottom-0 bg-white">
+                <button type="button" onClick={() => setModalType(null)} className="flex-1 py-4 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-2xl font-black text-xs tracking-widest transition-colors">BATALKAN</button>
+                <button type="submit" disabled={isProcessing} className={`flex-[2] py-4 text-white rounded-2xl font-black text-xs shadow-xl transition-all active:scale-95 flex justify-center items-center gap-2 ${isProcessing ? 'opacity-70 cursor-not-allowed bg-slate-400' : 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/40'}`}>
+                  {isProcessing ? <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"/> MENYIMPAN...</> : <><Save size={16}/> SIMPAN TRANSAKSI GAJI</>}
+                </button>
               </div>
             </form>
           </Modal>

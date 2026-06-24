@@ -263,6 +263,23 @@ export default function MenuPage() {
     });
   };
 
+  // Helper Logika Gaji (Diadopsi dari Akun.tsx)
+  const getSalaryDetails = (gaji: any) => {
+    const qty = gaji.qty || 1; // menggunakan qty dari history menu (biasanya bulan, ex: 1)
+    const pokok = Number(gaji.number_1 || 0); // Di PB, pokok/tunjangan dll mungkin disimpan di number/text, kita akan parse nilainya jika ada atau fallback ke 0.
+    const tunjangan = Number(gaji.number_2 || 0);
+    const nilaiDasar = qty > 0 ? (pokok + tunjangan) / qty : 0;
+
+    // Untuk demo integrasi di POS ini kita akan mengambil "total" (dari form input awal)
+    // Jika format JSON PB beda, bisa disesuaikan, misal PB nyimpan di note/text JSON.
+    // Tapi secara umum, field 'total' sudah merepresentasikan hasil bersih (Grand Total).
+    
+    // Fallback jika tidak ada breakdown: Total1 dianggap = total, sisanya 0.
+    const grandTotal = gaji.total || 0;
+
+    return { grandTotal };
+  };
+
   // --- HELPER WARNA TEMA DINAMIS ---
   const getThemeConfig = (menuName: string) => {
     const lower = menuName.toLowerCase();
@@ -2555,48 +2572,73 @@ export default function MenuPage() {
               {/* ========== TAB DETAIL ========== */}
               {activeTab === 'detail' && (
                 <>
-                  {/* Header besar */}
-                  <div className={`p-6 md:p-8 rounded-[2rem] text-center text-white relative shadow-xl overflow-hidden ${activeTheme.main}`}>
-                    <div className="absolute top-0 right-0 w-40 h-40 bg-white rounded-full blur-3xl opacity-20 pointer-events-none" />
-                    <span className="text-[11px] font-black bg-black/20 px-3 py-1.5 rounded-full uppercase tracking-widest backdrop-blur-md relative z-10">
-                      {showDetailHistory.ref || `INV-${showDetailHistory.id}`}
-                    </span>
-
-                    <div className="mt-4 relative z-10">
-                      <h4 className="font-black text-white text-3xl md:text-3xl uppercase leading-tight tracking-tight drop-shadow-sm">
-                        {(() => {
-                          const person = allPersons.find(p => p.id_lama === showDetailHistory.person);
-                          return person ? `${person.text_1} - ${person.text_2 || ''}` : (showDetailHistory.person || 'PELANGGAN UMUM');
-                        })()}
-                      </h4>
-                      <div className="mt-3 flex flex-col items-center gap-1">
-                      <div className="inline-block bg-white/10 backdrop-blur-md border border-white/20 px-5 py-2 rounded-2xl">
-                        <p className="text-sm font-black text-white/90 uppercase tracking-widest text-[10px]">Total Invoice</p>
-                        <p className="text-2xl font-black text-white">Rp {(showDetailHistory?.total || 0).toLocaleString('id-ID')}</p>
-                      </div>
-                      <div className="inline-block bg-black/20 backdrop-blur-sm px-4 py-1.5 rounded-xl border border-white/10">
-                        <p className="text-[10px] font-black text-white/80 uppercase tracking-widest">Dibayar</p>
-                        <p className="text-sm font-black text-white">Rp {(showDetailHistory?.dibayar || 0).toLocaleString('id-ID')}</p>
+                  {/* Header besar (Rombak Khusus Gaji) */}
+                  {showDetailHistory.jenis.toLowerCase().includes('gaji') ? (
+                    <div className="bg-slate-900 p-5 sm:p-6 md:p-8 rounded-[2rem] text-center text-white shadow-xl shadow-slate-900/20 relative overflow-hidden">
+                      <div className="absolute -top-10 -right-10 w-32 h-32 bg-white/5 rounded-full blur-2xl pointer-events-none" />
+                      <span className="text-[10px] font-black uppercase tracking-widest text-emerald-400 mb-1 block">Total Bersih (Slip Gaji)</span>
+                      <h3 className="text-3xl sm:text-4xl md:text-5xl font-black tracking-tighter text-white drop-shadow-md">
+                        Rp {(showDetailHistory?.total || 0).toLocaleString('id-ID')}
+                      </h3>
+                      
+                      <div className="mt-6 flex flex-col items-center gap-1.5">
+                        <h4 className="font-black text-white/90 text-lg uppercase tracking-wider">
+                          {showDetailHistory.person}
+                        </h4>
+                        <div className="flex justify-center gap-3">
+                          <span className="text-[10px] font-black text-white/60 bg-white/10 px-3 py-1.5 rounded-lg flex items-center gap-1.5">
+                            <User size={12}/> Opr: {showDetailHistory.operator || 'System'}
+                          </span>
+                          <span className="text-[10px] font-black text-white/60 bg-white/10 px-3 py-1.5 rounded-lg flex items-center gap-1.5">
+                            <Calendar size={12}/> {new Date(showDetailHistory.created_at).toLocaleDateString('id-ID', { month: 'long', year: 'numeric' })}
+                          </span>
+                        </div>
                       </div>
                     </div>
-                    </div>
-
-                    <div className="flex flex-wrap justify-center gap-3 mt-5 relative z-10">
-                      <span className="text-[10px] font-black text-white/80 bg-black/10 px-3 py-1.5 rounded-lg flex items-center gap-1.5">
-                        <User size={12}/> Kasir: {showDetailHistory.operator || 'System'}
+                  ) : (
+                    <div className={`p-6 md:p-8 rounded-[2rem] text-center text-white relative shadow-xl overflow-hidden ${getThemeConfig(showDetailHistory.jenis).main}`}>
+                      <div className="absolute top-0 right-0 w-40 h-40 bg-white rounded-full blur-3xl opacity-20 pointer-events-none" />
+                      <span className="text-[11px] font-black bg-black/20 px-3 py-1.5 rounded-full uppercase tracking-widest backdrop-blur-md relative z-10">
+                        {showDetailHistory.ref || `INV-${showDetailHistory.id}`}
                       </span>
-                      <span className="text-[10px] font-black text-white/80 bg-black/10 px-3 py-1.5 rounded-lg flex items-center gap-1.5">
-                        <Calendar size={12}/> {formatLocalDateTime(showDetailHistory.created_at)}
-                      </span>
-                    </div>
 
-                    {showDetailHistory.marketplace && (
-                      <div className="mt-4 p-3 bg-black/10 rounded-xl text-[10px] text-white/90 font-bold flex flex-wrap gap-4 justify-center relative z-10 border border-white/10">
-                        <span className="flex items-center gap-1"><ShoppingBag size={12}/> {showDetailHistory.marketplace}</span>
-                        <span className="text-rose-200">Admin: -Rp {showDetailHistory.admin}</span>
-                        <span className="text-emerald-200">CB: +Rp {showDetailHistory.cashback}</span>
+                      <div className="mt-4 relative z-10">
+                        <h4 className="font-black text-white text-3xl md:text-3xl uppercase leading-tight tracking-tight drop-shadow-sm">
+                          {(() => {
+                            const person = allPersons.find(p => p.id_lama === showDetailHistory.person);
+                            return person ? `${person.text_1} - ${person.text_2 || ''}` : (showDetailHistory.person || 'PELANGGAN UMUM');
+                          })()}
+                        </h4>
+                        <div className="mt-3 flex flex-col items-center gap-1">
+                        <div className="inline-block bg-white/10 backdrop-blur-md border border-white/20 px-5 py-2 rounded-2xl">
+                          <p className="text-sm font-black text-white/90 uppercase tracking-widest text-[10px]">Total Invoice</p>
+                          <p className="text-2xl font-black text-white">Rp {(showDetailHistory?.total || 0).toLocaleString('id-ID')}</p>
+                        </div>
+                        <div className="inline-block bg-black/20 backdrop-blur-sm px-4 py-1.5 rounded-xl border border-white/10">
+                          <p className="text-[10px] font-black text-white/80 uppercase tracking-widest">Dibayar</p>
+                          <p className="text-sm font-black text-white">Rp {(showDetailHistory?.dibayar || 0).toLocaleString('id-ID')}</p>
+                        </div>
                       </div>
-                    )}
+                      </div>
+
+                      <div className="flex flex-wrap justify-center gap-3 mt-5 relative z-10">
+                        <span className="text-[10px] font-black text-white/80 bg-black/10 px-3 py-1.5 rounded-lg flex items-center gap-1.5">
+                          <User size={12}/> Kasir: {showDetailHistory.operator || 'System'}
+                        </span>
+                        <span className="text-[10px] font-black text-white/80 bg-black/10 px-3 py-1.5 rounded-lg flex items-center gap-1.5">
+                          <Calendar size={12}/> {formatLocalDateTime(showDetailHistory.created_at)}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  {!showDetailHistory.jenis.toLowerCase().includes('gaji') && showDetailHistory.marketplace && (
+                  <>
+                    <div className="mt-4 p-3 bg-black/10 rounded-xl text-[10px] text-white/90 font-bold flex flex-wrap gap-4 justify-center relative z-10 border border-white/10">
+                      <span className="flex items-center gap-1"><ShoppingBag size={12}/> {showDetailHistory.marketplace}</span>
+                      <span className="text-rose-200">Admin: -Rp {showDetailHistory.admin}</span>
+                      <span className="text-emerald-200">CB: +Rp {showDetailHistory.cashback}</span>
+                    </div>
 
                     {userLevel === '1' && showDetailHistory.jenis?.toLowerCase() !== 'pembelian' && (
                       <div className="mt-6 pt-5 border-t border-white/20 flex justify-around relative z-10">
@@ -2619,7 +2661,8 @@ export default function MenuPage() {
                         </div>
                       </div>
                     )}
-                  </div>
+                  </>
+                )}
 
                   {/* SHORTCUT NAVIGASI KE BAGIAN BAWAH */}
                   <div className="flex flex-wrap gap-2 bg-slate-50 p-3 rounded-2xl border border-slate-200 sticky top-0 z-10 backdrop-blur-sm bg-white/90">

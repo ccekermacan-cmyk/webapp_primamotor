@@ -20,6 +20,8 @@ interface ReportRecord {
   omset_servis: number;
   omset_minuman: number;
   laba_penjualan: number;
+  laba_service: number;     // 🆕 FIELD BARU
+  laba_minuman: number;    // 🆕 FIELD BARU
   operasional_toko: number;
   pengeluaran_lain: number;
   kasir_toko: number;
@@ -241,7 +243,7 @@ export default function ReportPage() {
         tanggal,
         Omset: r.omset_toko + r.omset_servis + r.omset_minuman,
         Pengeluaran: r.operasional_toko + r.pengeluaran_lain,
-        Laba: r.laba_penjualan,
+        Laba: r.laba_penjualan + (r.laba_service || 0) + (r.laba_minuman || 0), // 🆕 MENGHITUNG KETIGA LABA
         Piutang: r.piutang || 0,
         Hutang: r.hutang || 0,
       };
@@ -251,7 +253,7 @@ export default function ReportPage() {
       totalOmsetToko += r.omset_toko;
       totalOmsetServis += r.omset_servis;
       totalOmsetMinum += r.omset_minuman;
-      totalLaba += r.laba_penjualan;
+      totalLaba += r.laba_penjualan + (r.laba_service || 0) + (r.laba_minuman || 0); // 🆕 MENGHITUNG KETIGA LABA
       totalPengeluaran += (r.operasional_toko + r.pengeluaran_lain);
       totalPemasukanLain += r.pemasukan_lain;
     });
@@ -324,6 +326,8 @@ export default function ReportPage() {
         omset_servis: 0,
         omset_minuman: 0,
         laba_penjualan: 0,
+        laba_service: 0,     // 🆕 FIELD BARU
+        laba_minuman: 0,    // 🆕 FIELD BARU
         operasional_toko: 0,
         pengeluaran_lain: 0,
         kasir_toko: kasirKemarin,
@@ -352,23 +356,21 @@ export default function ReportPage() {
     const productMap: Record<string, string> = {};
     allProducts.forEach(p => { productMap[p.id] = (p.kategori || '').toLowerCase(); });
 
-    const menuFilter = pb.filter('created_at >= {:start} && created_at < {:end}', { start: startISO, end: endISO });
     const menuItems = await pb.collection('menu').getFullList({
-      filter: menuFilter,
+      filter: pb.filter('created_at >= {:start} && created_at < {:end}', { start: startISO, end: endISO }),
       fields: 'id, jenis, status, total, dibayar',
     });
 
+    // Deklarasi menuMap DI SINI (Local scope) agar tidak error
     const menuMap: Record<string, string> = {};
     let totalPiutang = 0;
     let totalHutang = 0;
 
     menuItems.forEach(m => {
       const jenis = (m.jenis || '').toLowerCase();
-      menuMap[m.id] = jenis;
+      menuMap[m.id] = jenis; // menuMap dideklarasikan di sini
 
       const status = (m.status || '').toLowerCase();
-      
-      // LOGIKA HUTANG & PIUTANG HARI INI SAJA
       if (status === 'belum') {
         const selisih = (m.total || 0) - (m.dibayar || 0);
         if (selisih > 0) {
@@ -381,34 +383,46 @@ export default function ReportPage() {
       }
     });
 
-    const logStockFilter = pb.filter('created_at >= {:start} && created_at < {:end}', { start: startISO, end: endISO });
     const logStockItems = await pb.collection('log_stock').getFullList({
-      filter: logStockFilter,
-      fields: 'item_baru, price_1, price_2, qty, boolean, ref_baru',
+      filter: pb.filter('created_at >= {:start} && created_at < {:end}', { start: startISO, end: endISO }),
+      expand: 'ref_baru,item_baru', 
     });
 
     let totalOmsetPenjualan = 0;
     let totalOmsetMinuman = 0;
-    let totalLaba = 0;
+    let totalLabaPenjualan = 0;
+    let totalLabaServis = 0;
+    let totalLabaMinuman = 0;
 
     logStockItems.forEach(item => {
-      const booleanVal = (item.boolean || '').toLowerCase();
-      if (booleanVal !== 'out') return;
+      if ((item.boolean || '').toLowerCase() !== 'out') return;
 
+      // Gunakan menuMap yang sudah dideklarasikan di atas
       const menuJenis = menuMap[item.ref_baru] || '';
-      if (menuJenis.includes('pembelian')) return;
+      
+      // Filter pengecualian
+      if (menuJenis.includes('pembelian') || menuJenis.includes('rusak') || menuJenis.includes('opname')) return;
 
-      const kategori = productMap[item.item_baru] || '';
+      const kategori = (item.expand?.item_baru?.kategori || '').toLowerCase();
       const qty = item.qty || 0;
       const nilaiJual = (item.price_1 || 0) * qty;
       const nilaiModal = item.price_2 || 0; 
+      const laba = nilaiJual - nilaiModal;
 
-      if (kategori !== 'minuman') {
-        totalOmsetPenjualan += nilaiJual;
-      } else {
+      // Definisi yang lebih fleksibel
+      const isMinuman = (kategori === 'minuman' || menuJenis.includes('minuman'));
+      const isService = (menuJenis.includes('service') || menuJenis.includes('servis'));
+
+      if (isMinuman) {
         totalOmsetMinuman += nilaiJual;
+        totalLabaMinuman += laba;
+      } else if (isService) {
+        totalOmsetPenjualan += nilaiJual; 
+        totalLabaServis += laba;
+      } else {
+        totalOmsetPenjualan += nilaiJual;
+        totalLabaPenjualan += laba;
       }
-      totalLaba += (nilaiJual - nilaiModal);
     });
 
     const ongkosFilter = pb.filter('date >= {:start} && date < {:end}', { start: startISO, end: endISO });
@@ -453,7 +467,9 @@ export default function ReportPage() {
       omset_toko: totalOmsetPenjualan,
       omset_servis: omsetServis,
       omset_minuman: totalOmsetMinuman,
-      laba_penjualan: totalLaba,
+      laba_penjualan: totalLabaPenjualan, // 🆕 Laba Penjualan
+      laba_service: totalLabaServis,       // 🆕 Laba Servis
+      laba_minuman: totalLabaMinuman,     // 🆕 Laba Minuman
       operasional_toko: operasionalToko,
       pengeluaran_lain: pengeluaranLain,
       pemasukan_lain: pemasukanLain,
@@ -580,7 +596,7 @@ export default function ReportPage() {
 
   const [fixingPrices, setFixingPrices] = useState(false);
   
-  const executeFixLogStockPrice = async () => {
+  const handleFixLogStockPrice = async () => {
     if (!selectedReport || !reportDetailData) return;
     setFixingPrices(true);
     try {
@@ -874,7 +890,9 @@ export default function ReportPage() {
                                 {formatRp(totalOmsetRow)}
                               </span>
                             </td>
-                            <td className="p-4 text-right text-emerald-600 font-bold">{formatRp(row.laba_penjualan)}</td>
+                            <td className="p-4 text-right text-emerald-600 font-bold">
+                              {formatRp((row.laba_penjualan || 0) + (row.laba_service || 0) + (row.laba_minuman || 0))}
+                            </td>
                             <td className="p-4 text-right text-rose-600">{formatRp(totalKeluarRow)}</td>
                             <td className={`p-4 text-right font-black ${piutangVal < 0 ? 'text-rose-600' : 'text-amber-600'}`}>
                               {formatNeg(piutangVal)}
@@ -1050,45 +1068,95 @@ export default function ReportPage() {
                 // ============================
                 // TAB OVERVIEW
                 // ============================
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                  <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                    <p className="text-xs font-black text-slate-400 uppercase">Omset Toko</p>
-                    <p className="text-xl font-black text-emerald-600">{formatRp(selectedReport.omset_toko)}</p>
+                <div className="space-y-8 animate-in fade-in duration-300">
+                  
+                  {/* SEKSI OMSET */}
+                  <div className="space-y-3">
+                    <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 border-b border-slate-100 pb-2">
+                      <TrendingUp size={14} className="text-blue-500"/> Pendapatan Kotor (Omset)
+                    </h4>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                      <div className="bg-blue-50/50 p-4 rounded-2xl border border-blue-100 shadow-sm">
+                        <p className="text-[11px] font-black text-blue-500 uppercase">Omset Toko</p>
+                        <p className="text-lg md:text-xl font-black text-blue-700 mt-1">{formatRp(selectedReport.omset_toko)}</p>
+                      </div>
+                      <div className="bg-blue-50/50 p-4 rounded-2xl border border-blue-100 shadow-sm">
+                        <p className="text-[11px] font-black text-blue-500 uppercase">Omset Servis (Jasa)</p>
+                        <p className="text-lg md:text-xl font-black text-blue-700 mt-1">
+                          {formatRp(reportDetailData?.ongkos?.reduce((sum, o) => sum + (o.ongkos || 0), 0) ?? selectedReport.omset_servis)}
+                        </p>
+                      </div>
+                      <div className="bg-blue-50/50 p-4 rounded-2xl border border-blue-100 shadow-sm">
+                        <p className="text-[11px] font-black text-blue-500 uppercase">Omset Minuman</p>
+                        <p className="text-lg md:text-xl font-black text-blue-700 mt-1">{formatRp(selectedReport.omset_minuman)}</p>
+                      </div>
+                    </div>
                   </div>
-                  <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                    <p className="text-xs font-black text-slate-400 uppercase">Omset Servis</p>
-                    <p className="text-xl font-black text-blue-600">
-                      {formatRp(
-                        reportDetailData?.ongkos?.reduce((sum, o) => sum + (o.ongkos || 0), 0) ?? selectedReport.omset_servis
-                      )}
-                    </p>
-                  </div>
-                  <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                    <p className="text-xs font-black text-slate-400 uppercase">Omset Minuman</p>
-                    <p className="text-xl font-black text-amber-600">{formatRp(selectedReport.omset_minuman)}</p>
-                  </div>
-                  <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                    <p className="text-xs font-black text-slate-400 uppercase">Laba Penjualan</p>
-                    <p className="text-xl font-black text-emerald-600">{formatRp(selectedReport.laba_penjualan)}</p>
-                  </div>
-                  <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                    <p className="text-xs font-black text-slate-400 uppercase">Pengeluaran</p>
-                    <p className="text-xl font-black text-rose-600">{formatRp(selectedReport.operasional_toko + selectedReport.pengeluaran_lain)}</p>
-                  </div>
-                  <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                    <p className="text-xs font-black text-slate-400 uppercase">Kasir Toko</p>
-                    <p className="text-xl font-black text-slate-800">{formatRp(selectedReport.kasir_toko)}</p>
-                  </div>
-                  <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                    <p className="text-xs font-black text-slate-400 uppercase">Piutang</p>
-                    <p className="text-xl font-black text-amber-600">{formatRp(selectedReport.piutang)}</p>
-                  </div>
-                  <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                    <p className="text-xs font-black text-slate-400 uppercase">Hutang</p>
-                    <p className="text-xl font-black text-purple-600">{formatRp(selectedReport.hutang)}</p>
-                  </div>
-                </div>
 
+                  {/* SEKSI LABA */}
+                  <div className="space-y-3">
+                    <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 border-b border-slate-100 pb-2">
+                      <DollarSign size={14} className="text-emerald-500"/> Margin Keuntungan Kotor (Laba)
+                    </h4>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                      <div className="bg-emerald-50/50 p-4 rounded-2xl border border-emerald-100 shadow-sm">
+                        <p className="text-[11px] font-black text-emerald-600 uppercase">Laba Penjualan Toko</p>
+                        <p className="text-lg md:text-xl font-black text-emerald-700 mt-1">{formatRp(selectedReport.laba_penjualan)}</p>
+                      </div>
+                      <div className="bg-emerald-50/50 p-4 rounded-2xl border border-emerald-100 shadow-sm">
+                        <p className="text-[11px] font-black text-emerald-600 uppercase">Laba Sparepart Servis</p>
+                        <p className="text-lg md:text-xl font-black text-emerald-700 mt-1">{formatRp(selectedReport.laba_service)}</p>
+                      </div>
+                      <div className="bg-emerald-50/50 p-4 rounded-2xl border border-emerald-100 shadow-sm">
+                        <p className="text-[11px] font-black text-emerald-600 uppercase">Laba Minuman</p>
+                        <p className="text-lg md:text-xl font-black text-emerald-700 mt-1">{formatRp(selectedReport.laba_minuman)}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* SEKSI PENGELUARAN & OPERASIONAL */}
+                  <div className="space-y-3">
+                    <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 border-b border-slate-100 pb-2">
+                      <TrendingDown size={14} className="text-rose-500"/> Operasional & Biaya Lainnya
+                    </h4>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                      <div className="bg-rose-50/50 p-4 rounded-2xl border border-rose-100 shadow-sm">
+                        <p className="text-[11px] font-black text-rose-500 uppercase">Pengeluaran Toko</p>
+                        <p className="text-lg md:text-xl font-black text-rose-700 mt-1">{formatRp(selectedReport.operasional_toko)}</p>
+                      </div>
+                      <div className="bg-rose-50/50 p-4 rounded-2xl border border-rose-100 shadow-sm">
+                        <p className="text-[11px] font-black text-rose-500 uppercase">Pengeluaran Lainnya</p>
+                        <p className="text-lg md:text-xl font-black text-rose-700 mt-1">{formatRp(selectedReport.pengeluaran_lain)}</p>
+                      </div>
+                      <div className="bg-emerald-50/50 p-4 rounded-2xl border border-emerald-100 shadow-sm">
+                        <p className="text-[11px] font-black text-emerald-600 uppercase">Pemasukan Lainnya</p>
+                        <p className="text-lg md:text-xl font-black text-emerald-700 mt-1">+{formatRp(selectedReport.pemasukan_lain)}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* SEKSI KAS & KREDIT */}
+                  <div className="space-y-3">
+                    <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 border-b border-slate-100 pb-2">
+                      <Wallet size={14} className="text-slate-600"/> Arus Kas & Hutang Piutang
+                    </h4>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="bg-slate-100 p-4 rounded-2xl border border-slate-200 shadow-sm">
+                        <p className="text-[11px] font-black text-slate-500 uppercase">Kasir Toko (Fisik/Transfer)</p>
+                        <p className="text-lg md:text-xl font-black text-slate-800 mt-1">{formatRp(selectedReport.kasir_toko)}</p>
+                      </div>
+                      <div className="bg-amber-50 p-4 rounded-2xl border border-amber-200 shadow-sm">
+                        <p className="text-[11px] font-black text-amber-600 uppercase">Piutang (Customer)</p>
+                        <p className="text-lg md:text-xl font-black text-amber-700 mt-1">{formatRp(selectedReport.piutang)}</p>
+                      </div>
+                      <div className="bg-purple-50 p-4 rounded-2xl border border-purple-200 shadow-sm">
+                        <p className="text-[11px] font-black text-purple-600 uppercase">Hutang (Supplier)</p>
+                        <p className="text-lg md:text-xl font-black text-purple-700 mt-1">{formatRp(selectedReport.hutang)}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                </div>
               ) : activeDetailTab === 'menu' ? (() => {
                 // ============================
                 // TAB MENU
@@ -1300,9 +1368,17 @@ export default function ReportPage() {
                   .filter(l => (l.boolean || '').toLowerCase() === 'in')
                   .reduce((acc, l) => acc + ((l.price_1 || 0) * (l.qty || 0)), 0);
 
-                const sumLaba = filteredLogStock
-                  .filter(l => (l.boolean || '').toLowerCase() === 'out')
-                  .reduce((acc, l) => acc + (((l.price_1 || 0) * (l.qty || 0)) - (l.price_2 || 0)), 0);
+                const sumLaba = filteredLogStock.reduce((acc, l) => {
+                  // Hanya hitung jika mutasi OUT
+                  if ((l.boolean || '').toLowerCase() !== 'out') return acc;
+                    
+                  // Pengecualian untuk jenis Pembelian, Rusak, atau Opname
+                  const notaTerkait = reportDetailData?.menu.find(m => m.id === l.ref_baru);
+                  const notaJenis = (notaTerkait?.jenis || '').toLowerCase();
+                  if (notaJenis.includes('pembelian') || notaJenis.includes('rusak') || notaJenis.includes('opname')) return acc;
+                    
+                  return acc + (((l.price_1 || 0) * (l.qty || 0)) - (l.price_2 || 0));
+                }, 0);
 
                 return (
                   <div>
@@ -1353,12 +1429,20 @@ export default function ReportPage() {
                           ) : filteredLogStock.length === 0 ? (
                             <tr><td colSpan={12} className="p-4 text-center text-slate-400">Tidak ada data log stock.</td></tr>
                           ) : (
-                            filteredLogStock.map((l, idx) => {
-                              const subJual = (l.price_1 || 0) * (l.qty || 0);
-                              const subModal = (l.price_2 || 0);
-                              const labaItem = subJual - subModal;
+                              filteredLogStock.map((l, idx) => {
+                                const subJual = (l.price_1 || 0) * (l.qty || 0);
+                                const subModal = (l.price_2 || 0);
+                                
+                                // Cek jenis dari nota terkait
+                                const notaTerkait = reportDetailData?.menu.find(m => m.id === l.ref_baru);
+                                const notaJenis = (notaTerkait?.jenis || '').toLowerCase();
+                                const isExcluded = notaJenis.includes('pembelian') || notaJenis.includes('rusak') || notaJenis.includes('opname');
+                                const isOut = (l.boolean || '').toLowerCase() === 'out';
+                                
+                                // Jika mutasi bukan OUT atau termasuk jenis yang dikecualikan, Laba = 0
+                                const labaItem = (isOut && !isExcluded) ? (subJual - subModal) : 0;
 
-                              const produkExpanded = l.expand?.item_baru;
+                                const produkExpanded = l.expand?.item_baru;
                               const produkName = produkExpanded ? `${produkExpanded.kategori || ''} ${produkExpanded.merk || ''} ${produkExpanded.jenis || ''}`.trim() : l.item_baru;
 
                               return (
