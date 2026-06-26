@@ -440,11 +440,9 @@ export default function MenuPage() {
       if (searchTerm) {
         const terms = searchTerm.trim().split(/\s+/);
         terms.forEach((t, i) => {
-          // Isi parameter untuk placeholder {:t0}, {:t1}, ...
           params[`t${i}`] = t;
 
           if (menuLower === 'overview') {
-            // 🆕 Cari person ID yang cocok dengan nama (text_1 / text_2) dari allPersons
             const matchedPersonIds: string[] = [];
             allPersons.forEach(p => {
               const text1 = (p.text_1 || '').toLowerCase();
@@ -453,25 +451,17 @@ export default function MenuPage() {
                 matchedPersonIds.push(p.id_lama);
               }
             });
-
-            // Bangun kondisi OR untuk person = "id_lama"
             const personIdConditions = matchedPersonIds.length > 0
               ? `(${matchedPersonIds.map(id => `person = "${id}"`).join(' || ')})`
               : '';
-
-            // Kondisi utama (termasuk operator)
             let mainCond = `(id_lama ~ {:t${i}} || jenis ~ {:t${i}} || person ~ {:t${i}} || text ~ {:t${i}} || payment ~ {:t${i}} || operator ~ {:t${i}})`;
-
-            // Gabungkan dengan pencarian berdasarkan nama person
             if (personIdConditions) {
               mainCond = `(${mainCond} || ${personIdConditions})`;
             }
-
             conditions.push(mainCond);
           } else if (menuLower.includes('gaji')) {
             conditions.push(`(person ~ {:t${i}} || id_lama ~ {:t${i}})`);
           } else {
-            // Menu produk (penjualan, service, pembelian, dll)
             const numericId = parseInt(t, 10);
             const isNumeric = !isNaN(numericId) && numericId.toString() === t.replace(/^0+/, '');
             if (isNumeric) {
@@ -495,8 +485,8 @@ export default function MenuPage() {
         if (filterStatus !== 'all') {
           const statusValue = filterStatus === 'lunas' ? 'lunas' : 'belum';
           overviewFilter = overviewFilter
-            ? `(${overviewFilter}) && status = "${statusValue}"`
-            : `status = "${statusValue}"`;
+            ? `(${overviewFilter}) && status ~ "${statusValue}"`   // 🔁 Perbaikan: gunakan ~
+            : `status ~ "${statusValue}"`;
         }
         if (selectedMenuFilters.length > 0) {
           const jenisConditions = selectedMenuFilters.map(jenis => `jenis ~ "${jenis.toLowerCase()}"`).join(' || ');
@@ -515,7 +505,8 @@ export default function MenuPage() {
         setHistoryMenu(res.items);
         setTotalPages(res.totalPages);
       } else if (menuLower.includes('gaji')) {
-        const gajiFilter = filterStr ? `jenis = 'gaji' && (${filterStr})` : `jenis = 'gaji'`;
+        // 🔁 Perbaikan: gunakan ~ untuk case-insensitive
+        const gajiFilter = filterStr ? `jenis ~ 'gaji' && (${filterStr})` : `jenis ~ 'gaji'`;
         const res = await pb.collection('menu').getList<HistoryMenu>(page, perPage, {
           sort: '-created_at',
           filter: gajiFilter,
@@ -525,6 +516,7 @@ export default function MenuPage() {
         setHistoryMenu(res.items);
         setTotalPages(res.totalPages);
       } else {
+        // Menu produk tetap pakai filter stok
         const showAllStock = ['pembelian', 'rusak', 'opname'].some(keyword => menuLower.includes(keyword));
         let baseFilter = showAllStock ? '' : 'stok_3 > 0';
         if (filterStr) {

@@ -461,8 +461,8 @@ export default function ReportPage() {
     omset_servis: omsetServis,
     omset_minuman: totalOmsetMinuman,
     laba_penjualan: totalLabaPenjualan,
-    laba_servis: totalLabaServis,     // 🆕
-    laba_minuman: totalLabaMinuman,   // 🆕
+    laba_service: totalLabaServis,      // ← perbaiki nama field
+    laba_minuman: totalLabaMinuman,
     operasional_toko: operasionalToko,
     pengeluaran_lain: pengeluaranLain,
     pemasukan_lain: pemasukanLain,
@@ -884,7 +884,7 @@ export default function ReportPage() {
                               </span>
                             </td>
                             <td className="p-4 text-right text-emerald-600 font-bold">
-                              {formatRp((row.laba_penjualan || 0) + (row.laba_servis || 0) + (row.laba_minuman || 0))}
+                              {formatRp((row.laba_penjualan || 0) + (row.laba_service || 0) + (row.laba_minuman || 0))}
                             </td>
                             <td className="p-4 text-right text-rose-600">{formatRp(totalKeluarRow)}</td>
                             <td className={`p-4 text-right font-black ${piutangVal < 0 ? 'text-rose-600' : 'text-amber-600'}`}>
@@ -1098,7 +1098,7 @@ export default function ReportPage() {
                       </div>
                       <div className="bg-emerald-50/50 p-4 rounded-2xl border border-emerald-100 shadow-sm">
                         <p className="text-[11px] font-black text-emerald-600 uppercase">Laba Sparepart Servis</p>
-                        <p className="text-lg md:text-xl font-black text-emerald-700 mt-1">{formatRp(selectedReport.laba_servis)}</p>
+                        <p className="text-lg md:text-xl font-black text-emerald-700 mt-1">{formatRp(selectedReport.laba_service)}</p>
                       </div>
                       <div className="bg-emerald-50/50 p-4 rounded-2xl border border-emerald-100 shadow-sm">
                         <p className="text-[11px] font-black text-emerald-600 uppercase">Laba Minuman</p>
