@@ -243,7 +243,7 @@ export default function ReportPage() {
         tanggal,
         Omset: r.omset_toko + r.omset_servis + r.omset_minuman,
         Pengeluaran: r.operasional_toko + r.pengeluaran_lain,
-        Laba: r.laba_penjualan + (r.laba_service || 0) + (r.laba_minuman || 0), // 🆕 MENGHITUNG KETIGA LABA
+        Laba: r.laba_penjualan + (r.laba_servis || 0) + (r.laba_minuman || 0), // 🟢 DIPERBAIKI
         Piutang: r.piutang || 0,
         Hutang: r.hutang || 0,
       };
@@ -253,7 +253,7 @@ export default function ReportPage() {
       totalOmsetToko += r.omset_toko;
       totalOmsetServis += r.omset_servis;
       totalOmsetMinum += r.omset_minuman;
-      totalLaba += r.laba_penjualan + (r.laba_service || 0) + (r.laba_minuman || 0); // 🆕 MENGHITUNG KETIGA LABA
+      totalLaba += r.laba_penjualan + (r.laba_servis || 0) + (r.laba_minuman || 0); // 🟢 DIPERBAIKI
       totalPengeluaran += (r.operasional_toko + r.pengeluaran_lain);
       totalPemasukanLain += r.pemasukan_lain;
     });
@@ -326,8 +326,8 @@ export default function ReportPage() {
         omset_servis: 0,
         omset_minuman: 0,
         laba_penjualan: 0,
-        laba_service: 0,     // 🆕 FIELD BARU
-        laba_minuman: 0,    // 🆕 FIELD BARU
+        laba_servis: 0,     // 🟢 DIPERBAIKI
+        laba_minuman: 0,    
         operasional_toko: 0,
         pengeluaran_lain: 0,
         kasir_toko: kasirKemarin,
@@ -350,134 +350,127 @@ export default function ReportPage() {
 
   // --- LOGIKA CENTRALIZED UNTUK GENERATE & KALKULASI LAPORAN ---
   const calculateReportData = async (targetDateStr: string) => {
-    const { startISO, endISO } = getDayRangeStr(targetDateStr);
+  const { startISO, endISO } = getDayRangeStr(targetDateStr);
 
-    const allProducts = await pb.collection('produk').getFullList({ fields: 'id,kategori' });
-    const productMap: Record<string, string> = {};
-    allProducts.forEach(p => { productMap[p.id] = (p.kategori || '').toLowerCase(); });
+  const allProducts = await pb.collection('produk').getFullList({ fields: 'id,kategori' });
+  const productMap: Record<string, string> = {};
+  allProducts.forEach(p => { productMap[p.id] = (p.kategori || '').toLowerCase(); });
 
-    const menuItems = await pb.collection('menu').getFullList({
-      filter: pb.filter('created_at >= {:start} && created_at < {:end}', { start: startISO, end: endISO }),
-      fields: 'id, jenis, status, total, dibayar',
-    });
+  const menuItems = await pb.collection('menu').getFullList({
+    filter: pb.filter('created_at >= {:start} && created_at < {:end}', { start: startISO, end: endISO }),
+    fields: 'id, jenis, status, total, dibayar',
+  });
 
-    // Deklarasi menuMap DI SINI (Local scope) agar tidak error
-    const menuMap: Record<string, string> = {};
-    let totalPiutang = 0;
-    let totalHutang = 0;
+  const menuMap: Record<string, string> = {};
+  let totalPiutang = 0;
+  let totalHutang = 0;
 
-    menuItems.forEach(m => {
-      const jenis = (m.jenis || '').toLowerCase();
-      menuMap[m.id] = jenis; // menuMap dideklarasikan di sini
-
-      const status = (m.status || '').toLowerCase();
-      if (status === 'belum') {
-        const selisih = (m.total || 0) - (m.dibayar || 0);
-        if (selisih > 0) {
-          if (jenis.includes('penjualan') || jenis.includes('service') || jenis.includes('servis')) {
-            totalPiutang += selisih;
-          } else if (jenis.includes('pembelian')) {
-            totalHutang += selisih;
-          }
+  menuItems.forEach(m => {
+    const jenis = (m.jenis || '').toLowerCase();
+    menuMap[m.id] = jenis;
+    const status = (m.status || '').toLowerCase();
+    if (status === 'belum') {
+      const selisih = (m.total || 0) - (m.dibayar || 0);
+      if (selisih > 0) {
+        if (jenis.includes('penjualan') || jenis.includes('service') || jenis.includes('servis')) {
+          totalPiutang += selisih;
+        } else if (jenis.includes('pembelian')) {
+          totalHutang += selisih;
         }
       }
-    });
+    }
+  });
 
-    const logStockItems = await pb.collection('log_stock').getFullList({
-      filter: pb.filter('created_at >= {:start} && created_at < {:end}', { start: startISO, end: endISO }),
-      expand: 'ref_baru,item_baru', 
-    });
+  const logStockItems = await pb.collection('log_stock').getFullList({
+    filter: pb.filter('created_at >= {:start} && created_at < {:end}', { start: startISO, end: endISO }),
+    expand: 'ref_baru,item_baru',
+  });
 
-    let totalOmsetPenjualan = 0;
-    let totalOmsetMinuman = 0;
-    let totalLabaPenjualan = 0;
-    let totalLabaServis = 0;
-    let totalLabaMinuman = 0;
+  let totalOmsetPenjualan = 0;
+  let totalOmsetMinuman = 0;
+  let totalLabaPenjualan = 0;
+  let totalLabaServis = 0;
+  let totalLabaMinuman = 0;
 
-    logStockItems.forEach(item => {
-      if ((item.boolean || '').toLowerCase() !== 'out') return;
+  logStockItems.forEach(item => {
+    if ((item.boolean || '').toLowerCase() !== 'out') return;
+    const menuJenis = menuMap[item.ref_baru] || '';
+    if (menuJenis.includes('pembelian') || menuJenis.includes('rusak') || menuJenis.includes('opname')) return;
 
-      // Gunakan menuMap yang sudah dideklarasikan di atas
-      const menuJenis = menuMap[item.ref_baru] || '';
-      
-      // Filter pengecualian
-      if (menuJenis.includes('pembelian') || menuJenis.includes('rusak') || menuJenis.includes('opname')) return;
+    const kategori = (item.expand?.item_baru?.kategori || '').toLowerCase();
+    const qty = item.qty || 0;
+    const nilaiJual = (item.price_1 || 0) * qty;
+    const nilaiModal = item.price_2 || 0;
+    const laba = nilaiJual - nilaiModal;
 
-      const kategori = (item.expand?.item_baru?.kategori || '').toLowerCase();
-      const qty = item.qty || 0;
-      const nilaiJual = (item.price_1 || 0) * qty;
-      const nilaiModal = item.price_2 || 0; 
-      const laba = nilaiJual - nilaiModal;
+    const isMinuman = (kategori === 'minuman' || menuJenis.includes('minuman'));
+    const isService = (menuJenis.includes('service') || menuJenis.includes('servis'));
 
-      // Definisi yang lebih fleksibel
-      const isMinuman = (kategori === 'minuman' || menuJenis.includes('minuman'));
-      const isService = (menuJenis.includes('service') || menuJenis.includes('servis'));
+    if (isMinuman) {
+      totalOmsetMinuman += nilaiJual;
+      totalLabaMinuman += laba;
+    } else if (isService) {
+      totalOmsetPenjualan += nilaiJual;
+      totalLabaServis += laba;
+    } else {
+      totalOmsetPenjualan += nilaiJual;
+      totalLabaPenjualan += laba;
+    }
+  });
 
-      if (isMinuman) {
-        totalOmsetMinuman += nilaiJual;
-        totalLabaMinuman += laba;
-      } else if (isService) {
-        totalOmsetPenjualan += nilaiJual; 
-        totalLabaServis += laba;
-      } else {
-        totalOmsetPenjualan += nilaiJual;
-        totalLabaPenjualan += laba;
-      }
-    });
+  const ongkosFilter = pb.filter('date >= {:start} && date < {:end}', { start: startISO, end: endISO });
+  const ongkosAll = await pb.collection('ongkos').getFullList({
+    filter: ongkosFilter,
+    fields: 'ongkos',
+  });
+  const omsetServis = ongkosAll.reduce((sum, item) => sum + (item.ongkos || 0), 0);
 
-    const ongkosFilter = pb.filter('date >= {:start} && date < {:end}', { start: startISO, end: endISO });
-    const ongkosAll = await pb.collection('ongkos').getFullList({
-      filter: ongkosFilter,
-      fields: 'ongkos',
-    });
-    const omsetServis = ongkosAll.reduce((sum, item) => sum + (item.ongkos || 0), 0);
+  const cashflowFilter = pb.filter('created_at >= {:start} && created_at < {:end}', { start: startISO, end: endISO });
+  const cashflowItems = await pb.collection('cashflow').getFullList({
+    filter: cashflowFilter,
+    fields: 'jenis, nominal, acc1, acc2, mutasi',
+  });
 
-    const cashflowFilter = pb.filter('created_at >= {:start} && created_at < {:end}', { start: startISO, end: endISO });
-    const cashflowItems = await pb.collection('cashflow').getFullList({
-      filter: cashflowFilter,
-      fields: 'jenis, nominal, acc1, acc2, mutasi',
-    });
+  let operasionalToko = 0;
+  let pengeluaranLain = 0;
+  let pemasukanLain = 0;
+  let cashKasir = 0;
 
-    let operasionalToko = 0;
-    let pengeluaranLain = 0;
-    let pemasukanLain = 0;
-    let cashKasir = 0;
+  cashflowItems.forEach(cf => {
+    const jenis = (cf.jenis || '').toLowerCase();
+    const nominal = cf.nominal || 0;
+    const mutasi = (cf.mutasi || '').toLowerCase();
 
-    cashflowItems.forEach(cf => {
-      const jenis = (cf.jenis || '').toLowerCase();
-      const nominal = cf.nominal || 0;
-      const mutasi = (cf.mutasi || '').toLowerCase();
+    if (jenis.includes('operasional')) operasionalToko += nominal;
+    else if (jenis.includes('pengeluaran')) pengeluaranLain += nominal;
+    else if (jenis.includes('pemasukan')) pemasukanLain += nominal;
 
-      if (jenis.includes('operasional')) operasionalToko += nominal;
-      else if (jenis.includes('pengeluaran')) pengeluaranLain += nominal;
-      else if (jenis.includes('pemasukan')) pemasukanLain += nominal;
+    const acc1 = (cf.acc1 || '').toLowerCase();
+    const acc2 = (cf.acc2 || '').toLowerCase();
 
-      const acc1 = (cf.acc1 || '').toLowerCase();
-      const acc2 = (cf.acc2 || '').toLowerCase();
+    if (acc1.includes('kasir') || acc1.includes('cash')) {
+      if (mutasi === 'in' || mutasi === 'masuk') cashKasir += nominal;
+      else if (mutasi === 'out' || mutasi === 'keluar') cashKasir -= nominal;
+    } else if (acc2.includes('kasir') || acc2.includes('cash')) {
+      if (mutasi === 'out' || mutasi === 'keluar') cashKasir += nominal;
+    }
+  });
 
-      if (acc1.includes('kasir') || acc1.includes('cash')) {
-        if (mutasi === 'in' || mutasi === 'masuk') cashKasir += nominal;
-        else if (mutasi === 'out' || mutasi === 'keluar') cashKasir -= nominal;
-      } else if (acc2.includes('kasir') || acc2.includes('cash')) {
-        if (mutasi === 'out' || mutasi === 'keluar') cashKasir += nominal;
-      }
-    });
-
-    return {
-      omset_toko: totalOmsetPenjualan,
-      omset_servis: omsetServis,
-      omset_minuman: totalOmsetMinuman,
-      laba_penjualan: totalLabaPenjualan, // 🆕 Laba Penjualan
-      laba_service: totalLabaServis,       // 🆕 Laba Servis
-      laba_minuman: totalLabaMinuman,     // 🆕 Laba Minuman
-      operasional_toko: operasionalToko,
-      pengeluaran_lain: pengeluaranLain,
-      pemasukan_lain: pemasukanLain,
-      hutang: totalHutang,
-      piutang: totalPiutang,
-      kasir_toko: cashKasir,
-    };
+  return {
+    omset_toko: totalOmsetPenjualan,
+    omset_servis: omsetServis,
+    omset_minuman: totalOmsetMinuman,
+    laba_penjualan: totalLabaPenjualan,
+    laba_servis: totalLabaServis,     // 🆕
+    laba_minuman: totalLabaMinuman,   // 🆕
+    operasional_toko: operasionalToko,
+    pengeluaran_lain: pengeluaranLain,
+    pemasukan_lain: pemasukanLain,
+    hutang: totalHutang,
+    piutang: totalPiutang,
+    kasir_toko: cashKasir,
   };
+};
 
   const handleGenerateReport = async (dateStr?: string, forceReplace: boolean = false) => {
     if (generating) return;
@@ -891,7 +884,7 @@ export default function ReportPage() {
                               </span>
                             </td>
                             <td className="p-4 text-right text-emerald-600 font-bold">
-                              {formatRp((row.laba_penjualan || 0) + (row.laba_service || 0) + (row.laba_minuman || 0))}
+                              {formatRp((row.laba_penjualan || 0) + (row.laba_servis || 0) + (row.laba_minuman || 0))}
                             </td>
                             <td className="p-4 text-right text-rose-600">{formatRp(totalKeluarRow)}</td>
                             <td className={`p-4 text-right font-black ${piutangVal < 0 ? 'text-rose-600' : 'text-amber-600'}`}>
@@ -1105,7 +1098,7 @@ export default function ReportPage() {
                       </div>
                       <div className="bg-emerald-50/50 p-4 rounded-2xl border border-emerald-100 shadow-sm">
                         <p className="text-[11px] font-black text-emerald-600 uppercase">Laba Sparepart Servis</p>
-                        <p className="text-lg md:text-xl font-black text-emerald-700 mt-1">{formatRp(selectedReport.laba_service)}</p>
+                        <p className="text-lg md:text-xl font-black text-emerald-700 mt-1">{formatRp(selectedReport.laba_servis)}</p>
                       </div>
                       <div className="bg-emerald-50/50 p-4 rounded-2xl border border-emerald-100 shadow-sm">
                         <p className="text-[11px] font-black text-emerald-600 uppercase">Laba Minuman</p>

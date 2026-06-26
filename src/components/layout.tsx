@@ -38,17 +38,17 @@ export default function Layout({ setAuth }: { setAuth: (status: boolean) => void
       // --- URL FORCE GUARD START ---
       const path = location.pathname;
       if (path === '/settings' && currentLevel !== '1') {
-        navigate('/'); // Pental kembali ke beranda
+        navigate('/');
         setSystemAlert({ show: true, title: "Akses Ditolak", message: "Anda tidak memiliki izin ke halaman Pengaturan.", onConfirm: () => setSystemAlert(prev => ({...prev, show: false})) });
         return;
       }
       if (path === '/report' && !['1','2','3','4','5','6'].includes(currentLevel)) {
-        navigate('/'); // Pental kembali ke beranda
+        navigate('/');
         setSystemAlert({ show: true, title: "Akses Ditolak", message: "Anda tidak memiliki izin ke halaman Report.", onConfirm: () => setSystemAlert(prev => ({...prev, show: false})) });
         return;
       }
       if (path === '/person' && !['1','2','3','4','5','6','7'].includes(currentLevel)) {
-        navigate('/'); // Pental kembali ke beranda
+        navigate('/');
         setSystemAlert({ show: true, title: "Akses Ditolak", message: "Anda tidak memiliki izin ke halaman Person.", onConfirm: () => setSystemAlert(prev => ({...prev, show: false})) });
         return;
       }
@@ -57,16 +57,69 @@ export default function Layout({ setAuth }: { setAuth: (status: boolean) => void
       try {
         const freshUser = await pb.collection('user').getOne(pb.authStore.model.id, { $autoCancel: false });
         if (!freshUser || freshUser.status?.toLowerCase() !== 'active') {
-          setSystemAlert({ show: true, title: "Sesi Ditolak", message: "Akun Anda tidak aktif atau ditangguhkan. Sesi Anda akan ditutup.", onConfirm: () => { setSystemAlert(prev => ({...prev, show: false})); forceLogout(); } });
-        }
-      } catch (err) {
-        if ((err as any)?.status === 401) {
           forceLogout();
+          return;
         }
+        // 🔐 Tambahkan pengecekan level dari database
+        const dbLevel = freshUser.level?.toString();
+        const localLevel = localStorage.getItem('user_level');
+        if (dbLevel !== localLevel) {
+          setSystemAlert({
+            show: true,
+            title: "Sesi Tidak Valid",
+            message: "Level akses Anda tidak cocok dengan database. Sesi akan ditutup untuk keamanan.",
+            onConfirm: () => { setSystemAlert(prev => ({...prev, show: false})); forceLogout(); }
+          });
+          return;
+        }
+      } catch (error) {
+        console.error("Gagal verifikasi user:", error);
+        forceLogout();
       }
     };
     checkSecurityGuard();
   }, [location.pathname, navigate]);
+
+    // 🔐 Pantau konsistensi level user secara aktif (interval + event storage)
+    useEffect(() => {
+      const checkLevelConsistency = () => {
+        const storedLevel = localStorage.getItem('user_level');
+        const dbLevel = pb.authStore.model?.level?.toString();
+        if (storedLevel && dbLevel && storedLevel !== dbLevel) {
+          // Level di localStorage tidak cocok dengan database → paksa logout
+          forceLogout();
+        }
+      };
+
+      // Cek setiap 5 detik (untuk deteksi perubahan di tab yang sama)
+      const intervalId = setInterval(checkLevelConsistency, 5000);
+
+      // Tangkap perubahan localStorage dari tab lain
+      const handleStorageChange = (e: StorageEvent) => {
+        if (e.key === 'user_level') {
+          checkLevelConsistency();
+        }
+      };
+      window.addEventListener('storage', handleStorageChange);
+
+      return () => {
+        clearInterval(intervalId);
+        window.removeEventListener('storage', handleStorageChange);
+      };
+    }, []);
+
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      if (pb.authStore.isValid && pb.authStore.model) {
+        try {
+          await pb.collection('user').getOne(pb.authStore.model.id, { $autoCancel: false });
+        } catch {
+          forceLogout();
+        }
+      }
+    }, 5 * 60 * 1000); // 5 menit
+    return () => clearInterval(interval);
+  }, []);
 
   // Jam Detik Digital
   useEffect(() => {
@@ -103,7 +156,7 @@ export default function Layout({ setAuth }: { setAuth: (status: boolean) => void
       setNavTarget(path);
       setShowConfirmNav(true);
     } else {
-      setIsMobileMenuOpen(false); // Tutup sidebar di mobile setelah klik menu
+      setIsMobileMenuOpen(false);
     }
   };
 
@@ -234,7 +287,6 @@ export default function Layout({ setAuth }: { setAuth: (status: boolean) => void
       <Modal
         isOpen={showLogoutDialog}
         onClose={() => setShowLogoutDialog(false)}
-        isAlert={true}
         title="Konfirmasi Keluar"
         alertDescription="Apakah Anda yakin ingin menutup sesi kasir saat ini? Anda harus login kembali untuk bertransaksi."
         alertIcon={<ShieldAlert size={24} />}
@@ -249,7 +301,6 @@ export default function Layout({ setAuth }: { setAuth: (status: boolean) => void
       <Modal
         isOpen={showConfirmNav}
         onClose={() => setShowConfirmNav(false)}
-        isAlert={true}
         title="Hapus Perubahan?"
         alertDescription="Anda terdeteksi sedang mengubah data transaksi di Keranjang. Meninggalkan halaman akan membatalkan perubahan data."
         alertIcon={<ShieldAlert size={24} />}
@@ -268,13 +319,15 @@ export default function Layout({ setAuth }: { setAuth: (status: boolean) => void
       {/* --- MODAL SYSTEM ALERT (Pengganti alert bawaan browser) --- */}
       <Modal
         isOpen={systemAlert.show}
-        onClose={systemAlert.onConfirm}
-        isAlert={true}
+        onClose={() => setSystemAlert(prev => ({ ...prev, show: false }))}
         title={systemAlert.title}
         alertDescription={systemAlert.message}
         alertIcon={<ShieldAlert size={24} />}
         alertIconBg="bg-rose-50 text-rose-500 border-rose-100"
-        onConfirm={systemAlert.onConfirm}
+        onConfirm={() => {
+          systemAlert.onConfirm();
+          setSystemAlert(prev => ({ ...prev, show: false }));
+        }}
         confirmText="Mengerti"
         cancelText="Tutup"
         confirmBg="bg-rose-600 hover:bg-rose-500 shadow-rose-200"

@@ -352,8 +352,20 @@
 
     const getPersonName = (personId: string | undefined) => {
       if (!personId) return '-';
+      // Cari di personOptions
       const person = personOptions.find(opt => opt.id === personId || opt.id_lama === personId);
-      return person ? person.text_1 : personId;
+      
+      if (!person) return personId;
+      
+      // Jika source-nya 'dropdown', gunakan text_1 dan text_2
+      if (person.source === 'dropdown') {
+         const pData = person as any;
+         // Pastikan text_2 ada dan tidak kosong
+         return pData.text_2 ? `${pData.text_1} - ${pData.text_2}` : pData.text_1;
+      }
+      
+      // Jika source-nya 'user', return text_1 (karena di fetchPersonOptions kita set text_1 = user.name)
+      return person.text_1;
     };
 
     const fetchDropdowns = async () => {
@@ -420,6 +432,7 @@
           id: p.id,
           id_lama: p.id_lama || '',
           text_1: p.text_1,
+          text_2: (p as any).text_2 || '', // 🟢 Pastikan text_2 ditarik di sini
           source: 'dropdown' as const
         }));
         // Ambil dari koleksi user (karyawan) yang aktif
