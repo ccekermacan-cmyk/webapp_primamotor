@@ -2,6 +2,7 @@ import { useNavigate, useLocation } from 'react-router-dom'; // Ini yang menyeba
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { pb } from '../lib/pocketbase';
 import Modal from '../components/modal';
+import { createPortal } from 'react-dom';
 import { 
   Search, ShoppingCart, ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
   Trash2, Plus, Receipt, Layers, Printer, Share2, X,
@@ -106,6 +107,10 @@ export default function MenuPage() {
   const [totalPages, setTotalPages] = useState(1);
   const [perPage, setPerPage] = useState(12);
 
+  // State untuk posisi dropdown
+  const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 });
+  const personButtonRef = useRef<HTMLButtonElement>(null);
+
   const [searchInput, setSearchInput] = useState('');
 
   const [activeTab, setActiveTab] = useState<'detail' | 'items'>('detail');
@@ -116,11 +121,17 @@ export default function MenuPage() {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterStatus, setFilterStatus] = useState<string>('all');
-  const [showStatusFilter, setShowStatusFilter] = useState(false);
-  const [showDesktopFilters, setShowDesktopFilters] = useState(false);
+  // Ambil parameter dari URL saat pertama kali render
+  const initialPerson = new URLSearchParams(window.location.search).get('person') || '';
+  const initialStatus = new URLSearchParams(window.location.search).get('status') === 'belum' ? 'belum' : 'all';
+
+  const [showFilters, setShowFilters] = useState(false);
+  const [filterStatus, setFilterStatus] = useState<string>(initialStatus);
+  const [filterPerson, setFilterPerson] = useState<string>(initialPerson);
   const [selectedMenuFilters, setSelectedMenuFilters] = useState<string[]>([]);
   const [showJenisFilter, setShowJenisFilter] = useState(false);
+  const [isPersonFilterOpen, setIsPersonFilterOpen] = useState(false);
+  const [personFilterSearch, setPersonFilterSearch] = useState('');
   
   const [showDetailHistory, setShowDetailHistory] = useState<HistoryMenu | null>(null);
   const [historyItems, setHistoryItems] = useState<LogStockDetail[]>([]);
@@ -153,6 +164,24 @@ export default function MenuPage() {
       setFileBlobUrls({});
     };
   }, [showDetailHistory]); // dependency: ketika modal detail berubah (open/close)
+
+  // Ambil parameter dari URL saat pertama kali mount
+  useEffect(() => {
+    const searchParams = new URLSearchParams(location.search);
+    const personParam = searchParams.get('person');
+    const statusParam = searchParams.get('status');
+
+    // Hanya update jika nilai berbeda (untuk menghindari infinite loop)
+    if (personParam && personParam !== filterPerson) {
+      setFilterPerson(personParam);
+    }
+    if (statusParam === 'belum' && filterStatus !== 'belum') {
+      setFilterStatus('belum');
+    }
+    if (statusParam !== 'belum' && filterStatus !== 'all') {
+      setFilterStatus('all');
+    }
+  }, [location.search, filterPerson, filterStatus]);
 
   // Fungsi helper cek video
   const isVideo = (filename: string) => filename.match(/\.(mp4|webm|ogg)$/i);
@@ -334,6 +363,7 @@ export default function MenuPage() {
     const searchParams = new URLSearchParams(location.search);
     const refId = searchParams.get('ref');
     
+    
     if (refId) {
       const openDirectMenu = async () => {
         try {
@@ -482,12 +512,23 @@ export default function MenuPage() {
 
       if (menuLower === 'overview') {
         let overviewFilter = filterStr;
+        
+        // Filter status (dari URL atau manual)
         if (filterStatus !== 'all') {
           const statusValue = filterStatus === 'lunas' ? 'lunas' : 'belum';
           overviewFilter = overviewFilter
-            ? `(${overviewFilter}) && status ~ "${statusValue}"`   // 🔁 Perbaikan: gunakan ~
+            ? `(${overviewFilter}) && status ~ "${statusValue}"`
             : `status ~ "${statusValue}"`;
         }
+        
+        // Filter person (dari URL)
+        if (filterPerson) {
+          const personCond = `person = "${filterPerson}"`;
+          overviewFilter = overviewFilter
+            ? `(${overviewFilter}) && (${personCond})`
+            : personCond;
+        }
+        
         if (selectedMenuFilters.length > 0) {
           const jenisConditions = selectedMenuFilters.map(jenis => `jenis ~ "${jenis.toLowerCase()}"`).join(' || ');
           overviewFilter = overviewFilter
@@ -585,7 +626,7 @@ export default function MenuPage() {
     }
   }, [isOnlinePerson]);
 
-  useEffect(() => { fetchData(); }, [page, searchTerm, selectedMenu, filterStatus, selectedMenuFilters, perPage]);
+  useEffect(() => { fetchData(); }, [page, searchTerm, selectedMenu, filterStatus, selectedMenuFilters, perPage, filterPerson]);
 
   useEffect(() => {
     const container = scrollContainerRef.current;
@@ -1372,9 +1413,10 @@ export default function MenuPage() {
         {/* Search Bar & Filters - Glassmorphism & Theme Sync */}
         <div className="p-2 sm:p-3 md:p-4 mb-2 sm:mb-3 border border-gray-100 bg-white/80 backdrop-blur-xl rounded-2xl sm:rounded-3xl shadow-sm shrink-0 flex flex-col gap-1 sm:gap-2 md:gap-3">
           
-          {/* Baris atas: input pencarian + Toggle View & Filter Mobile */}
-          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-            <div className="relative w-full group">
+          {/* BARIS UTAMA: Search + Filter Button + Indikator */}
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+            {/* Input Pencarian */}
+            <div className="relative w-full group flex-1 min-w-[180px]">
               <Search className={`absolute left-4 top-1/2 -translate-y-1/2 transition-colors ${activeTheme.text} opacity-50 group-focus-within:opacity-100`} size={20} />
               <input 
                 type="text" 
@@ -1385,8 +1427,9 @@ export default function MenuPage() {
               />
             </div>
 
-            <div className="flex gap-2">
-              {/* Tombol Toggle View (Desktop & Tablet) */}
+            {/* Grup Tombol & Indikator (sejajar dengan search) */}
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Tombol Toggle View (Desktop & Tablet) - hanya jika bukan Overview */}
               {selectedMenu.toLowerCase() !== 'overview' && (
                 <div className="hidden sm:flex bg-gray-50 border border-gray-200 rounded-2xl p-1.5 shadow-inner shrink-0 items-center">
                   <button onClick={() => setViewMode('list')} className={`p-2.5 rounded-xl transition-all duration-300 ${viewMode === 'list' ? `${activeTheme.main} text-white shadow-md` : 'text-gray-400 hover:text-gray-700 hover:bg-gray-200'}`}>
@@ -1398,102 +1441,249 @@ export default function MenuPage() {
                 </div>
               )}
 
-              {/* Tombol filter desktop (Overview) */}
+              {/* Tombol Filter & Indikator (hanya untuk Overview) */}
               {selectedMenu === 'Overview' && (
-                <button
-                  onClick={() => setShowDesktopFilters(!showDesktopFilters)}
-                  className="hidden sm:flex items-center justify-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-xl text-sm font-bold shadow-sm hover:bg-gray-50 transition-all"
-                >
-                  <Filter size={16} />
-                  Filter
-                </button>
-              )}
+                <>
+                  <button
+                    onClick={() => setShowFilters(!showFilters)}
+                    className="flex items-center gap-2 px-4 py-2 text-xs font-black uppercase tracking-wider rounded-xl transition-all duration-300 bg-white border border-gray-200 hover:border-gray-300 hover:bg-gray-50 shadow-sm"
+                  >
+                    <Filter size={16} />
+                    Filter
+                    {(() => {
+                      const totalActive = (filterStatus !== 'all' ? 1 : 0) + (filterPerson ? 1 : 0) + (selectedMenuFilters.length > 0 ? 1 : 0);
+                      return totalActive > 0 ? (
+                        <span className="ml-1 bg-blue-500 text-white text-[10px] px-2 py-0.5 rounded-full min-w-[20px] text-center">
+                          {totalActive}
+                        </span>
+                      ) : null;
+                    })()}
+                    <ChevronDown
+                      size={16}
+                      className={`transition-transform duration-300 ${showFilters ? 'rotate-180' : ''}`}
+                    />
+                  </button>
 
-              {/* Tombol filter mobile (Overview) */}
-              {selectedMenu === 'Overview' && (
-                <button
-                  onClick={() => setShowStatusFilter(!showStatusFilter)}
-                  className="sm:hidden flex flex-1 items-center justify-center gap-2 py-3 bg-white border border-gray-200 rounded-2xl text-sm font-bold shadow-sm active:scale-95 transition-all"
-                >
-                  <Filter size={18} />
-                  {showStatusFilter ? 'Tutup Filter' : 'Filter'}
-                </button>
+                  {/* Indikator Filter Person (muncul jika ada person terpilih) */}
+                  {filterPerson && (
+                    <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-3 py-1 rounded-full border border-blue-200 flex items-center gap-1 shrink-0">
+                      <User size={12} />
+                      {allPersons.find(p => p.id_lama === filterPerson)?.text_1 || filterPerson}
+                      <button
+                        onClick={() => {
+                          setFilterPerson('');
+                          setFilterStatus('all');
+                          const url = new URL(window.location.href);
+                          url.searchParams.delete('person');
+                          url.searchParams.delete('status');
+                          window.history.replaceState({}, '', url.toString());
+                        }}
+                        className="ml-1 text-blue-400 hover:text-blue-600"
+                      >
+                        <X size={14} />
+                      </button>
+                    </span>
+                  )}
+                </>
               )}
             </div>
           </div>
 
-          {/* Filter Desktop (muncul jika showDesktopFilters true) */}
+          {/* Area Filter (collapsible) - hanya untuk Overview */}
           {selectedMenu === 'Overview' && (
-            <div className={`flex-wrap items-center gap-4 border-t border-gray-100 pt-4 ${showDesktopFilters ? 'flex' : 'hidden'}`}>
-              {/* Filter status */}
-              <div className="flex flex-wrap items-center bg-gray-50 border border-gray-200 rounded-2xl p-1.5 shadow-inner">
-                {['all', 'lunas', 'belum'].map(status => (
-                  <button key={status} onClick={() => { setFilterStatus(status); setPage(1); }}
-                    className={`px-5 py-2 text-xs md:text-xs font-black uppercase tracking-wider rounded-xl transition-all duration-300 ${
-                      filterStatus === status ? `${activeTheme.main} text-white shadow-md scale-95` : 'text-gray-500 hover:text-gray-800 hover:bg-gray-200'
-                    }`}>
-                    {status === 'all' ? 'Semua' : status}
-                  </button>
-                ))}
-              </div>
+            <div
+              className={`overflow-visible transition-all duration-300 ease-in-out ${
+                showFilters ? 'max-h-[800px] opacity-100 mt-1' : 'max-h-0 opacity-0'
+              }`}
+            >
+              <div className="flex flex-wrap items-center gap-3 p-3 bg-gray-50/80 rounded-2xl border border-gray-200/80 shadow-sm">
+                {/* === FILTER STATUS === */}
+                <div className="flex flex-wrap items-center gap-1 bg-white rounded-xl border border-gray-200 p-1 shadow-inner">
+                  {['all', 'lunas', 'belum'].map(status => (
+                    <button
+                      key={status}
+                      onClick={() => {
+                        setFilterStatus(status);
+                        setPage(1);
+                        const url = new URL(window.location.href);
+                        if (status === 'all') {
+                          url.searchParams.delete('status');
+                        } else {
+                          url.searchParams.set('status', status);
+                        }
+                        if (filterPerson) url.searchParams.set('person', filterPerson);
+                        window.history.replaceState({}, '', url.toString());
+                      }}
+                      className={`px-3 md:px-4 py-1.5 text-[10px] md:text-xs font-black uppercase tracking-wider rounded-lg transition-all duration-200 ${
+                        filterStatus === status
+                          ? `${activeTheme.main} text-white shadow-md scale-95`
+                          : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+                      }`}
+                    >
+                      {status === 'all' ? 'Semua' : status}
+                    </button>
+                  ))}
+                </div>
 
-              {/* Filter jenis menu */}
-              <div className="flex flex-wrap items-center bg-gray-50 border border-gray-200 rounded-2xl p-1.5 shadow-inner gap-1">
-                <button onClick={() => setSelectedMenuFilters([])}
-                  className={`px-4 py-2 text-xs md:text-xm font-black uppercase tracking-wider rounded-xl transition-all duration-300 ${
-                    selectedMenuFilters.length === 0 ? `${activeTheme.main} text-white shadow-md` : 'text-gray-500 hover:text-gray-800 hover:bg-gray-200'
-                  }`}>
-                  Semua Jenis
-                </button>
-                {menuOptions.filter(m => m.text_1 !== 'Overview').map(menu => (
-                  <button key={menu.id}
+                {/* === FILTER PERSON (CUSTOMER/SUPPLIER) === */}
+                <div className="relative" style={{ zIndex: 9999 }}>
+                  <button
+                    ref={personButtonRef}
                     onClick={() => {
-                      setSelectedMenuFilters(prev => prev.includes(menu.text_1) ? prev.filter(j => j !== menu.text_1) : [...prev, menu.text_1]);
-                      setPage(1);
+                      if (!isPersonFilterOpen && personButtonRef.current) {
+                        const rect = personButtonRef.current.getBoundingClientRect();
+                        setDropdownPosition({
+                          top: rect.bottom + window.scrollY,
+                          left: rect.left + window.scrollX,
+                        });
+                      }
+                      setIsPersonFilterOpen(!isPersonFilterOpen);
                     }}
-                    className={`px-4 py-2 text-xs md:text-xs font-black uppercase tracking-wider rounded-xl transition-all duration-300 ${
-                      selectedMenuFilters.includes(menu.text_1) ? `${activeTheme.main} text-white shadow-md` : 'text-gray-500 hover:text-gray-800 hover:bg-gray-200'
-                    }`}>
-                    {menu.text_1}
+                    className={`...`}
+                  >
+                    <User size={14} />
+                    <span className="truncate max-w-[80px] md:max-w-[120px]">
+                      {filterPerson
+                        ? allPersons.find(p => p.id_lama === filterPerson)?.text_1 || 'Person'
+                        : 'Person'}
+                    </span>
+                    {filterPerson && (
+                      <X
+                        size={14}
+                        className="ml-1 cursor-pointer hover:text-white/70"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setFilterPerson('');
+                          setFilterStatus('all');
+                          const url = new URL(window.location.href);
+                          url.searchParams.delete('person');
+                          url.searchParams.delete('status');
+                          window.history.replaceState({}, '', url.toString());
+                        }}
+                      />
+                    )}
+                    <ChevronDown
+                      size={14}
+                      className={`transition-transform duration-200 ${isPersonFilterOpen ? 'rotate-180' : ''}`}
+                    />
                   </button>
-                ))}
-              </div>
-            </div>
-          )}
 
-          {/* Filter Mobile Expand (muncul jika showStatusFilter true) */}
-          {selectedMenu === 'Overview' && showStatusFilter && (
-            <div className="sm:hidden flex flex-col gap-4 mt-2 animate-in slide-in-from-top-4 fade-in duration-300 border-t border-gray-100 pt-4">
-              <div className="flex gap-2 bg-gray-50 rounded-2xl p-1.5 shadow-inner">
-                {['all', 'lunas', 'belum'].map(status => (
-                  <button key={status} onClick={() => { setFilterStatus(status); setPage(1); setShowStatusFilter(false); }}
-                    className={`flex-1 py-2.5 text-xs font-black uppercase tracking-wider rounded-xl transition-all ${
-                      filterStatus === status ? `${activeTheme.main} text-white shadow-md` : 'text-gray-500 hover:bg-gray-200'
-                    }`}>
-                    {status === 'all' ? 'Semua' : status}
-                  </button>
-                ))}
-              </div>
-              <div className="flex flex-wrap gap-2 bg-gray-50 rounded-2xl p-1.5 shadow-inner">
-                <button onClick={() => { setSelectedMenuFilters([]); setPage(1); setShowStatusFilter(false); }}
-                  className={`flex-1 min-w-[45%] py-2.5 text-xs font-black uppercase tracking-wider rounded-xl transition-all ${
-                    selectedMenuFilters.length === 0 ? `${activeTheme.main} text-white shadow-md` : 'text-gray-500 hover:bg-gray-200'
-                  }`}>
-                  Semua Jenis
-                </button>
-                {menuOptions.filter(m => m.text_1 !== 'Overview').map(menu => (
-                  <button key={menu.id}
+                  {/* Dropdown Person - z-index tinggi */}
+                  {isPersonFilterOpen && createPortal(
+                    <>
+                      {/* Overlay */}
+                      <div 
+                        className="fixed inset-0 z-[9998]" 
+                        onClick={() => setIsPersonFilterOpen(false)} 
+                      />
+                      {/* Dropdown */}
+                      <div 
+                        className="fixed z-[9999] w-72 bg-white border border-gray-200 rounded-2xl shadow-2xl p-3 max-h-72 overflow-y-auto custom-scrollbar"
+                        style={{
+                          top: dropdownPosition.top + 8, // +8 untuk jarak
+                          left: dropdownPosition.left,
+                        }}
+                      >
+                        <div className="relative">
+                          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                          <input
+                            type="text"
+                            placeholder="Cari customer / supplier..."
+                            className="w-full pl-8 pr-3 py-2 text-xs font-bold bg-gray-50 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-400 transition-all"
+                            value={personFilterSearch}
+                            onChange={(e) => setPersonFilterSearch(e.target.value)}
+                            onClick={(e) => e.stopPropagation()}
+                          />
+                        </div>
+                        <div className="mt-2 space-y-1">
+                          {allPersons
+                            .filter(p =>
+                              (p.jenis?.toLowerCase().includes('customer') || p.jenis?.toLowerCase().includes('supplier')) &&
+                              (p.text_1.toLowerCase().includes(personFilterSearch.toLowerCase()) ||
+                                (p.text_2 && p.text_2.toLowerCase().includes(personFilterSearch.toLowerCase())))
+                            )
+                            .map(p => (
+                              <div
+                                key={p.id}
+                                onClick={() => {
+                                  setFilterPerson(p.id_lama);
+                                  setIsPersonFilterOpen(false);
+                                  setPersonFilterSearch('');
+                                  const currentStatus = filterStatus === 'all' ? 'belum' : filterStatus;
+                                  const url = new URL(window.location.href);
+                                  url.searchParams.set('person', p.id_lama);
+                                  url.searchParams.set('status', currentStatus);
+                                  window.history.replaceState({}, '', url.toString());
+                                }}
+                                className={`px-3 py-2.5 rounded-xl cursor-pointer hover:bg-blue-50 text-xs font-bold flex justify-between items-center transition-colors ${
+                                  filterPerson === p.id_lama ? 'bg-blue-100 text-blue-700' : 'text-gray-700'
+                                }`}
+                              >
+                                <span className="truncate">
+                                  {p.text_1} {p.text_2 ? `- ${p.text_2}` : ''}
+                                </span>
+                                <span className="text-[10px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
+                                  {p.jenis}
+                                </span>
+                              </div>
+                            ))}
+                          {allPersons.filter(p => p.jenis?.toLowerCase().includes('customer') || p.jenis?.toLowerCase().includes('supplier')).length === 0 && (
+                            <div className="px-3 py-2 text-xs text-gray-500">Tidak ada data</div>
+                          )}
+                        </div>
+                      </div>
+                    </>,
+                    document.body
+                  )}
+                </div>
+
+                {/* === FILTER JENIS MENU === */}
+                <div className="flex flex-wrap items-center gap-1 bg-white rounded-xl border border-gray-200 p-1 shadow-inner">
+                  <button
                     onClick={() => {
-                      setSelectedMenuFilters(prev => prev.includes(menu.text_1) ? prev.filter(j => j !== menu.text_1) : [...prev, menu.text_1]);
+                      setSelectedMenuFilters([]);
                       setPage(1);
-                      setShowStatusFilter(false);
+                      const url = new URL(window.location.href);
+                      url.searchParams.delete('jenis');
+                      window.history.replaceState({}, '', url.toString());
                     }}
-                    className={`flex-1 min-w-[45%] py-2.5 text-xs font-black uppercase tracking-wider rounded-xl transition-all ${
-                      selectedMenuFilters.includes(menu.text_1) ? `${activeTheme.main} text-white shadow-md` : 'text-gray-500 hover:bg-gray-200'
-                    }`}>
-                    {menu.text_1}
+                    className={`px-3 md:px-4 py-1.5 text-[10px] md:text-xs font-black uppercase tracking-wider rounded-lg transition-all duration-200 ${
+                      selectedMenuFilters.length === 0
+                        ? `${activeTheme.main} text-white shadow-md scale-95`
+                        : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+                    }`}
+                  >
+                    Semua Jenis
                   </button>
-                ))}
+                  {menuOptions
+                    .filter(m => m.text_1 !== 'Overview')
+                    .map(menu => (
+                      <button
+                        key={menu.id}
+                        onClick={() => {
+                          const newFilters = selectedMenuFilters.includes(menu.text_1)
+                            ? selectedMenuFilters.filter(j => j !== menu.text_1)
+                            : [...selectedMenuFilters, menu.text_1];
+                          setSelectedMenuFilters(newFilters);
+                          setPage(1);
+                          const url = new URL(window.location.href);
+                          if (newFilters.length > 0) {
+                            url.searchParams.set('jenis', newFilters.join(','));
+                          } else {
+                            url.searchParams.delete('jenis');
+                          }
+                          window.history.replaceState({}, '', url.toString());
+                        }}
+                        className={`px-3 md:px-4 py-1.5 text-[10px] md:text-xs font-black uppercase tracking-wider rounded-lg transition-all duration-200 ${
+                          selectedMenuFilters.includes(menu.text_1)
+                            ? `${activeTheme.main} text-white shadow-md scale-95`
+                            : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+                        }`}
+                      >
+                        {menu.text_1}
+                      </button>
+                    ))}
+                </div>
               </div>
             </div>
           )}
@@ -1501,13 +1691,61 @@ export default function MenuPage() {
 
         {/* Content Dynamic - Wrapper */}
         <div ref={scrollContainerRef} className={`flex-1 overflow-y-auto pr-2 custom-scrollbar pb-10 transition-colors duration-500 rounded-3xl`}>
-          
-          {loading ? ( 
-            <div className="h-full flex flex-col items-center justify-center gap-4">
-              <div className={`w-16 h-16 border-4 border-slate-200 border-t-transparent ${activeTheme.text.replace('text-', 'border-t-')} rounded-full animate-spin`} />
-              <p className={`font-black uppercase tracking-widest text-xs ${activeTheme.text} animate-pulse`}>Memuat Data...</p>
-            </div> 
-          ) : (
+        {loading ? ( 
+          <div className="h-full flex flex-col items-center justify-center gap-4">
+            <div className={`w-16 h-16 border-4 border-slate-200 border-t-transparent ${activeTheme.text.replace('text-', 'border-t-')} rounded-full animate-spin`} />
+            <p className={`font-black uppercase tracking-widest text-xs ${activeTheme.text} animate-pulse`}>Memuat Data...</p>
+          </div> 
+        ) : (
+        
+        <>
+        {/* ===== INDIKATOR FILTER PERSON (CUSTOMER/SUPPLIER) ===== */}
+        {selectedMenu === 'Overview' && showFilters && 
+          (filterStatus !== 'all' || filterPerson || selectedMenuFilters.length > 0) && (
+          <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
+            <div className="flex flex-wrap items-center gap-2 text-sm font-bold text-blue-700">
+              <Filter size={18} className="text-blue-500" />
+              <span className="whitespace-nowrap">Filter aktif:</span>
+              
+              {filterStatus !== 'all' && (
+                <span className="bg-blue-100 px-3 py-1 rounded-lg text-blue-800">
+                  Status: {filterStatus === 'lunas' ? 'Lunas' : 'Belum Lunas'}
+                </span>
+              )}
+              
+              {filterPerson && (
+                <span className="bg-blue-100 px-3 py-1 rounded-lg text-blue-800 max-w-[200px] sm:max-w-xs truncate flex items-center gap-1">
+                  <User size={14} />
+                  {(() => {
+                    const person = allPersons.find(p => p.id_lama === filterPerson);
+                    return person ? `${person.text_1} ${person.text_2 ? '- ' + person.text_2 : ''}` : filterPerson;
+                  })()}
+                </span>
+              )}
+              
+              {selectedMenuFilters.length > 0 && (
+                <span className="bg-blue-100 px-3 py-1 rounded-lg text-blue-800">
+                  Jenis: {selectedMenuFilters.join(', ')}
+                </span>
+              )}
+            </div>
+            
+            <button
+              onClick={() => {
+                setFilterPerson('');
+                setFilterStatus('all');
+                setSelectedMenuFilters([]);
+                const url = new URL(window.location.href);
+                url.searchParams.delete('person');
+                url.searchParams.delete('status');
+                window.history.replaceState({}, '', url.toString());
+              }}
+              className="px-4 py-1.5 bg-white border border-blue-200 rounded-lg text-xs font-black text-blue-600 hover:bg-blue-50 transition-colors flex items-center gap-1 shrink-0"
+            >
+              <X size={14} /> Reset Semua Filter
+            </button>
+          </div>
+        )}
             <div className="space-y-10">
                 
               {/* 1. LIST PRODUK (PENJUALAN/SERVICE/PEMBELIAN) */} 
@@ -1705,6 +1943,7 @@ export default function MenuPage() {
                 )
               )}
             </div>
+          </>
           )}
         </div>
 

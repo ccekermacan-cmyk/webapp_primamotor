@@ -6,7 +6,7 @@
     Wallet, Search, Trash2, Edit, ChevronLeft, ChevronRight, ChevronUp,
     ArrowDownRight, ArrowUpRight, Calendar, User,
     ExternalLink, Layers, X, DollarSign, ImagePlus, Save, FileText,
-    ArrowRight, Filter, Plus, ChevronDown, AlertCircle
+    ArrowRight, Filter, Plus, ChevronDown, AlertCircle, RefreshCw
   } from 'lucide-react';
 
   interface Cashflow {
@@ -141,8 +141,11 @@
     // --- STATE BARU UNTUK SUB-TAB AKUN ---
     const [activeAccountTab, setActiveAccountTab] = useState<'kas' | 'customer' | 'supplier' | 'karyawan'>('kas');
     const [showZeroBalances, setShowZeroBalances] = useState(false);
+    const [calculating, setCalculating] = useState(false);
     
     const [isFormDirty, setIsFormDirty] = useState(false);
+
+    const [filterPerson, setFilterPerson] = useState<string | null>(null);
     
     // TAMBAHAN: State untuk System Alert/Confirm Modal
     const [systemAlert, setSystemAlert] = useState({ show: false, title: '', message: '', type: 'alert' as 'alert'|'confirm', onConfirm: () => {} });
@@ -421,6 +424,109 @@
       }
     };
 
+    // ========== FUNGSI HITUNG ULANG BON / PIUTANG / HUTANG ==========
+    const calculateBalances = async () => {
+      if (calculating) return;
+      setCalculating(true);
+      
+      try {
+        const today = new Date();
+        const yesterday = new Date(today);
+        yesterday.setDate(yesterday.getDate() - 1);
+        const dateStr = yesterday.toISOString().split('T')[0];
+        
+        // Ambil data wallet sesuai activeAccountTab
+        let targetItems: DropdownItem[] = [];
+        
+        if (activeAccountTab === 'customer') {
+          // Piutang Customer
+          targetItems = wallets.filter(w => 
+            (w.kategori || '').toLowerCase().includes('person') && 
+            (w.jenis || '').toLowerCase().includes('customer')
+          );
+        } else if (activeAccountTab === 'supplier') {
+          // Hutang Supplier
+          targetItems = wallets.filter(w => 
+            (w.kategori || '').toLowerCase().includes('person') && 
+            (w.jenis || '').toLowerCase().includes('supplier')
+          );
+        } else if (activeAccountTab === 'karyawan') {
+          // Bon Karyawan
+          targetItems = wallets.filter(w => 
+            (w.kategori || '').toLowerCase().includes('person') && 
+            (w.jenis || '').toLowerCase().includes('user')
+          );
+        } else {
+          showAlert('Info', 'Fitur hitung ulang hanya untuk tab Piutang, Hutang, dan Bon Karyawan.');
+          setCalculating(false);
+          return;
+        }
+        
+        if (targetItems.length === 0) {
+          showAlert('Info', 'Tidak ada data untuk kategori ini.');
+          setCalculating(false);
+          return;
+        }
+        
+        let updateCount = 0;
+        
+        for (const item of targetItems) {
+          const personId = (item as any).id_lama;
+          if (!personId) continue;
+          
+          let totalBalance = 0;
+          
+          if (activeAccountTab === 'customer' || activeAccountTab === 'supplier') {
+            // Ambil semua menu dengan person = personId dan status != 'lunas'
+            const menuItems = await pb.collection('menu').getFullList({
+              filter: pb.filter('person = {:person} && status != "lunas"', { person: personId }),
+              fields: 'total, dibayar',
+              $autoCancel: false,
+            });
+            
+            totalBalance = menuItems.reduce((acc, m) => acc + ((m.total || 0) - (m.dibayar || 0)), 0);
+            
+          } else if (activeAccountTab === 'karyawan') {
+            // Ambil semua bon dengan persontext = personId
+            const bonItems = await pb.collection('bon').getFullList({
+              filter: pb.filter('persontext = {:person}', { person: personId }),
+              fields: 'jenis, nominal_bon',
+              $autoCancel: false,
+            });
+            
+            let totalIn = 0;
+            let totalOut = 0;
+            bonItems.forEach((bon: any) => {
+              const jenis = (bon.jenis || '').toLowerCase();
+              if (jenis === 'in') {
+                totalIn += (bon.nominal_bon || 0);
+              } else if (jenis === 'out') {
+                totalOut += (bon.nominal_bon || 0);
+              }
+            });
+            totalBalance = totalIn - totalOut;
+          }
+          
+          // Update data wallet
+          await pb.collection('dropdown').update(item.id, {
+            number_1: totalBalance,
+            text_8: dateStr,
+          });
+          updateCount++;
+        }
+        
+        // Refresh data wallets
+        await fetchWallets();
+        showAlert('Sukses', `Berhasil menghitung ulang ${updateCount} data!`);
+        
+      } catch (error: any) {
+        console.error('Gagal menghitung:', error);
+        showAlert('Gagal', 'Terjadi kesalahan saat menghitung: ' + error.message);
+      } finally {
+        setCalculating(false);
+      }
+    };
+
     const fetchPersonOptions = async () => {
       try {
         // Ambil dari dropdown kategori person dengan jenis customer
@@ -490,6 +596,12 @@
         if (filterJenis.length > 0) {
           const jenisConditions = filterJenis.map(id => `jenis = "${id}"`).join(' || ');
           conditions.push(`(${jenisConditions})`);
+        }
+
+        // --- FILTER PERSON (untuk customer/supplier) ---
+        if (filterPerson) {
+          conditions.push(`person = {:person}`);
+          params.person = filterPerson;
         }
 
         const requestOptions: any = { sort: '-created_at' };
@@ -1286,31 +1398,58 @@
           </div>
 
           {/* Sub-tab Kategori Akun */}
-          <div className="flex gap-2 mb-6 overflow-x-auto no-scrollbar pb-2">
-            {[
-              { id: 'kas', label: 'Kas & Bank', color: 'emerald' },
-              { id: 'customer', label: 'Piutang Customer', color: 'blue' },
-              { id: 'supplier', label: 'Hutang Supplier', color: 'amber' },
-              { id: 'karyawan', label: 'Bon Karyawan', color: 'purple' },
-            ].map(tab => (
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+            <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2 flex-wrap">
+              {[
+                { id: 'kas', label: 'Kas & Bank', color: 'emerald' },
+                { id: 'customer', label: 'Piutang Customer', color: 'blue' },
+                { id: 'supplier', label: 'Hutang Supplier', color: 'amber' },
+                { id: 'karyawan', label: 'Bon Karyawan', color: 'purple' },
+              ].map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => {
+                    setActiveAccountTab(tab.id as any);
+                    setShowZeroBalances(false);
+                  }}
+                  className={`shrink-0 px-4 py-2.5 text-xs font-black uppercase tracking-wider rounded-xl transition-all duration-300 ${
+                    activeAccountTab === tab.id
+                      ? (tab.id === 'kas' ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/30' : 
+                        tab.id === 'customer' ? 'bg-blue-500 text-white shadow-md shadow-blue-500/30' :
+                        tab.id === 'supplier' ? 'bg-amber-500 text-white shadow-md shadow-amber-500/30' :
+                        'bg-purple-500 text-white shadow-md shadow-purple-500/30')
+                      : 'bg-white text-slate-500 hover:bg-slate-100 border border-slate-200'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+            
+            {/* Tombol Hitung Ulang - hanya tampil jika bukan tab kas */}
+            {activeAccountTab !== 'kas' && (
               <button
-                key={tab.id}
-                onClick={() => {
-                  setActiveAccountTab(tab.id as any);
-                  setShowZeroBalances(false); // Reset lipatan setiap pindah tab
-                }}
-                className={`shrink-0 px-4 py-2.5 text-xs font-black uppercase tracking-wider rounded-xl transition-all duration-300 ${
-                  activeAccountTab === tab.id
-                    ? (tab.id === 'kas' ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/30' : 
-                       tab.id === 'customer' ? 'bg-blue-500 text-white shadow-md shadow-blue-500/30' :
-                       tab.id === 'supplier' ? 'bg-amber-500 text-white shadow-md shadow-amber-500/30' :
-                       'bg-purple-500 text-white shadow-md shadow-purple-500/30')
-                    : 'bg-white text-slate-500 hover:bg-slate-100 border border-slate-200'
-                }`}
+                onClick={calculateBalances}
+                disabled={calculating}
+                className={`shrink-0 px-5 py-2.5 text-xs font-black uppercase tracking-wider rounded-xl transition-all duration-300 flex items-center gap-2 ${
+                  activeAccountTab === 'customer' ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-500/30' :
+                  activeAccountTab === 'supplier' ? 'bg-amber-600 hover:bg-amber-700 text-white shadow-md shadow-amber-500/30' :
+                  'bg-purple-600 hover:bg-purple-700 text-white shadow-md shadow-purple-500/30'
+                } ${calculating ? 'opacity-70 cursor-not-allowed' : ''}`}
               >
-                {tab.label}
+                {calculating ? (
+                  <>
+                    <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    MENGHITUNG...
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw size={16} />
+                    HITUNG ULANG
+                  </>
+                )}
               </button>
-            ))}
+            )}
           </div>
 
           {loadingWallets ? (
@@ -1371,9 +1510,16 @@
                         <div
                           key={wallet.id}
                           onClick={() => {
-                            setFilterAccounts([wallet.id]);
-                            setActiveTab('history');
-                            setPage(1);
+                            if (activeAccountTab === 'customer' || activeAccountTab === 'supplier') {
+                              // Navigasi ke halaman POS dengan filter person dan status belum lunas
+                              navigate(`/?person=${wallet.id_lama}&status=belum`);
+                            } else {
+                              // Untuk kas (akun bank/tunai), tetap filter di halaman cashflow
+                              setFilterPerson(null);
+                              setFilterAccounts([wallet.id]);
+                              setActiveTab('history');
+                              setPage(1);
+                            }
                           }}
                           style={{ background: `linear-gradient(135deg, ${bgColor}CC 0%, ${bgColor} 100%)` }}
                           className="relative overflow-hidden rounded-[2rem] p-6 text-white shadow-xl hover:-translate-y-1.5 transition-transform duration-300 group cursor-pointer"
