@@ -231,21 +231,21 @@ export default function Produk() {
     return () => clearTimeout(delayDebounceFn);
   }, [searchInput]);
 
-const [kategoriOptions, setKategoriOptions] = useState<string[]>([]);
+  const [kategoriOptions, setKategoriOptions] = useState<string[]>([]);
 
-const hasFetchedKategori = useRef(false);
-useEffect(() => {
-  if (hasFetchedKategori.current) return;
-  hasFetchedKategori.current = true;
-  const fetchKategoriOptions = async () => {
-    try {
-      const records = await pb.collection('produk').getFullList({ fields: 'kategori', $autoCancel: false });
-      const uniqueKategori = Array.from(new Set(records.map(r => r.kategori).filter(Boolean)));
-      setKategoriOptions(uniqueKategori);
-    } catch (e) { console.error(e); }
-  };
-  fetchKategoriOptions();
-}, []);
+  const hasFetchedKategori = useRef(false);
+  useEffect(() => {
+    if (hasFetchedKategori.current) return;
+    hasFetchedKategori.current = true;
+    const fetchKategoriOptions = async () => {
+      try {
+        const records = await pb.collection('produk').getFullList({ fields: 'kategori', $autoCancel: false });
+        const uniqueKategori = Array.from(new Set(records.map(r => r.kategori).filter(Boolean)));
+        setKategoriOptions(uniqueKategori);
+      } catch (e) { console.error(e); }
+    };
+    fetchKategoriOptions();
+  }, []);
 
   // Deteksi scroll untuk menyembunyikan header dan menampilkan floating button
   useEffect(() => {
@@ -326,10 +326,22 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
   const handleOpenEdit = async (prod: Produk, e?: React.MouseEvent) => {
     if (e) e.stopPropagation(); 
     setSelectedProduct(prod);
-    setFormData({
-      ...prod,
-      id_lama: formatIdLamaDisplay(prod.id_lama) 
+    
+    // Buat salinan produk dengan default numerik
+    const formDataCopy: Partial<Produk> = { ...prod };
+    
+    // Pastikan field numerik punya nilai default 0 jika undefined/null
+    const numericFields = ['beli', 'sell_1', 'sell_2', 'sell_3', 'sell_4', 'sell_5', 'sell_6', 'min_1', 'min_2', 'min_3', 'stok_1', 'stok_2', 'stok_3'];
+    numericFields.forEach(field => {
+      if (formDataCopy[field as keyof Produk] === undefined || formDataCopy[field as keyof Produk] === null) {
+        formDataCopy[field as keyof Produk] = 0 as any;
+      }
     });
+    
+    // id_lama diambil asli (tanpa padding)
+    formDataCopy.id_lama = prod.id_lama; 
+    
+    setFormData(formDataCopy);
     
     // Ambil file lama (jika ada)
     const oldFiles: { isOld: boolean; name: string; url: string }[] = [];
@@ -344,7 +356,6 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
       }
     }
     setProductFiles(oldFiles);
-    
     setModalType('form');
   };
 
@@ -400,7 +411,12 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
     }
   };
 
+  // ==========================================
+  // CRUD ACTIONS
+  // ==========================================
   const submitForm = async (e: React.FormEvent) => {
+    e.preventDefault();
+
     // 🟢 VALIDASI SAFETY GUARD
     const required = [
       { key: 'kategori', label: 'Kategori' },
@@ -421,49 +437,91 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
     try {
       let payload = { ...formData };
 
-      if (payload.id_lama) {
-        payload.id_lama = cleanIdLamaStorage(payload.id_lama);
+      // Hapus field yang dikontrol PB dari payload agar tidak konflik
+      delete payload.id;
+      delete payload.created;
+      delete payload.updated;
+      delete payload.file; // File dihandle via FormData secara manual
+      delete payload.collectionId;
+      delete payload.collectionName;
+
+      const numericFields = ['beli', 'sell_1', 'sell_2', 'sell_3', 'sell_4', 'sell_5', 'sell_6', 'min_1', 'min_2', 'min_3', 'stok_1', 'stok_2', 'stok_3'];
+
+      // Pastikan field numerik valid
+      numericFields.forEach(field => {
+        if (payload[field as keyof Produk] === undefined || payload[field as keyof Produk] === null || payload[field as keyof Produk] === '') {
+          payload[field as keyof Produk] = 0 as any;
+        } else {
+          payload[field as keyof Produk] = Number(payload[field as keyof Produk]) as any;
+        }
+      });
+
+      // Pastikan field string ada dan bersih
+      const stringFields = ['kategori', 'merk', 'jenis', 'varian', 'keterangan', 'tipe', 'unit'];
+      stringFields.forEach(field => {
+        if (payload[field as keyof Produk] === undefined || payload[field as keyof Produk] === null) {
+          payload[field as keyof Produk] = '' as any;
+        }
+      });
+
+      // Set ID Lama
+      if (isEditMode) {
+        payload.id_lama = selectedProduct?.id_lama || payload.id_lama;
       } else {
-        payload.id_lama = generateRawRandomId();
+        payload.id_lama = payload.id_lama ? cleanIdLamaStorage(payload.id_lama) : generateRawRandomId();
       }
 
-      // Pastikan format tipe rapi (hilang spasi, unik, urut) sebelum kirim ke DB
+      // Format tipe menjadi string unik yang rapi
       if (typeof payload.tipe === 'string') {
         const tipeArray = payload.tipe.split(',').map(s => s.trim()).filter(Boolean);
         payload.tipe = Array.from(new Set(tipeArray)).sort().join(', ');
       }
 
-      // Buat FormData untuk mengirim file
+      // 🟢 PEMBUATAN FORMDATA UNTUK POCKETBASE 🟢
       const formDataObj = new FormData();
-
-      // Append semua field text/number ke FormData
+      
+      // 1. Masukkan semua key value biasa
       for (const key in payload) {
-        if (payload.hasOwnProperty(key) && payload[key] !== undefined && key !== 'file') {
+        if (payload.hasOwnProperty(key)) {
           formDataObj.append(key, String(payload[key]));
         }
       }
 
-      // Append file
-      if (productFiles && productFiles.length > 0) {
-        productFiles.forEach(f => {
-          if (typeof f === 'object' && 'isOld' in f && f.isOld) {
-            // Pertahankan file lama
-            formDataObj.append('file', f.name);
-          } else if (f instanceof File) {
-            // Upload file baru
-            formDataObj.append('file', f);
+      // 2. Tentukan status File (Apakah ada file baru, hapus semua file, atau hanya pertahankan file lama)
+      // Array lama yg dipertahankan user
+      const oldFilesToKeep = productFiles.filter(f => typeof f === 'object' && 'isOld' in f).map((f: any) => f.name);
+      // Array file baru yg diupload user
+      const newFilesToUpload = productFiles.filter(f => f instanceof File);
+
+      if (isEditMode && selectedProduct) {
+        const originalFiles = selectedProduct.file || [];
+        
+        // Cari file mana saja yang ADA di original tapi TIDAK ADA di oldFilesToKeep (berarti dihapus user)
+        const filesToDelete = originalFiles.filter(fName => !oldFilesToKeep.includes(fName));
+        
+        // 🔴 PENTING: Untuk menghapus spesifik file di array PocketBase, gunakan key `${fieldName}.${indexToDelete}` 
+        // dengan value kosong string (PocketBase doc requirement).
+        filesToDelete.forEach((deletedFileName) => {
+          const idx = originalFiles.indexOf(deletedFileName);
+          if (idx !== -1) {
+            // Ini sintaks standar PB untuk mendelete 1 item dari multiple file
+            formDataObj.append(`file.${idx}`, ""); 
           }
         });
-      } else if (selectedProduct && selectedProduct.id) {
-        // Jika tidak ada file sama sekali (user hapus semua), kirim string kosong untuk hapus
-        formDataObj.append('file', '');
       }
 
-      if (selectedProduct && selectedProduct.id) {
-        // EDIT
+      // Append file baru saja ke FormData
+      if (newFilesToUpload.length > 0) {
+        newFilesToUpload.forEach((f) => {
+          formDataObj.append('file', f as File);
+        });
+      }
+
+      // 🟢 EKSEKUSI API
+      if (isEditMode && selectedProduct) {
         await pb.collection('produk').update(selectedProduct.id, formDataObj);
       } else {
-        // CREATE
+        // Mode Create (dengan retry ID unik)
         let success = false;
         let attempts = 0;
         const maxAttempts = 15;
@@ -474,24 +532,29 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
           } catch (error: any) {
             const isUniqueError = error?.response?.data?.id_lama?.code === 'validation_not_unique' || error?.status === 400;
             if (isUniqueError) {
-              // Ganti id_lama dan update FormData
               const newId = generateRawRandomId();
               formDataObj.set('id_lama', newId);
               attempts++;
             } else {
-              throw error;
+              throw error; // Lempar keluar jika bukan masalah ID unik
             }
           }
         }
-        if (!success) throw new Error("Gagal mendapatkan ID unik.");
+        if (!success) throw new Error("Gagal mendapatkan ID unik setelah beberapa kali percobaan.");
       }
       
+      // Jika berhasil
       setModalType(null);
-      setProductFiles([]); // reset file
-      fetchProducts();
-    } catch (error) {
-      console.error(error);
-      alert("Gagal menyimpan data. Pastikan format isian benar.");
+      setProductFiles([]); // reset file state
+      fetchProducts(); // Refresh list grid
+      
+    } catch (error: any) {
+      console.error("Error saving product:", error);
+      // Fallback pesan error lebih deskriptif untuk dibaca di alert
+      const errorMsg = error?.response?.data?.message 
+        || error?.message 
+        || "Gagal menyimpan data. Kemungkinan koneksi internet terputus atau server mati.";
+      alert(`GAGAL: ${errorMsg}`);
     } finally {
       setIsProcessing(false);
     }
