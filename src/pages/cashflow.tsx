@@ -854,17 +854,27 @@
         formDataObj.append("acc2", account2IdLama);
 
         // Di PocketBase, cukup kirim 'string' nama file lama untuk dipertahankan, dan 'File object' untuk file baru
+        // Abaikan file lama agar dipertahankan oleh server, dan kirim object File untuk upload baru.
         if (files && files.length > 0) {
           files.forEach(f => {
-            if (f.isOld) {
-              formDataObj.append("file", f.name); // Pertahankan file lama ini
-            } else {
-              formDataObj.append("file", f);      // Upload file baru ini
+            if (!f.isOld) {
+              formDataObj.append("file", f); // Upload file baru ini
             }
           });
-        } else if (isEditMode) {
-          // Jika mode edit tapi array kosong (user menghapus semua foto), kirim string kosong untuk menghapus file di server
-          formDataObj.append("file", "");
+        }
+
+        // Khusus mode Edit: Hapus file lama di database jika user men-delete dari preview UI
+        if (isEditMode && selectedTx?.file) {
+          // Ambil daftar file lama yang masih disisakan oleh user di UI
+          const retainedOldFiles = files.filter(f => f.isOld).map(f => f.name);
+          
+          // Filter file yang ada di database, namun sudah tidak ada di UI (dihapus user)
+          const deletedFiles = selectedTx.file.filter(oldName => !retainedOldFiles.includes(oldName));
+          
+          // Beritahu PocketBase untuk menghapus file-file tersebut menggunakan modifier ".-"
+          deletedFiles.forEach(deletedName => {
+            formDataObj.append("file.-", deletedName); 
+          });
         }
 
         if (isEditMode && selectedTx) {
@@ -2148,20 +2158,54 @@
 
               return (
                 <div className="flex flex-col max-h-[75vh] md:max-h-[80vh] overflow-y-auto custom-scrollbar p-1">
-                  <div className={`p-5 sm:p-6 md:p-8 rounded-3xl sm:rounded-[2rem] text-center text-white relative shadow-xl overflow-hidden ${isMasuk ? 'bg-emerald-500' : 'bg-rose-500'}`}>
-                    <div className="absolute top-0 right-0 w-32 h-32 sm:w-40 sm:h-40 bg-white rounded-full blur-3xl opacity-20 pointer-events-none" />
+                  <div className={`flex flex-col p-5 sm:p-7 md:p-8 rounded-3xl sm:rounded-[2rem] text-white relative shadow-xl overflow-hidden shrink-0 ${isMasuk ? 'bg-emerald-500' : 'bg-rose-500'}`}>
+                    {/* Efek Latar Belakang */}
+                    <div className="absolute -top-10 -right-10 w-40 h-40 bg-white rounded-full blur-3xl opacity-20 pointer-events-none" />
+                    <div className="absolute -bottom-10 -left-10 w-40 h-40 bg-black rounded-full blur-3xl opacity-10 pointer-events-none" />
                     
-                    <span className="inline-block max-w-[90%] truncate text-[9px] sm:text-[10px] font-black bg-black/20 border border-white/20 px-3 py-1.5 rounded-full uppercase tracking-widest backdrop-blur-md relative z-10 shadow-sm">
-                      {selectedTx.ref || selectedTx.id}
-                    </span>
+                    {/* Label KAS MASUK / KELUAR */}
+                    <div className="relative z-10 flex justify-center mb-2">
+                      <span className="bg-white/20 border border-white/30 px-4 py-1.5 rounded-full text-[10px] sm:text-xs font-black uppercase tracking-widest backdrop-blur-md shadow-sm">
+                        {mutasiLabel}
+                      </span>
+                    </div>
                     
-                    <div className="mt-3 sm:mt-4 relative z-10 flex flex-col items-center">
-                      <p className="text-[10px] sm:text-[11px] font-black uppercase tracking-widest text-white/80 mb-1">{mutasiLabel}</p>
-                      
-                      {/* Teks nominal menggunakan ukuran yang mengecil di layar HP dan truncate agar tidak merusak layout */}
-                      <p className="text-2xl min-[360px]:text-3xl sm:text-4xl md:text-5xl font-black tracking-tight drop-shadow-sm truncate w-full px-2">
+                    {/* Nominal Transaksi */}
+                    <div className="relative z-10 flex flex-col justify-center items-center my-4 sm:my-6">
+                      <span className="text-white/80 text-[10px] sm:text-xs font-bold mb-1 uppercase tracking-wider">Total Nominal</span>
+                      {/* Menggunakan break-words agar teks membungkus (wrap) jika terlalu panjang di HP, tidak bikin penyet */}
+                      <p className="text-3xl sm:text-4xl md:text-5xl font-black tracking-tighter drop-shadow-md break-words text-center px-2 w-full leading-tight">
                         Rp {selectedTx.nominal?.toLocaleString('id-ID')}
                       </p>
+                    </div>
+
+                    {/* Informasi Detail Ekstra (ID, Waktu, Operator) */}
+                    <div className="relative z-10 mt-auto bg-black/15 border border-white/10 rounded-2xl p-3 sm:p-4 backdrop-blur-sm flex flex-col sm:flex-row gap-3 sm:gap-4 justify-between items-center text-[10px] sm:text-xs shadow-inner">
+                       
+                       {/* ID Transaksi */}
+                       <div className="flex flex-col items-center sm:items-start text-center sm:text-left w-full sm:w-auto">
+                          <span className="text-white/60 font-bold uppercase tracking-wider text-[9px]">ID Transaksi</span>
+                          <span className="font-mono font-bold truncate max-w-[150px] sm:max-w-[200px]">{selectedTx.ref || selectedTx.id}</span>
+                       </div>
+                       
+                       {/* Divider (Hanya tampil di tablet/desktop) */}
+                       <div className="hidden sm:block w-px h-8 bg-white/20"></div>
+                       
+                       {/* Waktu */}
+                       <div className="flex flex-col items-center text-center w-full sm:w-auto border-t border-white/10 sm:border-0 pt-2 sm:pt-0">
+                          <span className="text-white/60 font-bold uppercase tracking-wider text-[9px]">Waktu Transaksi</span>
+                          <span className="font-bold">{formatLocalDateTime(selectedTx.created_at)}</span>
+                       </div>
+                       
+                       {/* Divider (Hanya tampil di tablet/desktop) */}
+                       <div className="hidden sm:block w-px h-8 bg-white/20"></div>
+                       
+                       {/* Operator */}
+                       <div className="flex flex-col items-center sm:items-end text-center sm:text-right w-full sm:w-auto border-t border-white/10 sm:border-0 pt-2 sm:pt-0">
+                          <span className="text-white/60 font-bold uppercase tracking-wider text-[9px]">Operator</span>
+                          <span className="font-bold flex items-center gap-1.5"><User size={12}/> {selectedTx.operator || '-'}</span>
+                       </div>
+
                     </div>
                   </div>
 
@@ -2280,7 +2324,7 @@
             });
             setModalType('form');
           }}
-          className="md:hidden fixed bottom-6 right-6 z-50 w-16 h-16 bg-slate-900 text-white rounded-full shadow-2xl shadow-slate-500/50 flex items-center justify-center hover:scale-105 active:scale-95 transition-all duration-300"
+          className="md:hidden fixed bottom-25 right-6 z-50 w-16 h-16 bg-slate-900 text-white rounded-full shadow-2xl shadow-slate-500/50 flex items-center justify-center hover:scale-105 active:scale-95 transition-all duration-300"
         >
           <Plus size={30} strokeWidth={3} />
         </button>
