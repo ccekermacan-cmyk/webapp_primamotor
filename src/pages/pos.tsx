@@ -1496,9 +1496,10 @@ export default function MenuPage() {
                 showFilters ? 'max-h-[800px] opacity-100 mt-1' : 'max-h-0 opacity-0'
               }`}
             >
-              <div className="flex flex-wrap items-center gap-3 p-3 bg-gray-50/80 rounded-2xl border border-gray-200/80 shadow-sm">
-                {/* === FILTER STATUS === */}
-                <div className="flex flex-wrap items-center gap-1 bg-white rounded-xl border border-gray-200 p-1 shadow-inner">
+              <div className="flex flex-wrap items-center gap-2 md:gap-3 p-3 bg-gray-50/90 rounded-2xl border border-gray-200/80 shadow-sm">
+  
+                {/* === GRUP FILTER STATUS === */}
+                <div className="flex flex-wrap items-center gap-1 bg-white rounded-xl border border-gray-200 p-1 shadow-sm">
                   {['all', 'lunas', 'belum'].map(status => (
                     <button
                       key={status}
@@ -1514,7 +1515,7 @@ export default function MenuPage() {
                         if (filterPerson) url.searchParams.set('person', filterPerson);
                         window.history.replaceState({}, '', url.toString());
                       }}
-                      className={`px-3 md:px-4 py-1.5 text-[10px] md:text-xs font-black uppercase tracking-wider rounded-lg transition-all duration-200 ${
+                      className={`px-3 py-1.5 text-[10px] md:text-xs font-black uppercase tracking-wider rounded-lg transition-all duration-200 whitespace-nowrap ${
                         filterStatus === status
                           ? `${activeTheme.main} text-white shadow-md scale-95`
                           : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
@@ -1525,7 +1526,10 @@ export default function MenuPage() {
                   ))}
                 </div>
 
-                {/* === FILTER PERSON (CUSTOMER/SUPPLIER) === */}
+                {/* Pemisah (hanya tampil di desktop) */}
+                <div className="hidden md:block w-px h-8 bg-gray-300/50"></div>
+
+                {/* === GRUP FILTER PERSON === */}
                 <div className="relative" style={{ zIndex: 9999 }}>
                   <button
                     ref={personButtonRef}
@@ -1539,7 +1543,9 @@ export default function MenuPage() {
                       }
                       setIsPersonFilterOpen(!isPersonFilterOpen);
                     }}
-                    className={`...`}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 text-[10px] md:text-xs font-black uppercase tracking-wider rounded-lg transition-all duration-200 bg-white border border-gray-200 hover:border-gray-300 shadow-sm ${
+                      filterPerson ? `${activeTheme.main} text-white border-transparent shadow-md` : 'text-gray-500 hover:text-gray-700'
+                    }`}
                   >
                     <User size={14} />
                     <span className="truncate max-w-[80px] md:max-w-[120px]">
@@ -1550,7 +1556,7 @@ export default function MenuPage() {
                     {filterPerson && (
                       <X
                         size={14}
-                        className="ml-1 cursor-pointer hover:text-white/70"
+                        className="ml-0.5 cursor-pointer hover:text-white/70"
                         onClick={(e) => {
                           e.stopPropagation();
                           setFilterPerson('');
@@ -1568,19 +1574,14 @@ export default function MenuPage() {
                     />
                   </button>
 
-                  {/* Dropdown Person - z-index tinggi */}
+                  {/* Dropdown Person (Portal) */}
                   {isPersonFilterOpen && createPortal(
                     <>
-                      {/* Overlay */}
-                      <div 
-                        className="fixed inset-0 z-[9998]" 
-                        onClick={() => setIsPersonFilterOpen(false)} 
-                      />
-                      {/* Dropdown */}
+                      <div className="fixed inset-0 z-[9998]" onClick={() => setIsPersonFilterOpen(false)} />
                       <div 
                         className="fixed z-[9999] w-72 bg-white border border-gray-200 rounded-2xl shadow-2xl p-3 max-h-72 overflow-y-auto custom-scrollbar"
                         style={{
-                          top: dropdownPosition.top + 8, // +8 untuk jarak
+                          top: dropdownPosition.top + 8,
                           left: dropdownPosition.left,
                         }}
                       >
@@ -1637,8 +1638,11 @@ export default function MenuPage() {
                   )}
                 </div>
 
-                {/* === FILTER JENIS MENU === */}
-                <div className="flex flex-wrap items-center gap-1 bg-white rounded-xl border border-gray-200 p-1 shadow-inner">
+                {/* Pemisah (hanya tampil di desktop) */}
+                <div className="hidden md:block w-px h-8 bg-gray-300/50"></div>
+
+                {/* === GRUP FILTER JENIS MENU === */}
+                <div className="flex flex-wrap items-center gap-1 bg-white rounded-xl border border-gray-200 p-1 shadow-sm">
                   <button
                     onClick={() => {
                       setSelectedMenuFilters([]);
@@ -1647,7 +1651,7 @@ export default function MenuPage() {
                       url.searchParams.delete('jenis');
                       window.history.replaceState({}, '', url.toString());
                     }}
-                    className={`px-3 md:px-4 py-1.5 text-[10px] md:text-xs font-black uppercase tracking-wider rounded-lg transition-all duration-200 ${
+                    className={`px-3 py-1.5 text-[10px] md:text-xs font-black uppercase tracking-wider rounded-lg transition-all duration-200 whitespace-nowrap ${
                       selectedMenuFilters.length === 0
                         ? `${activeTheme.main} text-white shadow-md scale-95`
                         : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
@@ -1674,7 +1678,7 @@ export default function MenuPage() {
                           }
                           window.history.replaceState({}, '', url.toString());
                         }}
-                        className={`px-3 md:px-4 py-1.5 text-[10px] md:text-xs font-black uppercase tracking-wider rounded-lg transition-all duration-200 ${
+                        className={`px-3 py-1.5 text-[10px] md:text-xs font-black uppercase tracking-wider rounded-lg transition-all duration-200 whitespace-nowrap ${
                           selectedMenuFilters.includes(menu.text_1)
                             ? `${activeTheme.main} text-white shadow-md scale-95`
                             : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'

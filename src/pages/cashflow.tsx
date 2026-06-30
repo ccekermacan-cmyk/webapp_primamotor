@@ -159,7 +159,12 @@
     const [formDataBon, setFormDataBon] = useState({
       catatCashflow: false,
       created_at: formatToLocalDatetimeInput(new Date().toISOString()),
-      account_1: '', person: '', persontext: '', nominal: 0, note: ''
+      akun_asal: '',    // Sesuai field 'akun_asal'
+      person: '',       // Sesuai field 'person'
+      persontext: '',   // Sesuai field 'persontext'
+      nominal: 0,       // Sesuai field 'nominal'
+      jenis: 'out',     // Sesuai field 'jenis' (in/out)
+      note: ''          // Sesuai field 'note'
     });
 
     const [formDataGaji, setFormDataGaji] = useState({
@@ -190,9 +195,10 @@
 
     const submitFormBon = async (e: React.FormEvent) => {
       e.preventDefault();
+      // Validasi
       if (!formDataBon.person) return showAlert("Validasi Gagal", "Pihak (Person) wajib dipilih!");
-      if (!formDataBon.nominal || formDataBon.nominal <= 0) return showAlert("Validasi Gagal", "Nominal harus diisi dan lebih dari 0!");
-      if (formDataBon.catatCashflow && !formDataBon.account_1) return showAlert("Validasi Gagal", "Akun asal wajib dipilih jika dicatat ke cashflow!");
+      if (!formDataBon.nominal || formDataBon.nominal <= 0) return showAlert("Validasi Gagal", "Nominal harus diisi!");
+      if (formDataBon.catatCashflow && !formDataBon.account_1) return showAlert("Validasi Gagal", "Akun asal wajib dipilih!");
       if (!formDataBon.note || formDataBon.note.trim() === '') return showAlert("Validasi Gagal", "Catatan wajib diisi!");
 
       setIsProcessing(true);
@@ -200,18 +206,18 @@
         const currentUser = pb.authStore.model;
         const operatorName = currentUser?.name || currentUser?.username || 'Admin';
         
-        // Konversi waktu lokal browser -> Dimundurkan ke UTC+0 agar konsisten dengan PB
+        // Konversi waktu
         const localDate = new Date(formDataBon.created_at);
         const utcDate = new Date(localDate.getTime() + localDate.getTimezoneOffset() * 60000).toISOString();
 
         let refCashflowId = "";
 
-        // TULIS KE CASHFLOW (Jika opsi dicentang)
+        // 1. TULIS KE CASHFLOW (Jika dicentang)
         if (formDataBon.catatCashflow) {
           const cfData = new FormData();
           cfData.append("created_at", utcDate);
           cfData.append("operator", operatorName);
-          cfData.append("jenis", "pengeluaranlain");
+          cfData.append("jenis", "bon"); // Sesuaikan jenis cashflow Anda
           cfData.append("mutasi", "out");
           cfData.append("account_1", formDataBon.account_1);
           cfData.append("nominal", String(formDataBon.nominal));
@@ -223,17 +229,20 @@
           refCashflowId = createdCf.id;
         }
 
-        // TULIS KE BON
+        // 2. TULIS KE BON (Sesuai JSON)
         const bonData = new FormData();
         bonData.append("created_at", utcDate);
         bonData.append("person", formDataBon.person);
-        bonData.append("akun_asal", formDataBon.account_1 || "");
-        if (refCashflowId) bonData.append("ref_cashflow", refCashflowId);
-        bonData.append("nominal_bon", String(formDataBon.nominal));
-        bonData.append("nominal_cashflow", formDataBon.catatCashflow ? String(formDataBon.nominal) : "0");
-        bonData.append("note_bon", formDataBon.note);
-        bonData.append("note_cashflow", formDataBon.catatCashflow ? formDataBon.note : "");
-        bonData.append("operator", operatorName);
+        bonData.append("persontext", formDataBon.persontext);
+        bonData.append("nominal", String(formDataBon.nominal)); // JSON: nominal
+        bonData.append("note", formDataBon.note);               // JSON: note
+        bonData.append("jenis", "out");                         // JSON: jenis (in/out)
+        bonData.append("operator", operatorName);               // JSON: operator
+        
+        if (formDataBon.catatCashflow) {
+          bonData.append("akun_asal", formDataBon.account_1);
+          bonData.append("ref_cashflow", refCashflowId);
+        }
 
         files.forEach(f => { if (!f.isOld) bonData.append("file", f); });
 
@@ -243,13 +252,13 @@
         setModalType(null);
         setFiles([]);
         setFormDataBon({
-          catatCashflow: false, created_at: formatToLocalDatetimeInput(new Date().toISOString()),
+          catatCashflow: false, 
+          created_at: formatToLocalDatetimeInput(new Date().toISOString()),
           account_1: '', person: '', persontext: '', nominal: 0, note: ''
         });
-        setIsFormDirty(false);
         fetchCashflow();
       } catch (error: any) {
-        showAlert("Gagal Simpan", "Gagal menyimpan data bon: " + error.message);
+        showAlert("Gagal Simpan", error.message);
       } finally {
         setIsProcessing(false);
       }
@@ -529,19 +538,21 @@
 
     const fetchPersonOptions = async () => {
       try {
-        // Ambil dari dropdown kategori person dengan jenis customer
+        // Ambil SEMUA person dari dropdown (customer, supplier, user) dengan case-insensitive
         const persons = await pb.collection('dropdown').getFullList({
-          filter: `kategori ~ "person" && jenis ~ "customer"`,
+          filter: `kategori ~ "person"`,
           $autoCancel: false
         });
         const dropdownList = persons.map(p => ({
           id: p.id,
           id_lama: p.id_lama || '',
           text_1: p.text_1,
-          text_2: (p as any).text_2 || '', // 🟢 Pastikan text_2 ditarik di sini
-          source: 'dropdown' as const
+          text_2: (p as any).text_2 || '',
+          source: 'dropdown' as const,
+          jenis: p.jenis || '' // akan berisi 'customer', 'supplier', atau 'user'
         }));
-        // Ambil dari koleksi user (karyawan) yang aktif
+
+        // Ambil dari koleksi user (karyawan) sebagai tambahan
         const users = await pb.collection('user').getFullList({
           filter: `status = "active"`,
           $autoCancel: false
@@ -550,9 +561,21 @@
           id: u.id,
           id_lama: u.username || u.id,
           text_1: u.name || u.username,
-          source: 'user' as const
+          source: 'user' as const,
+          text_2: '',
+          jenis: 'user'
         }));
-        setPersonOptions([...dropdownList, ...userList]);
+
+        // Gabungkan dan hilangkan duplikat berdasarkan id_lama
+        const combined = [...dropdownList, ...userList];
+        const uniqueMap = new Map();
+        combined.forEach(item => {
+          const key = item.id_lama;
+          if (!uniqueMap.has(key)) {
+            uniqueMap.set(key, item);
+          }
+        });
+        setPersonOptions(Array.from(uniqueMap.values()));
       } catch (error) {
         console.error("Gagal memuat person:", error);
       }
@@ -1051,8 +1074,14 @@
           {/* FILTER BAR - STICKY TOP */}
           <div className="sticky top-0 z-10 p-3 border-b border-slate-100 bg-white flex items-center gap-2 shrink-0">
             
-            {/* === KIRI: Toggle Mutasi (flex-1, max-w-60%) === */}
-            <div className="flex bg-slate-100 p-0.5 rounded-lg flex-1 max-w-[60%] min-w-0">
+            {/* === KIRI: Toggle Mutasi === */}
+            <div 
+              className={`bg-slate-100 rounded-lg transition-all duration-300 ease-in-out flex overflow-hidden ${
+                activeFilter 
+                  ? 'w-0 max-w-0 p-0 opacity-0 sm:w-auto sm:max-w-[250px] sm:p-0.5 sm:opacity-100' // Hilang di HP, mengecil di Desktop
+                  : 'flex-1 max-w-[60%] p-0.5 opacity-100 min-w-0' // Normal state
+              }`}
+            >
               {['semua', 'masuk', 'keluar'].map((tab) => (
                 <button
                   key={tab}
@@ -1060,140 +1089,116 @@
                     setFilterMutasi(tab);
                     setPage(1);
                   }}
-                  className={`flex-1 py-1.5 rounded-md font-bold text-[10px] uppercase tracking-wider transition-all duration-300 ${
+                  className={`flex-1 py-1.5 px-2 rounded-md font-bold text-[10px] uppercase tracking-wider transition-all duration-300 truncate ${
                     filterMutasi === tab
                       ? 'bg-white text-emerald-600 shadow-sm'
-                      : 'text-slate-400 hover:text-slate-600'
+                      : 'text-slate-400 hover:text-slate-600 hover:bg-slate-200/50'
                   }`}
+                  title={tab}
                 >
                   {tab}
                 </button>
               ))}
             </div>
 
-            {/* === TENGAH: Expandable Filter Area (flex-1 saat aktif, max-w-40%) === */}
-            <div className="flex-1 min-w-0 flex items-center">
-              <div
-                className={`transition-all duration-300 overflow-hidden ${
-                  activeFilter ? 'max-w-[40%] opacity-100 flex-1' : 'max-w-0 opacity-0 flex-0'
-                }`}
-              >
-                {activeFilter === 'account' && (
-                  <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 h-8 w-full">
-                    <Wallet size={14} className="text-emerald-500 shrink-0" />
-                    <div className="flex items-center gap-1 overflow-x-auto no-scrollbar flex-1">
-                      {accountOptions.map((acc) => (
-                        <button
-                          key={acc.id}
-                          onClick={() => toggleFilterAccount(acc.id)}
-                          className={`whitespace-nowrap px-2 py-0.5 text-[9px] font-bold rounded-md transition-all border ${
-                            filterAccounts.includes(acc.id)
-                              ? 'bg-emerald-500 border-emerald-500 text-white'
-                              : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-100'
-                          }`}
-                        >
-                          {acc.text_1}
-                        </button>
-                      ))}
-                    </div>
-                    <button
-                      onClick={() => setActiveFilter(null)}
-                      className="p-0.5 text-rose-500 shrink-0"
-                    >
-                      <X size={12} />
-                    </button>
+            {/* === TENGAH: Expandable Filter Area === */}
+            <div
+              className={`transition-all duration-300 ease-in-out flex items-center overflow-hidden ${
+                activeFilter ? 'flex-1 opacity-100 max-w-full ml-2' : 'w-0 opacity-0 max-w-0 ml-0'
+              }`}
+            >
+              {activeFilter === 'account' && (
+                <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 h-10 w-full shadow-sm flex-nowrap overflow-x-auto no-scrollbar">
+                  <Wallet size={16} className="text-emerald-500 shrink-0" />
+                  <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar flex-1 scroll-smooth">
+                    {accountOptions.map((acc) => (
+                      <button
+                        key={acc.id}
+                        onClick={() => toggleFilterAccount(acc.id)}
+                        className={`whitespace-nowrap px-3 py-1 text-[10px] font-bold rounded-lg transition-all border ${
+                          filterAccounts.includes(acc.id)
+                            ? 'bg-emerald-500 border-emerald-500 text-white shadow-sm'
+                            : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-100 hover:text-slate-700'
+                        }`}
+                      >
+                        {acc.text_1}
+                      </button>
+                    ))}
                   </div>
-                )}
+                  <div className="w-[1px] h-4 bg-slate-300 shrink-0 mx-1"></div>
+                  <button onClick={() => setActiveFilter(null)} className="p-1 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors shrink-0">
+                    <X size={14} strokeWidth={2.5} />
+                  </button>
+                </div>
+              )}
 
-                {activeFilter === 'jenis' && (
-                  <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 h-8 w-full">
-                    <Layers size={14} className="text-emerald-500 shrink-0" />
-                    <div className="flex items-center gap-1 overflow-x-auto no-scrollbar flex-1">
-                      {(filterMutasi === 'masuk'
-                        ? jenisOptionsIn
-                        : filterMutasi === 'keluar'
-                        ? jenisOptionsOut
-                        : []
-                      ).map((opt) => (
-                        <button
-                          key={opt.id}
-                          onClick={() => toggleFilterJenis(opt.id_lama || opt.id)}
-                          className={`whitespace-nowrap px-2 py-0.5 text-[9px] font-bold rounded-md transition-all border ${
-                            filterJenis.includes(opt.id_lama || opt.id)
-                              ? 'bg-emerald-500 border-emerald-500 text-white'
-                              : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-100'
-                          }`}
-                        >
-                          {opt.text_1}
-                        </button>
-                      ))}
-                    </div>
-                    <button
-                      onClick={() => setActiveFilter(null)}
-                      className="p-0.5 text-rose-500 shrink-0"
-                    >
-                      <X size={12} />
-                    </button>
+              {activeFilter === 'jenis' && (
+                <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 h-10 w-full shadow-sm flex-nowrap overflow-x-auto no-scrollbar">
+                  <Layers size={16} className="text-emerald-500 shrink-0" />
+                  <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar flex-1 scroll-smooth">
+                    {(filterMutasi === 'masuk' ? jenisOptionsIn : filterMutasi === 'keluar' ? jenisOptionsOut : []).map((opt) => (
+                      <button
+                        key={opt.id}
+                        onClick={() => toggleFilterJenis(opt.id_lama || opt.id)}
+                        className={`whitespace-nowrap px-3 py-1 text-[10px] font-bold rounded-lg transition-all border ${
+                          filterJenis.includes(opt.id_lama || opt.id)
+                            ? 'bg-emerald-500 border-emerald-500 text-white shadow-sm'
+                            : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-100 hover:text-slate-700'
+                        }`}
+                      >
+                        {opt.text_1}
+                      </button>
+                    ))}
                   </div>
-                )}
+                  <div className="w-[1px] h-4 bg-slate-300 shrink-0 mx-1"></div>
+                  <button onClick={() => setActiveFilter(null)} className="p-1 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors shrink-0">
+                    <X size={14} strokeWidth={2.5} />
+                  </button>
+                </div>
+              )}
 
-                {activeFilter === 'tanggal' && (
-                  <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 h-8 w-full">
-                    <Calendar size={14} className="text-emerald-500 shrink-0" />
+              {activeFilter === 'tanggal' && (
+                <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 h-10 w-full shadow-sm flex-nowrap overflow-x-auto no-scrollbar">
+                  <Calendar size={16} className="text-emerald-500 shrink-0" />
+                  <div className="flex items-center gap-2 flex-1 justify-center shrink-0">
                     <input
                       type="date"
-                      className="bg-transparent text-[10px] font-bold text-slate-600 outline-none w-20 cursor-pointer"
+                      className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-[10px] font-bold text-slate-700 outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400 w-[110px]"
                       value={dateRange.start}
-                      onChange={(e) => {
-                        setDateRange({ ...dateRange, start: e.target.value });
-                        setPage(1);
-                      }}
+                      onChange={(e) => { setDateRange({ ...dateRange, start: e.target.value }); setPage(1); }}
                     />
-                    <span className="text-slate-300 text-xs">-</span>
+                    <span className="text-slate-400 font-black text-xs shrink-0">-</span>
                     <input
                       type="date"
-                      className="bg-transparent text-[10px] font-bold text-slate-600 outline-none w-20 cursor-pointer"
+                      className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-[10px] font-bold text-slate-700 outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400 w-[110px]"
                       value={dateRange.end}
-                      onChange={(e) => {
-                        setDateRange({ ...dateRange, end: e.target.value });
-                        setPage(1);
-                      }}
+                      onChange={(e) => { setDateRange({ ...dateRange, end: e.target.value }); setPage(1); }}
                     />
-                    <button
-                      onClick={() => {
-                        setDateRange({ start: '', end: '' });
-                        setActiveFilter(null);
-                        setPage(1);
-                      }}
-                      className="p-0.5 text-rose-500 shrink-0"
-                    >
-                      <X size={12} />
-                    </button>
                   </div>
-                )}
+                  <div className="w-[1px] h-4 bg-slate-300 shrink-0 mx-1"></div>
+                  <button onClick={() => { setDateRange({ start: '', end: '' }); setActiveFilter(null); setPage(1); }} className="p-1 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors shrink-0">
+                    <X size={14} strokeWidth={2.5} />
+                  </button>
+                </div>
+              )}
 
-                {activeFilter === 'search' && (
-                  <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 h-8 w-full">
-                    <Search size={14} className="text-emerald-500 shrink-0" />
-                    <input
-                      type="text"
-                      placeholder="Cari..."
-                      className="bg-transparent text-[10px] font-bold text-slate-700 outline-none flex-1 min-w-0"
-                      value={searchInput}
-                      onChange={(e) => setSearchInput(e.target.value)}
-                    />
-                    <button
-                      onClick={() => {
-                        setSearchInput('');
-                        setActiveFilter(null);
-                      }}
-                      className="p-0.5 text-rose-500 shrink-0"
-                    >
-                      <X size={12} />
-                    </button>
-                  </div>
-                )}
-              </div>
+              {activeFilter === 'search' && (
+                <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 h-10 w-full shadow-sm flex-nowrap focus-within:ring-1 focus-within:ring-emerald-400 focus-within:border-emerald-400 transition-all">
+                  <Search size={16} className="text-emerald-500 shrink-0" />
+                  <input
+                    type="text"
+                    placeholder="Cari transaksi (Nota/Ket)..."
+                    className="bg-transparent text-[11px] font-bold text-slate-700 outline-none flex-1 min-w-[150px]"
+                    value={searchInput}
+                    onChange={(e) => setSearchInput(e.target.value)}
+                    autoFocus
+                  />
+                  <div className="w-[1px] h-4 bg-slate-300 shrink-0 mx-1"></div>
+                  <button onClick={() => { setSearchInput(''); setActiveFilter(null); }} className="p-1 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors shrink-0">
+                    <X size={14} strokeWidth={2.5} />
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* === KANAN: Ikon-ikon Filter (tetap di posisi) === */}
@@ -1366,7 +1371,7 @@
           </div>
 
           {/* PAGINASI */}
-          <div className="p-4 md:p-6 border-t border-slate-100 bg-white flex justify-between items-center shrink-0 rounded-b-3xl">
+          <div className="sticky bottom-0 z-30 p-4 md:p-6 border-t border-slate-100 bg-white flex justify-between items-center shrink-0 rounded-b-3xl shadow-[0_-10px_15px_-3px_rgba(0,0,0,0.05)] md:shadow-none">
             <p className="text-xs font-black text-slate-400 uppercase tracking-widest bg-slate-100 px-4 py-2 rounded-xl">
               Hal. {page} / {totalPages || 1}
             </p>
@@ -1848,97 +1853,218 @@
           {/* ============================================================ */}
           {/* MODAL FORM TAMBAH BON */}
           {/* ============================================================ */}
-          <Modal isOpen={modalType === 'formBon'} onClose={() => setModalType(null)} title="Catat Transaksi Bon Baru" maxWidth="max-w-3xl">
+          <Modal isOpen={modalType === 'formBon'} onClose={() => setModalType(null)} title="Tambah Bon Karyawan" maxWidth="max-w-3xl">
             <form onSubmit={submitFormBon} className="flex flex-col max-h-[75vh] md:max-h-[80vh] overflow-y-auto custom-scrollbar p-1">
               <div className="space-y-5">
-                
-                {/* Checkbox Keluar Cashflow */}
+
+                {/* Checkbox Catat Cashflow */}
                 <label className="flex items-center gap-3 p-4 bg-purple-50 border border-purple-200 rounded-2xl cursor-pointer hover:bg-purple-100 transition-colors shadow-sm">
-                  <div className="relative flex items-center justify-center">
-                    <input type="checkbox" className="w-5 h-5 cursor-pointer accent-purple-600" checked={formDataBon.catatCashflow} onChange={(e) => setFormDataBon({...formDataBon, catatCashflow: e.target.checked})} />
-                  </div>
+                  <input
+                    type="checkbox"
+                    className="w-5 h-5 accent-purple-600 cursor-pointer"
+                    checked={formDataBon.catatCashflow}
+                    onChange={(e) => setFormDataBon({ ...formDataBon, catatCashflow: e.target.checked })}
+                  />
                   <div>
-                    <p className="font-black text-purple-700 text-sm">Opsi: Keluar dari Cashflow</p>
-                    <p className="text-[10px] font-bold text-purple-500">Centang jika ini memotong saldo dompet kasir/rekening Anda.</p>
+                    <p className="font-black text-purple-700 text-sm">Catat ke Cashflow</p>
+                    <p className="text-[10px] font-bold text-purple-500">Nominal bon akan tercatat sebagai pengeluaran kas</p>
                   </div>
                 </label>
 
+                {/* Baris 1: Tanggal + Jenis Bon (tetap out) */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
-                    <label className="text-[10px] font-black text-purple-600 uppercase tracking-wider ml-1 flex items-center gap-1.5"><Calendar size={14}/> Tanggal Waktu</label>
-                    <input type="datetime-local" value={formDataBon.created_at} onChange={e => setFormDataBon({ ...formDataBon, created_at: e.target.value })} className="w-full mt-2 p-3 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none shadow-sm focus:ring-purple-500/20 focus:border-purple-400" required />
+                    <label className="text-[10px] font-black text-purple-600 uppercase tracking-wider ml-1 flex items-center gap-1.5">
+                      <Calendar size={14} /> Tanggal Waktu
+                    </label>
+                    <input
+                      type="datetime-local"
+                      value={formDataBon.created_at}
+                      onChange={e => setFormDataBon({ ...formDataBon, created_at: e.target.value })}
+                      className="w-full mt-2 p-3 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none shadow-sm focus:ring-purple-500/20 focus:border-purple-400"
+                      required
+                    />
                   </div>
 
-                  <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 relative">
-                    <label className="text-[10px] font-black text-purple-600 uppercase tracking-wider ml-1 flex items-center gap-1.5"><User size={14}/> Pilih Pihak (Karyawan / Customer)</label>
-                    <div className="relative mt-2">
-                      <div className="flex items-center gap-2">
-                        <input type="text" placeholder="Cari nama..." value={searchPerson} onChange={(e) => setSearchPerson(e.target.value)} onFocus={() => setIsPersonOpen(true)} className="flex-1 p-3 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-purple-500/20" />
-                        <button type="button" onClick={() => setIsPersonOpen(!isPersonOpen)} className="p-3 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition"><ChevronDown size={16} className={`transition-transform duration-200 ${isPersonOpen ? 'rotate-180' : ''}`} /></button>
+                  <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                    <label className="text-[10px] font-black text-purple-600 uppercase tracking-wider ml-1 flex items-center gap-1.5">
+                      <ArrowRight size={14} /> Jenis Bon
+                    </label>
+                    <div className="bg-white rounded-xl p-1 mt-2 border border-slate-200 shadow-sm">
+                      <div className="flex items-center justify-center gap-2">
+                        <span className="px-4 py-2 bg-rose-500 text-white rounded-lg text-xs font-black shadow-sm">
+                          KELUAR (Bayar)
+                        </span>
+                        <span className="text-[10px] text-slate-400 font-medium">(Bon karyawan selalu keluar)</span>
                       </div>
-
-                      {isPersonOpen && (
-                        <div className="absolute z-20 mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-lg max-h-60 overflow-y-auto">
-                          {personOptions.filter(p => p.source === 'user' || p.source === 'dropdown').length === 0 ? (
-                            <div className="px-4 py-3 text-xs text-slate-500 text-center">Memuat data...</div>
-                          ) : (
-                            personOptions
-                              .filter(opt => (opt.source === 'user' || opt.source === 'dropdown') && opt.text_1.toLowerCase().includes(searchPerson.toLowerCase()))
-                              .map(opt => (
-                                <div key={opt.id} onClick={() => { setFormDataBon(prev => ({ ...prev, person: opt.id, persontext: opt.text_1 })); setSearchPerson(''); setIsPersonOpen(false); }} className="px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-purple-50 cursor-pointer border-b border-slate-100 last:border-0 flex justify-between items-center">
-                                  <span>{opt.text_1}</span>
-                                  <span className="text-[9px] font-black text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">{opt.source === 'user' ? 'Karyawan' : 'Customer'}</span>
-                                </div>
-                              ))
-                          )}
-                        </div>
-                      )}
+                      <input type="hidden" name="jenis" value="out" />
                     </div>
-                    {formDataBon.person && (
-                      <div className="mt-3 text-xs font-bold text-purple-700 bg-white p-2.5 rounded-lg border border-purple-100 flex items-center justify-between shadow-sm">
-                        <span>Dipilih:</span><span className="text-slate-800">{formDataBon.persontext}</span>
+                  </div>
+                </div>
+
+                {/* Pilih Person (dari semua kategori person) */}
+                <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 relative">
+                  <label className="text-[10px] font-black text-purple-600 uppercase tracking-wider ml-1 flex items-center gap-1.5">
+                    <User size={14} /> Pilih Person
+                  </label>
+                  <div className="relative mt-2">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        placeholder="Cari nama person..."
+                        value={searchPerson}
+                        onChange={(e) => setSearchPerson(e.target.value)}
+                        onFocus={() => setIsPersonOpen(true)}
+                        className="flex-1 p-3 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-purple-500/20"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setIsPersonOpen(!isPersonOpen)}
+                        className="p-3 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition"
+                      >
+                        <ChevronDown size={16} className={`transition-transform duration-200 ${isPersonOpen ? 'rotate-180' : ''}`} />
+                      </button>
+                    </div>
+
+                    {isPersonOpen && (
+                      <div className="absolute z-20 mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-lg max-h-60 overflow-y-auto">
+                        {personOptions.length === 0 ? (
+                          <div className="px-4 py-3 text-xs text-slate-500 text-center">Tidak ada person terdaftar</div>
+                        ) : (
+                          personOptions
+                            .filter(p => 
+                              p.text_1.toLowerCase().includes(searchPerson.toLowerCase()) ||
+                              (p.text_2 && p.text_2.toLowerCase().includes(searchPerson.toLowerCase()))
+                            )
+                            .map(opt => (
+                              <div
+                                key={opt.id}
+                                onClick={() => {
+                                  setFormDataBon(prev => ({ ...prev, person: opt.id, persontext: opt.id_lama }));
+                                  setSearchPerson('');
+                                  setIsPersonOpen(false);
+                                }}
+                                className="px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-purple-50 cursor-pointer border-b border-slate-100 last:border-0 flex justify-between items-center"
+                              >
+                                <span>{opt.text_1} {opt.text_2 ? `- ${opt.text_2}` : ''}</span>
+                                <span className="text-[9px] font-black text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
+                                  {opt.jenis || 'Person'}
+                                </span>
+                              </div>
+                            ))
+                        )}
                       </div>
                     )}
                   </div>
+                  {formDataBon.person && (
+                    <div className="mt-3 text-xs font-bold text-purple-700 bg-white p-2.5 rounded-lg border border-purple-100 flex items-center justify-between shadow-sm">
+                      <span>Dipilih:</span>
+                      <span className="text-slate-800">{formDataBon.persontext}</span>
+                    </div>
+                  )}
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className={`bg-slate-50 p-3 rounded-2xl border border-slate-100 transition-opacity ${!formDataBon.catatCashflow ? 'opacity-50 pointer-events-none' : ''}`}>
-                    <label className="text-[10px] font-black text-purple-600 uppercase tracking-wider ml-1 flex items-center gap-1.5"><Wallet size={14}/> Akun Asal Kas</label>
-                    <select value={formDataBon.account_1} onChange={e => setFormDataBon({...formDataBon, account_1: e.target.value})} className="w-full mt-2 p-3 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none shadow-sm focus:ring-purple-500/20 focus:border-purple-400" required={formDataBon.catatCashflow}>
-                      <option value="" disabled>Pilih Dompet Pengeluaran...</option>
-                      {accountOptions.map(opt => <option key={opt.id} value={opt.id}>{opt.text_1}</option>)}
+                {/* Akun Asal (hanya jika catat cashflow) */}
+                {formDataBon.catatCashflow && (
+                  <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 animate-in fade-in slide-in-from-top-2 duration-300">
+                    <label className="text-[10px] font-black text-purple-600 uppercase tracking-wider ml-1 flex items-center gap-1.5">
+                      <Wallet size={14} /> Akun Asal (Kas)
+                    </label>
+                    <select
+                      value={formDataBon.akun_asal}
+                      onChange={e => setFormDataBon({ ...formDataBon, akun_asal: e.target.value })}
+                      className="w-full mt-2 p-3 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none shadow-sm focus:ring-purple-500/20 focus:border-purple-400"
+                      required
+                    >
+                      <option value="">Pilih Dompet...</option>
+                      {accountOptions.map(acc => (
+                        <option key={acc.id} value={acc.id}>{acc.text_1}</option>
+                      ))}
                     </select>
                   </div>
+                )}
 
-                  <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
-                    <label className="text-[10px] font-black text-purple-600 uppercase tracking-wider ml-1 flex items-center gap-1.5"><DollarSign size={14}/> Nominal Bon</label>
-                    <div className="relative mt-2">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-black text-purple-600">Rp</span>
-                      <input type="number" placeholder="0" value={formDataBon.nominal || ''} onChange={e => setFormDataBon({...formDataBon, nominal: Number(e.target.value)})} className="w-full pl-9 pr-3 py-3 text-sm font-black text-slate-800 bg-white border border-slate-200 rounded-xl outline-none shadow-sm focus:ring-purple-500/20 focus:border-purple-400" required />
-                    </div>
+                {/* Nominal */}
+                <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                  <label className="text-[10px] font-black text-purple-600 uppercase tracking-wider ml-1 flex items-center gap-1.5">
+                    <DollarSign size={14} /> Nominal
+                  </label>
+                  <div className="relative mt-2">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-black text-purple-600">Rp</span>
+                    <input
+                      type="number"
+                      placeholder="0"
+                      value={formDataBon.nominal || ''}
+                      onChange={e => setFormDataBon({ ...formDataBon, nominal: Number(e.target.value) })}
+                      className="w-full pl-9 pr-3 py-3 text-sm font-black text-slate-800 bg-white border border-slate-200 rounded-xl outline-none shadow-sm focus:ring-purple-500/20 focus:border-purple-400"
+                      required
+                    />
                   </div>
                 </div>
 
+                {/* Catatan */}
                 <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
-                  <label className="text-[10px] font-black text-purple-600 uppercase tracking-wider ml-1 flex items-center gap-1.5"><FileText size={14}/> Catatan / Keterangan</label>
-                  <input type="text" placeholder="Deskripsi Bon..." value={formDataBon.note} onChange={e => setFormDataBon({...formDataBon, note: e.target.value})} className="w-full mt-2 p-3 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none shadow-sm focus:ring-purple-500/20 focus:border-purple-400" required />
+                  <label className="text-[10px] font-black text-purple-600 uppercase tracking-wider ml-1 flex items-center gap-1.5">
+                    <FileText size={14} /> Catatan / Keterangan
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Deskripsi bon..."
+                    value={formDataBon.note}
+                    onChange={e => setFormDataBon({ ...formDataBon, note: e.target.value })}
+                    className="w-full mt-2 p-3 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none shadow-sm focus:ring-purple-500/20 focus:border-purple-400"
+                    required
+                  />
                 </div>
 
+                {/* Upload File */}
                 <div className="p-4 rounded-3xl border border-purple-100 bg-purple-50/30 space-y-3">
                   <div className="flex justify-between items-center">
-                    <label className="text-[11px] font-black text-purple-600 uppercase tracking-wider flex items-center gap-2"><ImagePlus size={16} /> Lampiran Bukti</label>
-                    <label htmlFor="bon-file-input" className="cursor-pointer text-[10px] font-black bg-white px-4 py-2 rounded-xl shadow-sm hover:scale-105 active:scale-95 transition-all border border-purple-200 text-purple-600">+ Upload</label>
-                    <input id="bon-file-input" type="file" multiple accept="image/*,video/*" className="hidden" onChange={e => { const selectedFiles = Array.from(e.target.files || []); if (selectedFiles.length > 0) setFiles(prev => [...prev, ...selectedFiles]); e.target.value = ''; }} />
+                    <label className="text-[11px] font-black text-purple-600 uppercase tracking-wider flex items-center gap-2">
+                      <ImagePlus size={16} /> Lampiran Bukti
+                    </label>
+                    <label
+                      htmlFor="bon-file-input"
+                      className="cursor-pointer text-[10px] font-black bg-white px-4 py-2 rounded-xl shadow-sm hover:scale-105 active:scale-95 transition-all border border-purple-200 text-purple-600"
+                    >
+                      + Upload
+                    </label>
+                    <input
+                      id="bon-file-input"
+                      type="file"
+                      multiple
+                      accept="image/*,video/*"
+                      className="hidden"
+                      onChange={e => {
+                        const selectedFiles = Array.from(e.target.files || []);
+                        if (selectedFiles.length > 0) setFiles(prev => [...prev, ...selectedFiles]);
+                        e.target.value = '';
+                      }}
+                    />
                   </div>
+
                   {previewUrls.length === 0 ? (
-                    <div className="text-center py-5 rounded-2xl border-2 border-dashed border-purple-200/50"><p className="text-[10px] font-bold text-purple-600 opacity-70">Belum ada file terlampir</p></div>
+                    <div className="text-center py-5 rounded-2xl border-2 border-dashed border-purple-200/50">
+                      <p className="text-[10px] font-bold text-purple-600 opacity-70">Belum ada file terlampir</p>
+                    </div>
                   ) : (
                     <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
                       {previewUrls.map((url, idx) => (
                         <div key={idx} className="relative group rounded-xl overflow-hidden border border-white shadow-sm aspect-square bg-white">
-                          {isVideo(files[idx]?.name) ? <video src={url} className="w-full h-full object-cover opacity-80" muted /> : <img src={url} alt={`preview-${idx}`} className="w-full h-full object-cover transition-transform group-hover:scale-110 duration-500" />}
-                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"><button type="button" onClick={() => setFiles(prev => prev.filter((_, i) => i !== idx))} className="w-8 h-8 bg-rose-500 text-white rounded-full flex items-center justify-center hover:scale-110 active:scale-95 shadow-lg"><Trash2 size={14} /></button></div>
+                          {isVideo(files[idx]?.name) ? (
+                            <video src={url} className="w-full h-full object-cover opacity-80" muted />
+                          ) : (
+                            <img src={url} alt={`preview-${idx}`} className="w-full h-full object-cover transition-transform group-hover:scale-110 duration-500" />
+                          )}
+                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                            <button
+                              type="button"
+                              onClick={() => setFiles(prev => prev.filter((_, i) => i !== idx))}
+                              className="w-8 h-8 bg-rose-500 text-white rounded-full flex items-center justify-center hover:scale-110 active:scale-95 shadow-lg"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -1946,10 +2072,27 @@
                 </div>
               </div>
 
+              {/* Tombol Aksi */}
               <div className="mt-6 flex flex-col sm:flex-row gap-3 pt-5 border-t-2 border-slate-100 sticky bottom-0 bg-white">
-                <button type="button" onClick={() => setModalType(null)} className="flex-1 py-4 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-2xl font-black text-xs tracking-widest transition-colors">BATALKAN</button>
-                <button type="submit" disabled={isProcessing} className={`flex-[2] py-4 text-white rounded-2xl font-black text-xs shadow-xl transition-all active:scale-95 flex justify-center items-center gap-2 ${isProcessing ? 'opacity-70 cursor-not-allowed bg-slate-400' : 'bg-purple-600 hover:bg-purple-700 shadow-purple-500/40'}`}>
-                  {isProcessing ? <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"/> MENYIMPAN...</> : <><Save size={16}/> SIMPAN TRANSAKSI BON</>}
+                <button type="button" onClick={() => setModalType(null)} className="flex-1 py-4 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-2xl font-black text-xs tracking-widest transition-colors">
+                  BATALKAN
+                </button>
+                <button
+                  type="submit"
+                  disabled={isProcessing}
+                  className={`flex-[2] py-4 text-white rounded-2xl font-black text-xs shadow-xl transition-all active:scale-95 flex justify-center items-center gap-2 ${
+                    isProcessing ? 'opacity-70 cursor-not-allowed bg-slate-400' : 'bg-purple-600 hover:bg-purple-700 shadow-purple-500/40'
+                  }`}
+                >
+                  {isProcessing ? (
+                    <>
+                      <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> MENYIMPAN...
+                    </>
+                  ) : (
+                    <>
+                      <Save size={16} /> SIMPAN TRANSAKSI BON
+                    </>
+                  )}
                 </button>
               </div>
             </form>
@@ -1979,42 +2122,77 @@
                     <label className="text-[10px] font-black text-amber-600 uppercase tracking-wider ml-1 flex items-center gap-1.5"><Calendar size={14}/> Tanggal Rekap</label>
                     <input type="datetime-local" value={formDataGaji.created_at} onChange={e => setFormDataGaji({ ...formDataGaji, created_at: e.target.value })} className="w-full mt-2 p-3 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none shadow-sm focus:ring-amber-500/20 focus:border-amber-400" required />
                   </div>
-                  <div className={`bg-slate-50 p-3 rounded-2xl border border-slate-100 transition-opacity ${!formDataGaji.catatCashflow ? 'opacity-50 pointer-events-none' : ''}`}>
-                    <label className="text-[10px] font-black text-amber-600 uppercase tracking-wider ml-1 flex items-center gap-1.5"><Wallet size={14}/> Akun Kas Pembayaran</label>
-                    <select value={formDataGaji.account_1} onChange={e => setFormDataGaji({...formDataGaji, account_1: e.target.value})} className="w-full mt-2 p-3 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none shadow-sm focus:ring-amber-500/20 focus:border-amber-400" required={formDataGaji.catatCashflow}>
-                      <option value="" disabled>Pilih Dompet Pengeluaran...</option>
-                      {accountOptions.map(opt => <option key={opt.id} value={opt.id}>{opt.text_1}</option>)}
-                    </select>
-                  </div>
+                 {formDataGaji.catatCashflow && (
+                    <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 animate-in fade-in slide-in-from-top-2 duration-300">
+                      <label className="text-[10px] font-black text-amber-600 uppercase tracking-wider ml-1 flex items-center gap-1.5">
+                        <Wallet size={14}/> Akun Kas Pembayaran
+                      </label>
+                      <select 
+                        value={formDataGaji.account_1} 
+                        onChange={e => setFormDataGaji({...formDataGaji, account_1: e.target.value})} 
+                        className="w-full mt-2 p-3 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none shadow-sm focus:ring-amber-500/20 focus:border-amber-400" 
+                        required
+                      >
+                        <option value="" disabled>Pilih Dompet Pengeluaran...</option>
+                        {accountOptions.map(opt => <option key={opt.id} value={opt.id}>{opt.text_1}</option>)}
+                      </select>
+                    </div>
+                  )}
                 </div>
 
-                {/* Pilih Karyawan */}
+                {/* Pilih Karyawan (hanya user) */}
                 <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 relative">
-                  <label className="text-[10px] font-black text-amber-600 uppercase tracking-wider ml-1 flex items-center gap-1.5"><User size={14}/> Pilih Karyawan</label>
+                  <label className="text-[10px] font-black text-purple-600 uppercase tracking-wider ml-1 flex items-center gap-1.5">
+                    <User size={14} /> Pilih Karyawan
+                  </label>
                   <div className="relative mt-2">
                     <div className="flex items-center gap-2">
-                      <input type="text" placeholder="Cari nama karyawan..." value={searchPerson} onChange={(e) => setSearchPerson(e.target.value)} onFocus={() => setIsPersonOpen(true)} className="flex-1 p-3 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-amber-500/20" />
-                      <button type="button" onClick={() => setIsPersonOpen(!isPersonOpen)} className="p-3 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition"><ChevronDown size={16} className={`transition-transform duration-200 ${isPersonOpen ? 'rotate-180' : ''}`} /></button>
+                      <input
+                        type="text"
+                        placeholder="Cari nama karyawan..."
+                        value={searchPerson}
+                        onChange={(e) => setSearchPerson(e.target.value)}
+                        onFocus={() => setIsPersonOpen(true)}
+                        className="flex-1 p-3 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-purple-500/20"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setIsPersonOpen(!isPersonOpen)}
+                        className="p-3 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition"
+                      >
+                        <ChevronDown size={16} className={`transition-transform duration-200 ${isPersonOpen ? 'rotate-180' : ''}`} />
+                      </button>
                     </div>
+
                     {isPersonOpen && (
                       <div className="absolute z-20 mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-lg max-h-60 overflow-y-auto">
-                        {personOptions.filter(p => p.source === 'user').length === 0 ? (
-                          <div className="px-4 py-3 text-xs text-slate-500 text-center">Data karyawan tidak ditemukan...</div>
+                        {personOptions.filter(p => p.jenis?.toLowerCase() === 'user').length === 0 ? (
+                          <div className="px-4 py-3 text-xs text-slate-500 text-center">Tidak ada karyawan terdaftar</div>
                         ) : (
                           personOptions
-                            .filter(opt => opt.source === 'user' && opt.text_1.toLowerCase().includes(searchPerson.toLowerCase()))
+                            .filter(p => p.jenis?.toLowerCase() === 'user' && p.text_1.toLowerCase().includes(searchPerson.toLowerCase()))
                             .map(opt => (
-                              <div key={opt.id} onClick={() => { setFormDataGaji(prev => ({ ...prev, person: opt.id_lama, persontext: opt.text_1 })); setSearchPerson(''); setIsPersonOpen(false); }} className="px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-amber-50 cursor-pointer border-b border-slate-100 last:border-0 flex justify-between items-center">
-                                <span>{opt.text_1}</span><span className="text-[9px] font-black text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">Karyawan</span>
+                              <div
+                                key={opt.id}
+                                onClick={() => {
+                                  setFormDataGaji(prev => ({ ...prev, person: opt.id_lama, persontext: opt.text_1 }));
+                                  setSearchPerson('');
+                                  setIsPersonOpen(false);
+                                }}
+                                className="px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-amber-50 cursor-pointer border-b border-slate-100 last:border-0 flex justify-between items-center"
+                              >
+                                <span>{opt.text_1}</span>
+                                <span className="text-[9px] font-black text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">Karyawan</span>
                               </div>
                             ))
                         )}
                       </div>
                     )}
                   </div>
-                  {formDataGaji.person && (
-                    <div className="mt-3 text-xs font-bold text-amber-700 bg-white p-2.5 rounded-lg border border-amber-100 flex items-center justify-between shadow-sm">
-                      <span>Karyawan Dipilih:</span><span className="text-slate-800">{formDataGaji.persontext} (@{formDataGaji.person})</span>
+                  {formDataBon.person && (
+                    <div className="mt-3 text-xs font-bold text-purple-700 bg-white p-2.5 rounded-lg border border-purple-100 flex items-center justify-between shadow-sm">
+                      <span>Dipilih:</span>
+                      <span className="text-slate-800">{formDataBon.persontext}</span>
                     </div>
                   )}
                 </div>
@@ -2313,21 +2491,61 @@
 
         </div>
         
-        {/* TOMBOL FLOATING MOBILE */}
-        <button
-          onClick={() => {
-            setSelectedTx(null);
-            setFiles([]);
-            setFormData({
-              mutasi: 'Masuk',
-              created_at: formatToLocalDatetimeInput(new Date().toISOString()),
-            });
-            setModalType('form');
-          }}
-          className="md:hidden fixed bottom-25 right-6 z-50 w-16 h-16 bg-slate-900 text-white rounded-full shadow-2xl shadow-slate-500/50 flex items-center justify-center hover:scale-105 active:scale-95 transition-all duration-300"
-        >
-          <Plus size={30} strokeWidth={3} />
-        </button>
+        {/* TOMBOL-TOMBOL FLOATING MOBILE */}
+        <div className="md:hidden fixed bottom-25 right-6 z-50 flex flex-col gap-3">
+          
+          {/* Tombol Bon */}
+          {configBon && (
+            <button
+              onClick={() => {
+                setFormDataBon({
+                  catatCashflow: false,
+                  created_at: formatToLocalDatetimeInput(new Date().toISOString()),
+                  account_1: '', person: '', persontext: '', nominal: 0, note: ''
+                });
+                setFiles([]);
+                setModalType('formBon' as any);
+              }}
+              className="w-14 h-14 bg-purple-600 text-white rounded-full shadow-xl flex items-center justify-center hover:scale-105 active:scale-95 transition-all"
+            >
+              <Plus size={20} /> <span className="text-[8px] font-black uppercase">BON</span>
+            </button>
+          )}
+
+          {/* Tombol Gaji */}
+          {configGaji && (
+            <button
+              onClick={() => {
+                setFormDataGaji({
+                  catatCashflow: false, created_at: formatToLocalDatetimeInput(new Date().toISOString()),
+                  account_1: '', person: '', persontext: '', pokok: 0, tunjangan: 0,
+                  bonus_1: 0, bonus_2: 0, bonus_3: 0, bonus_4: 0, program: 0, lembur: 0,
+                  alfa: 0, sakit: 0, setengah_hari: 0, telat: 0, bpjs: 0, bon_diambil: 0, bon_dibayar: 0, ref: ''
+                });
+                setModalType('formGaji' as any);
+              }}
+              className="w-14 h-14 bg-amber-500 text-white rounded-full shadow-xl flex items-center justify-center hover:scale-105 active:scale-95 transition-all"
+            >
+              <Plus size={20} /> <span className="text-[8px] font-black uppercase">GAJI</span>
+            </button>
+          )}
+
+          {/* Tombol Kas Utama */}
+          <button
+            onClick={() => {
+              setSelectedTx(null);
+              setFiles([]);
+              setFormData({
+                mutasi: 'Masuk',
+                created_at: formatToLocalDatetimeInput(new Date().toISOString()),
+              });
+              setModalType('form');
+            }}
+            className="w-16 h-16 bg-slate-900 text-white rounded-full shadow-2xl shadow-slate-500/50 flex items-center justify-center hover:scale-105 active:scale-95 transition-all duration-300"
+          >
+            <Plus size={30} strokeWidth={3} />
+          </button>
+        </div>
 
         {/* SYSTEM ALERT & CONFIRMATION MODAL */}
         <Modal
