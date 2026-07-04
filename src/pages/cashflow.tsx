@@ -135,7 +135,7 @@
     const [galleryIndex, setGalleryIndex] = useState<number | null>(null);
     const [wallets, setWallets] = useState<DropdownItem[]>([]);
     const [loadingWallets, setLoadingWallets] = useState(false);
-    const [activeTab, setActiveTab] = useState<'accounts' | 'history'>('history');
+    const [activeTab, setActiveTab] = useState<'accounts' | 'history' | 'tempo'>('history');
     
     // --- STATE BARU UNTUK SUB-TAB AKUN ---
     // --- STATE BARU UNTUK SUB-TAB AKUN ---
@@ -146,6 +146,12 @@
     const [isFormDirty, setIsFormDirty] = useState(false);
 
     const [filterPerson, setFilterPerson] = useState<string | null>(null);
+
+    const userLevel = localStorage.getItem('user_level') || '';
+    const [tempoGroups, setTempoGroups] = useState<{ date: string; items: any[] }[]>([]);
+    const [loadingTempo, setLoadingTempo] = useState(false);
+    const [tempoPage, setTempoPage] = useState(1);
+    const tempoPerPage = 10;
     
     // TAMBAHAN: State untuk System Alert/Confirm Modal
     const [systemAlert, setSystemAlert] = useState({ show: false, title: '', message: '', type: 'alert' as 'alert'|'confirm', onConfirm: () => {} });
@@ -261,6 +267,50 @@
         showAlert("Gagal Simpan", error.message);
       } finally {
         setIsProcessing(false);
+      }
+    };
+
+    const fetchTempo = async () => {
+      setLoadingTempo(true);
+      try {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const todayMs = today.getTime();
+
+        const result = await pb.collection('menu').getList(1, 100, {
+          filter: `jenis ~ "pembelian" && status = "belum" && tempo != ""`,
+          sort: 'tempo',
+          $autoCancel: false,
+        });
+        const items = result.items;
+
+        // Kelompokkan berdasarkan tanggal (YYYY-MM-DD)
+        const groups: Record<string, any[]> = {};
+        items.forEach(item => {
+          const tempoDate = new Date(item.tempo);
+          tempoDate.setHours(0, 0, 0, 0);
+          const dateKey = tempoDate.toISOString().split('T')[0];
+          if (!groups[dateKey]) groups[dateKey] = [];
+          groups[dateKey].push(item);
+        });
+
+        // Urutkan grup: upcoming (>= hari ini) dulu, lalu overdue
+        const sortedKeys = Object.keys(groups).sort((a, b) => {
+          const aMs = new Date(a).getTime();
+          const bMs = new Date(b).getTime();
+          const aIsUpcoming = aMs >= todayMs;
+          const bIsUpcoming = bMs >= todayMs;
+          if (aIsUpcoming && !bIsUpcoming) return -1;
+          if (!aIsUpcoming && bIsUpcoming) return 1;
+          return aMs - bMs;
+        });
+
+        const grouped = sortedKeys.map(key => ({ date: key, items: groups[key] }));
+        setTempoGroups(grouped);
+      } catch (error) {
+        console.error('Gagal mengambil data jatuh tempo:', error);
+      } finally {
+        setLoadingTempo(false);
       }
     };
 
@@ -740,6 +790,13 @@
       };
     }, [activeTab]);
 
+    // 🆕 UseEffect untuk fetchTempo
+    useEffect(() => {
+      if (activeTab === 'tempo') {
+        fetchTempo();
+      }
+    }, [activeTab]);
+
     const groupedTransactions = useMemo(() => {
       const groups: { [key: string]: Cashflow[] } = {};
       transactions.forEach(tx => {
@@ -1031,9 +1088,7 @@
           {/* ============================================================ */}
           <div
             className={`flex p-1.5 bg-slate-200/60 rounded-2xl mb-6 w-full sm:w-fit shrink-0 transition-all duration-300 ${
-              showTabs
-                ? 'opacity-100 max-h-20'
-                : 'opacity-0 max-h-0 pointer-events-none mb-0 overflow-hidden'
+              showTabs ? 'opacity-100 max-h-20' : 'opacity-0 max-h-0 pointer-events-none mb-0 overflow-hidden'
             }`}
           >
             <button
@@ -1049,6 +1104,7 @@
             >
               Daftar Dompet
             </button>
+
             <button
               onClick={() => {
                 setActiveTab('history');
@@ -1063,6 +1119,22 @@
             >
               Histori Kas
             </button>
+
+            {['1', '2', '5', '6'].includes(userLevel) && (
+              <button
+                onClick={() => {
+                  setActiveTab('tempo');
+                  fetchTempo();
+                }}
+                className={`flex-1 sm:w-40 py-2.5 text-xs font-black uppercase tracking-wider rounded-xl transition-all duration-300 ${
+                  activeTab === 'tempo'
+                    ? 'bg-white text-emerald-600 shadow-sm'
+                    : 'text-slate-500 hover:text-emerald-700 hover:bg-white/50'
+                }`}
+              >
+                Jatuh Tempo
+              </button>
+            )}
           </div>
 
       {/* ============================================================ */}
@@ -1620,6 +1692,155 @@
           )}
         </div>
       )}
+
+      {/* ============================================================ */}
+      {/* CONTAINER JATUH TEMPO – DENGAN PAGINATION */}
+      {/* ============================================================ */}
+      {activeTab === 'tempo' && ['1', '2', '5', '6'].includes(userLevel) && (() => {
+        // Flatten data dari tempoGroups
+        const allItems = tempoGroups.flatMap(g => g.items.map(item => ({ ...item, tempoDate: g.date })));
+        const totalItems = allItems.length;
+
+        // Pagination
+        const totalPages = Math.ceil(totalItems / tempoPerPage) || 1;
+        const startIndex = (tempoPage - 1) * tempoPerPage;
+        const endIndex = Math.min(startIndex + tempoPerPage, totalItems);
+        const currentPageItems = allItems.slice(startIndex, endIndex);
+
+        // Hitung total nominal per halaman dan keseluruhan
+        const totalHalaman = currentPageItems.reduce((acc, item) => acc + (item.total || 0), 0);
+        const totalSemua = allItems.reduce((acc, item) => acc + (item.total || 0), 0);
+
+        return (
+          <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/40 border border-slate-100 flex-1 min-h-0 flex flex-col overflow-hidden relative">
+            <div className="p-4 border-b border-slate-100 bg-slate-50/50 shrink-0">
+              <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                <Calendar size={16} className="text-amber-500" />
+                Daftar Pembelian Belum Lunas (Jatuh Tempo)
+              </h4>
+              <p className="text-xs text-slate-500 mt-1">Transaksi dengan status <span className="font-black text-rose-600">BELUM LUNAS</span> dan memiliki tanggal jatuh tempo.</p>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 custom-scrollbar">
+              {loadingTempo ? (
+                <div className="flex justify-center py-20">
+                  <div className="w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+                </div>
+              ) : totalItems === 0 ? (
+                <div className="text-center py-20 text-slate-400 font-bold bg-slate-50 rounded-3xl border-2 border-dashed border-slate-200">
+                  Tidak ada pembelian yang jatuh tempo saat ini.
+                </div>
+              ) : (
+                (() => {
+                  // Kelompokkan currentPageItems berdasarkan tanggal tempo
+                  const groupedPageItems: Record<string, any[]> = {};
+                  currentPageItems.forEach(item => {
+                    const key = item.tempoDate;
+                    if (!groupedPageItems[key]) groupedPageItems[key] = [];
+                    groupedPageItems[key].push(item);
+                  });
+                  const sortedGroupKeys = Object.keys(groupedPageItems).sort((a, b) => a.localeCompare(b));
+
+                  return sortedGroupKeys.map((dateKey) => {
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    const groupDate = new Date(dateKey);
+                    groupDate.setHours(0, 0, 0, 0);
+                    const isOverdueGroup = groupDate < today;
+                    const items = groupedPageItems[dateKey];
+
+                    return (
+                      <div key={dateKey} className="space-y-3">
+                        <div className="flex items-center gap-3 px-2">
+                          <span className={`text-[11px] font-black uppercase tracking-widest ${isOverdueGroup ? 'text-rose-500' : 'text-amber-500'}`}>
+                            {isOverdueGroup ? '🔴 Lewat Jatuh Tempo' : '🟡 Akan Jatuh Tempo'}
+                          </span>
+                          <span className="text-xs font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded">
+                            {formatLocalDateTime(dateKey)}
+                          </span>
+                          <div className="h-px flex-1 bg-slate-200" />
+                        </div>
+                        {items.map((item) => {
+                          const personName = getPersonName(item.person) || item.person || 'Tidak diketahui';
+                          return (
+                            <div
+                              key={item.id}
+                              onClick={() => navigate(`/?ref=${item.id}`)}
+                              className={`bg-white border-2 border-slate-100 rounded-2xl p-4 hover:border-amber-300 hover:shadow-lg cursor-pointer transition-all flex items-center justify-between gap-4 ${
+                                isOverdueGroup ? 'opacity-60 border-rose-200 bg-rose-50/30' : ''
+                              }`}
+                            >
+                              <div className="flex flex-col gap-1 min-w-0 flex-1">
+                                <div className="flex items-center gap-3 flex-wrap">
+                                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                                    {item.id.slice(-6)}
+                                  </span>
+                                  <span className={`text-[10px] font-black px-2 py-0.5 rounded-full border ${isOverdueGroup ? 'bg-rose-100 text-rose-600 border-rose-200' : 'bg-amber-100 text-amber-600 border-amber-200'}`}>
+                                    {isOverdueGroup ? 'LEWAT' : 'AKAN DATANG'}
+                                  </span>
+                                </div>
+                                <p className="font-bold text-slate-800 text-sm truncate">
+                                  {personName}
+                                </p>
+                                <div className="flex flex-wrap gap-3 text-[10px] text-slate-500">
+                                  <span>Dibayar: <span className="font-black text-emerald-600">{formatRupiah(item.dibayar || 0)}</span></span>
+                                  <span>Sisa: <span className="font-black text-rose-600">{formatRupiah((item.total || 0) - (item.dibayar || 0))}</span></span>
+                                </div>
+                              </div>
+                              <div className="text-right shrink-0">
+                                <p className="text-[10px] font-black text-slate-400 uppercase">Total</p>
+                                <p className="text-base font-black text-slate-800">
+                                  {formatRupiah(item.total || 0)}
+                                </p>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  });
+                })()
+              )}
+            </div>
+
+            {/* Footer dengan Pagination & Summary */}
+            <div className="p-4 border-t border-slate-100 bg-white rounded-b-3xl flex flex-col sm:flex-row justify-between items-center gap-3 shrink-0">
+              <div className="flex flex-wrap items-center gap-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                <span>Total {totalItems} transaksi</span>
+                <span className="hidden sm:inline">|</span>
+                <span>Halaman ini: {formatRupiah(totalHalaman)}</span>
+                <span className="hidden sm:inline">|</span>
+                <span>Total keseluruhan: {formatRupiah(totalSemua)}</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setTempoPage(p => Math.max(1, p - 1))}
+                  disabled={tempoPage === 1}
+                  className="p-2 rounded-xl border border-slate-200 hover:bg-slate-50 disabled:opacity-30 transition"
+                >
+                  <ChevronLeft size={16} />
+                </button>
+                <span className="text-[10px] font-black text-slate-400">
+                  Hal {tempoPage} / {totalPages}
+                </span>
+                <button
+                  onClick={() => setTempoPage(p => Math.min(totalPages, p + 1))}
+                  disabled={tempoPage === totalPages}
+                  className="p-2 rounded-xl border border-slate-200 hover:bg-slate-50 disabled:opacity-30 transition"
+                >
+                  <ChevronRight size={16} />
+                </button>
+                <button
+                  onClick={() => { fetchTempo(); setTempoPage(1); }}
+                  className="text-[10px] font-black text-emerald-600 hover:text-emerald-700 flex items-center gap-1"
+                >
+                  <RefreshCw size={14} /> Refresh
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
           {/* MODAL TRANSAKSI FORM */}
           <Modal

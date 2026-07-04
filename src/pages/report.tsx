@@ -432,29 +432,40 @@ export default function ReportPage() {
   });
 
   let operasionalToko = 0;
-  let pengeluaranLain = 0;
-  let pemasukanLain = 0;
-  let cashKasir = 0;
+let pengeluaranLain = 0;
+let pemasukanLain = 0;
+let cashKasir = 0;
+let totalCashflowKeluarNonPembelian = 0;
 
-  cashflowItems.forEach(cf => {
-    const jenis = (cf.jenis || '').toLowerCase();
-    const nominal = cf.nominal || 0;
-    const mutasi = (cf.mutasi || '').toLowerCase();
+cashflowItems.forEach(cf => {
+  const jenis = (cf.jenis || '').toLowerCase();
+  const nominal = cf.nominal || 0;
+  const mutasi = (cf.mutasi || '').toLowerCase();
 
-    if (jenis.includes('operasional')) operasionalToko += nominal;
-    else if (jenis.includes('pengeluaran')) pengeluaranLain += nominal;
-    else if (jenis.includes('pemasukan')) pemasukanLain += nominal;
+  // 🔁 Hitung total cashflow keluar yang BUKAN pembelian
+  if (mutasi === 'out' && !jenis.includes('pembelian') && !jenis.includes('transfer')) {
+    totalCashflowKeluarNonPembelian += nominal;
+  }
 
-    const acc1 = (cf.acc1 || '').toLowerCase();
-    const acc2 = (cf.acc2 || '').toLowerCase();
+  // Tetap hitung pemasukan lain (misal dari jenis 'pemasukan')
+  if (jenis.includes('pemasukan')) {
+    pemasukanLain += nominal;
+  }
 
-    if (acc1.includes('kasir') || acc1.includes('cash')) {
-      if (mutasi === 'in' || mutasi === 'masuk') cashKasir += nominal;
-      else if (mutasi === 'out' || mutasi === 'keluar') cashKasir -= nominal;
-    } else if (acc2.includes('kasir') || acc2.includes('cash')) {
-      if (mutasi === 'out' || mutasi === 'keluar') cashKasir += nominal;
-    }
-  });
+  const acc1 = (cf.acc1 || '').toLowerCase();
+  const acc2 = (cf.acc2 || '').toLowerCase();
+
+  if (acc1.includes('kasir') || acc1.includes('cash')) {
+    if (mutasi === 'in' || mutasi === 'masuk') cashKasir += nominal;
+    else if (mutasi === 'out' || mutasi === 'keluar') cashKasir -= nominal;
+  } else if (acc2.includes('kasir') || acc2.includes('cash')) {
+    if (mutasi === 'out' || mutasi === 'keluar') cashKasir += nominal;
+  }
+});
+
+  // 🔁 Override: total pengeluaran (Keluar) diambil dari total cashflow keluar non-pembelian
+  operasionalToko = totalCashflowKeluarNonPembelian;
+  pengeluaranLain = 0;
 
   return {
     omset_toko: totalOmsetPenjualan,

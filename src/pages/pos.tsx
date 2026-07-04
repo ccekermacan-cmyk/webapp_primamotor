@@ -107,6 +107,13 @@ export default function MenuPage() {
   const [totalPages, setTotalPages] = useState(1);
   const [perPage, setPerPage] = useState(12);
 
+  const [reportDetailData, setReportDetailData] = useState<{ 
+    menu: any[]; 
+    logStock: any[]; 
+    cashflow: any[]; 
+    ongkos: any[] 
+  } | null>(null);
+
   // State untuk posisi dropdown
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 });
   const personButtonRef = useRef<HTMLButtonElement>(null);
@@ -2969,19 +2976,57 @@ export default function MenuPage() {
                                   <p className="flex justify-between"><span className="font-bold">Jual:</span> <span className="font-black text-slate-800">Rp {item.price_1?.toLocaleString('id-ID')}</span></p>
                                   <p className="flex justify-between"><span className="font-bold">Modal:</span> <span className="font-black text-slate-800">Rp {item.price_2?.toLocaleString('id-ID')}</span></p>
                                   {(() => {
-                                    const laba = (item.price_1 * item.qty) - item.price_2;
-                                    const totalJual = (item.price_1 * item.qty);
-                                    const pct = totalJual > 0 ? ((laba / totalJual) * 100).toFixed(1) : 0;
-                                    return (
-                                      <div className="col-span-2 border-t-2 border-dashed border-slate-200 pt-3 mt-2 flex justify-between items-center bg-white p-2 rounded-lg">
-                                        <p className="font-black text-slate-400 uppercase tracking-widest text-[9px]">Laba Margin Analitik:</p>
-                                        <p className="font-black text-emerald-600 text-sm flex items-center gap-2">
-                                          Rp {laba.toLocaleString('id-ID')}
-                                          <span className="text-[10px] bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded-md text-emerald-700 shadow-sm">+{pct}%</span>
-                                        </p>
-                                      </div>
-                                    );
-                                  })()}
+  const logStockSemua = reportDetailData?.logStock || [];
+  
+  // Cari harga beli terakhir sebelum transaksi ini
+  const logBeliTerakhir = logStockSemua
+    .filter(l => l.boolean === 'in' && l.item_baru === item.item_baru && new Date(l.created_at || 0) < new Date(item.created_at || 0))
+    .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())[0];
+
+  const hargaLama = logBeliTerakhir ? logBeliTerakhir.price_1 : 0;
+  const refJenis = item.expand?.ref_baru?.jenis || '';
+  const isPembelian = refJenis.toLowerCase().includes('pembelian');
+  
+  let laba = 0;
+  let pct = 0; // simpan sebagai angka dulu
+  let isGreen = true;
+
+  if (isPembelian) {
+    laba = item.price_1 - hargaLama;
+    // Hijau jika harga beli baru lebih murah/sama (laba naik), Merah jika harga beli naik (laba turun/beban naik)
+    isGreen = hargaLama === 0 || item.price_1 <= hargaLama;
+    pct = hargaLama > 0 ? (laba / hargaLama) * 100 : 0;
+  } else {
+    laba = (item.price_1 * item.qty) - item.price_2;
+    const totalJual = (item.price_1 * item.qty);
+    pct = totalJual > 0 ? (laba / totalJual) * 100 : 0;
+    isGreen = laba >= 0;
+  }
+
+  // Format pct untuk tampilan
+  const pctDisplay = Math.abs(pct).toFixed(1);
+
+  return (
+    <div className="col-span-2 border-t-2 border-dashed border-slate-200 pt-3 mt-2 flex justify-between items-center bg-white p-2 rounded-lg">
+      <p className="font-black text-slate-400 uppercase tracking-widest text-[9px]">
+        {isPembelian ? 'Analisis Perubahan Harga Beli:' : 'Laba Margin Analitik:'}
+      </p>
+      <p className={`font-black text-sm flex items-center gap-2 ${isGreen ? 'text-emerald-600' : 'text-rose-600'}`}>
+        {isPembelian 
+          ? (hargaLama > 0 ? (laba >= 0 ? `+Rp ${laba.toLocaleString('id-ID')}` : `Rp ${laba.toLocaleString('id-ID')}`) : 'Harga Awal')
+          : `Rp ${laba.toLocaleString('id-ID')}`
+        }
+        
+        {/* Indikator Persentase */}
+        {(hargaLama > 0 || !isPembelian) && (
+          <span className={`text-[10px] px-2 py-0.5 rounded-md shadow-sm border ${isGreen ? 'bg-emerald-100 border-emerald-200 text-emerald-700' : 'bg-rose-100 border-rose-200 text-rose-700'}`}>
+            {pct >= 0 ? `+${pctDisplay}%` : `${pctDisplay}%`}
+          </span>
+        )}
+      </p>
+    </div>
+  );
+})()}
                                 </div>
                               )}
                             </div>

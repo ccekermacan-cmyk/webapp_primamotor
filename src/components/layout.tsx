@@ -287,6 +287,8 @@ export default function Layout({ setAuth }: { setAuth: (status: boolean) => void
       <Modal
         isOpen={showLogoutDialog}
         onClose={() => setShowLogoutDialog(false)}
+        isAlert={true}
+        showCancel={true}
         title="Konfirmasi Keluar"
         alertDescription="Apakah Anda yakin ingin menutup sesi kasir saat ini? Anda harus login kembali untuk bertransaksi."
         alertIcon={<ShieldAlert size={24} />}
