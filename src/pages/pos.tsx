@@ -1244,7 +1244,14 @@ export default function MenuPage() {
           for (const log of logs) {
             if (log.expand?.item_baru) {
               const prod = log.expand.item_baru;
-              reloadedCart.push({ ...prod, qty: log.qty, priceSelected: log.price_1, isTiered: log.price_1 !== prod.sell_6, basePriceDefault: prod.sell_6 });
+              reloadedCart.push({ 
+                ...prod, 
+                qty: log.qty, 
+                priceSelected: log.price_1, 
+                manualPrice: log.price_1,      // 🔒 Kunci harga agar tidak berubah oleh tier
+                isTiered: true,                // Tandai sebagai tiered agar UI menampilkan badge
+                basePriceDefault: prod.sell_6 
+              });
             }
           }
 
