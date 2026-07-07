@@ -1405,17 +1405,26 @@ export default function MenuPage() {
       <div className="flex-1 flex flex-col p-3 md:p-6 lg:p-8 pt-20 md:pt-6 overflow-hidden w-full transition-colors duration-500">
          
         {/* Nav Tabs */}
-        <div className={`shrink-0 transition-all duration-300 ${showNavbar ? 'mb-6 max-h-24 opacity-100' : 'mb-0 max-h-0 opacity-0 overflow-hidden'} ${activeTheme.light} ${activeTheme.border} bg-white/50 md:backdrop-blur-md`}>
-          <div className="flex items-center p-2 md:p-2.5 rounded-[2.5rem] shadow-sm border overflow-x-auto no-scrollbar">
-            <div className="flex gap-2 md:gap-3 px-2">
+        <div
+          className={`shrink-0 transition-all duration-300 ${
+            showNavbar ? 'opacity-100 max-h-24 mb-6' : 'opacity-0 max-h-0 mb-0 overflow-hidden'
+          }`}
+        >
+          <div className="flex p-1.5 bg-slate-200/60 rounded-2xl w-full sm:w-fit shadow-sm border border-slate-200/50 overflow-x-auto no-scrollbar">
+            <div className="flex gap-1.5 sm:gap-2 px-1">
               {menuOptions.map(m => {
                 const tabTheme = getThemeConfig(m.text_1);
                 const isActive = selectedMenu === m.text_1;
                 return (
-                  <button key={m.id} onClick={() => handleMenuChange(m.text_1)}
-                    className={`px-5 md:px-8 py-2.5 md:py-3.5 rounded-[2rem] font-black text-[10px] md:text-[11px] uppercase tracking-widest transition-all duration-300 whitespace-nowrap flex-shrink-0 ${
-                      isActive ? `${tabTheme.main} text-white shadow-xl shadow-${tabTheme.main.replace('bg-', '')}/40 scale-105` : `${tabTheme.text} hover:bg-white/80 opacity-70 hover:opacity-100 hover:shadow-sm`
-                    }`}>
+                  <button
+                    key={m.id}
+                    onClick={() => handleMenuChange(m.text_1)}
+                    className={`flex-1 sm:w-40 py-2.5 px-4 text-[10px] md:text-[11px] font-black uppercase tracking-wider rounded-xl transition-all duration-300 whitespace-nowrap flex-shrink-0 ${
+                      isActive
+                        ? `${tabTheme.main} text-white shadow-md shadow-${tabTheme.main.replace('bg-', '')}/30 scale-95`
+                        : `text-slate-500 hover:text-slate-700 hover:bg-white/50`
+                    }`}
+                  >
                     {m.text_1}
                   </button>
                 );
@@ -1424,18 +1433,18 @@ export default function MenuPage() {
           </div>
         </div>
 
-        {/* Search Bar & Filters - Glassmorphism & Theme Sync */}
-        <div className="p-2 sm:p-3 md:p-4 mb-2 sm:mb-3 border border-gray-100 bg-white/80 backdrop-blur-xl rounded-2xl sm:rounded-3xl shadow-sm shrink-0 flex flex-col gap-1 sm:gap-2 md:gap-3">
+        {/* Search Bar & Filters - Clean & Consistent */}
+        <div className="p-2 sm:p-3 md:p-4 mb-2 sm:mb-3 bg-slate-200/60 rounded-2xl border border-slate-200/50 shadow-sm shrink-0 flex flex-col gap-1 sm:gap-2 md:gap-3">
           
           {/* BARIS UTAMA: Search + Filter Button + Indikator */}
           <div className="flex flex-wrap items-center gap-2 sm:gap-3">
             {/* Input Pencarian */}
             <div className="relative w-full group flex-1 min-w-[180px]">
-              <Search className={`absolute left-4 top-1/2 -translate-y-1/2 transition-colors ${activeTheme.text} opacity-50 group-focus-within:opacity-100`} size={20} />
+              <Search className={`absolute left-4 top-1/2 -translate-y-1/2 transition-colors ${activeTheme.text} opacity-50 group-focus-within:opacity-100`} size={18} />
               <input 
                 type="text" 
                 placeholder={`Cari di menu ${selectedMenu}...`} 
-                className={`w-full pl-12 pr-4 py-3.5 bg-gray-50/50 border-2 border-transparent hover:border-gray-200 rounded-2xl focus:bg-white focus:border-transparent focus:ring-4 ${activeTheme.focusRing} outline-none transition-all shadow-sm text-sm font-bold text-slate-700 placeholder-slate-400`}
+                className={`w-full pl-10 pr-4 py-2.5 bg-white/90 border-2 border-transparent hover:border-slate-300 rounded-xl focus:bg-white focus:border-transparent focus:ring-4 ${activeTheme.focusRing} outline-none transition-all shadow-sm text-sm font-bold text-slate-700 placeholder-slate-400`}
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
               />
@@ -1445,12 +1454,12 @@ export default function MenuPage() {
             <div className="flex items-center gap-2 flex-wrap">
               {/* Tombol Toggle View (Desktop & Tablet) - hanya jika bukan Overview */}
               {selectedMenu.toLowerCase() !== 'overview' && (
-                <div className="hidden sm:flex bg-gray-50 border border-gray-200 rounded-2xl p-1.5 shadow-inner shrink-0 items-center">
-                  <button onClick={() => setViewMode('list')} className={`p-2.5 rounded-xl transition-all duration-300 ${viewMode === 'list' ? `${activeTheme.main} text-white shadow-md` : 'text-gray-400 hover:text-gray-700 hover:bg-gray-200'}`}>
-                    <List size={18} />
+                <div className="hidden sm:flex bg-white/80 border border-slate-200 rounded-xl p-1 shadow-sm shrink-0 items-center">
+                  <button onClick={() => setViewMode('list')} className={`p-2 rounded-lg transition-all duration-300 ${viewMode === 'list' ? `${activeTheme.main} text-white shadow-sm` : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'}`}>
+                    <List size={16} />
                   </button>
-                  <button onClick={() => setViewMode('grid')} className={`p-2.5 rounded-xl transition-all duration-300 ${viewMode === 'grid' ? `${activeTheme.main} text-white shadow-md` : 'text-gray-400 hover:text-gray-700 hover:bg-gray-200'}`}>
-                    <Grid size={18} />
+                  <button onClick={() => setViewMode('grid')} className={`p-2 rounded-lg transition-all duration-300 ${viewMode === 'grid' ? `${activeTheme.main} text-white shadow-sm` : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'}`}>
+                    <Grid size={16} />
                   </button>
                 </div>
               )}
@@ -1460,27 +1469,27 @@ export default function MenuPage() {
                 <>
                   <button
                     onClick={() => setShowFilters(!showFilters)}
-                    className="flex items-center gap-2 px-4 py-2 text-xs font-black uppercase tracking-wider rounded-xl transition-all duration-300 bg-white border border-gray-200 hover:border-gray-300 hover:bg-gray-50 shadow-sm"
+                    className="flex items-center gap-1.5 px-3 py-2 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all duration-300 bg-white/90 border border-slate-200 hover:border-slate-300 hover:bg-white shadow-sm"
                   >
-                    <Filter size={16} />
+                    <Filter size={14} />
                     Filter
                     {(() => {
                       const totalActive = (filterStatus !== 'all' ? 1 : 0) + (filterPerson ? 1 : 0) + (selectedMenuFilters.length > 0 ? 1 : 0);
                       return totalActive > 0 ? (
-                        <span className="ml-1 bg-blue-500 text-white text-[10px] px-2 py-0.5 rounded-full min-w-[20px] text-center">
+                        <span className="ml-1 bg-blue-500 text-white text-[9px] px-1.5 py-0.5 rounded-full min-w-[18px] text-center leading-none">
                           {totalActive}
                         </span>
                       ) : null;
                     })()}
                     <ChevronDown
-                      size={16}
+                      size={14}
                       className={`transition-transform duration-300 ${showFilters ? 'rotate-180' : ''}`}
                     />
                   </button>
 
                   {/* Indikator Filter Person (muncul jika ada person terpilih) */}
                   {filterPerson && (
-                    <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-3 py-1 rounded-full border border-blue-200 flex items-center gap-1 shrink-0">
+                    <span className="text-[9px] font-bold text-blue-600 bg-blue-50 px-2.5 py-1 rounded-full border border-blue-200 flex items-center gap-1 shrink-0">
                       <User size={12} />
                       {allPersons.find(p => p.id_lama === filterPerson)?.text_1 || filterPerson}
                       <button
@@ -1492,9 +1501,9 @@ export default function MenuPage() {
                           url.searchParams.delete('status');
                           window.history.replaceState({}, '', url.toString());
                         }}
-                        className="ml-1 text-blue-400 hover:text-blue-600"
+                        className="ml-0.5 text-blue-400 hover:text-blue-600"
                       >
-                        <X size={14} />
+                        <X size={12} />
                       </button>
                     </span>
                   )}
@@ -1510,10 +1519,10 @@ export default function MenuPage() {
                 showFilters ? 'max-h-[800px] opacity-100 mt-1' : 'max-h-0 opacity-0'
               }`}
             >
-              <div className="flex flex-wrap items-center gap-2 md:gap-3 p-3 bg-gray-50/90 rounded-2xl border border-gray-200/80 shadow-sm">
-  
+              <div className="flex flex-wrap items-center gap-2 md:gap-3 p-3 bg-white/80 rounded-xl border border-slate-200/60 shadow-sm">
+          
                 {/* === GRUP FILTER STATUS === */}
-                <div className="flex flex-wrap items-center gap-1 bg-white rounded-xl border border-gray-200 p-1 shadow-sm">
+                <div className="flex flex-wrap items-center gap-1 bg-white rounded-lg border border-slate-200 p-1 shadow-sm">
                   {['all', 'lunas', 'belum'].map(status => (
                     <button
                       key={status}
@@ -1529,10 +1538,10 @@ export default function MenuPage() {
                         if (filterPerson) url.searchParams.set('person', filterPerson);
                         window.history.replaceState({}, '', url.toString());
                       }}
-                      className={`px-3 py-1.5 text-[10px] md:text-xs font-black uppercase tracking-wider rounded-lg transition-all duration-200 whitespace-nowrap ${
+                      className={`px-2.5 py-1 text-[9px] md:text-[10px] font-black uppercase tracking-wider rounded-lg transition-all duration-200 whitespace-nowrap ${
                         filterStatus === status
-                          ? `${activeTheme.main} text-white shadow-md scale-95`
-                          : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+                          ? `${activeTheme.main} text-white shadow-sm scale-95`
+                          : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'
                       }`}
                     >
                       {status === 'all' ? 'Semua' : status}
@@ -1541,7 +1550,7 @@ export default function MenuPage() {
                 </div>
 
                 {/* Pemisah (hanya tampil di desktop) */}
-                <div className="hidden md:block w-px h-8 bg-gray-300/50"></div>
+                <div className="hidden md:block w-px h-6 bg-slate-300/50"></div>
 
                 {/* === GRUP FILTER PERSON === */}
                 <div className="relative" style={{ zIndex: 9999 }}>
@@ -1557,19 +1566,19 @@ export default function MenuPage() {
                       }
                       setIsPersonFilterOpen(!isPersonFilterOpen);
                     }}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 text-[10px] md:text-xs font-black uppercase tracking-wider rounded-lg transition-all duration-200 bg-white border border-gray-200 hover:border-gray-300 shadow-sm ${
-                      filterPerson ? `${activeTheme.main} text-white border-transparent shadow-md` : 'text-gray-500 hover:text-gray-700'
+                    className={`flex items-center gap-1.5 px-2.5 py-1 text-[9px] md:text-[10px] font-black uppercase tracking-wider rounded-lg transition-all duration-200 bg-white border border-slate-200 hover:border-slate-300 shadow-sm ${
+                      filterPerson ? `${activeTheme.main} text-white border-transparent shadow-md` : 'text-slate-500 hover:text-slate-700'
                     }`}
                   >
-                    <User size={14} />
-                    <span className="truncate max-w-[80px] md:max-w-[120px]">
+                    <User size={13} />
+                    <span className="truncate max-w-[70px] md:max-w-[100px]">
                       {filterPerson
                         ? allPersons.find(p => p.id_lama === filterPerson)?.text_1 || 'Person'
                         : 'Person'}
                     </span>
                     {filterPerson && (
                       <X
-                        size={14}
+                        size={13}
                         className="ml-0.5 cursor-pointer hover:text-white/70"
                         onClick={(e) => {
                           e.stopPropagation();
@@ -1583,7 +1592,7 @@ export default function MenuPage() {
                       />
                     )}
                     <ChevronDown
-                      size={14}
+                      size={13}
                       className={`transition-transform duration-200 ${isPersonFilterOpen ? 'rotate-180' : ''}`}
                     />
                   </button>
@@ -1593,18 +1602,18 @@ export default function MenuPage() {
                     <>
                       <div className="fixed inset-0 z-[9998]" onClick={() => setIsPersonFilterOpen(false)} />
                       <div 
-                        className="fixed z-[9999] w-72 bg-white border border-gray-200 rounded-2xl shadow-2xl p-3 max-h-72 overflow-y-auto custom-scrollbar"
+                        className="fixed z-[9999] w-72 bg-white border border-slate-200 rounded-2xl shadow-2xl p-3 max-h-72 overflow-y-auto custom-scrollbar"
                         style={{
                           top: dropdownPosition.top + 8,
                           left: dropdownPosition.left,
                         }}
                       >
                         <div className="relative">
-                          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                           <input
                             type="text"
                             placeholder="Cari customer / supplier..."
-                            className="w-full pl-8 pr-3 py-2 text-xs font-bold bg-gray-50 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-400 transition-all"
+                            className="w-full pl-8 pr-3 py-2 text-xs font-bold bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-400 transition-all"
                             value={personFilterSearch}
                             onChange={(e) => setPersonFilterSearch(e.target.value)}
                             onClick={(e) => e.stopPropagation()}
@@ -1631,19 +1640,19 @@ export default function MenuPage() {
                                   window.history.replaceState({}, '', url.toString());
                                 }}
                                 className={`px-3 py-2.5 rounded-xl cursor-pointer hover:bg-blue-50 text-xs font-bold flex justify-between items-center transition-colors ${
-                                  filterPerson === p.id_lama ? 'bg-blue-100 text-blue-700' : 'text-gray-700'
+                                  filterPerson === p.id_lama ? 'bg-blue-100 text-blue-700' : 'text-slate-700'
                                 }`}
                               >
                                 <span className="truncate">
                                   {p.text_1} {p.text_2 ? `- ${p.text_2}` : ''}
                                 </span>
-                                <span className="text-[10px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
+                                <span className="text-[10px] text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
                                   {p.jenis}
                                 </span>
                               </div>
                             ))}
                           {allPersons.filter(p => p.jenis?.toLowerCase().includes('customer') || p.jenis?.toLowerCase().includes('supplier')).length === 0 && (
-                            <div className="px-3 py-2 text-xs text-gray-500">Tidak ada data</div>
+                            <div className="px-3 py-2 text-xs text-slate-500">Tidak ada data</div>
                           )}
                         </div>
                       </div>
@@ -1653,10 +1662,10 @@ export default function MenuPage() {
                 </div>
 
                 {/* Pemisah (hanya tampil di desktop) */}
-                <div className="hidden md:block w-px h-8 bg-gray-300/50"></div>
+                <div className="hidden md:block w-px h-6 bg-slate-300/50"></div>
 
                 {/* === GRUP FILTER JENIS MENU === */}
-                <div className="flex flex-wrap items-center gap-1 bg-white rounded-xl border border-gray-200 p-1 shadow-sm">
+                <div className="flex flex-wrap items-center gap-1 bg-white rounded-lg border border-slate-200 p-1 shadow-sm">
                   <button
                     onClick={() => {
                       setSelectedMenuFilters([]);
@@ -1665,10 +1674,10 @@ export default function MenuPage() {
                       url.searchParams.delete('jenis');
                       window.history.replaceState({}, '', url.toString());
                     }}
-                    className={`px-3 py-1.5 text-[10px] md:text-xs font-black uppercase tracking-wider rounded-lg transition-all duration-200 whitespace-nowrap ${
+                    className={`px-2.5 py-1 text-[9px] md:text-[10px] font-black uppercase tracking-wider rounded-lg transition-all duration-200 whitespace-nowrap ${
                       selectedMenuFilters.length === 0
-                        ? `${activeTheme.main} text-white shadow-md scale-95`
-                        : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+                        ? `${activeTheme.main} text-white shadow-sm scale-95`
+                        : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'
                     }`}
                   >
                     Semua Jenis
@@ -1692,10 +1701,10 @@ export default function MenuPage() {
                           }
                           window.history.replaceState({}, '', url.toString());
                         }}
-                        className={`px-3 py-1.5 text-[10px] md:text-xs font-black uppercase tracking-wider rounded-lg transition-all duration-200 whitespace-nowrap ${
+                        className={`px-2.5 py-1 text-[9px] md:text-[10px] font-black uppercase tracking-wider rounded-lg transition-all duration-200 whitespace-nowrap ${
                           selectedMenuFilters.includes(menu.text_1)
-                            ? `${activeTheme.main} text-white shadow-md scale-95`
-                            : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+                            ? `${activeTheme.main} text-white shadow-sm scale-95`
+                            : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'
                         }`}
                       >
                         {menu.text_1}

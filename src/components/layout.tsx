@@ -204,10 +204,13 @@ export default function Layout({ setAuth }: { setAuth: (status: boolean) => void
         </div>
         
         {/* --- DYNAMIC USER PROFILE INFO --- */}
-        <div className="px-6 py-4 mx-4 mt-4 md:mt-2 mb-2 bg-slate-50/70 border border-slate-100 rounded-2xl flex items-center gap-3 shrink-0">
-          <div className="w-10 h-10 rounded-xl bg-slate-800 text-white font-black flex items-center justify-center text-sm uppercase shadow-sm shrink-0 overflow-hidden">
-            {pb.authStore.model?.link_image ? (
-              <img src={pb.authStore.model.link_image} alt="avatar" className="w-full h-full object-cover" />
+        <div 
+  onClick={() => navigate('/akun')}
+  className="px-6 py-4 mx-4 mt-4 md:mt-2 mb-2 bg-slate-50/70 border border-slate-100 rounded-2xl flex items-center gap-3 shrink-0 cursor-pointer hover:bg-slate-100/80 transition-colors"
+  >
+    <div className="w-10 h-10 rounded-xl bg-slate-800 text-white font-black flex items-center justify-center text-sm uppercase shadow-sm shrink-0 overflow-hidden">
+      {pb.authStore.model?.link_image ? (
+        <img src={pb.authStore.model.link_image} alt="avatar" className="w-full h-full object-cover" />
             ) : (
               userName.substring(0, 2)
             )}
