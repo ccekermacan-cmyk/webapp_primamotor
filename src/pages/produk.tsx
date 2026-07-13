@@ -72,6 +72,10 @@ export default function Produk() {
   const [productFiles, setProductFiles] = useState<(File | { isOld: boolean; name: string; url: string })[]>([]);
   const [productPreviewUrls, setProductPreviewUrls] = useState<string[]>([]);
 
+  const [kategoriSearch, setKategoriSearch] = useState('');
+  const [isKategoriDropdownOpen, setIsKategoriDropdownOpen] = useState(false);
+  const categoryDropdownRef = useRef<HTMLDivElement>(null);
+
   // ==========================================
   // FUNGSI PEMBANTU (HELPERS)
   // ==========================================
@@ -148,6 +152,16 @@ export default function Produk() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (categoryDropdownRef.current && !categoryDropdownRef.current.contains(event.target as Node)) {
+        setIsCategoryDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const sortedProducts = useMemo(() => {
     if (products.length === 0) return [];
@@ -420,7 +434,6 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
     // 🟢 VALIDASI SAFETY GUARD
     const required = [
       { key: 'kategori', label: 'Kategori' },
-      { key: 'jenis', label: 'Jenis' },
       { key: 'merk', label: 'Merk' },
       { key: 'sell_6', label: 'Harga Retail (Sell 6)' },
       { key: 'unit', label: 'Unit' }
@@ -627,18 +640,64 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
               {/* Filter untuk desktop */}
               <div className="hidden sm:flex items-center gap-3 flex-1">
-                <div className="w-[25%]">
-                  <select
-                    value={filterKategori}
-                    onChange={(e) => { setFilterKategori(e.target.value); setPage(1); }}
-                    className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm font-medium focus:ring-2 focus:ring-orange-500 outline-none shadow-sm appearance-none bg-no-repeat bg-[position:right_1rem_center] bg-[length:1.5em_1.5em]"
-                    style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%236b7280' stroke-width='2'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E")` }}
-                  >
-                    <option value="all">Semua Kategori</option>
-                    {kategoriOptions.map(kat => (
-                      <option key={kat} value={kat}>{kat}</option>
-                    ))}
-                  </select>
+                <div ref={categoryDropdownRef} className="w-[25%] relative">
+                  <div className="relative">
+                    <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                    <input
+                      type="text"
+                      placeholder="Cari kategori..."
+                      value={kategoriSearch}
+                      onChange={(e) => {
+                        setIsKategoriDropdownOpen(true);
+                      }}
+                      onFocus={() => setIsKategoriDropdownOpen(true)}
+                      className="w-full pl-9 pr-8 py-3 bg-white border border-gray-200 rounded-xl text-sm font-medium focus:ring-2 focus:ring-orange-500 outline-none shadow-sm"
+                    />
+                    {filterKategori !== 'all' && (
+                      <button
+                        onClick={() => {
+                          setFilterKategori('all');
+                          setKategoriSearch('');
+                          setPage(1);
+                          setIsKategoriDropdownOpen(false);
+                        }}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                      >
+                        <X size={16} />
+                      </button>
+                    )}
+                  </div>
+                  {isKategoriDropdownOpen && (
+                    <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-xl shadow-lg max-h-60 overflow-y-auto">
+                      <div
+                        className="px-4 py-2 text-sm font-bold text-gray-700 hover:bg-orange-50 cursor-pointer"
+                        onClick={() => {
+                          setFilterKategori('all');
+                          setKategoriSearch('');
+                          setPage(1);
+                          setIsKategoriDropdownOpen(false);
+                        }}
+                      >
+                        Semua Kategori
+                      </div>
+                      {kategoriOptions
+                        .filter(k => k.toLowerCase().includes(kategoriSearch.toLowerCase()))
+                        .map(kat => (
+                          <div
+                            key={kat}
+                            className="px-4 py-2 text-sm font-bold text-gray-700 hover:bg-orange-50 cursor-pointer"
+                            onClick={() => {
+                              setFilterKategori('all');
+                              setKategoriSearch('');
+                              setPage(1);
+                              setIsKategoriDropdownOpen(false);
+                            }}
+                          >
+                            {kat}
+                          </div>
+                        ))}
+                    </div>
+                  )}
                 </div>
                 <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-xl p-1 shadow-sm">
                   <button
@@ -682,16 +741,64 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
             {/* Filter mobile (tampil jika tombol ditekan) */}
             {showMobileFilters && (
               <div className="sm:hidden flex flex-col gap-3 mt-2 animate-in slide-in-from-top-2 duration-200">
-                <select
-                  value={filterKategori}
-                  onChange={(e) => { setFilterKategori(e.target.value); setPage(1); }}
-                  className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm font-medium focus:ring-2 focus:ring-orange-500 outline-none shadow-sm"
-                >
-                  <option value="all">Semua Kategori</option>
-                  {kategoriOptions.map(kat => (
-                    <option key={kat} value={kat}>{kat}</option>
-                  ))}
-                </select>
+                <div className="relative w-full">
+                  <div className="relative">
+                    <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                    <input
+                      type="text"
+                      placeholder="Cari kategori..."
+                      onChange={(e) => {
+                        setIsKategoriDropdownOpen(true);
+                      }}
+                      onFocus={() => setIsKategoriDropdownOpen(true)}
+                      className="w-full pl-9 pr-8 py-3 bg-white border border-gray-200 rounded-xl text-sm font-medium focus:ring-2 focus:ring-orange-500 outline-none shadow-sm"
+                    />
+                    {filterKategori !== 'all' && (
+                      <button
+                        onClick={() => {
+                          setFilterKategori('all');
+                          setKategoriSearch('');
+                          setPage(1);
+                          setIsKategoriDropdownOpen(false);
+                        }}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                      >
+                        <X size={16} />
+                      </button>
+                    )}
+                  </div>
+                  {isKategoriDropdownOpen && (
+                    <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-xl shadow-lg max-h-60 overflow-y-auto">
+                      <div
+                        className="px-4 py-2 text-sm font-bold text-gray-700 hover:bg-orange-50 cursor-pointer"
+                        onClick={() => {
+                          setFilterKategori('all');
+                          setKategoriSearch('');
+                          setPage(1);
+                          setIsKategoriDropdownOpen(false);
+                        }}
+                      >
+                        Semua Kategori
+                      </div>
+                      {kategoriOptions
+                        .filter(k => k.toLowerCase().includes(kategoriSearch.toLowerCase()))
+                        .map(kat => (
+                          <div
+                            key={kat}
+                            className="px-4 py-2 text-sm font-bold text-gray-700 hover:bg-orange-50 cursor-pointer"
+                            onClick={() => {
+                              setFilterKategori('all');
+                              setKategoriSearch('');
+                              setPage(1);
+                              setIsKategoriDropdownOpen(false);
+                            }}
+                          >
+                            {kat}
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </div>
                 <div className="flex gap-2 bg-white border border-gray-200 rounded-xl p-1 shadow-sm">
                   {[
                     { value: 'all', label: 'Semua' },
@@ -1185,11 +1292,11 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
                 </div>
               </div>
 
-              {/* Baris 2: Merk + Jenis */}
+              {/* Baris 2: Merk (Wajib) + Jenis (Opsional) */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-xs font-bold text-gray-500">Merk</label>
-                  <input type="text" name="merk" value={formData.merk || ''} onChange={handleInputChange} className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-orange-400 outline-none" />
+                  <label className="text-xs font-bold text-gray-500">Merk <span className="text-rose-500">*</span></label>
+                  <input required type="text" name="merk" value={formData.merk || ''} onChange={handleInputChange} className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-orange-400 outline-none" />
                 </div>
                 <div>
                   <label className="text-xs font-bold text-gray-500">Jenis</label>
