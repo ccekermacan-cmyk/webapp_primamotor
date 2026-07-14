@@ -23,12 +23,16 @@ export default function PeoplePage() {
   const [currentPerson, setCurrentPerson] = useState<Partial<Person>>({});
   const [isProcessing, setIsProcessing] = useState(false);
 
+  const [isCategoryDropdownOpen, setIsCategoryDropdownOpen] = useState(false);
+
   // State untuk tab di modal detail person (Customer/Supplier)
   const [personDetailTab, setPersonDetailTab] = useState<'Overview' | 'History'>('Overview');
   // Data history (menu) untuk person
   const [historyList, setHistoryList] = useState<any[]>([]);
   const [historyPage, setHistoryPage] = useState(1);
   const [historyTotalPages, setHistoryTotalPages] = useState(1);
+  const [historySummary, setHistorySummary] = useState({ totalBelanja: 0, totalSisa: 0 });
+  // Data dummy gaji dan bon untuk user (karyawan)
   // Data dummy gaji dan bon untuk user (karyawan)
   const [dummySalaryList, setDummySalaryList] = useState<any[]>([]);
   const [salaryPage, setSalaryPage] = useState(1);
@@ -135,18 +139,68 @@ export default function PeoplePage() {
 
   const fetchPersonHistory = async (personId: string, pageNum: number = 1) => {
     try {
-      let filterString = `person_baru = "${personId}"`;
-      let result = await pb.collection('menu').getList(pageNum, 5, { filter: filterString, sort: '-created_at' });
-      if (result.items.length === 0 && selectedUserForDetail?.id_lama) {
-        filterString = `person = "${selectedUserForDetail.id_lama}"`;
-        result = await pb.collection('menu').getList(pageNum, 5, { filter: filterString, sort: '-created_at' });
+      const targetIdLama = selectedUserForDetail?.id_lama;
+
+      if (!targetIdLama) {
+        console.warn("Person tidak memiliki id_lama, tidak bisa mencari riwayat.");
+        setHistoryList([]);
+        return;
       }
+
+      const filterString = `person = "${targetIdLama}"`;
+      
+      // 1. Ambil data per halaman untuk daftar
+      const result = await pb.collection('menu').getList(pageNum, 5, { 
+        filter: filterString, 
+        sort: '-created_at',
+        $autoCancel: false 
+      });
+      
       setHistoryList(result.items);
       setHistoryTotalPages(result.totalPages);
+
+      // 2. Kalkulasi Summary (Hanya saat halaman 1)
+      if (pageNum === 1) {
+        try {
+          const fullData = await pb.collection('menu').getFullList({ 
+            filter: `${filterString} && status = "belum"`, 
+            fields: 'total,dibayar',
+            $autoCancel: false 
+          });
+          
+          let tBelanja = 0;
+          let tSisa = 0;
+          
+          fullData.forEach((item: any) => {
+            const total = item.total || 0;
+            const dibayar = item.dibayar || 0;
+            const selisih = total - dibayar;
+            
+            tBelanja += total;
+            // Hanya akumulasikan jika ada kekurangan pembayaran (sisa > 0)
+            if (selisih > 0) {
+              tSisa += selisih;
+            }
+          });
+          
+          setHistorySummary({ totalBelanja: tBelanja, totalSisa: tSisa });
+        } catch (sumErr) {
+          console.error("Gagal menghitung summary:", sumErr);
+        }
+      }
     } catch (error) {
+      console.error("Gagal mengambil history:", error);
       setHistoryList([]);
     }
   };
+
+  // Trigger otomatis saat tab History dibuka atau user berganti
+  useEffect(() => {
+    if (isUserDetailModalOpen && selectedUserForDetail && personDetailTab === 'History') {
+      fetchPersonHistory(selectedUserForDetail.id, 1);
+      setHistoryPage(1); // Reset page ke 1 setiap kali ganti user
+    }
+  }, [isUserDetailModalOpen, selectedUserForDetail, personDetailTab]);
 
   const generateDummyGaji = () => {
     const dummy = [];
@@ -188,27 +242,37 @@ export default function PeoplePage() {
       
       const formData = new FormData();
       formData.append('text_1', currentPerson.text_1);
-      formData.append('text_2', currentPerson.text_2 || '-');
-      formData.append('jenis', formattedJenis);
+      formData.append('text_2', currentPerson.text_2 || '');
+      formData.append('jenis', formattedJenis); // Tidak ditampilkan di form, diisi otomatis dari tab
       formData.append('kategori', 'Person');
-      formData.append('id_lama', currentPerson.id_lama || `PSN-${Date.now().toString().slice(-4)}`);
+      formData.append('id_lama', currentPerson.id_lama || `PSN-${Date.now().toString().slice(-4)}`); // Auto-generate jika baru
       
-      // Tambahan Field Baru
+      // Field yang ditampilkan sesuai request
       formData.append('text_3', currentPerson.text_3 || '');
       formData.append('text_4', currentPerson.text_4 || '');
       formData.append('text_5', currentPerson.text_5 || '');
       formData.append('text_6', currentPerson.text_6 || '');
       formData.append('text_7', currentPerson.text_7 || '');
       formData.append('text_9', currentPerson.text_9 || '');
-      formData.append('text_10', currentPerson.text_10 || '');
-      formData.append('number_1', String(currentPerson.number_1 || 0));
-      formData.append('number_2', String(currentPerson.number_2 || 0));
-      formData.append('number_3', String(currentPerson.number_3 || 0));
-      formData.append('link_image', currentPerson.link_image || '');
-      formData.append('visibilitas', currentPerson.visibilitas || '1');
+      
+      formData.append('number_2', String(currentPerson.number_2 || 0)); // RT
+      formData.append('number_3', String(currentPerson.number_3 || 0)); // RW
+      formData.append('number_4', String((currentPerson as any).number_4 || 0)); // NIK
+      formData.append('phone', String((currentPerson as any).phone || 0)); // No HP
+      
+      // Field tersembunyi yang tetap dikirim
+      formData.append('operator', localStorage.getItem('user_name') || 'Admin');
+      // 🟢 Visibilitas di-hardcode sesuai instruksi
+      formData.append('visibilitas', '1,2,3,4,5,6,7');
 
+      // Set fallback text_9 (Kategori) jika user tidak mengisi apa-apa
+      if (!currentPerson.text_9) {
+        formData.append('text_9', formattedJenis === 'Customer' ? 'Pelanggan' : 'Supplier');
+      }
+
+      // Menggunakan 'file' sesuai JSON untuk menyimpan file foto aktual
       if ((currentPerson as any).imageFile) {
-        formData.append('image', (currentPerson as any).imageFile);
+        formData.append('file', (currentPerson as any).imageFile);
       }
 
       if (currentPerson.id) {
@@ -242,6 +306,8 @@ export default function PeoplePage() {
 
   const showUserDetail = (data: any) => {
     setSelectedUserForDetail(data);
+    setPersonDetailTab('Overview'); // Reset ke tab awal
+    setActiveDetailTab('Overview'); // Reset ke tab awal untuk karyawan
     setIsUserDetailModalOpen(true);
   };
 
@@ -320,14 +386,19 @@ export default function PeoplePage() {
               if (activeTab === 'user') {
                 setEditUserData({ status: 'active', level: 2 }); 
                 setIsEditUserModalOpen(true);
-              } else if (activeTab === 'person' && filterJenis === 'customer') {
-                setCurrentPerson({ jenis: 'Customer' }); setIsModalOpen(true);
-              } else if (activeTab === 'person' && filterJenis === 'supplier') {
-                setCurrentPerson({ jenis: 'Supplier' }); setIsModalOpen(true);
               } else {
-                setCurrentPerson({ jenis: 'Customer' }); setIsModalOpen(true);
+                // Inisialisasi default field saat tambah baru
+                const defaultJenis = (activeTab === 'person' && filterJenis === 'supplier') ? 'Supplier' : 'Customer';
+                const defaultText9 = defaultJenis === 'Customer' ? 'Pelanggan' : 'Supplier';
+                setCurrentPerson({ 
+                  jenis: defaultJenis,
+                  text_9: defaultText9,
+                  visibilitas: '1,2,3,4,5,6,7'
+                }); 
+                setIsModalOpen(true);
               }
             }}
+            
             className="flex items-center justify-center gap-2 bg-cyan-600 hover:bg-cyan-500 text-white px-6 py-3.5 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-cyan-200 transition-all self-start md:self-auto transform hover:-translate-y-0.5"
           >
             <Plus size={16} strokeWidth={3} /> 
@@ -566,118 +637,133 @@ export default function PeoplePage() {
       <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title={currentPerson.id ? 'Edit Rekor Partner' : 'Tambah Partner Baru'}>
         <form onSubmit={handleSave} className="flex flex-col max-h-[75vh] md:max-h-[80vh] overflow-y-auto custom-scrollbar p-1">
           <div className="space-y-4 p-1">
+            
+            {/* Header Form & Jenis Enum */}
+            <div className="flex bg-slate-100 p-1 rounded-xl shadow-inner w-full mb-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setCurrentPerson({ ...currentPerson, jenis: 'Customer', text_9: 'Pelanggan' });
+                }}
+                className={`flex-1 py-2 text-xs font-black uppercase tracking-widest rounded-lg transition-all ${
+                  currentPerson.jenis === 'Customer' ? 'bg-cyan-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-200 hover:text-slate-600'
+                }`}
+              >
+                Customer
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setCurrentPerson({ ...currentPerson, jenis: 'Supplier', text_9: 'Supplier' });
+                }}
+                className={`flex-1 py-2 text-xs font-black uppercase tracking-widest rounded-lg transition-all ${
+                  currentPerson.jenis === 'Supplier' ? 'bg-amber-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-200 hover:text-slate-600'
+                }`}
+              >
+                Supplier
+              </button>
+            </div>
+
+            {/* Baris 1: Nama & Perusahaan */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-1">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider ml-1">ID Lama (Opsional)</label>
-                <input type="text" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none" value={currentPerson.id_lama || ''} onChange={e => setCurrentPerson({ ...currentPerson, id_lama: e.target.value })} placeholder="Auto jika kosong" />
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider ml-1">Nama Cust / Supplier <span className="text-rose-500">*</span></label>
+                <input type="text" required className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:border-cyan-400" value={currentPerson.text_1 || ''} onChange={e => setCurrentPerson({ ...currentPerson, text_1: e.target.value })} placeholder="Cth: Budi Santoso" />
               </div>
               <div className="space-y-1">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider ml-1">Jenis Hubungan</label>
-                <select className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none" value={currentPerson.jenis || 'customer'} onChange={e => setCurrentPerson({ ...currentPerson, jenis: e.target.value })}>
-                  <option value="Customer">Customer</option>
-                  <option value="Supplier">Supplier</option>
-                </select>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider ml-1">Nama Bengkel / Perusahaan</label>
+                <input type="text" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:border-cyan-400" value={currentPerson.text_2 || ''} onChange={e => setCurrentPerson({ ...currentPerson, text_2: e.target.value })} placeholder="Cth: PT Makmur Jaya" />
               </div>
             </div>
 
+            {/* Baris 2: NIK & HP */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-1">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider ml-1">Nama Partner (text_1)</label>
-                <input type="text" required className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none" value={currentPerson.text_1 || ''} onChange={e => setCurrentPerson({ ...currentPerson, text_1: e.target.value })} placeholder="Nama Lengkap" />
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider ml-1">NIK</label>
+                <input type="number" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:border-cyan-400" value={(currentPerson as any).number_4 || ''} onChange={e => setCurrentPerson({ ...currentPerson, number_4: Number(e.target.value) } as any)} placeholder="Cth: 3500000000000" />
               </div>
               <div className="space-y-1">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider ml-1">Keterangan / Jabatan (text_2)</label>
-                <input type="text" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none" value={currentPerson.text_2 || ''} onChange={e => setCurrentPerson({ ...currentPerson, text_2: e.target.value })} />
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider ml-1">Nomor HP / WhatsApp</label>
+                <input type="number" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:border-cyan-400" value={(currentPerson as any).phone || ''} onChange={e => setCurrentPerson({ ...currentPerson, phone: Number(e.target.value) } as any)} placeholder="Cth: 6281234567" />
               </div>
             </div>
 
-            <div className="space-y-1">
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider ml-1">Alamat/Kontak (text_3 - text_7)</label>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <input type="text" placeholder="Text 3 (Jalan)" className="w-full p-3 bg-slate-50 border rounded-xl text-xs font-bold" value={currentPerson.text_3 || ''} onChange={e => setCurrentPerson({ ...currentPerson, text_3: e.target.value })} />
-                <input type="text" placeholder="Text 4 (Kecamatan)" className="w-full p-3 bg-slate-50 border rounded-xl text-xs font-bold" value={currentPerson.text_4 || ''} onChange={e => setCurrentPerson({ ...currentPerson, text_4: e.target.value })} />
-                <input type="text" placeholder="Text 5 (Kota)" className="w-full p-3 bg-slate-50 border rounded-xl text-xs font-bold" value={currentPerson.text_5 || ''} onChange={e => setCurrentPerson({ ...currentPerson, text_5: e.target.value })} />
-                <input type="text" placeholder="Text 6 (Provinsi)" className="w-full p-3 bg-slate-50 border rounded-xl text-xs font-bold" value={currentPerson.text_6 || ''} onChange={e => setCurrentPerson({ ...currentPerson, text_6: e.target.value })} />
-                <input type="text" placeholder="Text 7 (No HP/WA)" className="w-full p-3 bg-slate-50 border rounded-xl text-xs font-bold col-span-1 sm:col-span-2" value={currentPerson.text_7 || ''} onChange={e => setCurrentPerson({ ...currentPerson, text_7: e.target.value })} />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-1">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider ml-1">Text 9 (Kategori Lain)</label>
-                <input type="text" className="w-full p-3 bg-slate-50 border rounded-xl text-xs font-bold" value={currentPerson.text_9 || ''} onChange={e => setCurrentPerson({ ...currentPerson, text_9: e.target.value })} />
-              </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider ml-1">Text 10 (Info Ekstra)</label>
-                <input type="text" className="w-full p-3 bg-slate-50 border rounded-xl text-xs font-bold" value={currentPerson.text_10 || ''} onChange={e => setCurrentPerson({ ...currentPerson, text_10: e.target.value })} />
-              </div>
-            </div>
-
+            {/* Baris 3: Dusun, RT, RW */}
             <div className="grid grid-cols-3 gap-2">
-              <div className="space-y-1">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider ml-1">Number 1</label>
-                <input type="number" className="w-full p-3 bg-slate-50 border rounded-xl text-xs font-bold" value={currentPerson.number_1 || ''} onChange={e => setCurrentPerson({ ...currentPerson, number_1: Number(e.target.value) })} />
+              <div className="space-y-1 col-span-1 sm:col-span-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider ml-1">Dusun / Jalan</label>
+                <input type="text" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:border-cyan-400" value={currentPerson.text_3 || ''} onChange={e => setCurrentPerson({ ...currentPerson, text_3: e.target.value })} placeholder="Cth: Dusun Krajan" />
               </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider ml-1">Number 2</label>
-                <input type="number" className="w-full p-3 bg-slate-50 border rounded-xl text-xs font-bold" value={currentPerson.number_2 || ''} onChange={e => setCurrentPerson({ ...currentPerson, number_2: Number(e.target.value) })} />
-              </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider ml-1">Number 3</label>
-                <input type="number" className="w-full p-3 bg-slate-50 border rounded-xl text-xs font-bold" value={currentPerson.number_3 || ''} onChange={e => setCurrentPerson({ ...currentPerson, number_3: Number(e.target.value) })} />
+              <div className="space-y-1 flex gap-2 col-span-2 sm:col-span-1">
+                <div className="w-1/2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider ml-1">RT</label>
+                  <input type="number" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:border-cyan-400" value={currentPerson.number_2 || ''} onChange={e => setCurrentPerson({ ...currentPerson, number_2: Number(e.target.value) })} placeholder="00" />
+                </div>
+                <div className="w-1/2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider ml-1">RW</label>
+                  <input type="number" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:border-cyan-400" value={currentPerson.number_3 || ''} onChange={e => setCurrentPerson({ ...currentPerson, number_3: Number(e.target.value) })} placeholder="00" />
+                </div>
               </div>
             </div>
 
+            {/* Baris 4: Desa & Kecamatan */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-1">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider ml-1">Link Image URL</label>
-                <input type="text" className="w-full p-3 bg-slate-50 border rounded-xl text-xs font-bold" value={currentPerson.link_image || ''} onChange={e => setCurrentPerson({ ...currentPerson, link_image: e.target.value })} />
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider ml-1">Desa</label>
+                <input type="text" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:border-cyan-400" value={currentPerson.text_4 || ''} onChange={e => setCurrentPerson({ ...currentPerson, text_4: e.target.value })} />
               </div>
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider ml-1">Visibilitas (Level) - Pilih lebih dari satu</label>
-                <div className="grid grid-cols-4 gap-2 max-h-32 overflow-y-auto p-2 bg-slate-50 rounded-xl border border-slate-200">
-                  {[...Array(16)].map((_, i) => {
-                    const level = (i+1).toString();
-                    const selected = (currentPerson.visibilitas || '1').split(',').includes(level);
-                    return (
-                      <label key={level} className="flex items-center gap-1.5 text-xs font-bold text-slate-600">
-                        <input
-                          type="checkbox"
-                          value={level}
-                          checked={selected}
-                          onChange={(e) => {
-                            const newValue = currentPerson.visibilitas || '1';
-                            let selectedLevels = newValue.split(',');
-                            if (e.target.checked) {
-                              if (!selectedLevels.includes(level)) selectedLevels.push(level);
-                            } else {
-                              selectedLevels = selectedLevels.filter(l => l !== level);
-                            }
-                            // Jika kosong, default ke '1' (jika tidak ingin kosong bisa diatur)
-                            const finalValue = selectedLevels.length ? selectedLevels.join(',') : '1';
-                            setCurrentPerson({ ...currentPerson, visibilitas: finalValue });
-                          }}
-                          className="accent-cyan-600"
-                        />
-                        <span>Level {level}</span>
-                      </label>
-                    );
-                  })}
-                </div>
-                <p className="text-[9px] text-slate-400 italic">Level yang dipilih: {currentPerson.visibilitas || '1'}</p>
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider ml-1">Kecamatan</label>
+                <input type="text" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:border-cyan-400" value={currentPerson.text_5 || ''} onChange={e => setCurrentPerson({ ...currentPerson, text_5: e.target.value })} />
               </div>
             </div>
 
-            <div className="space-y-1">
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider ml-1">Upload Foto (Image)</label>
-              <input type="file" accept="image/*" className="w-full p-2 bg-slate-50 border rounded-xl text-xs" onChange={e => { if(e.target.files?.[0]) setCurrentPerson({ ...currentPerson, imageFile: e.target.files[0] as any }) }} />
+            {/* Baris 5: Kota & Provinsi */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider ml-1">Kota / Kabupaten</label>
+                <input type="text" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:border-cyan-400" value={currentPerson.text_6 || ''} onChange={e => setCurrentPerson({ ...currentPerson, text_6: e.target.value })} />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider ml-1">Provinsi</label>
+                <input type="text" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:border-cyan-400" value={currentPerson.text_7 || ''} onChange={e => setCurrentPerson({ ...currentPerson, text_7: e.target.value })} />
+              </div>
+            </div>
+
+            {/* Baris 6: Kategori (Text_9 Enum / Custom) & Upload Foto */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider ml-1">Tipe / Kelompok</label>
+                {['1', '2'].includes(userLevelFromStorage) ? (
+                  <input type="text" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:border-cyan-400" value={currentPerson.text_9 || ''} onChange={e => setCurrentPerson({ ...currentPerson, text_9: e.target.value })} placeholder="Bebas ketik kategori (Misal: VIP)" />
+                ) : (
+                  <select className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:border-cyan-400" value={currentPerson.text_9 || 'Pelanggan'} onChange={e => setCurrentPerson({ ...currentPerson, text_9: e.target.value })}>
+                    <option value="Pelanggan">Pelanggan</option>
+                    <option value="Supplier">Supplier</option>
+                  </select>
+                )}
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider ml-1">Upload Foto / Berkas</label>
+                <input type="file" accept="image/*,application/pdf" className="w-full p-2 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none focus:border-cyan-400" onChange={e => { if(e.target.files?.[0]) setCurrentPerson({ ...currentPerson, imageFile: e.target.files[0] as any }) }} />
+              </div>
             </div>
 
           </div>
           
-          <div className="mt-6 pt-5 border-t border-slate-100 flex gap-2 sticky bottom-0 bg-white">
+          <div className="mt-6 pt-5 border-t border-slate-100 flex gap-2 sticky bottom-0 bg-white p-1">
             <button type="button" onClick={() => setIsModalOpen(false)} className="flex-1 py-4 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-2xl font-black text-xs uppercase tracking-wider transition-colors">Batalkan</button>
-            <button type="submit" disabled={isProcessing} className="flex-[2] py-4 bg-cyan-600 hover:bg-cyan-500 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-md transition-colors">{isProcessing ? 'MENYIMPAN...' : 'SAVE PARTNER'}</button>
+            <button 
+              type="submit" 
+              disabled={isProcessing} 
+              className={`flex-[2] py-4 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-md transition-colors ${
+                currentPerson.jenis === 'Supplier' 
+                  ? 'bg-amber-600 hover:bg-amber-500 shadow-amber-500/30' 
+                  : 'bg-cyan-600 hover:bg-cyan-500 shadow-cyan-500/30'
+              }`}
+            >
+              {isProcessing ? 'MENYIMPAN...' : 'SAVE PARTNER'}
+            </button>
           </div>
         </form>
       </Modal>
@@ -808,10 +894,7 @@ export default function PeoplePage() {
                     Overview
                   </button>
                   <button
-                    onClick={() => { 
-                      setPersonDetailTab('History');
-                      if (historyList.length === 0) fetchPersonHistory(selectedUserForDetail.id, 1);
-                    }}
+                    onClick={() => setPersonDetailTab('History')}
                     className={`px-4 py-3 text-xs font-black uppercase tracking-wider transition-all ${
                       personDetailTab === 'History'
                         ? 'border-b-2 border-cyan-600 text-cyan-700'
@@ -848,79 +931,200 @@ export default function PeoplePage() {
             <div className="flex-1 overflow-y-auto p-6 space-y-5">
               {selectedUserForDetail.kategori === 'Person' ? (
                 <>
-                  {personDetailTab === 'Overview' && (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 md:col-span-2">
-                        <p className="text-[10px] font-black text-slate-400 uppercase">Alamat Lengkap (Text 3 - 6)</p>
-                        <p className="font-medium text-slate-700 text-sm mt-1">
-                          {[selectedUserForDetail.text_3, selectedUserForDetail.text_4, selectedUserForDetail.text_5, selectedUserForDetail.text_6].filter(Boolean).join(', ') || '-'}
-                        </p>
+                  {personDetailTab === 'Overview' && (() => {
+                    // Penentuan tema warna berdasarkan jenis
+                    const isCust = String(selectedUserForDetail.jenis).toLowerCase() === 'customer';
+                    const themeBg = isCust ? 'bg-cyan-50/50' : 'bg-amber-50/50';
+                    const themeBorder = isCust ? 'border-cyan-100' : 'border-amber-100';
+                    const themeText = isCust ? 'text-cyan-800' : 'text-amber-800';
+                    const themeMuted = isCust ? 'text-cyan-600/70' : 'text-amber-600/70';
+                    
+                    // Meracik susunan alamat lengkap
+                    const jalan = selectedUserForDetail.text_3 || '';
+                    const rt = selectedUserForDetail.number_2 ? `RT ${selectedUserForDetail.number_2}` : '';
+                    const rw = selectedUserForDetail.number_3 ? `RW ${selectedUserForDetail.number_3}` : '';
+                    const rtrw = [rt, rw].filter(Boolean).join('/');
+                    const desa = selectedUserForDetail.text_4 ? `Ds. ${selectedUserForDetail.text_4}` : '';
+                    const kec = selectedUserForDetail.text_5 ? `Kec. ${selectedUserForDetail.text_5}` : '';
+                    const kota = selectedUserForDetail.text_6 || '';
+                    const prov = selectedUserForDetail.text_7 || '';
+
+                    // Gabungkan hanya data yang terisi, pisahkan dengan koma
+                    const fullAddress = [jalan, rtrw, desa, kec, kota, prov].filter(Boolean).join(', ');
+
+                    return (
+                      <div className="space-y-4 animate-in fade-in duration-300">
+                        
+                        {/* 1. Card Alamat Tergabung & Bertema */}
+                        <div className={`p-5 md:p-6 rounded-3xl border ${themeBorder} ${themeBg} relative overflow-hidden shadow-sm`}>
+                          {/* Efek visual / Blur di background */}
+                          <div className={`absolute -top-10 -right-10 w-32 h-32 blur-2xl opacity-40 rounded-full pointer-events-none ${isCust ? 'bg-cyan-400' : 'bg-amber-400'}`} />
+                          
+                          <div className="relative z-10">
+                            <p className={`text-[10px] font-black uppercase tracking-widest ${themeMuted} mb-1.5`}>
+                              Alamat Lengkap
+                            </p>
+                            <p className={`font-bold text-sm md:text-base leading-relaxed ${themeText}`}>
+                              {fullAddress || 'Belum ada data alamat yang diinputkan.'}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* 2. Grid Info Pendukung */}
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="p-4 bg-white border border-slate-100 rounded-3xl shadow-sm flex flex-col justify-center">
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Kontak (HP/WA)</p>
+                            <p className="font-bold text-slate-700 text-sm mt-1">{selectedUserForDetail.phone || '-'}</p>
+                          </div>
+                          
+                          <div className="p-4 bg-white border border-slate-100 rounded-3xl shadow-sm flex flex-col justify-center">
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Nomor Induk (NIK)</p>
+                            <p className="font-bold text-slate-700 text-sm mt-1">{selectedUserForDetail.number_4 || '-'}</p>
+                          </div>
+
+                          <div className="p-4 bg-white border border-slate-100 rounded-3xl shadow-sm flex flex-col justify-center col-span-2 sm:col-span-1">
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Tipe / Kelompok</p>
+                            <p className="font-bold text-slate-700 text-sm mt-1.5">
+                              <span className={`inline-block px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest border ${themeBorder} ${themeBg} ${themeText}`}>
+                                {selectedUserForDetail.text_9 || '-'}
+                              </span>
+                            </p>
+                          </div>
+                          
+                          <div className="p-4 bg-white border border-slate-100 rounded-3xl shadow-sm flex flex-col justify-center col-span-2 sm:col-span-1">
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">ID Rekam Internal</p>
+                            <p className="font-black text-slate-400 text-sm mt-1 uppercase">#{selectedUserForDetail.id_lama || selectedUserForDetail.id}</p>
+                          </div>
+                        </div>
+                        
                       </div>
-                      <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                        <p className="text-[10px] font-black text-slate-400 uppercase">Kontak HP/WA (Text 7)</p>
-                        <p className="font-bold text-slate-700 text-sm mt-1">{selectedUserForDetail.text_7 || '-'}</p>
-                      </div>
-                      <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                        <p className="text-[10px] font-black text-slate-400 uppercase">Kategori Lain (Text 9)</p>
-                        <p className="font-bold text-slate-700 text-sm mt-1">{selectedUserForDetail.text_9 || '-'}</p>
-                      </div>
-                      <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                        <p className="text-[10px] font-black text-slate-400 uppercase">Info Ekstra (Text 10)</p>
-                        <p className="font-bold text-slate-700 text-sm mt-1">{selectedUserForDetail.text_10 || '-'}</p>
-                      </div>
-                      <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                        <p className="text-[10px] font-black text-slate-400 uppercase">Visibilitas</p>
-                        <p className="font-bold text-slate-700 text-sm mt-1">Level {selectedUserForDetail.visibilitas || '1'}</p>
-                      </div>
-                      <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 md:col-span-2 flex justify-between gap-4 text-center">
-                        <div className="flex-1"><p className="text-[10px] font-black text-slate-400 uppercase">Number 1</p><p className="font-bold mt-1 text-cyan-600">{selectedUserForDetail.number_1 || 0}</p></div>
-                        <div className="flex-1 border-l border-r border-slate-200"><p className="text-[10px] font-black text-slate-400 uppercase">Number 2</p><p className="font-bold mt-1 text-cyan-600">{selectedUserForDetail.number_2 || 0}</p></div>
-                        <div className="flex-1"><p className="text-[10px] font-black text-slate-400 uppercase">Number 3</p><p className="font-bold mt-1 text-cyan-600">{selectedUserForDetail.number_3 || 0}</p></div>
-                      </div>
-                    </div>
-                  )}
+                    );
+                  })()}
                   {personDetailTab === 'History' && (
-                    <div>
-                      <div className="space-y-2">
+                    <div className="animate-in fade-in duration-300">
+                      
+                      {/* 🟢 SUMMARY CARDS (Total Belanja & Total Sisa) */}
+                      <div className={`grid gap-3 mb-5 ${historySummary.totalSisa > 0 ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                        <div className="bg-gradient-to-br from-cyan-500 to-blue-600 p-4 rounded-2xl text-white shadow-lg shadow-cyan-500/30 relative overflow-hidden flex flex-col justify-center min-h-[5rem]">
+                          <div className="absolute -right-4 -bottom-4 w-16 h-16 bg-white/20 rounded-full blur-xl pointer-events-none"></div>
+                          <p className="text-[10px] font-black uppercase tracking-widest text-cyan-100 mb-0.5 relative z-10">Total Belanja</p>
+                          <p className="text-xl md:text-2xl font-black tracking-tight relative z-10">Rp {historySummary.totalBelanja.toLocaleString('id-ID')}</p>
+                        </div>
+                        
+                        {/* 🟢 Gunakan historySummary.totalSisa */}
+                        {historySummary.totalSisa > 0 && (
+                          <div className="bg-gradient-to-br from-rose-500 to-orange-500 p-4 rounded-2xl text-white shadow-lg shadow-rose-500/30 relative overflow-hidden flex flex-col justify-center min-h-[5rem]">
+                            <div className="absolute -right-4 -bottom-4 w-16 h-16 bg-white/20 rounded-full blur-xl pointer-events-none"></div>
+                            <p className="text-[10px] font-black uppercase tracking-widest text-rose-100 mb-0.5 relative z-10">
+                              Belum Dibayar (Sisa)
+                            </p>
+                            <p className="text-xl md:text-2xl font-black tracking-tight relative z-10">
+                              Rp {historySummary.totalSisa.toLocaleString('id-ID')}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* 🟢 LIST TRANSAKSI */}
+                      <div className="space-y-3">
                         {historyList.length === 0 ? (
-                          <p className="text-center text-slate-500 py-6">Belum ada transaksi.</p>
+                          <div className="flex flex-col items-center justify-center py-8 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                            <span className="text-2xl mb-2 opacity-40">📭</span>
+                            <p className="text-center text-slate-400 font-bold text-xs uppercase tracking-widest">Belum ada riwayat transaksi</p>
+                          </div>
                         ) : (
                           historyList.map(item => (
                             <div
                               key={item.id}
                               onClick={() => { window.location.href = `/?ref=${item.id}`; }}
-                              className="bg-white border border-slate-200 rounded-xl p-3 cursor-pointer hover:bg-slate-50 transition"
+                              className="bg-white border border-slate-200 rounded-xl p-4 cursor-pointer hover:border-cyan-400 hover:shadow-md transition-all group flex flex-col gap-3 relative overflow-hidden"
+                              title="Klik untuk melihat detail nota"
                             >
-                              <div className="flex justify-between items-center">
-                                <span className="text-xs font-mono text-slate-500">{formatLocalDateTime(item.created_at)}</span>
-                                <span className="text-xs font-bold text-slate-800">Rp {item.total?.toLocaleString('id-ID') || 0}</span>
+                              <div className="absolute inset-0 bg-gradient-to-r from-cyan-50/0 via-transparent to-cyan-50/50 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
+                              
+                              <div className="flex justify-between items-center border-b border-slate-100 pb-2 relative z-10">
+                                <span className="text-[10px] font-black text-slate-400 flex items-center gap-1.5">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-slate-300 group-hover:bg-cyan-400 transition-colors" />
+                                  {formatLocalDateTime(item.created_at)}
+                                </span>
+                                <span className={`text-[9px] font-black px-2.5 py-1 rounded-md uppercase tracking-widest shadow-sm ${
+                                  item.status === 'lunas' ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' : 'bg-rose-100 text-rose-700 border border-rose-200 animate-pulse'
+                                }`}>
+                                  {item.status === 'lunas' ? 'LUNAS' : 'BELUM'}
+                                </span>
                               </div>
-                              <p className="text-[10px] text-slate-500 mt-1">Operator: {item.operator || '-'}</p>
+                              
+                              <div className="flex justify-between items-end relative z-10">
+                              <div className="flex flex-col">
+                                <span className="text-xs font-black text-slate-700 uppercase tracking-widest group-hover:text-cyan-600 transition-colors">
+                                  {item.jenis || 'Transaksi'}
+                                </span>
+                                <span className="text-[10px] text-slate-400 mt-1 font-bold">
+                                  Opr: <span className="text-slate-500">{item.operator || '-'}</span>
+                                </span>
+                              </div>
+                              <div className="text-right">
+                                <span className="text-sm font-black text-slate-900 group-hover:scale-105 transition-transform origin-right block">
+                                  Rp {item.total?.toLocaleString('id-ID') || 0}
+                                </span>
+                                {item.status !== 'lunas' && (() => {
+                                  const sisa = (item.total || 0) - (item.dibayar || 0);
+                                  return sisa > 0 ? (
+                                    <span className="text-[10px] font-bold text-rose-500 block mt-0.5">
+                                      Sisa: Rp {sisa.toLocaleString('id-ID')}
+                                    </span>
+                                  ) : null;
+                                })()}
+                              </div>
+                            </div>
                             </div>
                           ))
                         )}
                       </div>
-                      {historyTotalPages > 1 && (
-                        <div className="flex justify-between items-center mt-4 pt-2 border-t">
-                          <button
-                            disabled={historyPage === 1}
-                            onClick={() => {
-                              const newPage = historyPage - 1;
-                              setHistoryPage(newPage);
-                              fetchPersonHistory(selectedUserForDetail.id, newPage);
-                            }}
-                            className="p-1 px-3 bg-slate-100 rounded-lg text-xs disabled:opacity-30"
-                          >Prev</button>
-                          <span className="text-[10px] text-slate-400">Hal {historyPage} / {historyTotalPages}</span>
-                          <button
-                            disabled={historyPage === historyTotalPages}
-                            onClick={() => {
-                              const newPage = historyPage + 1;
-                              setHistoryPage(newPage);
-                              fetchPersonHistory(selectedUserForDetail.id, newPage);
-                            }}
-                            className="p-1 px-3 bg-slate-100 rounded-lg text-xs disabled:opacity-30"
-                          >Next</button>
+                      
+                      {/* 🟢 TOTAL PER HALAMAN & PAGINATION */}
+                      {historyList.length > 0 && (
+                        <div className="mt-5 bg-slate-50 border border-slate-200 rounded-2xl p-4 shadow-inner">
+                          <div className="flex justify-between items-center pb-3 mb-3 border-b border-slate-200">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Total Halaman Ini</span>
+                            <span className="text-sm font-black text-slate-700">
+                              Rp {historyList.reduce((acc, curr) => acc + (curr.total || 0), 0).toLocaleString('id-ID')}
+                            </span>
+                          </div>
+                          
+                          {historyTotalPages > 1 ? (
+                            <div className="flex justify-between items-center">
+                              <button
+                                disabled={historyPage === 1}
+                                onClick={() => {
+                                  const newPage = historyPage - 1;
+                                  setHistoryPage(newPage);
+                                  fetchPersonHistory(selectedUserForDetail.id, newPage);
+                                }}
+                                className="py-2 px-4 bg-white border border-slate-200 hover:border-cyan-400 hover:text-cyan-700 font-black uppercase tracking-wider rounded-xl text-[10px] disabled:opacity-40 transition-colors shadow-sm"
+                              >
+                                Prev
+                              </button>
+                              <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 bg-white px-3 py-1.5 rounded-lg border border-slate-100 shadow-sm">
+                                Hal {historyPage} / {historyTotalPages}
+                              </span>
+                              <button
+                                disabled={historyPage === historyTotalPages}
+                                onClick={() => {
+                                  const newPage = historyPage + 1;
+                                  setHistoryPage(newPage);
+                                  fetchPersonHistory(selectedUserForDetail.id, newPage);
+                                }}
+                                className="py-2 px-4 bg-white border border-slate-200 hover:border-cyan-400 hover:text-cyan-700 font-black uppercase tracking-wider rounded-xl text-[10px] disabled:opacity-40 transition-colors shadow-sm"
+                              >
+                                Next
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="text-center text-[10px] font-black uppercase tracking-widest text-slate-400">
+                              Semua data telah dimuat
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
