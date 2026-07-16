@@ -2539,6 +2539,7 @@ export default function MenuPage() {
                         <span className="text-rose-500 bg-rose-100 px-2 py-0.5 rounded text-[9px] ml-1">*Wajib</span>
                       )}
                     </label>
+
                     <label className={`cursor-pointer text-[10px] font-black bg-white ${activeTheme.text} px-4 py-2 rounded-xl shadow-sm hover:scale-105 active:scale-95 transition-all border border-transparent hover:${activeTheme.border}`}>
                       + Upload File
                       <input
@@ -2548,30 +2549,61 @@ export default function MenuPage() {
                         className="hidden"
                         onChange={e => {
                           const files = Array.from(e.target.files || []);
-                          setMenuFiles(prev => [...prev, ...files]);
-                          e.target.value = '';
+                          if (files.length > 0) {
+                            setMenuFiles(prev => [...prev, ...files]);
+                          }
+                          e.target.value = ''; // reset input agar bisa upload file sama lagi
                         }}
                       />
                     </label>
                   </div>
 
-                  {menuPreviewUrls.length === 0 ? (
+                  {/* Preview Area */}
+                  {menuPreviewUrls.length === 0 && existingMenuFiles.length === 0 ? (
                     <div className={`text-center py-6 rounded-2xl border-2 border-dashed ${activeTheme.border} bg-white/50 backdrop-blur-sm`}>
-                      <p className={`text-[11px] font-black ${activeTheme.text} opacity-60`}>Belum ada file media yang dilampirkan</p>
+                      <p className={`text-[11px] font-black ${activeTheme.text} opacity-60`}>
+                        Belum ada file media yang dilampirkan
+                      </p>
                     </div>
                   ) : (
                     <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                      {/* === FILE LAMA (saat Edit) === */}
+                      {editSession?.isEditing && existingMenuFiles.map((file, idx) => (
+                        <div key={`existing-${idx}`} className="relative group rounded-2xl overflow-hidden border-2 border-emerald-200 shadow-md aspect-square bg-slate-100">
+                          {isVideo(file.name) ? (
+                            <video src={URL.createObjectURL(file)} className="w-full h-full object-cover" muted />
+                          ) : (
+                            <img src={URL.createObjectURL(file)} alt={`existing-${idx}`} className="w-full h-full object-cover" />
+                          )}
+
+                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => window.open(URL.createObjectURL(file), '_blank')}
+                              className="w-10 h-10 bg-blue-500 text-white rounded-full flex items-center justify-center hover:scale-110 active:scale-95 transition-transform shadow-lg"
+                              title="Lihat file"
+                            >
+                              <Eye size={16} />
+                            </button>
+                          </div>
+
+                          <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent pt-4 pb-2 px-2 text-white text-[9px] truncate font-bold">
+                            {file.name} <span className="text-emerald-400">(lama)</span>
+                          </div>
+                        </div>
+                      ))}
+
+                      {/* === FILE BARU === */}
                       {menuPreviewUrls.map((url, idx) => (
-                        <div key={idx} className="relative group rounded-2xl overflow-hidden border-2 border-white shadow-md aspect-square bg-slate-100">
+                        <div key={`new-${idx}`} className="relative group rounded-2xl overflow-hidden border-2 border-white shadow-md aspect-square bg-slate-100">
                           {isVideo(menuFiles[idx]?.name) ? (
                             <video src={url} className="w-full h-full object-cover" muted />
                           ) : (
                             <img src={url} alt={`preview-${idx}`} className="w-full h-full object-cover transition-transform group-hover:scale-110 duration-500" />
                           )}
-                          
-                          {/* Overlay dengan tombol Lihat & Hapus */}
+
+                          {/* Overlay */}
                           <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                            {/* Tombol Lihat */}
                             <button
                               type="button"
                               onClick={() => window.open(url, '_blank')}
@@ -2580,10 +2612,14 @@ export default function MenuPage() {
                             >
                               <Eye size={16} />
                             </button>
-                            {/* Tombol Hapus */}
                             <button
                               type="button"
-                              onClick={() => setMenuFiles(prev => prev.filter((_, i) => i !== idx))}
+                              onClick={() => {
+                                // Hapus file baru
+                                setMenuFiles(prev => prev.filter((_, i) => i !== idx));
+                                // Revoke URL agar tidak memory leak
+                                URL.revokeObjectURL(url);
+                              }}
                               className="w-10 h-10 bg-rose-500 text-white rounded-full flex items-center justify-center hover:scale-110 active:scale-95 transition-transform shadow-lg"
                               title="Hapus file"
                             >
@@ -2591,12 +2627,31 @@ export default function MenuPage() {
                             </button>
                           </div>
 
-                          {/* Nama file di bagian bawah */}
+                          {/* Nama file */}
                           <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent pt-4 pb-2 px-2 text-white text-[9px] truncate font-bold">
                             {menuFiles[idx]?.name}
                           </div>
                         </div>
                       ))}
+                    </div>
+                  )}
+
+                  {/* Info jumlah file baru */}
+                  {menuFiles.length > 0 && (
+                    <div className="flex justify-between items-center pt-2 border-t border-black/5">
+                      <span className={`text-[11px] font-black ${activeTheme.text}`}>
+                        {menuFiles.length} file baru dilampirkan
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          menuPreviewUrls.forEach(url => URL.revokeObjectURL(url));
+                          setMenuFiles([]);
+                        }}
+                        className="text-[10px] font-black text-rose-500 hover:text-rose-700 bg-rose-50 px-3 py-1.5 rounded-lg transition-colors"
+                      >
+                        Hapus Semua Baru
+                      </button>
                     </div>
                   )}
 
