@@ -2744,18 +2744,34 @@ export default function MenuPage() {
                 <p className="flex justify-between"><span className="text-slate-400 font-bold">Total Produk:</span> <span className="font-bold text-slate-700">Rp {totalBelanja.toLocaleString('id-ID')}</span></p>
                 <p className="flex justify-between border-t border-dashed pt-2"><span className="text-slate-400 font-bold">Dana Masuk:</span> <span className="font-black text-emerald-600">Rp {formBayar.cashflowList.reduce((sum, cf) => sum + (cf.nominal || 0), 0).toLocaleString('id-ID')}</span></p>
                 
-                <div className={`mt-4 p-3 rounded-xl border ${totalDibayar >= grandTotal && !(menuLower.includes('pembelian') && menuFiles.length === 0) 
-                  ? 'bg-emerald-50 border-emerald-100 text-emerald-700' 
-                  : 'bg-rose-50 border-rose-100 text-rose-700'}`}>
-                  <p className="flex justify-between text-[11px] uppercase tracking-widest font-black">
-                    <span>Status Nota:</span>
-                    <span>
-                      {menuLower.includes('pembelian') && menuFiles.length === 0 
-                        ? 'BELUM (Menunggu Bukti)' 
-                        : (totalDibayar >= grandTotal ? 'LUNAS' : 'BELUM LUNAS')}
-                    </span>
-                  </p>
-                </div>
+                {/* Status Nota dengan logika khusus pembelian */}
+                  {(() => {
+                    const totalDibayarCalc = formBayar.cashflowList.reduce((sum, cf) => sum + (cf.nominal || 0), 0);
+                    const isPembelian = selectedMenu.toLowerCase().includes('pembelian');
+                    const hasMedia = menuFiles.length > 0 || (editSession?.isEditing && existingMenuFiles.length > 0);
+                    
+                    let statusText = totalDibayarCalc >= grandTotal ? 'LUNAS' : 'BELUM LUNAS';
+                    let statusClass = totalDibayarCalc >= grandTotal 
+                      ? 'bg-emerald-50 border-emerald-100 text-emerald-700' 
+                      : 'bg-rose-50 border-rose-100 text-rose-700';
+
+                    if (isPembelian && !hasMedia) {
+                      statusText = 'BELUM (Menunggu Bukti Media)';
+                      statusClass = 'bg-amber-50 border-amber-100 text-amber-700';
+                    }
+
+                    return (
+                      <div className={`mt-4 p-3 rounded-xl border ${statusClass}`}>
+                        <p className="flex justify-between text-[11px] uppercase tracking-widest font-black">
+                          <span>Status Nota:</span>
+                          <span>{statusText}</span>
+                        </p>
+                        {isPembelian && !hasMedia && (
+                          <p className="text-[10px] text-amber-600 mt-1">Upload bukti nota agar bisa berstatus LUNAS</p>
+                        )}
+                      </div>
+                    );
+                  })()}
               </div>
 
              {/* 2. KOLEKSI CASHFLOW */}
