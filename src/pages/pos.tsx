@@ -891,10 +891,10 @@ export default function MenuPage() {
           return;
         }
 
-        // Validasi Media Bukti (Pembelian)
-        if (menuFiles.length === 0 && !editSession?.menuId) {
-          setDialog({ show: true, title: 'Media Kosong', message: 'Isi media foto nota pembelian!', type: 'alert' });
-          return;
+        // Validasi Media Bukti (Pembelian) - TIDAK WAJIB lagi, tapi akan memengaruhi status
+        // (hanya beri peringatan, tidak block)
+        if (menuFiles.length === 0 && !editSession?.menuId && menuLower.includes('pembelian')) {
+          console.warn("Pembelian tanpa lampiran media - status akan tetap 'belum' meski lunas");
         }
       }
 
@@ -998,7 +998,14 @@ export default function MenuPage() {
 
       // Hitung akumulasi parameter keuangan pembayaran kasir
       const totalDibayar = formBayar.cashflowList.reduce((sum, cf) => sum + (cf.nominal || 0), 0);
-      const statusBaru = totalDibayar >= grandTotal ? 'lunas' : 'belum';
+
+      // Logika baru: Untuk pembelian, jika belum ada file → tetap 'belum' meski sudah dibayar penuh
+      let statusBaru = totalDibayar >= grandTotal ? 'lunas' : 'belum';
+
+      if (menuLower.includes('pembelian') && menuFiles.length === 0 && !isEditing) {
+        statusBaru = 'belum'; // Paksa belum lunas jika belum upload bukti
+        console.warn("Pembelian tanpa media → status tetap 'belum'");
+      }
       let dateLunas = null;
 
       if (isEditing && oldMenuData) {
@@ -2737,16 +2744,16 @@ export default function MenuPage() {
                 <p className="flex justify-between"><span className="text-slate-400 font-bold">Total Produk:</span> <span className="font-bold text-slate-700">Rp {totalBelanja.toLocaleString('id-ID')}</span></p>
                 <p className="flex justify-between border-t border-dashed pt-2"><span className="text-slate-400 font-bold">Dana Masuk:</span> <span className="font-black text-emerald-600">Rp {formBayar.cashflowList.reduce((sum, cf) => sum + (cf.nominal || 0), 0).toLocaleString('id-ID')}</span></p>
                 
-                <div className={`mt-4 p-3 rounded-xl border ${(() => {
-                    const totalDibayar = formBayar.cashflowList.reduce((sum, cf) => sum + (cf.nominal || 0), 0);
-                    return totalDibayar >= grandTotal ? 'bg-emerald-50 border-emerald-100 text-emerald-700' : 'bg-rose-50 border-rose-100 text-rose-700';
-                  })()}`}>
+                <div className={`mt-4 p-3 rounded-xl border ${totalDibayar >= grandTotal && !(menuLower.includes('pembelian') && menuFiles.length === 0) 
+                  ? 'bg-emerald-50 border-emerald-100 text-emerald-700' 
+                  : 'bg-rose-50 border-rose-100 text-rose-700'}`}>
                   <p className="flex justify-between text-[11px] uppercase tracking-widest font-black">
                     <span>Status Nota:</span>
-                    <span>{(() => {
-                      const totalDibayar = formBayar.cashflowList.reduce((sum, cf) => sum + (cf.nominal || 0), 0);
-                      return totalDibayar >= grandTotal ? 'LUNAS' : 'BELUM LUNAS';
-                    })()}</span>
+                    <span>
+                      {menuLower.includes('pembelian') && menuFiles.length === 0 
+                        ? 'BELUM (Menunggu Bukti)' 
+                        : (totalDibayar >= grandTotal ? 'LUNAS' : 'BELUM LUNAS')}
+                    </span>
                   </p>
                 </div>
               </div>
