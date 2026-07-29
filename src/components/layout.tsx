@@ -1,8 +1,19 @@
 import { useState, useEffect } from 'react';
 import { Link, useLocation, Outlet, useNavigate } from 'react-router-dom';
-import { ShoppingCart, Package, Wallet, FileText, UserCircle, Settings, LogOut, Users, ShieldAlert, Menu, X } from 'lucide-react';
+import { ShoppingCart, Package, Wallet, FileText, UserCircle, Settings, LogOut, Users, ShieldAlert, Menu as MenuIcon, X } from 'lucide-react';
 import { pb } from '../lib/pocketbase';
 import Modal from '../components/modal';
+import TopProgressBar from '../components/top-progress-bar';
+
+const pagePreloaders: Record<string, () => void> = {
+  '/': () => import('../pages/pos'),
+  '/produk': () => import('../pages/produk'),
+  '/person': () => import('../pages/person'),
+  '/cashflow': () => import('../pages/cashflow'),
+  '/report': () => import('../pages/report'),
+  '/akun': () => import('../pages/akun'),
+  '/settings': () => import('../pages/settings'),
+};
 
 export default function Layout({ setAuth }: { setAuth: (status: boolean) => void }) {
   const location = useLocation();
@@ -60,7 +71,7 @@ export default function Layout({ setAuth }: { setAuth: (status: boolean) => void
           forceLogout();
           return;
         }
-        // 🔐 Tambahkan pengecekan level dari database
+        // 🔐 Pengecekan level dari database
         const dbLevel = freshUser.level?.toString();
         const localLevel = localStorage.getItem('user_level');
         if (dbLevel !== localLevel) {
@@ -80,33 +91,30 @@ export default function Layout({ setAuth }: { setAuth: (status: boolean) => void
     checkSecurityGuard();
   }, [location.pathname, navigate]);
 
-    // 🔐 Pantau konsistensi level user secara aktif (interval + event storage)
-    useEffect(() => {
-      const checkLevelConsistency = () => {
-        const storedLevel = localStorage.getItem('user_level');
-        const dbLevel = pb.authStore.model?.level?.toString();
-        if (storedLevel && dbLevel && storedLevel !== dbLevel) {
-          // Level di localStorage tidak cocok dengan database → paksa logout
-          forceLogout();
-        }
-      };
+  // 🔐 Pantau konsistensi level user secara aktif
+  useEffect(() => {
+    const checkLevelConsistency = () => {
+      const storedLevel = localStorage.getItem('user_level');
+      const dbLevel = pb.authStore.model?.level?.toString();
+      if (storedLevel && dbLevel && storedLevel !== dbLevel) {
+        forceLogout();
+      }
+    };
 
-      // Cek setiap 5 detik (untuk deteksi perubahan di tab yang sama)
-      const intervalId = setInterval(checkLevelConsistency, 5000);
+    const intervalId = setInterval(checkLevelConsistency, 5000);
 
-      // Tangkap perubahan localStorage dari tab lain
-      const handleStorageChange = (e: StorageEvent) => {
-        if (e.key === 'user_level') {
-          checkLevelConsistency();
-        }
-      };
-      window.addEventListener('storage', handleStorageChange);
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'user_level') {
+        checkLevelConsistency();
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
 
-      return () => {
-        clearInterval(intervalId);
-        window.removeEventListener('storage', handleStorageChange);
-      };
-    }, []);
+    return () => {
+      clearInterval(intervalId);
+      window.removeEventListener('storage', handleStorageChange);
+    };
+  }, []);
 
   useEffect(() => {
     const interval = setInterval(async () => {
@@ -149,6 +157,12 @@ export default function Layout({ setAuth }: { setAuth: (status: boolean) => void
     navigate('/login');
   };
 
+  const handleMenuHover = (path: string) => {
+    if (pagePreloaders[path]) {
+      pagePreloaders[path]();
+    }
+  };
+
   const handleMenuClick = (e: React.MouseEvent, path: string) => {
     const isEditing = localStorage.getItem('is_editing') === 'true';
     if (isEditing) {
@@ -157,6 +171,13 @@ export default function Layout({ setAuth }: { setAuth: (status: boolean) => void
       setShowConfirmNav(true);
     } else {
       setIsMobileMenuOpen(false);
+      // Smooth Native View Transition if supported
+      if ('startViewTransition' in document && location.pathname !== path) {
+        e.preventDefault();
+        (document as any).startViewTransition(() => {
+          navigate(path);
+        });
+      }
     }
   };
 
@@ -180,11 +201,12 @@ export default function Layout({ setAuth }: { setAuth: (status: boolean) => void
 
   return (
     <div className="flex h-screen overflow-hidden bg-slate-50 font-sans relative">
+      <TopProgressBar />
       
       {/* Overlay Hitam saat Sidebar Terbuka di HP */}
       {isMobileMenuOpen && (
         <div 
-          className="fixed inset-0 bg-slate-900/40 z-30 md:hidden backdrop-blur-sm"
+          className="fixed inset-0 bg-slate-900/40 z-30 md:hidden backdrop-blur-sm transition-opacity duration-300"
           onClick={() => setIsMobileMenuOpen(false)}
         />
       )}
@@ -197,20 +219,20 @@ export default function Layout({ setAuth }: { setAuth: (status: boolean) => void
           <button onClick={() => setIsMobileMenuOpen(false)} className="md:hidden absolute top-4 right-4 p-2 text-slate-400 hover:text-rose-500 bg-slate-50 rounded-full transition-colors">
             <X size={18} />
           </button>
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-red-50 mb-3">
+          <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-red-50 mb-3 shadow-sm">
             <ShoppingCart className="text-red-600" size={24} />
           </div>
           <h1 className="text-2xl font-extrabold text-gray-800 tracking-tight leading-none">PRIMA <span className="text-red-600">MOTOR</span></h1>
         </div>
         
-        {/* --- DYNAMIC USER PROFILE INFO --- */}
+        {/* DYNAMIC USER PROFILE INFO */}
         <div 
-  onClick={() => navigate('/akun')}
-  className="px-6 py-4 mx-4 mt-4 md:mt-2 mb-2 bg-slate-50/70 border border-slate-100 rounded-2xl flex items-center gap-3 shrink-0 cursor-pointer hover:bg-slate-100/80 transition-colors"
-  >
-    <div className="w-10 h-10 rounded-xl bg-slate-800 text-white font-black flex items-center justify-center text-sm uppercase shadow-sm shrink-0 overflow-hidden">
-      {pb.authStore.model?.link_image ? (
-        <img src={pb.authStore.model.link_image} alt="avatar" className="w-full h-full object-cover" />
+          onClick={() => navigate('/akun')}
+          className="px-6 py-4 mx-4 mt-4 md:mt-2 mb-2 bg-slate-50/70 border border-slate-100 rounded-2xl flex items-center gap-3 shrink-0 cursor-pointer hover:bg-slate-100/80 transition-colors shadow-xs"
+        >
+          <div className="w-10 h-10 rounded-xl bg-slate-800 text-white font-black flex items-center justify-center text-sm uppercase shadow-sm shrink-0 overflow-hidden">
+            {pb.authStore.model?.link_image ? (
+              <img src={pb.authStore.model.link_image} alt="avatar" className="w-full h-full object-cover" />
             ) : (
               userName.substring(0, 2)
             )}
@@ -239,7 +261,7 @@ export default function Layout({ setAuth }: { setAuth: (status: boolean) => void
           </div>
         </div>
 
-        {/* MENU LIST */}
+        {/* MENU LIST WITH PREFETCH & VIEW TRANSITION */}
         <div className="flex-1 py-4 flex flex-col gap-1.5 px-4 overflow-y-auto custom-scrollbar">
           {visibleMenus.map((menu) => {
             const isActive = location.pathname === menu.path;
@@ -248,8 +270,9 @@ export default function Layout({ setAuth }: { setAuth: (status: boolean) => void
               <Link 
                 key={menu.name} 
                 to={menu.path}
+                onMouseEnter={() => handleMenuHover(menu.path)}
                 onClick={(e) => handleMenuClick(e, menu.path)}
-                className={`flex items-center gap-3 px-4 py-3 rounded-2xl border transition-all ${
+                className={`flex items-center gap-3 px-4 py-3 rounded-2xl border transition-all duration-150 ${
                   isActive ? `${menu.activeBg} shadow-sm` : 'border-transparent hover:bg-slate-50'
                 }`}
               >
@@ -274,19 +297,19 @@ export default function Layout({ setAuth }: { setAuth: (status: boolean) => void
         </div>
       </div>
       
-      {/* --- MAIN CONTENT AREA --- */}
-      <main className="flex-1 overflow-y-auto flex flex-col relative">
-        {/* Tombol Hamburger Mobile (Mengambang Kiri Atas) */}
+      {/* MAIN CONTENT AREA */}
+      <main className="flex-1 overflow-y-auto flex flex-col relative custom-scrollbar">
+        {/* Tombol Hamburger Mobile */}
         <button 
           onClick={() => setIsMobileMenuOpen(true)}
           className="md:hidden absolute top-6 left-6 z-20 p-3 bg-white text-slate-800 rounded-xl shadow-lg border border-slate-100"
         >
-          <Menu size={24} />
+          <MenuIcon size={24} />
         </button>
         <Outlet /> 
       </main>
 
-      {/* --- MODAL CONFIRMATION LOGOUT --- */}
+      {/* MODAL CONFIRMATION LOGOUT */}
       <Modal
         isOpen={showLogoutDialog}
         onClose={() => setShowLogoutDialog(false)}
@@ -302,7 +325,7 @@ export default function Layout({ setAuth }: { setAuth: (status: boolean) => void
         confirmBg="bg-rose-600 hover:bg-rose-500 shadow-rose-200"
       />
 
-      {/* --- MODAL CONFIRMATION NAVIGATION LEAVE EDIT MODE --- */}
+      {/* MODAL CONFIRMATION NAVIGATION LEAVE EDIT MODE */}
       <Modal
         isOpen={showConfirmNav}
         onClose={() => setShowConfirmNav(false)}
@@ -314,14 +337,20 @@ export default function Layout({ setAuth }: { setAuth: (status: boolean) => void
           localStorage.removeItem('is_editing');
           setShowConfirmNav(false);
           setIsMobileMenuOpen(false);
-          navigate(navTarget!);
+          if ('startViewTransition' in document && navTarget) {
+            (document as any).startViewTransition(() => {
+              navigate(navTarget!);
+            });
+          } else if (navTarget) {
+            navigate(navTarget);
+          }
         }}
         confirmText="Ya, Hapus"
         cancelText="Tidak"
         confirmBg="bg-blue-600 hover:bg-blue-500 shadow-blue-200"
       />
 
-      {/* --- MODAL SYSTEM ALERT (Pengganti alert bawaan browser) --- */}
+      {/* MODAL SYSTEM ALERT */}
       <Modal
         isOpen={systemAlert.show}
         onClose={() => setSystemAlert(prev => ({ ...prev, show: false }))}

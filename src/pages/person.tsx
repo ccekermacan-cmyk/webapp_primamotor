@@ -373,8 +373,8 @@ export default function PeoplePage() {
   };
 
   return (
-    <div className="p-8 bg-[#f8fafc] min-h-screen font-sans text-slate-600">
-      <div className="max-w-6xl mx-auto space-y-6">
+    <div className="p-4 sm:p-6 lg:p-8 pt-16 md:pt-8 bg-[#f8fafc] min-h-screen font-sans text-slate-600">
+      <div className="w-full space-y-6">
         {/* HEADER */}
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
@@ -521,27 +521,36 @@ export default function PeoplePage() {
                         onClick={() => showUserDetail(user)}
                         className="hover:bg-slate-50/50 transition-colors cursor-pointer"
                       >
-                        <td className="py-3 px-4 sm:py-4 sm:px-6">
-                          <div>
-                            <p className="font-extrabold text-slate-800 text-sm">{user.name || user.username}</p>
-                            <p className="text-xs text-slate-400 font-medium">@{user.username}</p>
+                        <td className="py-4 px-6 whitespace-nowrap">
+                          <div className="flex items-center gap-4">
+                            <div className="w-11 h-11 rounded-2xl flex items-center justify-center font-black text-xs tracking-tight shadow-inner bg-indigo-50 text-indigo-600 border border-indigo-100">
+                              {getAvatarInitials(user.name || user.username)}
+                            </div>
+                            <div>
+                              <p className="font-extrabold text-slate-800 text-sm group-hover:text-cyan-600 transition-colors">{user.name || user.username}</p>
+                              <p className="text-xs text-slate-400 font-medium">@{user.username}</p>
+                            </div>
                           </div>
                         </td>
-                        <td className="py-3 px-4 sm:py-4 sm:px-6">
-                          <span className="inline-flex px-3 py-1 rounded-xl text-[10px] font-black bg-indigo-50 text-indigo-600">
+                        <td className="py-4 px-6 whitespace-nowrap">
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider bg-indigo-50/70 text-indigo-700 border border-indigo-100">
+                            <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
                             {user.level === 1 ? 'Admin' : user.level === 10 ? 'Mekanik' : 'Karyawan'}
                           </span>
                         </td>
-                        <td className="py-3 px-4 sm:py-4 sm:px-6">
-                          <span className={`inline-flex px-3 py-1 rounded-xl text-[10px] font-black ${user.status?.toLowerCase() === 'active' ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>
+                        <td className="py-4 px-6 whitespace-nowrap">
+                          <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider border ${
+                            user.status?.toLowerCase() === 'active' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-rose-50 text-rose-700 border-rose-100'
+                          }`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${user.status?.toLowerCase() === 'active' ? 'bg-emerald-500' : 'bg-rose-500'}`} />
                             {user.status?.toLowerCase() === 'active' ? 'Aktif' : 'Nonaktif'}
                           </span>
                         </td>
-                        <td className="py-3 px-4 sm:py-4 sm:px-6">
+                        <td className="py-4 px-6 whitespace-nowrap">
                           <div className="flex items-center justify-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-                            <button className="p-2 bg-slate-50 text-slate-400 hover:text-cyan-600 rounded-xl transition" title="Edit"><Edit size={14} /></button>
-                            <button className="p-2 bg-slate-50 text-slate-400 hover:text-rose-600 rounded-xl transition" title="Hapus"><Trash2 size={14} /></button>
-                            <button className="p-2 bg-slate-50 text-slate-400 hover:text-blue-600 rounded-xl transition" title="Lihat Detail"><Eye size={14} /></button>
+                            <button className="p-2.5 bg-slate-50 text-slate-400 hover:text-cyan-600 hover:bg-cyan-50 border border-slate-100 rounded-xl transition-all" title="Edit" onClick={() => { setEditUserData(user); setIsEditUserModalOpen(true); }}><Edit size={14} strokeWidth={2.5} /></button>
+                            <button className="p-2.5 bg-slate-50 text-slate-400 hover:text-rose-600 hover:bg-rose-50 border border-slate-100 rounded-xl transition-all" title="Hapus" onClick={() => handleDeleteUser(user.id)}><Trash2 size={14} strokeWidth={2.5} /></button>
+                            <button className="p-2.5 bg-slate-50 text-slate-400 hover:text-blue-600 hover:bg-blue-50 border border-slate-100 rounded-xl transition-all" title="Detail" onClick={() => showUserDetail(user)}><Eye size={14} strokeWidth={2.5} /></button>
                           </div>
                         </td>
                       </tr>

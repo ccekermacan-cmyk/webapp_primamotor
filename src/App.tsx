@@ -21,10 +21,19 @@ export default function App() {
     return <>{children}</>;
   };
 
-  // Komponen fallback saat loading chunk
+  // Komponen fallback skeleton loader modern saat loading chunk
   const PageLoader = () => (
-    <div className="flex h-screen items-center justify-center">
-      <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+    <div className="flex h-full min-h-[60vh] w-full items-center justify-center p-8 transition-opacity duration-300">
+      <div className="flex flex-col items-center gap-4 bg-white/80 backdrop-blur-md p-8 rounded-3xl border border-slate-100 shadow-xl shadow-slate-200/50">
+        <div className="relative flex items-center justify-center">
+          <div className="w-12 h-12 border-4 border-red-500/20 border-t-red-600 rounded-full animate-spin" />
+          <div className="absolute w-3 h-3 bg-red-600 rounded-full animate-ping" />
+        </div>
+        <div className="text-center">
+          <p className="text-xs font-black tracking-widest text-slate-800 uppercase">Memuat Halaman...</p>
+          <p className="text-[10px] font-medium text-slate-400 mt-0.5">Prima Motor POS System</p>
+        </div>
+      </div>
     </div>
   );
 

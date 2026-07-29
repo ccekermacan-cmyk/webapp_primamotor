@@ -1074,17 +1074,18 @@ export default function MenuPage() {
         await pb.collection('log_stock').create({
           id_lama: '',
           created_at: timestamp,
-          operator: operatorName,
-          item: item.id_lama,
-          qty: item.qty,
-          item_baru: item.id,
-          price_1: item.priceSelected, // Harga jual satuan
-          price_2: price2Value, 
+          operator: operatorName || pb.authStore.model?.username || 'Kasir',
+          item: item.id_lama || item.id || '',
+          qty: Math.max(1, Number(item.qty || 1)),
+          item_baru: item.id || '',
+          price_1: Number(item.priceSelected || 0),
+          price_2: Number(price2Value || 0),
           number_1: 0,
           number_2: 0,
           boolean: booleanValue,
-          ref_baru: menuRecordId,
-          normal: normalValue
+          ref: menuRecordId || '',
+          ref_baru: menuRecordId || '',
+          normal: Number(normalValue || 0)
         });
       }
 

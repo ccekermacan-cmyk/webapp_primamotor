@@ -645,7 +645,7 @@ cashflowItems.forEach(cf => {
   // RENDER UI JSX
   // ==========================================
   return (
-    <div className="flex flex-col min-h-screen bg-slate-50 font-sans p-4 md:p-8 pt-16 md:pt-10">
+    <div className="flex flex-col min-h-screen bg-slate-50 font-sans p-4 sm:p-6 lg:p-8 pt-16 md:pt-8">
       
       <div className="max-w-6xl mx-auto w-full flex flex-col flex-1 relative">
 
@@ -850,19 +850,19 @@ cashflowItems.forEach(cf => {
           ) : (
             <>
               {/* TAMPILAN TABEL RESPONSIVE (MOBILE & DESKTOP) */}
-              <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
-                <div className="overflow-x-auto custom-scrollbar">
-                  <table className="w-full text-left border-collapse">
+              <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden w-full">
+                <div className="overflow-x-auto custom-scrollbar w-full">
+                  <table className="w-full text-left border-collapse min-w-full">
                     <thead className="bg-slate-50/80 border-b border-slate-100">
                       <tr>
-                        <th className="p-4 text-[10px] font-black text-slate-400 uppercase tracking-widest whitespace-nowrap">Tanggal</th>
-                        <th className="p-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Keterangan</th>
-                        <th className="p-4 text-[10px] font-black text-emerald-600 uppercase tracking-widest text-right">Omset</th>
-                        <th className="p-4 text-[10px] font-black text-emerald-600 uppercase tracking-widest text-right">Laba</th>
-                        <th className="p-4 text-[10px] font-black text-rose-600 uppercase tracking-widest text-right">Keluar</th>
-                        <th className="p-4 text-[10px] font-black text-amber-600 uppercase tracking-widest text-right">Piutang</th>
-                        <th className="p-4 text-[10px] font-black text-purple-600 uppercase tracking-widest text-right">Hutang</th>
-                        <th className="p-4 text-[10px] font-black text-slate-800 uppercase tracking-widest text-right">Kasir Final</th>
+                        <th className="p-3 sm:p-4 text-[10px] font-black text-slate-400 uppercase tracking-widest whitespace-nowrap">Tanggal</th>
+                        <th className="hidden md:table-cell p-3 sm:p-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Keterangan</th>
+                        <th className="p-3 sm:p-4 text-[10px] font-black text-emerald-600 uppercase tracking-widest text-right">Omset</th>
+                        <th className="p-3 sm:p-4 text-[10px] font-black text-emerald-600 uppercase tracking-widest text-right">Laba</th>
+                        <th className="hidden sm:table-cell p-3 sm:p-4 text-[10px] font-black text-rose-600 uppercase tracking-widest text-right">Keluar</th>
+                        <th className="hidden lg:table-cell p-3 sm:p-4 text-[10px] font-black text-amber-600 uppercase tracking-widest text-right">Piutang</th>
+                        <th className="hidden lg:table-cell p-3 sm:p-4 text-[10px] font-black text-purple-600 uppercase tracking-widest text-right">Hutang</th>
+                        <th className="p-3 sm:p-4 text-[10px] font-black text-slate-800 uppercase tracking-widest text-right">Kasir Final</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-50 text-xs font-semibold text-slate-700">
@@ -887,24 +887,24 @@ cashflowItems.forEach(cf => {
                               setActiveDetailTab('overview');
                             }}
                           >
-                            <td className="p-4 whitespace-nowrap text-slate-400">{formatDate(row.created_at)}</td>
-                            <td className="p-4 max-w-[200px] truncate" title={row.text}>{row.text || '-'}</td>
-                            <td className="p-4 text-right">
-                              <span className="bg-emerald-50 text-emerald-700 px-3 py-1 rounded-lg border border-emerald-100">
+                            <td className="p-3 sm:p-4 whitespace-nowrap text-slate-500 font-bold">{formatDate(row.created_at)}</td>
+                            <td className="hidden md:table-cell p-3 sm:p-4 max-w-[200px] truncate" title={row.text}>{row.text || '-'}</td>
+                            <td className="p-3 sm:p-4 text-right">
+                              <span className="bg-emerald-50 text-emerald-700 px-2 sm:px-3 py-1 rounded-lg border border-emerald-100 font-bold text-[11px] sm:text-xs">
                                 {formatRp(totalOmsetRow)}
                               </span>
                             </td>
-                            <td className="p-4 text-right text-emerald-600 font-bold">
+                            <td className="p-3 sm:p-4 text-right text-emerald-600 font-bold text-[11px] sm:text-xs">
                               {formatRp((row.laba_penjualan || 0) + (row.laba_service || 0) + (row.laba_minuman || 0))}
                             </td>
-                            <td className="p-4 text-right text-rose-600">{formatRp(totalKeluarRow)}</td>
-                            <td className={`p-4 text-right font-black ${piutangVal < 0 ? 'text-rose-600' : 'text-amber-600'}`}>
+                            <td className="hidden sm:table-cell p-3 sm:p-4 text-right text-rose-600">{formatRp(totalKeluarRow)}</td>
+                            <td className={`hidden lg:table-cell p-3 sm:p-4 text-right font-black ${piutangVal < 0 ? 'text-rose-600' : 'text-amber-600'}`}>
                               {formatNeg(piutangVal)}
                             </td>
-                            <td className={`p-4 text-right font-black ${hutangVal < 0 ? 'text-rose-600' : 'text-purple-600'}`}>
+                            <td className={`hidden lg:table-cell p-3 sm:p-4 text-right font-black ${hutangVal < 0 ? 'text-rose-600' : 'text-purple-600'}`}>
                               {formatNeg(hutangVal)}
                             </td>
-                            <td className="p-4 text-right text-slate-900 font-black">{formatRp(row.kasir_toko)}</td>
+                            <td className="p-3 sm:p-4 text-right text-slate-900 font-black text-[11px] sm:text-xs">{formatRp(row.kasir_toko)}</td>
                           </tr>
                         );
                       })}

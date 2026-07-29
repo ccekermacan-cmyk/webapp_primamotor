@@ -266,7 +266,7 @@ export default function AkunPage() {
   if (loading) return <div className="flex h-full items-center justify-center font-bold text-slate-400 p-8">Memuat Profil...</div>;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-white p-4 md:p-6 lg:p-8">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-white p-4 sm:p-6 lg:p-8 pt-16 md:pt-8">
       <div className="max-w-5xl mx-auto space-y-6 md:space-y-8">
         
         {/* 1. SECTION PROFILE - Responsive */}

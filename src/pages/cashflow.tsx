@@ -1001,7 +1001,7 @@
     const scrollContainerAccountsRef = useRef<HTMLDivElement>(null);
 
     return (
-      <div className="p-4 md:p-8 h-full bg-slate-50 flex flex-col overflow-hidden font-sans">
+      <div className="p-4 sm:p-6 lg:p-8 pt-16 md:pt-8 h-full bg-slate-50 flex flex-col overflow-hidden font-sans">
         {/* PEMBUNGKUS UTAMA */}
         <div className="max-w-6xl mx-auto w-full h-full flex flex-col relative">
           
@@ -1588,69 +1588,81 @@
                 const activeList = currentList.filter(w => ((w as any).number_1 || 0) > 0);
                 const zeroList = currentList.filter(w => ((w as any).number_1 || 0) <= 0);
 
-                const renderGrid = (listToRender: DropdownItem[]) => (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {listToRender.map((wallet) => {
-                      const wData = wallet as any;
-                      const bgColor = wData.link_image && wData.link_image.startsWith('#') ? wData.link_image : stringToColor(wallet.text_1);
-                      return (
-                        <div
-                          key={wallet.id}
-                          onClick={() => {
-                            if (activeAccountTab === 'customer' || activeAccountTab === 'supplier') {
-                              // Navigasi ke halaman POS dengan filter person dan status belum lunas
-                              navigate(`/?person=${wallet.id_lama}&status=belum`);
-                            } else {
-                              // Untuk kas (akun bank/tunai), tetap filter di halaman cashflow
-                              setFilterPerson(null);
-                              setFilterAccounts([wallet.id]);
-                              setActiveTab('history');
-                              setPage(1);
-                            }
-                          }}
-                          style={{ background: `linear-gradient(135deg, ${bgColor}CC 0%, ${bgColor} 100%)` }}
-                          className="relative overflow-hidden rounded-[2rem] p-6 text-white shadow-xl hover:-translate-y-1.5 transition-transform duration-300 group cursor-pointer"
-                        >
-                          <div className="absolute -top-10 -right-10 w-40 h-40 bg-white/20 rounded-full blur-3xl group-hover:bg-white/30 transition-colors duration-500 pointer-events-none" />
-                          <div className="flex justify-between items-start mb-8 relative z-10">
-                            <div className="relative group/avatar">
-                              <div className="absolute -inset-1 bg-white/20 rounded-2xl blur opacity-0 group-hover/avatar:opacity-100 transition duration-500" />
-                              <div className="relative w-14 h-14 bg-white/10 rounded-2xl border border-white/20 flex items-center justify-center backdrop-blur-md shadow-lg overflow-hidden transition-all duration-300 group-hover:scale-105">
+                const FLAT_CARD_PALETTE = [
+                  { bg: 'bg-emerald-600', border: 'border-emerald-500', shadow: 'shadow-emerald-600/20' },
+                  { bg: 'bg-blue-600', border: 'border-blue-500', shadow: 'shadow-blue-600/20' },
+                  { bg: 'bg-amber-600', border: 'border-amber-500', shadow: 'shadow-amber-600/20' },
+                  { bg: 'bg-purple-600', border: 'border-purple-500', shadow: 'shadow-purple-600/20' },
+                  { bg: 'bg-rose-600', border: 'border-rose-500', shadow: 'shadow-rose-600/20' },
+                  { bg: 'bg-cyan-600', border: 'border-cyan-500', shadow: 'shadow-cyan-600/20' },
+                  { bg: 'bg-indigo-600', border: 'border-indigo-500', shadow: 'shadow-indigo-600/20' },
+                  { bg: 'bg-teal-600', border: 'border-teal-500', shadow: 'shadow-teal-600/20' },
+                  { bg: 'bg-violet-600', border: 'border-violet-500', shadow: 'shadow-violet-600/20' },
+                  { bg: 'bg-orange-600', border: 'border-orange-500', shadow: 'shadow-orange-600/20' },
+                  { bg: 'bg-pink-600', border: 'border-pink-500', shadow: 'shadow-pink-600/20' },
+                  { bg: 'bg-sky-600', border: 'border-sky-500', shadow: 'shadow-sky-600/20' },
+                ];
+
+                const getFlatColor = (name: string, id: string) => {
+                  let hash = 0;
+                  const str = (name || '') + (id || '');
+                  for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
+                  const idx = Math.abs(hash) % FLAT_CARD_PALETTE.length;
+                  return FLAT_CARD_PALETTE[idx];
+                };
+
+                const renderGrid = (listToRender: DropdownItem[]) => {
+                  return (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+                      {listToRender.map((wallet) => {
+                        const wData = wallet as any;
+                        const flatColor = getFlatColor(wallet.text_1, wallet.id);
+                        return (
+                          <div
+                            key={wallet.id}
+                            onClick={() => {
+                              if (activeAccountTab === 'customer' || activeAccountTab === 'supplier') {
+                                navigate(`/?person=${wallet.id_lama}&status=belum`);
+                              } else {
+                                setFilterPerson(null);
+                                setFilterAccounts([wallet.id]);
+                                setActiveTab('history');
+                                setPage(1);
+                              }
+                            }}
+                            className={`relative overflow-hidden rounded-[2rem] p-5 sm:p-6 text-white ${flatColor.bg} border ${flatColor.border} shadow-lg ${flatColor.shadow} hover:-translate-y-1 transition-all duration-200 group cursor-pointer`}
+                          >
+                            <div className="flex justify-between items-start mb-6 relative z-10">
+                              <div className="w-12 h-12 rounded-2xl bg-white/20 border border-white/30 flex items-center justify-center font-black text-sm text-white shadow-sm overflow-hidden">
                                 {wData.link_image && !wData.link_image.startsWith('#') ? (
-                                  <>
-                                    <img
-                                      src={pb.files.getUrl(wallet, wData.link_image)}
-                                      alt="PP"
-                                      className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
-                                      onError={(e) => {
-                                        e.currentTarget.classList.add('hidden');
-                                        e.currentTarget.nextElementSibling?.classList.remove('hidden');
-                                      }}
-                                    />
-                                    <span className="hidden font-black text-lg tracking-tight transition-transform duration-300 group-hover:scale-110">
-                                      {getInitials(wallet.text_1)}
-                                    </span>
-                                  </>
-                                ) : (
-                                  <span className="font-black text-lg tracking-tight transition-transform duration-300 group-hover:scale-110">
-                                    {getInitials(wallet.text_1)}
-                                  </span>
-                                )}
+                                  <img
+                                    src={pb.files.getUrl(wallet, wData.link_image)}
+                                    alt="PP"
+                                    className="w-full h-full object-cover"
+                                    onError={(e) => {
+                                      e.currentTarget.classList.add('hidden');
+                                      e.currentTarget.nextElementSibling?.classList.remove('hidden');
+                                    }}
+                                  />
+                                ) : null}
+                                <span className={wData.link_image && !wData.link_image.startsWith('#') ? 'hidden' : ''}>
+                                  {getInitials(wallet.text_1)}
+                                </span>
                               </div>
+                              <span className="text-[9px] font-black uppercase tracking-widest text-white bg-white/20 border border-white/30 px-3 py-1 rounded-full">
+                                {wallet.jenis || 'DOMPET'}
+                              </span>
                             </div>
-                            <span className="text-[9px] font-black uppercase tracking-widest text-white bg-white/10 border border-white/20 px-3 py-1.5 rounded-full backdrop-blur-sm shadow-sm">
-                              {wallet.jenis || 'DOMPET'}
-                            </span>
+                            <div className="relative z-10">
+                              <p className="text-xs font-extrabold text-white/90 mb-1 truncate">{wallet.text_1}</p>
+                              <p className="text-2xl sm:text-3xl font-black tracking-tight text-white">{formatRupiah(wData.number_1 || 0)}</p>
+                            </div>
                           </div>
-                          <div className="relative z-10">
-                            <p className="text-sm font-medium text-white/70 mb-1">{wallet.text_1}</p>
-                            <p className="text-3xl font-black tracking-tighter text-white">{formatRupiah(wData.number_1 || 0)}</p>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                );
+                        );
+                      })}
+                    </div>
+                  );
+                };
 
                 return (
                   <div className="space-y-6">
