@@ -23,3 +23,19 @@ export async function fetchFileAsBlobUrl(record: any, filename: string): Promise
     const blob = await response.blob();
     return URL.createObjectURL(blob);
 }
+
+export const LARAVEL_API_URL = import.meta.env.VITE_LARAVEL_API_URL || (
+  typeof window !== 'undefined' && window.location.hostname.includes('primamotorgladag') 
+    ? 'http://127.0.0.1:8000/api'
+    : 'http://127.0.0.1:8000/api'
+);
+
+export async function notifyLaravelApi(collection: string, event: 'created' | 'updated' | 'deleted', id: string) {
+  if (!id) return;
+  try {
+    const targetUrl = `${LARAVEL_API_URL}/webhook/${collection}/${event}/${id}`;
+    await fetch(targetUrl, { method: 'POST' });
+  } catch (err) {
+    console.warn('[Laravel API Notify Error]', err);
+  }
+}

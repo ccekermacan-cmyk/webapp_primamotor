@@ -71,7 +71,22 @@ export default function PeoplePage() {
 
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
-  const perPage = 5;
+  const [perPage, setPerPage] = useState(5);
+
+  // Dynamic screen height calculation ensuring MINIMUM 5 items
+  useEffect(() => {
+    const calculatePerPage = () => {
+      const vh = window.innerHeight;
+      const availableHeight = vh - 360;
+      const calculated = Math.floor(availableHeight / 62);
+      const newPerPage = Math.max(5, Math.min(12, calculated));
+      setPerPage(newPerPage);
+    };
+
+    calculatePerPage();
+    window.addEventListener('resize', calculatePerPage);
+    return () => window.removeEventListener('resize', calculatePerPage);
+  }, []);
 
   // Modal Detail User & Person
   const [selectedUserForDetail, setSelectedUserForDetail] = useState<any>(null);
@@ -226,7 +241,7 @@ export default function PeoplePage() {
       else fetchPeople();
     }, 500);
     return () => clearTimeout(delayDebounce);
-  }, [page, filterJenis, searchTerm, activeTab, userFilterLevel, userFilterStatus]);
+  }, [page, perPage, filterJenis, searchTerm, activeTab, userFilterLevel, userFilterStatus]);
 
   // --- CRUD HANDLERS ---
   const handleSave = async (e: React.FormEvent) => {
@@ -487,23 +502,23 @@ export default function PeoplePage() {
             </div>
           )}
           
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
+          <div className="overflow-x-auto custom-scrollbar w-full">
+            <table className="w-full text-left border-collapse min-w-full">
               <thead>
                 <tr className="bg-slate-50/70 text-slate-400 text-[10px] font-black uppercase tracking-widest border-b border-slate-100">
                   {activeTab === 'user' ? (
                     <>
-                      <th className="py-5 px-6">Nama / Username</th>
-                      <th className="py-5 px-6">Level</th>
-                      <th className="py-5 px-6">Status Akun</th>
-                      <th className="py-5 px-6 text-center">Action</th>
+                      <th className="py-4 px-4 sm:py-5 sm:px-6">Nama / Username</th>
+                      <th className="py-4 px-4 sm:py-5 sm:px-6">Level</th>
+                      <th className="py-4 px-4 sm:py-5 sm:px-6">Status Akun</th>
+                      <th className="py-4 px-4 sm:py-5 sm:px-6 text-center">Action</th>
                     </>
                   ) : (
                     <>
-                      <th className="py-5 px-6">People</th>
-                      <th className="py-5 px-6">Status Type</th>
-                      <th className="py-5 px-6">Reference ID</th>
-                      <th className="py-5 px-6 text-center">Action</th>
+                      <th className="py-4 px-4 sm:py-5 sm:px-6">People</th>
+                      <th className="py-4 px-4 sm:py-5 sm:px-6">Status Type</th>
+                      <th className="py-4 px-4 sm:py-5 sm:px-6">Reference ID</th>
+                      <th className="py-4 px-4 sm:py-5 sm:px-6 text-center">Action</th>
                     </>
                   )}
                 </tr>

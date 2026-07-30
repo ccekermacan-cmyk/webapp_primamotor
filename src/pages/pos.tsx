@@ -1,6 +1,6 @@
 import { useNavigate, useLocation } from 'react-router-dom'; // Ini yang menyebabkan error ReferenceError
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { pb } from '../lib/pocketbase';
+import { pb, notifyLaravelApi } from '../lib/pocketbase';
 import Modal from '../components/modal';
 import { createPortal } from 'react-dom';
 import { 
@@ -1054,9 +1054,11 @@ export default function MenuPage() {
         menuFormData.append('id', menuRecordId);
         const menuRecord = await pb.collection('menu').create(menuFormData);
         menuRecordId = menuRecord.id;
+        await notifyLaravelApi('menu', 'created', menuRecordId);
       } else {
         const menuRecord = await pb.collection('menu').create(menuFormData);
         menuRecordId = menuRecord.id;
+        await notifyLaravelApi('menu', 'created', menuRecordId);
       }
 
       // ========== PENYIMPANAN LOG STOCK (ITEM BARU) ==========
@@ -1071,7 +1073,7 @@ export default function MenuPage() {
             normalValue = 0;
         }
 
-        await pb.collection('log_stock').create({
+        const logRecord = await pb.collection('log_stock').create({
           id_lama: '',
           created_at: timestamp,
           operator: operatorName || pb.authStore.model?.username || 'Kasir',
@@ -1087,6 +1089,7 @@ export default function MenuPage() {
           ref_baru: menuRecordId || '',
           normal: Number(normalValue || 0)
         });
+        await notifyLaravelApi('log_stock', 'created', logRecord.id);
       }
 
             // Cari person record ID berdasarkan personIdLama (jika ada)
@@ -1107,7 +1110,7 @@ export default function MenuPage() {
           const accountIdLama = selectedAccount ? selectedAccount.id_lama : '';
           const mutasiValue = (menuLower.includes('penjualan') || menuLower.includes('service')) ? 'in' : 'out';
           
-          await pb.collection('cashflow').create({
+          const cfRecord = await pb.collection('cashflow').create({
             id_lama: '',
             created_at: timestamp,
             operator: operatorName,
@@ -1123,6 +1126,7 @@ export default function MenuPage() {
             acc1: accountIdLama,              
             acc2: '',                         
           });
+          await notifyLaravelApi('cashflow', 'created', cfRecord.id);
         }
       }
 

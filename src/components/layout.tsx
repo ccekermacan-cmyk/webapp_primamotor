@@ -325,10 +325,11 @@ export default function Layout({ setAuth }: { setAuth: (status: boolean) => void
         confirmBg="bg-rose-600 hover:bg-rose-500 shadow-rose-200"
       />
 
-      {/* MODAL CONFIRMATION NAVIGATION LEAVE EDIT MODE */}
       <Modal
         isOpen={showConfirmNav}
         onClose={() => setShowConfirmNav(false)}
+        isAlert={true}
+        type="warning"
         title="Hapus Perubahan?"
         alertDescription="Anda terdeteksi sedang mengubah data transaksi di Keranjang. Meninggalkan halaman akan membatalkan perubahan data."
         alertIcon={<ShieldAlert size={24} />}
