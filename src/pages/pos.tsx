@@ -173,6 +173,7 @@ export default function MenuPage() {
 
   // State Khusus System Gaji (Perangkum & List Item)
   const [isGajiFormOpen, setIsGajiFormOpen] = useState(false);
+  const [gajiEditSession, setGajiEditSession] = useState<{ menuId: string } | null>(null);
   const [gajiHeader, setGajiHeader] = useState(() => {
     const todayStr = new Date().toISOString().split('T')[0];
     return {
@@ -250,13 +251,18 @@ export default function MenuPage() {
 
       const userVal = String(u.username || u.name || u.id);
 
+      // Saat mode edit item sedang aktif, karyawan yang sedang diedit tetap bisa dipilih
       if (editingGajiItemIndex !== null && String(gajiItemSubData?.person) === userVal) {
         return true;
       }
 
+      // Saat mode edit gaji (gajiEditSession aktif), semua karyawan tetap tampil
+      // agar operator bisa mengganti karyawan mana saja
+      if (gajiEditSession !== null) return true;
+
       return !gajiItemList.some(item => String(item.person) === userVal);
     });
-  }, [allUsers, allPersons, gajiItemList, editingGajiItemIndex, gajiItemSubData?.person]);
+  }, [allUsers, allPersons, gajiItemList, editingGajiItemIndex, gajiItemSubData?.person, gajiEditSession]);
 
   const [employeeActiveBon, setEmployeeActiveBon] = useState<number>(0);
   const [isFetchingEmployeeData, setIsFetchingEmployeeData] = useState<boolean>(false);
@@ -668,26 +674,63 @@ export default function MenuPage() {
     setIsProcessing(true);
     try {
       const grandTotal = gajiItemList.reduce((sum, item) => sum + item.netto, 0);
+      const isEditMode = gajiEditSession !== null;
+      let menuId: string;
 
-      // 1. Simpan Perangkum Utama ke collection 'menu'
-      const menuRecord = await pb.collection('menu').create({
-        jenis: 'gaji',
-        status: 'lunas',
-        total: grandTotal,
-        dibayar: grandTotal,
-        qty: gajiHeader.qty,
-        text: gajiHeader.note || `Gaji Periode ${gajiHeader.date}`,
-        person: gajiItemList.map(i => i.person).join(', '),
-        person_baru: gajiItemList[0]?.person || '',
-        operator: operatorName || pb.authStore.model?.username || 'System',
-        created_at: gajiHeader.date ? `${gajiHeader.date} 12:00:00` : new Date().toISOString(),
-      });
+      if (isEditMode) {
+        // ============== MODE EDIT ==============
+        // 1. Update record menu utama
+        await pb.collection('menu').update(gajiEditSession!.menuId, {
+          total: grandTotal,
+          dibayar: grandTotal,
+          qty: gajiHeader.qty,
+          text: gajiHeader.note || `Gaji Periode ${gajiHeader.date}`,
+          person: gajiItemList.map(i => i.person).join(', '),
+          person_baru: gajiItemList[0]?.person || '',
+          created_at: gajiHeader.date ? `${gajiHeader.date} 12:00:00` : new Date().toISOString(),
+        });
+        menuId = gajiEditSession!.menuId;
 
-      // 2. Simpan setiap rincian karyawan ke collection 'gaji' (dengan FormData jika ada file/note)
+        // 2. Hapus semua record gaji lama yang terkait (akan dibuat ulang)
+        const oldGajiList = await pb.collection('gaji').getFullList({
+          filter: `ref = "${menuId}" || ref_baru = "${menuId}"`,
+          $autoCancel: false
+        }).catch(() => []);
+        for (const og of oldGajiList) {
+          await pb.collection('gaji').delete(og.id).catch(() => null);
+        }
+
+        // 3. Hapus semua record bon lama yang ter-generate dari gaji ini
+        const oldBonList = await pb.collection('bon').getFullList({
+          filter: `ref = "${menuId}"`,
+          $autoCancel: false
+        }).catch(() => []);
+        for (const ob of oldBonList) {
+          await pb.collection('bon').delete(ob.id).catch(() => null);
+        }
+      } else {
+        // ============== MODE BARU ==============
+        // 1. Simpan Perangkum Utama ke collection 'menu'
+        const menuRecord = await pb.collection('menu').create({
+          jenis: 'gaji',
+          status: 'lunas',
+          total: grandTotal,
+          dibayar: grandTotal,
+          qty: gajiHeader.qty,
+          text: gajiHeader.note || `Gaji Periode ${gajiHeader.date}`,
+          person: gajiItemList.map(i => i.person).join(', '),
+          person_baru: gajiItemList[0]?.person || '',
+          operator: operatorName || pb.authStore.model?.username || 'System',
+          created_at: gajiHeader.date ? `${gajiHeader.date} 12:00:00` : new Date().toISOString(),
+        });
+        menuId = menuRecord.id;
+      }
+
+      // 2 (Bersama). Simpan ulang setiap rincian karyawan ke collection 'gaji'
       for (const item of gajiItemList) {
         const formData = new FormData();
-        formData.append('ref', menuRecord.id);
-        formData.append('ref_baru', menuRecord.id);
+        formData.append('ref', menuId);
+        formData.append('ref_baru', menuId);
         formData.append('person', item.person);
         formData.append('pokok', String(item.pokok || 0));
         formData.append('tunjangan', String(item.tunjangan || 0));
@@ -715,16 +758,16 @@ export default function MenuPage() {
 
         await pb.collection('gaji').create(formData);
 
-        // 2a. Otomatis buat record di collection 'bon' jika ada bon_dibayar (> 0) (Pemotongan / Pelunasan Bon)
+        // Auto-buat record bon jika ada bon_dibayar > 0 (Pelunasan Bon)
         if (item.bon_dibayar && item.bon_dibayar > 0) {
           try {
             await pb.collection('bon').create({
               persontext: item.person,
-              jenis: 'out', // 'out' = pelunasan / pemotongan bon
+              jenis: 'out',
               nominal: item.bon_dibayar,
               nominal_bon: item.bon_dibayar,
               note: `Potongan Bon via Slip Gaji Periode ${gajiHeader.date}`,
-              ref: menuRecord.id,
+              ref: menuId,
               operator: operatorName || pb.authStore.model?.username || 'System'
             });
           } catch (bonErr) {
@@ -732,16 +775,16 @@ export default function MenuPage() {
           }
         }
 
-        // 2b. Otomatis buat record di collection 'bon' jika ada bon_diambil (> 0) (Pinjaman Bon Baru)
+        // Auto-buat record bon jika ada bon_diambil > 0 (Pinjaman Bon Baru)
         if (item.bon_diambil && item.bon_diambil > 0) {
           try {
             await pb.collection('bon').create({
               persontext: item.person,
-              jenis: 'in', // 'in' = pinjam / ambil bon baru
+              jenis: 'in',
               nominal: item.bon_diambil,
               nominal_bon: item.bon_diambil,
               note: `Pinjaman Bon Baru via Slip Gaji Periode ${gajiHeader.date}`,
-              ref: menuRecord.id,
+              ref: menuId,
               operator: operatorName || pb.authStore.model?.username || 'System'
             });
           } catch (bonErr) {
@@ -750,10 +793,11 @@ export default function MenuPage() {
         }
       }
 
-      notifyLaravelApi('menu', 'created', menuRecord.id);
+      notifyLaravelApi('menu', isEditMode ? 'updated' : 'created', menuId);
 
-      showAlert('Berhasil 🎉', `Slip Gaji Karyawan (${gajiItemList.length} Penerima) berhasil disimpan!`);
+      showAlert('Berhasil 🎉', `Slip Gaji Karyawan (${gajiItemList.length} Penerima) berhasil ${isEditMode ? 'diperbarui' : 'disimpan'}!`);
       setIsGajiFormOpen(false);
+      setGajiEditSession(null);
       setGajiItemList([]);
       setGajiHeader({ date: new Date().toISOString().split('T')[0], qty: 1, note: '' });
       fetchData();
@@ -762,6 +806,64 @@ export default function MenuPage() {
       showAlert('Error', 'Gagal menyimpan Slip Gaji: ' + (err.message || 'Error server'));
     } finally {
       setIsProcessing(false);
+    }
+  };
+
+  // Buka Form Gaji dalam Mode Edit – mengisi form dari data histori
+  const handleEditGajiFromHistory = async (menuItem: HistoryMenu) => {
+    try {
+      // Tentukan tanggal dari created_at record menu
+      const dateStr = menuItem.created_at
+        ? menuItem.created_at.split('T')[0].split(' ')[0]
+        : new Date().toISOString().split('T')[0];
+
+      setGajiHeader({
+        date: dateStr,
+        qty: menuItem.qty || calculateWorkingDays(dateStr),
+        note: menuItem.text || '',
+      });
+
+      // Ambil data gaji karyawan dari PocketBase (sudah ada di historyGajiSubItems jika modal sudah dibuka)
+      let gajiRecords = historyGajiSubItems;
+      if (gajiRecords.length === 0) {
+        gajiRecords = await pb.collection('gaji').getFullList({
+          filter: `ref = "${menuItem.id}" || ref_baru = "${menuItem.id}"`,
+          $autoCancel: false
+        }).catch(() => []);
+      }
+
+      // Mapping ke GajiItemForm
+      const mappedItems: GajiItemForm[] = gajiRecords.map((g: any) => ({
+        id: g.id,
+        person: g.person || '',
+        pokok: Number(g.pokok) || 0,
+        tunjangan: Number(g.tunjangan) || 0,
+        bonus_1: Number(g.bonus_1) || 0,
+        bonus_2: Number(g.bonus_2) || 0,
+        bonus_3: Number(g.bonus_3) || 0,
+        bonus_4: Number(g.bonus_4) || 0,
+        program: Number(g.program) || 0,
+        lembur: Number(g.lembur) || 0,
+        alfa: Number(g.alfa) || 0,
+        setengah_hari: Number(g.setengah_hari) || 0,
+        sakit: Number(g.sakit) || 0,
+        telat: Number(g.telat) || 0,
+        bpjs: Number(g.bpjs) || 0,
+        bon_diambil: Number(g.bon_diambil) || 0,
+        bon_dibayar: Number(g.bon_dibayar) || 0,
+        netto: Number(g.netto) || 0,
+        note: g.note || '',
+        files: [],    // File upload baru dikosongkan; file lama tidak perlu dimuat ulang
+        fileUrls: [],
+      }));
+
+      setGajiItemList(mappedItems);
+      setGajiEditSession({ menuId: menuItem.id });
+      setShowDetailHistory(null); // Tutup modal detail
+      setIsGajiFormOpen(true);
+    } catch (err: any) {
+      console.error('Gagal memuat data gaji untuk diedit:', err);
+      showAlert('Error', 'Gagal memuat data gaji: ' + (err.message || 'Error server'));
     }
   };
 
@@ -4145,14 +4247,25 @@ export default function MenuPage() {
 
                 {['1','2','3','4','5','6','7'].includes(userLevel) && (
                   <button
-                    onClick={() => !isDeleting && showDetailHistory && handleEditHistoryToCart(showDetailHistory)}
+                    onClick={() => {
+                      if (isDeleting || !showDetailHistory) return;
+                      // Untuk jenis gaji → buka form gaji dalam mode edit
+                      if (showDetailHistory.jenis?.toLowerCase().includes('gaji')) {
+                        handleEditGajiFromHistory(showDetailHistory);
+                      } else {
+                        handleEditHistoryToCart(showDetailHistory);
+                      }
+                    }}
                     disabled={isDeleting}
-                    className={`h-14 min-w-[3.5rem] flex-1 rounded-2xl border transition-colors flex justify-center items-center group ${
+                    className={`h-14 min-w-[3.5rem] flex-1 rounded-2xl border transition-colors flex justify-center items-center gap-1 group ${
                       isDeleting ? 'bg-slate-100 text-slate-300 border-slate-200 cursor-not-allowed opacity-50' : 'bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white border-blue-100'
                     }`}
-                    title={isDeleting ? 'Tunggu proses selesai' : 'Revisi Nota'}
+                    title={isDeleting ? 'Tunggu proses selesai' : (showDetailHistory?.jenis?.toLowerCase().includes('gaji') ? 'Edit Slip Gaji' : 'Revisi Nota')}
                   >
                     <Edit size={20} className="group-hover:scale-110 transition-transform"/>
+                    {showDetailHistory?.jenis?.toLowerCase().includes('gaji') && (
+                      <span className="text-[10px] font-black tracking-wide hidden sm:inline">EDIT</span>
+                    )}
                   </button>
                 )}
 
@@ -4397,7 +4510,12 @@ export default function MenuPage() {
       {/* ===== 1. MODAL FORM PERANGKUM GAJI UTAMA (HEADER + DAFTAR LIST KARYAWAN) ===== */}
       <Modal
         isOpen={isGajiFormOpen}
-        onClose={() => setIsGajiFormOpen(false)}
+        onClose={() => {
+          setIsGajiFormOpen(false);
+          setGajiEditSession(null);
+          setGajiItemList([]);
+          setGajiHeader({ date: new Date().toISOString().split('T')[0], qty: calculateWorkingDays(new Date().toISOString().split('T')[0]), note: '' });
+        }}
         maxWidth="max-w-4xl"
         title="Slip Gaji"
       >
@@ -4412,11 +4530,20 @@ export default function MenuPage() {
                   <span className="text-[10px] font-black uppercase tracking-widest text-emerald-400 flex items-center gap-1.5">
                     <CreditCard size={13} /> Gaji Batch Periode
                   </span>
-                  <h3 className="text-lg sm:text-xl font-black text-white mt-0.5">Ringkasan Slip Gaji</h3>
+                  <h3 className="text-lg sm:text-xl font-black text-white mt-0.5">
+                    {gajiEditSession ? '✏️ Edit Slip Gaji' : 'Ringkasan Slip Gaji'}
+                  </h3>
                 </div>
-                <span className="px-3 py-1 bg-emerald-500/20 text-emerald-300 rounded-xl text-[10px] font-black border border-emerald-500/30 shrink-0">
-                  {gajiItemList.length} Karyawan
-                </span>
+                <div className="flex flex-col items-end gap-1">
+                  {gajiEditSession && (
+                    <span className="px-2.5 py-1 bg-amber-500/30 text-amber-300 rounded-lg text-[9px] font-black border border-amber-500/40">
+                      MODE EDIT
+                    </span>
+                  )}
+                  <span className="px-3 py-1 bg-emerald-500/20 text-emerald-300 rounded-xl text-[10px] font-black border border-emerald-500/30 shrink-0">
+                    {gajiItemList.length} Karyawan
+                  </span>
+                </div>
               </div>
 
               {/* BODY SCROLLABLE */}
@@ -4558,7 +4685,12 @@ export default function MenuPage() {
                 </div>
                 <div className="flex items-center gap-2.5 w-full sm:w-auto">
                   <button
-                    onClick={() => setIsGajiFormOpen(false)}
+                    onClick={() => {
+                      setIsGajiFormOpen(false);
+                      setGajiEditSession(null);
+                      setGajiItemList([]);
+                      setGajiHeader({ date: new Date().toISOString().split('T')[0], qty: calculateWorkingDays(new Date().toISOString().split('T')[0]), note: '' });
+                    }}
                     className="flex-1 sm:flex-none px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-white text-xs font-black rounded-xl uppercase tracking-wider transition-colors"
                   >
                     Batal
@@ -4568,7 +4700,7 @@ export default function MenuPage() {
                     disabled={isProcessing}
                     className="flex-1 sm:flex-none px-6 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-white text-xs font-black rounded-xl uppercase tracking-wider shadow-lg flex items-center justify-center gap-1.5 transition-all"
                   >
-                    {isProcessing ? 'Menyimpan...' : 'Simpan Semua Slip Gaji'}
+                    {isProcessing ? 'Menyimpan...' : (gajiEditSession ? 'Perbarui Slip Gaji' : 'Simpan Semua Slip Gaji')}
                   </button>
                 </div>
               </div>
