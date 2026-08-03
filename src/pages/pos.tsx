@@ -2537,11 +2537,24 @@ export default function MenuPage() {
                               </div>
                               
                               <h3 className="font-black text-slate-800 text-base md:text-lg uppercase leading-snug group-hover:text-teal-600 transition-colors line-clamp-1">
-                                {item.person || 'Karyawan'}
+                                {item.text || 'Gaji Karyawan'}
                               </h3>
-                              <p className="text-xs font-bold text-slate-500 line-clamp-1 italic mt-1 bg-slate-50/60 px-2.5 py-1 rounded-lg border border-slate-100/50 w-fit">
-                                "{item.text || 'Gaji Karyawan'}"
-                              </p>
+                              <div className="mt-2 space-y-1">
+                                <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">
+                                  Penerima Gaji ({(item.person || '').split(',').filter(Boolean).length} Person):
+                                </span>
+                                <div className="flex flex-wrap gap-1">
+                                  {(item.person || 'Karyawan').split(',').map((pName, pIdx) => {
+                                    const trimmed = pName.trim();
+                                    if (!trimmed) return null;
+                                    return (
+                                      <span key={pIdx} className="text-[10px] font-extrabold text-teal-800 bg-teal-50 border border-teal-200/80 px-2 py-0.5 rounded-lg flex items-center gap-1 shadow-2xs">
+                                        👤 {trimmed}
+                                      </span>
+                                    );
+                                  })}
+                                </div>
+                              </div>
                               <span className="text-[10px] font-bold text-slate-400 flex items-center gap-1.5 mt-3">
                                 <Calendar size={12} /> {formatLocalDateTime ? formatLocalDateTime(item.created_at) : item.created_at}
                               </span>
@@ -3536,6 +3549,24 @@ export default function MenuPage() {
                               <span className="text-[10px] font-black text-amber-300 bg-amber-950/60 px-3 py-1 rounded-xl flex items-center gap-1.5 border border-amber-500/30">
                                 Qty: {showDetailHistory.qty || 1} Hari Kerja / Bulan
                               </span>
+                            </div>
+
+                            {/* DAFTAR PEGAWAI / KARYAWAN PENERIMA GAJI */}
+                            <div className="mt-3 p-3.5 bg-emerald-950/80 rounded-2xl border border-emerald-500/40 max-w-2xl w-full">
+                              <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest block mb-2 text-center">
+                                👥 DAFTAR KARYAWAN PENERIMA GAJI ({(showDetailHistory.person || '').split(',').filter(Boolean).length} PERSON):
+                              </span>
+                              <div className="flex flex-wrap justify-center gap-1.5">
+                                {(showDetailHistory.person || '').split(',').map((pName, pIdx) => {
+                                  const trimmed = pName.trim();
+                                  if (!trimmed) return null;
+                                  return (
+                                    <span key={pIdx} className="text-xs font-black text-white bg-emerald-800/90 border border-emerald-400/60 px-3 py-1.5 rounded-xl shadow-xs flex items-center gap-1.5">
+                                      <span>👤</span> {trimmed}
+                                    </span>
+                                  );
+                                })}
+                              </div>
                             </div>
                           </div>
                         </div>
