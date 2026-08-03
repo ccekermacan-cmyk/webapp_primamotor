@@ -3458,45 +3458,52 @@ export default function MenuPage() {
       {/* ========================================================= */} 
       {/* 2. MODAL DETAIL HISTORI TRANSAKSI BESERTA SUB-DETAILS */} 
       {/* ========================================================= */} 
-      <Modal isOpen={!!showDetailHistory} onClose={() => setShowDetailHistory(null)} title="Rincian Histori & Log Finansial">
+      {/* ========================================================= */} 
+      <Modal
+        isOpen={!!showDetailHistory}
+        onClose={() => setShowDetailHistory(null)}
+        title={showDetailHistory?.jenis?.toLowerCase().includes('gaji') ? "Rincian Perangkum & Slip Gaji Karyawan" : "Rincian Histori & Log Finansial"}
+      >
         {showDetailHistory && (
           <div className="flex flex-col h-full max-h-[80vh]">
             
-            {/* TAB NAVIGASI */}
-            <div className="shrink-0 px-6 pt-4 pb-2 border-b border-slate-200 bg-white">
-              <div className="flex gap-1 bg-slate-100 p-1 rounded-2xl">
-                <button
-                  onClick={() => setActiveTab('detail')}
-                  className={`flex-1 py-2.5 px-4 rounded-xl font-black text-xs uppercase tracking-widest transition-all ${
-                    activeTab === 'detail' 
-                      ? `${activeTheme.main} text-white shadow-lg shadow-${activeTheme.main.replace('bg-','')}/30` 
-                      : 'text-slate-500 hover:text-slate-700 hover:bg-white/50'
-                  }`}
-                >
-                  <span className="flex items-center justify-center gap-2">
-                    <Info size={14} /> Detail
-                  </span>
-                </button>
-                <button
-                  onClick={() => setActiveTab('items')}
-                  className={`flex-1 py-2.5 px-4 rounded-xl font-black text-xs uppercase tracking-widest transition-all ${
-                    activeTab === 'items' 
-                      ? `${activeTheme.main} text-white shadow-lg shadow-${activeTheme.main.replace('bg-','')}/30` 
-                      : 'text-slate-500 hover:text-slate-700 hover:bg-white/50'
-                  }`}
-                >
-                  <span className="flex items-center justify-center gap-2">
-                    <Box size={14} /> List Item ({historyItems.length})
-                  </span>
-                </button>
+            {/* TAB NAVIGASI (Hanya untuk transaksi barang/servis, sembunyikan untuk Gaji) */}
+            {!showDetailHistory.jenis.toLowerCase().includes('gaji') && (
+              <div className="shrink-0 px-6 pt-4 pb-2 border-b border-slate-200 bg-white">
+                <div className="flex gap-1 bg-slate-100 p-1 rounded-2xl">
+                  <button
+                    onClick={() => setActiveTab('detail')}
+                    className={`flex-1 py-2.5 px-4 rounded-xl font-black text-xs uppercase tracking-widest transition-all ${
+                      activeTab === 'detail' 
+                        ? `${activeTheme.main} text-white shadow-lg shadow-${activeTheme.main.replace('bg-','')}/30` 
+                        : 'text-slate-500 hover:text-slate-700 hover:bg-white/50'
+                    }`}
+                  >
+                    <span className="flex items-center justify-center gap-2">
+                      <Info size={14} /> Detail
+                    </span>
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('items')}
+                    className={`flex-1 py-2.5 px-4 rounded-xl font-black text-xs uppercase tracking-widest transition-all ${
+                      activeTab === 'items' 
+                        ? `${activeTheme.main} text-white shadow-lg shadow-${activeTheme.main.replace('bg-','')}/30` 
+                        : 'text-slate-500 hover:text-slate-700 hover:bg-white/50'
+                    }`}
+                  >
+                    <span className="flex items-center justify-center gap-2">
+                      <Box size={14} /> List Item ({historyItems.length})
+                    </span>
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
 
             {/* KONTEN SCROLLABLE */}
             <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
               
               {/* ========== TAB DETAIL ========== */}
-              {activeTab === 'detail' && (
+              {(activeTab === 'detail' || showDetailHistory.jenis.toLowerCase().includes('gaji')) && (
                 <>
                   {/* Header besar (Rombak Khusus Gaji - Emerald/Teal Theme) */}
                   {showDetailHistory.jenis.toLowerCase().includes('gaji') ? (() => {
@@ -3511,9 +3518,9 @@ export default function MenuPage() {
                           <span className="text-[10px] font-black uppercase tracking-widest text-emerald-400 mb-1 block">
                             PERANGKUM GAJI BATCH (TOTAL NETTO)
                           </span>
-                          <h3 className="text-3xl sm:text-4xl md:text-5xl font-black tracking-tighter text-emerald-300 drop-shadow-md">
-                            Rp {grandTotalVal.toLocaleString('id-ID')}
-                          </h3>
+                          <div className="text-3xl sm:text-4xl md:text-5xl font-black tracking-tighter drop-shadow-md">
+                            {renderFormattedNetto(grandTotalVal, "text-3xl sm:text-4xl md:text-5xl", "text-emerald-300", "text-emerald-400")}
+                          </div>
                           
                           <div className="mt-5 flex flex-col items-center gap-2">
                             <h4 className="font-black text-white text-base sm:text-lg uppercase tracking-wider bg-white/10 px-4 py-1.5 rounded-2xl backdrop-blur-md border border-white/10">
@@ -3527,7 +3534,7 @@ export default function MenuPage() {
                                 <Calendar size={12}/> {formatLocalDateTime ? formatLocalDateTime(sal.date) : sal.date}
                               </span>
                               <span className="text-[10px] font-black text-amber-300 bg-amber-950/60 px-3 py-1 rounded-xl flex items-center gap-1.5 border border-amber-500/30">
-                                Qty: {showDetailHistory.qty || 1} Bulan
+                                Qty: {showDetailHistory.qty || 1} Hari Kerja / Bulan
                               </span>
                             </div>
                           </div>
@@ -3543,7 +3550,8 @@ export default function MenuPage() {
                             historyGajiSubItems.map((gRec, gIdx) => {
                               const gSal = getSalaryDetails({ ...gRec, qty: showDetailHistory.qty || gRec.qty });
                               return (
-                                <div key={gRec.id || gIdx} className="p-5 bg-white border-2 border-emerald-100/80 rounded-2xl space-y-4 shadow-sm">
+                                <div key={gRec.id || gIdx} className="p-5 bg-white border-2 border-emerald-100 hover:border-emerald-300 rounded-2xl space-y-4 shadow-sm transition-all">
+                                  {/* Header Card Karyawan */}
                                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-emerald-100 pb-3">
                                     <div className="flex items-center gap-2">
                                       <span className="px-2.5 py-0.5 bg-emerald-100 text-emerald-800 rounded-lg text-[10px] font-black">
@@ -3551,39 +3559,97 @@ export default function MenuPage() {
                                       </span>
                                       <h5 className="font-extrabold text-slate-900 text-base uppercase">👤 {gRec.person}</h5>
                                     </div>
-                                    <div className="text-emerald-700 font-black text-base">
-                                      Netto: Rp {gSal.grandTotal.toLocaleString('id-ID')}
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-xs font-bold text-slate-500">Netto Diterima:</span>
+                                      {renderFormattedNetto(gSal.grandTotal, "text-base sm:text-lg", "text-emerald-700", "text-emerald-700")}
                                     </div>
                                   </div>
 
                                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-                                    {/* Card Pendapatan */}
+                                    {/* Card 1: Pendapatan (+) */}
                                     <div className="p-3.5 bg-emerald-50/70 border border-emerald-200/80 rounded-xl space-y-2">
                                       <div className="flex justify-between items-center border-b border-emerald-200/60 pb-1.5">
-                                        <span className="text-[11px] font-black text-emerald-900 uppercase">Pendapatan (+)</span>
-                                        <span className="text-xs font-black text-emerald-700">Rp {gSal.total1.toLocaleString('id-ID')}</span>
+                                        <span className="text-[11px] font-black text-emerald-900 uppercase tracking-wider flex items-center gap-1">
+                                          <DollarSign size={13} className="text-emerald-600" /> 1. Pendapatan (+)
+                                        </span>
+                                        <span className="text-xs font-black text-emerald-700">
+                                          Rp {gSal.total1.toLocaleString('id-ID')}
+                                        </span>
                                       </div>
                                       <div className="space-y-1 text-[11px]">
-                                        <div className="flex justify-between text-slate-600"><span>Pokok:</span><strong className="text-slate-800">Rp {(gSal.t1.pokok || 0).toLocaleString('id-ID')}</strong></div>
+                                        <div className="flex justify-between text-slate-600"><span>Gaji Pokok:</span><strong className="text-slate-800">Rp {(gSal.t1.pokok || 0).toLocaleString('id-ID')}</strong></div>
                                         <div className="flex justify-between text-slate-600"><span>Tunjangan:</span><strong className="text-slate-800">Rp {(gSal.t1.tunjangan || 0).toLocaleString('id-ID')}</strong></div>
                                         {gSal.t1.bonus_1 > 0 && <div className="flex justify-between text-slate-600"><span>Bonus 1:</span><strong className="text-slate-800">Rp {gSal.t1.bonus_1.toLocaleString('id-ID')}</strong></div>}
                                         {gSal.t1.bonus_2 > 0 && <div className="flex justify-between text-slate-600"><span>Bonus 2:</span><strong className="text-slate-800">Rp {gSal.t1.bonus_2.toLocaleString('id-ID')}</strong></div>}
+                                        {gSal.t1.bonus_3 > 0 && <div className="flex justify-between text-slate-600"><span>Bonus 3:</span><strong className="text-slate-800">Rp {gSal.t1.bonus_3.toLocaleString('id-ID')}</strong></div>}
+                                        {gSal.t1.bonus_4 > 0 && <div className="flex justify-between text-slate-600"><span>Bonus 4:</span><strong className="text-slate-800">Rp {gSal.t1.bonus_4.toLocaleString('id-ID')}</strong></div>}
+                                        {gSal.t1.program > 0 && <div className="flex justify-between text-slate-600"><span>Program:</span><strong className="text-slate-800">Rp {gSal.t1.program.toLocaleString('id-ID')}</strong></div>}
                                         {gSal.t1.lembur > 0 && <div className="flex justify-between text-slate-600"><span>Lembur:</span><strong className="text-slate-800">Rp {gSal.t1.lembur.toLocaleString('id-ID')}</strong></div>}
                                       </div>
                                     </div>
 
-                                    {/* Card Potongan */}
+                                    {/* Card 2 & 3: Potongan (-) */}
                                     <div className="p-3.5 bg-rose-50/70 border border-rose-200/80 rounded-xl space-y-2">
                                       <div className="flex justify-between items-center border-b border-rose-200/60 pb-1.5">
-                                        <span className="text-[11px] font-black text-rose-900 uppercase">Potongan (-)</span>
-                                        <span className="text-xs font-black text-rose-700">Rp {(gSal.total2 + gSal.total3).toLocaleString('id-ID')}</span>
+                                        <span className="text-[11px] font-black text-rose-900 uppercase tracking-wider flex items-center gap-1">
+                                          <AlertCircle size={13} className="text-rose-600" /> 2 & 3. Potongan (-)
+                                        </span>
+                                        <span className="text-xs font-black text-rose-700">
+                                          -Rp {(gSal.total2 + gSal.total3).toLocaleString('id-ID')}
+                                        </span>
                                       </div>
                                       <div className="space-y-1 text-[11px]">
-                                        <div className="flex justify-between text-slate-600"><span>Potongan Absensi:</span><strong className="text-rose-700">Rp {gSal.total2.toLocaleString('id-ID')}</strong></div>
-                                        <div className="flex justify-between text-slate-600"><span>Potongan BPJS / Bon:</span><strong className="text-rose-700">Rp {gSal.total3.toLocaleString('id-ID')}</strong></div>
+                                        {gSal.t2.alfaPot > 0 && <div className="flex justify-between text-slate-600"><span>Alfa ({gRec.alfa} hr):</span><strong className="text-rose-700">-Rp {Math.round(gSal.t2.alfaPot).toLocaleString('id-ID')}</strong></div>}
+                                        {gSal.t2.setengahHariPot > 0 && <div className="flex justify-between text-slate-600"><span>1/2 Hari ({gRec.setengah_hari} hr):</span><strong className="text-rose-700">-Rp {Math.round(gSal.t2.setengahHariPot).toLocaleString('id-ID')}</strong></div>}
+                                        {gSal.t2.sakitPot > 0 && <div className="flex justify-between text-slate-600"><span>Sakit ({gRec.sakit} hr):</span><strong className="text-rose-700">-Rp {Math.round(gSal.t2.sakitPot).toLocaleString('id-ID')}</strong></div>}
+                                        {gSal.t2.telatPot > 0 && <div className="flex justify-between text-slate-600"><span>Telat ({gRec.telat} mnt):</span><strong className="text-rose-700">-Rp {Math.round(gSal.t2.telatPot).toLocaleString('id-ID')}</strong></div>}
+                                        {gSal.t3.bpjs > 0 && <div className="flex justify-between text-slate-600"><span>BPJS:</span><strong className="text-rose-700">-Rp {gSal.t3.bpjs.toLocaleString('id-ID')}</strong></div>}
+                                        {gSal.t3.bon_dibayar > 0 && <div className="flex justify-between text-slate-600"><span>Bayar Bon:</span><strong className="text-rose-700">-Rp {gSal.t3.bon_dibayar.toLocaleString('id-ID')}</strong></div>}
+                                        {gSal.t3.bon_diambil > 0 && <div className="flex justify-between text-slate-600"><span>Ambil Bon (Pinjaman):</span><strong className="text-amber-700">+Rp {gSal.t3.bon_diambil.toLocaleString('id-ID')}</strong></div>}
                                       </div>
                                     </div>
                                   </div>
+
+                                  {/* Catatan & Lampiran Bukti Transfer File */}
+                                  {(gRec.note || (gRec.file && gRec.file.length > 0)) && (
+                                    <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+                                      {gRec.note && (
+                                        <div className="text-[11px] font-medium text-slate-700">
+                                          <strong className="font-black text-slate-800 uppercase">📝 Catatan:</strong> {gRec.note}
+                                        </div>
+                                      )}
+                                      {gRec.file && gRec.file.length > 0 && (
+                                        <div className="space-y-1">
+                                          <span className="text-[10px] font-black text-slate-600 uppercase tracking-wider block">
+                                            📎 Lampiran Bukti Transfer / File ({gRec.file.length}):
+                                          </span>
+                                          <div className="flex flex-wrap gap-2 pt-1">
+                                            {gRec.file.map((fName: string, fIdx: number) => {
+                                              const fileUrl = pb.files.getUrl(gRec, fName);
+                                              const isImg = fName.match(/\.(jpg|jpeg|png|gif|webp)$/i);
+                                              return (
+                                                <a
+                                                  key={fIdx}
+                                                  href={fileUrl}
+                                                  target="_blank"
+                                                  rel="noopener noreferrer"
+                                                  className="flex items-center gap-1.5 p-1.5 bg-white border border-slate-200 hover:border-emerald-400 rounded-lg text-xs text-indigo-600 font-bold transition-all shadow-2xs"
+                                                >
+                                                  {isImg ? (
+                                                    <img src={fileUrl} alt={fName} className="w-8 h-8 object-cover rounded" />
+                                                  ) : (
+                                                    <FileText size={16} className="text-indigo-500" />
+                                                  )}
+                                                  <span className="truncate max-w-[120px] text-[10px]">{fName}</span>
+                                                  <ExternalLink size={12} className="text-slate-400" />
+                                                </a>
+                                              );
+                                            })}
+                                          </div>
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
                                 </div>
                               );
                             })
