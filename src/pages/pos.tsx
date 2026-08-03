@@ -3755,225 +3755,229 @@ export default function MenuPage() {
                   </>
                 )}
 
-                  {/* SHORTCUT NAVIGASI KE BAGIAN BAWAH */}
-                  <div className="flex flex-wrap gap-2 bg-slate-50 p-3 rounded-2xl border border-slate-200 sticky top-0 z-10 backdrop-blur-sm bg-white/90">
-                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mr-1 flex items-center">Lompat ke:</span>
-                    <button 
-                      onClick={() => document.getElementById('section-items')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-                      className="text-[10px] font-black px-3 py-1.5 bg-white rounded-xl border border-slate-200 hover:border-blue-400 hover:text-blue-600 transition-colors shadow-sm"
-                    >
-                      📦 Item
-                    </button>
-                    <button 
-                      onClick={() => document.getElementById('section-cashflow')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-                      className="text-[10px] font-black px-3 py-1.5 bg-white rounded-xl border border-slate-200 hover:border-blue-400 hover:text-blue-600 transition-colors shadow-sm"
-                    >
-                      💰 Kas
-                    </button>
-                    {historyOngkos.length > 0 && (
-                      <button 
-                        onClick={() => document.getElementById('section-ongkos')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-                        className="text-[10px] font-black px-3 py-1.5 bg-white rounded-xl border border-slate-200 hover:border-blue-400 hover:text-blue-600 transition-colors shadow-sm"
-                      >
-                        🔧 Ongkos
-                      </button>
-                    )}
-                    {showDetailHistory.file && showDetailHistory.file.length > 0 && (
-                      <button 
-                        onClick={() => document.getElementById('section-media')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-                        className="text-[10px] font-black px-3 py-1.5 bg-white rounded-xl border border-slate-200 hover:border-blue-400 hover:text-blue-600 transition-colors shadow-sm"
-                      >
-                        🖼️ Media
-                      </button>
-                    )}
-                  </div>
-
-                  {/* SECTION: Rincian Item (dengan ID untuk navigasi) */}
-                  <div id="section-items" className="scroll-mt-16">
-                    <div className="space-y-3">
-                      <p className={`text-[11px] font-black ${activeTheme.text} uppercase tracking-widest ml-1 flex items-center gap-2`}>
-                        <Box size={16}/> Rincian Item (Log Stok Terjual)
-                      </p>
-                      <div className="border-2 border-slate-200 rounded-[1.5rem] bg-white divide-y divide-slate-100 text-xs shadow-sm overflow-hidden">
-                        {historyItems.length === 0 ? (
-                          <div className="p-8 text-center flex flex-col items-center">
-                            <div className="w-12 h-12 border-4 border-slate-100 border-t-slate-400 rounded-full animate-spin mb-3"></div>
-                            <p className="text-slate-400 font-bold uppercase tracking-widest text-[10px]">Menarik rincian database...</p>
-                          </div>
-                        ) : (
-                          historyItems.map(item => (
-                            <div key={item.id} className="p-5 hover:bg-slate-50 transition-colors">
-                              <div className="flex justify-between items-start mb-3">
-                                <div className="flex-1">
-                                  <p className="font-black text-slate-800 text-sm md:text-base leading-snug">
-                                    {getFullLabel(item.expand?.item_baru)}
-                                  </p>
-                                  <p className="text-[11px] font-bold text-slate-500 mt-1.5">
-                                    Qty: {item.qty} @ Rp {item.price_1?.toLocaleString('id-ID')}
-                                  </p>
-                                </div>
-                                <p className="font-black text-slate-900 text-sm bg-slate-100 px-3 py-1 rounded-lg shrink-0">
-                                  Rp {(item.price_1 * item.qty)?.toLocaleString('id-ID')}
-                                </p>
-                              </div>
-                              {userLevel === '1' && (
-                                <div className="grid grid-cols-2 gap-y-2 gap-x-4 text-[10px] md:text-[11px] text-slate-500 bg-slate-50 p-4 rounded-xl border border-slate-200 mt-3 shadow-inner">
-                                  <p className="flex justify-between"><span className="font-bold">ID:</span> <span className="font-mono text-slate-800">{item.id}</span></p>
-                                  <p className="flex justify-between"><span className="font-bold">Kode:</span> <span className="font-mono text-slate-800">{item.item}</span></p>
-                                  <p className="flex justify-between"><span className="font-bold">Qty:</span> <span className="font-black text-slate-800 bg-slate-200 px-1.5 rounded">{item.qty}</span></p>
-                                  <p className="flex justify-between"><span className="font-bold">In / Out:</span> <span className="font-black text-slate-800">{item.boolean}</span></p>
-                                  <p className="flex justify-between"><span className="font-bold">Jual:</span> <span className="font-black text-slate-800">Rp {item.price_1?.toLocaleString('id-ID')}</span></p>
-                                  <p className="flex justify-between"><span className="font-bold">Modal:</span> <span className="font-black text-slate-800">Rp {item.price_2?.toLocaleString('id-ID')}</span></p>
-                                  {(() => {
-  const logStockSemua = reportDetailData?.logStock || [];
-  
-  // Cari harga beli terakhir sebelum transaksi ini
-  const logBeliTerakhir = logStockSemua
-    .filter(l => l.boolean === 'in' && l.item_baru === item.item_baru && new Date(l.created_at || 0) < new Date(item.created_at || 0))
-    .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())[0];
-
-  const hargaLama = logBeliTerakhir ? logBeliTerakhir.price_1 : 0;
-  const refJenis = item.expand?.ref_baru?.jenis || '';
-  const isPembelian = refJenis.toLowerCase().includes('pembelian');
-  
-  let laba = 0;
-  let pct = 0; // simpan sebagai angka dulu
-  let isGreen = true;
-
-  if (isPembelian) {
-    laba = item.price_1 - hargaLama;
-    // Hijau jika harga beli baru lebih murah/sama (laba naik), Merah jika harga beli naik (laba turun/beban naik)
-    isGreen = hargaLama === 0 || item.price_1 <= hargaLama;
-    pct = hargaLama > 0 ? (laba / hargaLama) * 100 : 0;
-  } else {
-    laba = (item.price_1 * item.qty) - item.price_2;
-    const totalJual = (item.price_1 * item.qty);
-    pct = totalJual > 0 ? (laba / totalJual) * 100 : 0;
-    isGreen = laba >= 0;
-  }
-
-  // Format pct untuk tampilan
-  const pctDisplay = Math.abs(pct).toFixed(1);
-
-  return (
-    <div className="col-span-2 border-t-2 border-dashed border-slate-200 pt-3 mt-2 flex justify-between items-center bg-white p-2 rounded-lg">
-      <p className="font-black text-slate-400 uppercase tracking-widest text-[9px]">
-        {isPembelian ? 'Analisis Perubahan Harga Beli:' : 'Laba Margin Analitik:'}
-      </p>
-      <p className={`font-black text-sm flex items-center gap-2 ${isGreen ? 'text-emerald-600' : 'text-rose-600'}`}>
-        {isPembelian 
-          ? (hargaLama > 0 ? (laba >= 0 ? `+Rp ${laba.toLocaleString('id-ID')}` : `Rp ${laba.toLocaleString('id-ID')}`) : 'Harga Awal')
-          : `Rp ${laba.toLocaleString('id-ID')}`
-        }
-        
-        {/* Indikator Persentase */}
-        {(hargaLama > 0 || !isPembelian) && (
-          <span className={`text-[10px] px-2 py-0.5 rounded-md shadow-sm border ${isGreen ? 'bg-emerald-100 border-emerald-200 text-emerald-700' : 'bg-rose-100 border-rose-200 text-rose-700'}`}>
-            {pct >= 0 ? `+${pctDisplay}%` : `${pctDisplay}%`}
-          </span>
-        )}
-      </p>
-    </div>
-  );
-})()}
-                                </div>
-                              )}
-                            </div>
-                          ))
+                  {!showDetailHistory.jenis.toLowerCase().includes('gaji') && (
+                    <>
+                      {/* SHORTCUT NAVIGASI KE BAGIAN BAWAH */}
+                      <div className="flex flex-wrap gap-2 bg-slate-50 p-3 rounded-2xl border border-slate-200 sticky top-0 z-10 backdrop-blur-sm bg-white/90">
+                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mr-1 flex items-center">Lompat ke:</span>
+                        <button 
+                          onClick={() => document.getElementById('section-items')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                          className="text-[10px] font-black px-3 py-1.5 bg-white rounded-xl border border-slate-200 hover:border-blue-400 hover:text-blue-600 transition-colors shadow-sm"
+                        >
+                          📦 Item
+                        </button>
+                        <button 
+                          onClick={() => document.getElementById('section-cashflow')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                          className="text-[10px] font-black px-3 py-1.5 bg-white rounded-xl border border-slate-200 hover:border-blue-400 hover:text-blue-600 transition-colors shadow-sm"
+                        >
+                          💰 Kas
+                        </button>
+                        {historyOngkos.length > 0 && (
+                          <button 
+                            onClick={() => document.getElementById('section-ongkos')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                            className="text-[10px] font-black px-3 py-1.5 bg-white rounded-xl border border-slate-200 hover:border-blue-400 hover:text-blue-600 transition-colors shadow-sm"
+                          >
+                            🔧 Ongkos
+                          </button>
+                        )}
+                        {showDetailHistory.file && showDetailHistory.file.length > 0 && (
+                          <button 
+                            onClick={() => document.getElementById('section-media')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                            className="text-[10px] font-black px-3 py-1.5 bg-white rounded-xl border border-slate-200 hover:border-blue-400 hover:text-blue-600 transition-colors shadow-sm"
+                          >
+                            🖼️ Media
+                          </button>
                         )}
                       </div>
-                    </div>
-                  </div>
 
-                  {/* SECTION: Cashflow */}
-                  <div id="section-cashflow" className="scroll-mt-16">
-                    <div className="p-5 bg-slate-50 rounded-3xl border-2 border-slate-100 shadow-sm relative overflow-hidden">
-                      <div className="absolute top-0 right-0 w-24 h-24 bg-blue-500 blur-3xl opacity-5 rounded-full" />
-                      <p className="font-black text-blue-500 text-[11px] uppercase tracking-widest flex items-center gap-1.5 mb-3 border-b border-blue-100 pb-2 relative z-10">
-                        <Wallet size={14}/> Rekaman Jurnal Kas
-                      </p>
-                      {historyCashflow.length > 0 ? (
-                        <div className="space-y-3 relative z-10">
-                          {historyCashflow.map((cf, idx) => {
-                            const accName = cashflowAccounts.find(a => a.id === cf.account_1)?.text_1 || cf.account_1;
-                            return (
-                              <div key={cf.id || idx} className="space-y-2 font-bold text-slate-600 text-[11px] bg-white p-3 rounded-xl border border-slate-100 shadow-sm">
-                                <p className="flex justify-between"><span>Nominal:</span> <span className="font-black text-blue-600 text-sm">Rp {cf.nominal?.toLocaleString('id-ID')}</span></p>
-                                <p className="flex justify-between"><span>Mutasi:</span> <span className="uppercase text-slate-800 bg-slate-200 px-2 py-0.5 rounded">{cf.mutasi}</span></p>
-                                <p className="flex justify-between items-center gap-2"><span>Account:</span> <span className="text-slate-800 bg-slate-100 px-2 py-0.5 rounded-lg text-right truncate">{accName}</span></p>
-                                {cf.note && (
-                                  <div className="mt-2 bg-slate-50 p-2 rounded-lg border border-slate-100 text-slate-500 italic font-medium leading-relaxed">
-                                    " {cf.note} "
-                                  </div>
-                                )}
+                      {/* SECTION: Rincian Item (dengan ID untuk navigasi) */}
+                      <div id="section-items" className="scroll-mt-16">
+                        <div className="space-y-3">
+                          <p className={`text-[11px] font-black ${activeTheme.text} uppercase tracking-widest ml-1 flex items-center gap-2`}>
+                            <Box size={16}/> Rincian Item (Log Stok Terjual)
+                          </p>
+                          <div className="border-2 border-slate-200 rounded-[1.5rem] bg-white divide-y divide-slate-100 text-xs shadow-sm overflow-hidden">
+                            {historyItems.length === 0 ? (
+                              <div className="p-8 text-center flex flex-col items-center">
+                                <div className="w-12 h-12 border-4 border-slate-100 border-t-slate-400 rounded-full animate-spin mb-3"></div>
+                                <p className="text-slate-400 font-bold uppercase tracking-widest text-[10px]">Menarik rincian database...</p>
                               </div>
-                            );
-                          })}
-                        </div>
-                      ) : (
-                        <p className="text-slate-400 italic mt-2 text-[10px] relative z-10">Data jurnal kas tidak ditemukan atau sedang diselaraskan...</p>
-                      )}
-                    </div>
-                  </div>
+                            ) : (
+                              historyItems.map(item => (
+                                <div key={item.id} className="p-5 hover:bg-slate-50 transition-colors">
+                                  <div className="flex justify-between items-start mb-3">
+                                    <div className="flex-1">
+                                      <p className="font-black text-slate-800 text-sm md:text-base leading-snug">
+                                        {getFullLabel(item.expand?.item_baru)}
+                                      </p>
+                                      <p className="text-[11px] font-bold text-slate-500 mt-1.5">
+                                        Qty: {item.qty} @ Rp {item.price_1?.toLocaleString('id-ID')}
+                                      </p>
+                                    </div>
+                                    <p className="font-black text-slate-900 text-sm bg-slate-100 px-3 py-1 rounded-lg shrink-0">
+                                      Rp {(item.price_1 * item.qty)?.toLocaleString('id-ID')}
+                                    </p>
+                                  </div>
+                                  {userLevel === '1' && (
+                                    <div className="grid grid-cols-2 gap-y-2 gap-x-4 text-[10px] md:text-[11px] text-slate-500 bg-slate-50 p-4 rounded-xl border border-slate-200 mt-3 shadow-inner">
+                                      <p className="flex justify-between"><span className="font-bold">ID:</span> <span className="font-mono text-slate-800">{item.id}</span></p>
+                                      <p className="flex justify-between"><span className="font-bold">Kode:</span> <span className="font-mono text-slate-800">{item.item}</span></p>
+                                      <p className="flex justify-between"><span className="font-bold">Qty:</span> <span className="font-black text-slate-800 bg-slate-200 px-1.5 rounded">{item.qty}</span></p>
+                                      <p className="flex justify-between"><span className="font-bold">In / Out:</span> <span className="font-black text-slate-800">{item.boolean}</span></p>
+                                      <p className="flex justify-between"><span className="font-bold">Jual:</span> <span className="font-black text-slate-800">Rp {item.price_1?.toLocaleString('id-ID')}</span></p>
+                                      <p className="flex justify-between"><span className="font-bold">Modal:</span> <span className="font-black text-slate-800">Rp {item.price_2?.toLocaleString('id-ID')}</span></p>
+                                      {(() => {
+      const logStockSemua = reportDetailData?.logStock || [];
+      
+      // Cari harga beli terakhir sebelum transaksi ini
+      const logBeliTerakhir = logStockSemua
+        .filter(l => l.boolean === 'in' && l.item_baru === item.item_baru && new Date(l.created_at || 0) < new Date(item.created_at || 0))
+        .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())[0];
 
-                  {/* SECTION: Ongkos Mekanik (hanya jika ada) */}
-                  {historyOngkos.length > 0 && (
-                    <div id="section-ongkos" className="scroll-mt-16">
-                      <div className="p-5 bg-slate-50 rounded-3xl border-2 border-slate-100 shadow-sm relative overflow-hidden">
-                        <div className="absolute top-0 right-0 w-24 h-24 bg-amber-500 blur-3xl opacity-5 rounded-full" />
-                        <p className="font-black text-amber-500 text-[11px] uppercase tracking-widest flex items-center gap-1.5 mb-3 border-b border-amber-100 pb-2">
-                          <Wrench size={14}/> Potongan Mekanik
-                        </p>
-                        <div className="space-y-2 font-bold text-slate-600 text-[11px]">
-                          {historyOngkos.map(fee => (
-                            <div key={fee.id} className="flex justify-between items-center bg-white p-3 rounded-xl border border-slate-100 shadow-sm">
-                              <span className="font-black text-slate-700 uppercase flex items-center gap-2">
-                                <User size={12} className="text-slate-400"/> {fee.person}
-                              </span>
-                              <span className="font-black text-emerald-600 text-sm tracking-tight">Rp {fee.ongkos?.toLocaleString('id-ID')}</span>
+      const hargaLama = logBeliTerakhir ? logBeliTerakhir.price_1 : 0;
+      const refJenis = item.expand?.ref_baru?.jenis || '';
+      const isPembelian = refJenis.toLowerCase().includes('pembelian');
+      
+      let laba = 0;
+      let pct = 0; // simpan sebagai angka dulu
+      let isGreen = true;
+
+      if (isPembelian) {
+        laba = item.price_1 - hargaLama;
+        // Hijau jika harga beli baru lebih murah/sama (laba naik), Merah jika harga beli naik (laba turun/beban naik)
+        isGreen = hargaLama === 0 || item.price_1 <= hargaLama;
+        pct = hargaLama > 0 ? (laba / hargaLama) * 100 : 0;
+      } else {
+        laba = (item.price_1 * item.qty) - item.price_2;
+        const totalJual = (item.price_1 * item.qty);
+        pct = totalJual > 0 ? (laba / totalJual) * 100 : 0;
+        isGreen = laba >= 0;
+      }
+
+      // Format pct untuk tampilan
+      const pctDisplay = Math.abs(pct).toFixed(1);
+
+      return (
+        <div className="col-span-2 border-t-2 border-dashed border-slate-200 pt-3 mt-2 flex justify-between items-center bg-white p-2 rounded-lg">
+          <p className="font-black text-slate-400 uppercase tracking-widest text-[9px]">
+            {isPembelian ? 'Analisis Perubahan Harga Beli:' : 'Laba Margin Analitik:'}
+          </p>
+          <p className={`font-black text-sm flex items-center gap-2 ${isGreen ? 'text-emerald-600' : 'text-rose-600'}`}>
+            {isPembelian 
+              ? (hargaLama > 0 ? (laba >= 0 ? `+Rp ${laba.toLocaleString('id-ID')}` : `Rp ${laba.toLocaleString('id-ID')}`) : 'Harga Awal')
+              : `Rp ${laba.toLocaleString('id-ID')}`
+            }
+            
+            {/* Indikator Persentase */}
+            {(hargaLama > 0 || !isPembelian) && (
+              <span className={`text-[10px] px-2 py-0.5 rounded-md shadow-sm border ${isGreen ? 'bg-emerald-100 border-emerald-200 text-emerald-700' : 'bg-rose-100 border-rose-200 text-rose-700'}`}>
+                {pct >= 0 ? `+${pctDisplay}%` : `${pctDisplay}%`}
+              </span>
+            )}
+          </p>
+        </div>
+      );
+    })()}
+                                    </div>
+                                  )}
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* SECTION: Cashflow */}
+                      <div id="section-cashflow" className="scroll-mt-16">
+                        <div className="p-5 bg-slate-50 rounded-3xl border-2 border-slate-100 shadow-sm relative overflow-hidden">
+                          <div className="absolute top-0 right-0 w-24 h-24 bg-blue-500 blur-3xl opacity-5 rounded-full" />
+                          <p className="font-black text-blue-500 text-[11px] uppercase tracking-widest flex items-center gap-1.5 mb-3 border-b border-blue-100 pb-2 relative z-10">
+                            <Wallet size={14}/> Rekaman Jurnal Kas
+                          </p>
+                          {historyCashflow.length > 0 ? (
+                            <div className="space-y-3 relative z-10">
+                              {historyCashflow.map((cf, idx) => {
+                                const accName = cashflowAccounts.find(a => a.id === cf.account_1)?.text_1 || cf.account_1;
+                                return (
+                                  <div key={cf.id || idx} className="space-y-2 font-bold text-slate-600 text-[11px] bg-white p-3 rounded-xl border border-slate-100 shadow-sm">
+                                    <p className="flex justify-between"><span>Nominal:</span> <span className="font-black text-blue-600 text-sm">Rp {cf.nominal?.toLocaleString('id-ID')}</span></p>
+                                    <p className="flex justify-between"><span>Mutasi:</span> <span className="uppercase text-slate-800 bg-slate-200 px-2 py-0.5 rounded">{cf.mutasi}</span></p>
+                                    <p className="flex justify-between items-center gap-2"><span>Account:</span> <span className="text-slate-800 bg-slate-100 px-2 py-0.5 rounded-lg text-right truncate">{accName}</span></p>
+                                    {cf.note && (
+                                      <div className="mt-2 bg-slate-50 p-2 rounded-lg border border-slate-100 text-slate-500 italic font-medium leading-relaxed">
+                                        " {cf.note} "
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
                             </div>
-                          ))}
+                          ) : (
+                            <p className="text-slate-400 italic mt-2 text-[10px] relative z-10">Data jurnal kas tidak ditemukan atau sedang diselaraskan...</p>
+                          )}
                         </div>
                       </div>
-                    </div>
-                  )}
 
-                  {/* SECTION: Lampiran Media */}
-                  {showDetailHistory.file && showDetailHistory.file.length > 0 && (
-                    <div id="section-media" className="scroll-mt-16">
-                      <div className="bg-slate-50 p-5 rounded-[1.5rem] border-2 border-slate-100 shadow-sm">
-                        <p className={`font-black text-[11px] ${activeTheme.text} uppercase border-b-2 border-slate-200 pb-3 mb-3 flex items-center gap-2`}>
-                          <ImagePlus size={16}/> Lampiran Media Nota
-                        </p>
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                          {showDetailHistory.file.map((f, i) => {
-                            const fileUrl = pb.files.getUrl(showDetailHistory, f);
-                            const blobUrl = fileBlobUrls[f];
-                            if (!blobUrl) {
-                              fetchFileWithAuth(fileUrl).then(url => setFileBlobUrls(prev => ({ ...prev, [f]: url }))).catch(err => console.warn(`Gagal memuat file ${f}:`, err));
-                            }
-                            return (
-                              <div key={i} className="relative group rounded-xl overflow-hidden border-2 border-white shadow-md aspect-square bg-slate-100">
-                                {blobUrl ? (
-                                  f.match(/\.(mp4|webm|ogg)$/i) ? (
-                                    <video src={blobUrl} className="w-full h-full object-cover" />
-                                  ) : (
-                                    <img src={blobUrl} alt={`Lampiran ${i}`} className="w-full h-full object-cover transition-transform group-hover:scale-110 duration-500" />
-                                  )
-                                ) : (
-                                  <div className="w-full h-full flex items-center justify-center bg-slate-200 animate-pulse">
-                                    <span className="text-xs text-slate-500">Loading...</span>
-                                  </div>
-                                )}
-                                <a href={fileUrl} target="_blank" rel="noreferrer" className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-sm">
-                                  <ExternalLink size={24} className="text-white drop-shadow-lg scale-75 group-hover:scale-100 transition-transform" />
-                                </a>
-                              </div>
-                            );
-                          })}
+                      {/* SECTION: Ongkos Mekanik (hanya jika ada) */}
+                      {historyOngkos.length > 0 && (
+                        <div id="section-ongkos" className="scroll-mt-16">
+                          <div className="p-5 bg-slate-50 rounded-3xl border-2 border-slate-100 shadow-sm relative overflow-hidden">
+                            <div className="absolute top-0 right-0 w-24 h-24 bg-amber-500 blur-3xl opacity-5 rounded-full" />
+                            <p className="font-black text-amber-500 text-[11px] uppercase tracking-widest flex items-center gap-1.5 mb-3 border-b border-amber-100 pb-2">
+                              <Wrench size={14}/> Potongan Mekanik
+                            </p>
+                            <div className="space-y-2 font-bold text-slate-600 text-[11px]">
+                              {historyOngkos.map(fee => (
+                                <div key={fee.id} className="flex justify-between items-center bg-white p-3 rounded-xl border border-slate-100 shadow-sm">
+                                  <span className="font-black text-slate-700 uppercase flex items-center gap-2">
+                                    <User size={12} className="text-slate-400"/> {fee.person}
+                                  </span>
+                                  <span className="font-black text-emerald-600 text-sm tracking-tight">Rp {fee.ongkos?.toLocaleString('id-ID')}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                    </div>
+                      )}
+
+                      {/* SECTION: Lampiran Media */}
+                      {showDetailHistory.file && showDetailHistory.file.length > 0 && (
+                        <div id="section-media" className="scroll-mt-16">
+                          <div className="bg-slate-50 p-5 rounded-[1.5rem] border-2 border-slate-100 shadow-sm">
+                            <p className={`font-black text-[11px] ${activeTheme.text} uppercase border-b-2 border-slate-200 pb-3 mb-3 flex items-center gap-2`}>
+                              <ImagePlus size={16}/> Lampiran Media Nota
+                            </p>
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                              {showDetailHistory.file.map((f, i) => {
+                                const fileUrl = pb.files.getUrl(showDetailHistory, f);
+                                const blobUrl = fileBlobUrls[f];
+                                if (!blobUrl) {
+                                  fetchFileWithAuth(fileUrl).then(url => setFileBlobUrls(prev => ({ ...prev, [f]: url }))).catch(err => console.warn(`Gagal memuat file ${f}:`, err));
+                                }
+                                return (
+                                  <div key={i} className="relative group rounded-xl overflow-hidden border-2 border-white shadow-md aspect-square bg-slate-100">
+                                    {blobUrl ? (
+                                      f.match(/\.(mp4|webm|ogg)$/i) ? (
+                                        <video src={blobUrl} className="w-full h-full object-cover" />
+                                      ) : (
+                                        <img src={blobUrl} alt={`Lampiran ${i}`} className="w-full h-full object-cover transition-transform group-hover:scale-110 duration-500" />
+                                      )
+                                    ) : (
+                                      <div className="w-full h-full flex items-center justify-center bg-slate-200 animate-pulse">
+                                        <span className="text-xs text-slate-500">Loading...</span>
+                                      </div>
+                                    )}
+                                    <a href={fileUrl} target="_blank" rel="noreferrer" className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-sm">
+                                      <ExternalLink size={24} className="text-white drop-shadow-lg scale-75 group-hover:scale-100 transition-transform" />
+                                    </a>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </>
                   )}
                 </>
               )}
