@@ -312,10 +312,10 @@ export default function PeoplePage() {
       formData.append('text_7', currentPerson.text_7 || '');
       formData.append('text_9', currentPerson.text_9 || '');
       
-      formData.append('number_2', String(currentPerson.number_2 || 0)); // RT
-      formData.append('number_3', String(currentPerson.number_3 || 0)); // RW
-      formData.append('number_4', String((currentPerson as any).number_4 || 0)); // NIK
-      formData.append('phone', String((currentPerson as any).phone || 0)); // No HP
+      formData.append('number_2', String(currentPerson.number_2 ?? '0')); // RT
+      formData.append('number_3', String(currentPerson.number_3 ?? '0')); // RW
+      formData.append('number_4', String((currentPerson as any).number_4 ?? '0')); // NIK
+      formData.append('phone', String((currentPerson as any).phone ?? '0')); // No HP
       
       // Field tersembunyi yang tetap dikirim
       formData.append('operator', localStorage.getItem('user_name') || 'Admin');
@@ -746,11 +746,25 @@ export default function PeoplePage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-1">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider ml-1">NIK</label>
-                <input type="number" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:border-cyan-400" value={(currentPerson as any).number_4 || ''} onChange={e => setCurrentPerson({ ...currentPerson, number_4: Number(e.target.value) } as any)} placeholder="Cth: 3500000000000" />
+                <input 
+                  type="text" 
+                  inputMode="numeric"
+                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:border-cyan-400" 
+                  value={(currentPerson as any).number_4 || ''} 
+                  onChange={e => setCurrentPerson({ ...currentPerson, number_4: e.target.value } as any)} 
+                  placeholder="Cth: 3500000000000" 
+                />
               </div>
               <div className="space-y-1">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider ml-1">Nomor HP / WhatsApp</label>
-                <input type="number" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:border-cyan-400" value={(currentPerson as any).phone || ''} onChange={e => setCurrentPerson({ ...currentPerson, phone: Number(e.target.value) } as any)} placeholder="Cth: 6281234567" />
+                <input 
+                  type="text" 
+                  inputMode="tel"
+                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:border-cyan-400" 
+                  value={(currentPerson as any).phone || ''} 
+                  onChange={e => setCurrentPerson({ ...currentPerson, phone: e.target.value } as any)} 
+                  placeholder="Cth: 08123456789" 
+                />
               </div>
             </div>
 
@@ -763,11 +777,25 @@ export default function PeoplePage() {
               <div className="space-y-1 flex gap-2 col-span-2 sm:col-span-1">
                 <div className="w-1/2">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider ml-1">RT</label>
-                  <input type="number" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:border-cyan-400" value={currentPerson.number_2 || ''} onChange={e => setCurrentPerson({ ...currentPerson, number_2: Number(e.target.value) })} placeholder="00" />
+                  <input 
+                    type="text" 
+                    inputMode="numeric"
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:border-cyan-400" 
+                    value={currentPerson.number_2 ?? ''} 
+                    onChange={e => setCurrentPerson({ ...currentPerson, number_2: e.target.value as any })} 
+                    placeholder="00" 
+                  />
                 </div>
                 <div className="w-1/2">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider ml-1">RW</label>
-                  <input type="number" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:border-cyan-400" value={currentPerson.number_3 || ''} onChange={e => setCurrentPerson({ ...currentPerson, number_3: Number(e.target.value) })} placeholder="00" />
+                  <input 
+                    type="text" 
+                    inputMode="numeric"
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:border-cyan-400" 
+                    value={currentPerson.number_3 ?? ''} 
+                    onChange={e => setCurrentPerson({ ...currentPerson, number_3: e.target.value as any })} 
+                    placeholder="00" 
+                  />
                 </div>
               </div>
             </div>
