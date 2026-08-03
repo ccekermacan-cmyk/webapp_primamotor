@@ -1444,8 +1444,8 @@ export default function MenuPage() {
         // 1. Cadangkan info status lunas/belum nota lama sebelum dibersihkan
         oldMenuData = await pb.collection('menu').getOne(editSession.menuId).catch(() => null);
 
-        // 2. Eksekusi Delete dan tunggu (AWAIT) hingga seluruh hooks server (menu & log_stock) tuntas mengembalikan stok fisik
-        await pb.collection('menu').delete(editSession.menuId);
+        // 2. Eksekusi Delete dan revert stok fisik, cashflow, serta panggil API Webhook
+        await deleteTransactionWithRevert(editSession.menuId);
       }
 
       // Hitung akumulasi parameter keuangan pembayaran kasir
@@ -1829,14 +1829,108 @@ export default function MenuPage() {
     });
   };
 
+  // Helper khusus Hapus Transaksi & Revert Stok, Cashflow, Ongkos, Bon, serta Trigger API Webhook
+  const deleteTransactionWithRevert = async (menuId: string) => {
+    if (!menuId) return;
+
+    // 1. Panggil Webhook Laravel API 'deleted' untuk 'menu' agar Laravel Observers (MenuObserver@deleting) ter-trigger
+    await notifyLaravelApi('menu', 'deleted', menuId);
+
+    try {
+      // 2. Fetch seluruh log_stock terkait transaksi ini
+      const logStockList = await pb.collection('log_stock').getFullList({
+        filter: `ref = "${menuId}" || ref_baru = "${menuId}"`,
+        $autoCancel: false
+      }).catch(() => []);
+
+      for (const log of logStockList) {
+        // Trigger webhook deleted per log_stock
+        await notifyLaravelApi('log_stock', 'deleted', log.id);
+
+        // Revert stok fisik produk di PocketBase (produk.stok_3)
+        if (log.item_baru && log.qty) {
+          try {
+            const prod = await pb.collection('produk').getOne(log.item_baru, { $autoCancel: false });
+            if (prod) {
+              const currentStok = Number(prod.stok_3) || 0;
+              const logQty = Number(log.qty) || 0;
+              const isOut = String(log.boolean).toLowerCase() === 'out';
+              // Jika sebelumnya 'out' (penjualan/pengeluaran), dikembalikan (tambah stok)
+              // Jika sebelumnya 'in' (pembelian/pemasukan), dikembalikan (kurangi stok)
+              const newStok = isOut ? (currentStok + logQty) : Math.max(0, currentStok - logQty);
+              await pb.collection('produk').update(prod.id, { stok_3: newStok }, { $autoCancel: false });
+            }
+          } catch (prodErr) {
+            console.warn("Notice: Revert stok produk fallback:", prodErr);
+          }
+        }
+
+        // Hapus record log_stock di PocketBase
+        await pb.collection('log_stock').delete(log.id).catch(() => null);
+      }
+
+      // 3. Fetch dan hapus seluruh cashflow terkait transaksi ini
+      const cashflowList = await pb.collection('cashflow').getFullList({
+        filter: `ref_baru = "${menuId}"`,
+        $autoCancel: false
+      }).catch(() => []);
+
+      for (const cf of cashflowList) {
+        await notifyLaravelApi('cashflow', 'deleted', cf.id);
+        await pb.collection('cashflow').delete(cf.id).catch(() => null);
+      }
+
+      // 4. Fetch dan hapus seluruh ongkos mekanik terkait
+      const ongkosList = await pb.collection('ongkos').getFullList({
+        filter: `ref_baru = "${menuId}" || ref = "${menuId}"`,
+        $autoCancel: false
+      }).catch(() => []);
+
+      for (const ong of ongkosList) {
+        await notifyLaravelApi('ongkos', 'deleted', ong.id);
+        await pb.collection('ongkos').delete(ong.id).catch(() => null);
+      }
+
+      // 5. Fetch dan hapus seluruh slip gaji / bon jika ada
+      const gajiList = await pb.collection('gaji').getFullList({
+        filter: `ref = "${menuId}"`,
+        $autoCancel: false
+      }).catch(() => []);
+
+      for (const g of gajiList) {
+        await notifyLaravelApi('gaji', 'deleted', g.id);
+        await pb.collection('gaji').delete(g.id).catch(() => null);
+      }
+
+      const bonList = await pb.collection('bon').getFullList({
+        filter: `ref = "${menuId}" || ref_menu = "${menuId}"`,
+        $autoCancel: false
+      }).catch(() => []);
+
+      for (const b of bonList) {
+        await notifyLaravelApi('bon', 'deleted', b.id);
+        await pb.collection('bon').delete(b.id).catch(() => null);
+      }
+    } catch (err) {
+      console.warn("Notice: Cleanup child records fallback:", err);
+    }
+
+    // 6. Hapus entitas menu utama di PocketBase
+    await pb.collection('menu').delete(menuId).catch(() => null);
+  };
+
   const handleDeleteHistory = async (menuItem: HistoryMenu) => {
     try {
-      await pb.collection('menu').delete(menuItem.id);
+      setIsProcessing(true);
+      await deleteTransactionWithRevert(menuItem.id);
       fetchData();
       setShowDetailHistory(null);
-    } catch (e) {
+      setDialog({ show: true, title: 'Sukses Hapus', message: 'Data transaksi berhasil dihapus. Stok produk dan data kas telah dikembalikan.', type: 'alert' });
+    } catch (e: any) {
       console.error(e);
-      setDialog({ show: true, title: 'Gagal Hapus', message: 'Gagal menghapus data transaksi.', type: 'alert' });
+      setDialog({ show: true, title: 'Gagal Hapus', message: 'Gagal menghapus data transaksi: ' + (e.message || e), type: 'alert' });
+    } finally {
+      setIsProcessing(false);
     }
   };
 

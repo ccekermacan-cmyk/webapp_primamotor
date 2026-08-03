@@ -1,6 +1,6 @@
   import React, { useState, useEffect, useMemo, useRef } from 'react';
   import { useNavigate } from 'react-router-dom';
-  import { pb } from '../lib/pocketbase';
+  import { pb, notifyLaravelApi } from '../lib/pocketbase';
   import Modal from '../components/modal';
   import { 
     Wallet, Search, Trash2, Edit, ChevronLeft, ChevronRight, ChevronUp,
@@ -986,6 +986,7 @@
       if (!selectedTx) return;
       setIsProcessing(true);
       try {
+        await notifyLaravelApi('cashflow', 'deleted', selectedTx.id);
         await pb.collection('cashflow').delete(selectedTx.id);
         setModalType(null);
         fetchCashflow();
