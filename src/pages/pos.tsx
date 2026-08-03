@@ -452,6 +452,10 @@ export default function MenuPage() {
     show: false, title: '', message: '', type: 'alert'
   });
 
+  const showAlert = (title: string, message: string) => {
+    setDialog({ show: true, title, message, type: 'alert' });
+  };
+
   const receiptRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -674,7 +678,7 @@ export default function MenuPage() {
         text: gajiHeader.note || `Gaji Periode ${gajiHeader.date}`,
         person: gajiItemList.map(i => i.person).join(', '),
         person_baru: gajiItemList[0]?.person || '',
-        operator: currentUser?.name || currentUser?.username || 'System',
+        operator: operatorName || pb.authStore.model?.username || 'System',
         created_at: gajiHeader.date ? `${gajiHeader.date} 12:00:00` : new Date().toISOString(),
       });
 
@@ -719,7 +723,7 @@ export default function MenuPage() {
               nominal_bon: item.bon_dibayar,
               note: `Potongan Bon via Slip Gaji Periode ${gajiHeader.date}`,
               ref: menuRecord.id,
-              operator: currentUser?.name || currentUser?.username || 'System'
+              operator: operatorName || pb.authStore.model?.username || 'System'
             });
           } catch (bonErr) {
             console.error("Error auto-creating bon payment record:", bonErr);
@@ -736,7 +740,7 @@ export default function MenuPage() {
               nominal_bon: item.bon_diambil,
               note: `Pinjaman Bon Baru via Slip Gaji Periode ${gajiHeader.date}`,
               ref: menuRecord.id,
-              operator: currentUser?.name || currentUser?.username || 'System'
+              operator: operatorName || pb.authStore.model?.username || 'System'
             });
           } catch (bonErr) {
             console.error("Error auto-creating new bon loan record:", bonErr);
