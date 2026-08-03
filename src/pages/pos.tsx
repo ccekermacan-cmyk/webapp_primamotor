@@ -7,10 +7,10 @@ import { createPortal } from 'react-dom';
 import { 
   Search, ShoppingCart, ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
   Trash2, Plus, Receipt, Layers, Printer, Share2, X,
-  ArrowRight, Calendar, History, Sparkles, DollarSign, Wallet, AlertTriangle, Info, Wrench, Edit, TrendingUp, TrendingDown, Filter, Zap,
+  ArrowRight, Calendar, History, Sparkles, DollarSign, Wallet, AlertTriangle, AlertCircle, Info, Wrench, Edit, TrendingUp, TrendingDown, Filter, Zap,
   // Tambahan ikon baru untuk UI yang diperbarui:
   ListOrdered, List, Grid, Users, CreditCard, ShoppingBag, FileText, EyeOff, ImagePlus, Save, CheckCircle2, Box, User, ExternalLink,
-  Package, Eye
+  Package, Eye, Upload
 } from 'lucide-react';
 
 // --- INTERFACES ---
@@ -148,6 +148,206 @@ export default function MenuPage() {
   
   const [showCheckoutReview, setShowCheckoutReview] = useState(false);
   const [showReceiptPrint, setShowReceiptPrint] = useState<any>(null);
+
+  // Helper Hitung Hari Kerja (Total Hari dlm Bulan - Jumlah Hari Minggu)
+  const calculateWorkingDays = (dateStr: string) => {
+    if (!dateStr) return 26;
+    const dateObj = new Date(dateStr);
+    if (isNaN(dateObj.getTime())) return 26;
+
+    const year = dateObj.getFullYear();
+    const month = dateObj.getMonth();
+
+    const totalDays = new Date(year, month + 1, 0).getDate();
+    let sundays = 0;
+
+    for (let day = 1; day <= totalDays; day++) {
+      if (new Date(year, month, day).getDay() === 0) {
+        sundays++;
+      }
+    }
+
+    return totalDays - sundays;
+  };
+
+  // State Khusus System Gaji (Perangkum & List Item)
+  const [isGajiFormOpen, setIsGajiFormOpen] = useState(false);
+  const [gajiHeader, setGajiHeader] = useState(() => {
+    const todayStr = new Date().toISOString().split('T')[0];
+    return {
+      date: todayStr,
+      qty: calculateWorkingDays(todayStr),
+      note: '',
+    };
+  });
+
+  interface GajiItemForm {
+    id: string;
+    person: string;
+    pokok: number;
+    tunjangan: number;
+    bonus_1: number;
+    bonus_2: number;
+    bonus_3: number;
+    bonus_4: number;
+    program: number;
+    lembur: number;
+    alfa: number;
+    setengah_hari: number;
+    sakit: number;
+    telat: number;
+    bpjs: number;
+    bon_diambil: number;
+    bon_dibayar: number;
+    netto: number;
+    note?: string;
+    files?: File[];
+    fileUrls?: string[];
+  }
+  const [gajiItemList, setGajiItemList] = useState<GajiItemForm[]>([]);
+  const [allUsers, setAllUsers] = useState<any[]>([]);
+
+  // Sub-Modal Detail Gaji Per Karyawan
+  const [isGajiItemSubModalOpen, setIsGajiItemSubModalOpen] = useState(false);
+  const [editingGajiItemIndex, setEditingGajiItemIndex] = useState<number | null>(null);
+
+  const [gajiItemSubData, setGajiItemSubData] = useState<GajiItemForm>({
+    id: '',
+    person: '',
+    pokok: 0,
+    tunjangan: 0,
+    bonus_1: 0,
+    bonus_2: 0,
+    bonus_3: 0,
+    bonus_4: 0,
+    program: 0,
+    lembur: 0,
+    alfa: 0,
+    setengah_hari: 0,
+    sakit: 0,
+    telat: 0,
+    bpjs: 0,
+    bon_diambil: 0,
+    bon_dibayar: 0,
+    netto: 0,
+    note: '',
+    files: [],
+    fileUrls: [],
+  });
+
+  // Filter Karyawan (users): kecuali level = 1 dan kecuali user yang sudah ada di batch periode yang sama
+  const availableUsers = useMemo(() => {
+    const source = allUsers.length > 0 ? allUsers : allPersons.map(p => ({
+      id: p.id,
+      username: p.id_lama || p.text_1,
+      name: p.text_1,
+      level: 10
+    }));
+
+    return source.filter(u => {
+      if (Number(u.level) === 1) return false;
+
+      const userVal = String(u.username || u.name || u.id);
+
+      if (editingGajiItemIndex !== null && String(gajiItemSubData?.person) === userVal) {
+        return true;
+      }
+
+      return !gajiItemList.some(item => String(item.person) === userVal);
+    });
+  }, [allUsers, allPersons, gajiItemList, editingGajiItemIndex, gajiItemSubData?.person]);
+
+  const [employeeActiveBon, setEmployeeActiveBon] = useState<number>(0);
+  const [isFetchingEmployeeData, setIsFetchingEmployeeData] = useState<boolean>(false);
+  const [hasLoadedPreviousSlip, setHasLoadedPreviousSlip] = useState<boolean>(false);
+
+  // Helper saat user memilih karyawan di form detail gaji:
+  // 1. Fetch Sisa Bon Karyawan dari koleksi 'bon'
+  // Helper saat user memilih karyawan di form detail gaji:
+  // 1. Fetch Sisa Bon Karyawan dari koleksi 'bon'
+  // 2. Fetch data slip gaji periode sebelumnya untuk otomatis mengisi gaji pokok, tunjangan, dll (hanya untuk data baru, bukan edit)
+  const handleSelectPerson = async (personVal: string, isEditMode: boolean = false) => {
+    setGajiItemSubData(prev => ({ ...prev, person: personVal }));
+    if (!personVal) {
+      setEmployeeActiveBon(0);
+      setHasLoadedPreviousSlip(false);
+      return;
+    }
+
+    setIsFetchingEmployeeData(true);
+    try {
+      // 1. Fetch Sisa Bon Karyawan dari collection 'bon' (aman tanpa error 400 filter)
+      let activeBon = 0;
+      try {
+        const userBonList = await pb.collection('bon').getFullList({
+          $autoCancel: false
+        });
+        
+        let totalIn = 0; // pinjam / ambil bon
+        let totalOut = 0; // bayar / pelunasan bon
+        userBonList.forEach((b: any) => {
+          const uStr = String(b.user || b.persontext || b.person || '');
+          const noteStr = String(b.note || '');
+          if (uStr === personVal || noteStr.includes(personVal)) {
+            const j = (b.jenis || '').toLowerCase();
+            const nom = Number(b.nominal || b.nominal_bon || 0);
+            if (j === 'in' || j === 'pinjam' || j === 'ambil') totalIn += nom;
+            else if (j === 'out' || j === 'bayar' || j === 'lunas') totalOut += nom;
+          }
+        });
+        activeBon = Math.max(0, totalIn - totalOut);
+      } catch (bonErr) {
+        console.warn("Notice: Fetching bon items fallback:", bonErr);
+      }
+      setEmployeeActiveBon(activeBon);
+
+      // 2. JIKA BUKAN EDIT MODE (isEditMode === false), otomatis ambil data slip gaji periode sebelumnya untuk person ini
+      if (!isEditMode && editingGajiItemIndex === null) {
+        let foundPrevious = false;
+        try {
+          const allGajiList = await pb.collection('gaji').getFullList({
+            sort: '-created_at',
+            $autoCancel: false
+          });
+
+          const lastSlip = allGajiList.find((g: any) => String(g.person) === String(personVal));
+
+          if (lastSlip) {
+            setGajiItemSubData(prev => ({
+              ...prev,
+              person: personVal,
+              pokok: Number(lastSlip.pokok) || 0,
+              tunjangan: Number(lastSlip.tunjangan) || 0,
+              bonus_1: Number(lastSlip.bonus_1) || 0,
+              bonus_2: Number(lastSlip.bonus_2) || 0,
+              bonus_3: Number(lastSlip.bonus_3) || 0,
+              bonus_4: Number(lastSlip.bonus_4) || 0,
+              program: Number(lastSlip.program) || 0,
+              lembur: Number(lastSlip.lembur) || 0,
+              bpjs: Number(lastSlip.bpjs) || 0,
+              // Pertahankan isian sementara jika sudah dimasukkan, atau 0 jika kosong
+              alfa: prev.alfa || 0,
+              setengah_hari: prev.setengah_hari || 0,
+              sakit: prev.sakit || 0,
+              telat: prev.telat || 0,
+              bon_diambil: prev.bon_diambil || 0,
+              bon_dibayar: prev.bon_dibayar || 0
+            }));
+            foundPrevious = true;
+          }
+        } catch (gajiErr) {
+          console.warn("Notice: Fetching previous gaji slip fallback:", gajiErr);
+        }
+        setHasLoadedPreviousSlip(foundPrevious);
+      }
+    } catch (err) {
+      console.error("Error fetching employee bon/slip data:", err);
+    } finally {
+      setIsFetchingEmployeeData(false);
+    }
+  };
+
+  const [historyGajiSubItems, setHistoryGajiSubItems] = useState<any[]>([]);
 
   // State Khusus File Upload Menu
   const [menuFiles, setMenuFiles] = useState<File[]>([]);
@@ -316,21 +516,247 @@ export default function MenuPage() {
     });
   };
 
-  // Helper Logika Gaji (Diadopsi dari Akun.tsx)
+  // Helper Logika Gaji & Breakdown Komponen (Lengkap & Presisi)
   const getSalaryDetails = (gaji: any) => {
-    const qty = gaji.qty || 1; // menggunakan qty dari history menu (biasanya bulan, ex: 1)
-    const pokok = Number(gaji.number_1 || 0); // Di PB, pokok/tunjangan dll mungkin disimpan di number/text, kita akan parse nilainya jika ada atau fallback ke 0.
-    const tunjangan = Number(gaji.number_2 || 0);
+    const qty = Number(gaji.qty) || 1;
+    const pokok = Number(gaji.number_1 || gaji.pokok || 0);
+    const tunjangan = Number(gaji.number_2 || gaji.tunjangan || 0);
+    const bonus_1 = Number(gaji.bonus_1 || 0);
+    const bonus_2 = Number(gaji.bonus_2 || 0);
+    const bonus_3 = Number(gaji.bonus_3 || 0);
+    const bonus_4 = Number(gaji.bonus_4 || 0);
+    const program = Number(gaji.program || 0);
+    const lembur = Number(gaji.lembur || 0);
+
     const nilaiDasar = qty > 0 ? (pokok + tunjangan) / qty : 0;
 
-    // Untuk demo integrasi di POS ini kita akan mengambil "total" (dari form input awal)
-    // Jika format JSON PB beda, bisa disesuaikan, misal PB nyimpan di note/text JSON.
-    // Tapi secara umum, field 'total' sudah merepresentasikan hasil bersih (Grand Total).
-    
-    // Fallback jika tidak ada breakdown: Total1 dianggap = total, sisanya 0.
-    const grandTotal = gaji.total || 0;
+    const t1 = {
+      pokok,
+      tunjangan,
+      bonus_1,
+      bonus_2,
+      bonus_3,
+      bonus_4,
+      program,
+      lembur,
+    };
+    const total1 = Object.values(t1).reduce((sum, val) => sum + val, 0) || Number(gaji.total || 0);
 
-    return { grandTotal };
+    const t2 = {
+      alfa: nilaiDasar * Number(gaji.alfa || 0),
+      setengah_hari: (nilaiDasar / 2) * Number(gaji.setengah_hari || 0),
+      sakit: (nilaiDasar * 0.9) * Number(gaji.sakit || 0),
+      telat: Number(gaji.telat || 0) * 1000, 
+    };
+    const total2 = Object.values(t2).reduce((sum, val) => sum + val, 0);
+
+    const t3 = {
+      bpjs: Number(gaji.bpjs || 0),
+      bon_diambil: Number(gaji.bon_diambil || 0),
+      bon_dibayar: Number(gaji.bon_dibayar || 0),
+    };
+    const total3 = Object.values(t3).reduce((sum, val) => sum + val, 0);
+
+    const grandTotal = Number(gaji.total) || (total1 - total2 - total3);
+
+    const note = gaji.text || gaji.note || 'Slip Gaji Karyawan';
+    const date = gaji.created_at || gaji.date || '';
+
+    return { t1, total1, t2, total2, t3, total3, grandTotal, qty, note, date };
+  };
+
+  // Helper Formatter Tampilan Nominal Netto (Koma/Desimal dikecilkan agar jelas)
+  const renderFormattedNetto = (amount: number, mainTextSize: string = "text-xl sm:text-2xl", textColor: string = "text-emerald-300", rpColor: string = "text-emerald-400") => {
+    const formatted = Math.round(amount).toLocaleString('id-ID');
+    return (
+      <span className="inline-flex items-baseline font-black">
+        <span className={`text-[10px] sm:text-xs font-extrabold ${rpColor} mr-1 uppercase`}>Rp</span>
+        <span className={`${mainTextSize} ${textColor}`}>{formatted}</span>
+        <span className={`text-[9px] sm:text-[11px] font-bold ${textColor} opacity-75 font-mono ml-0.5`}>,00</span>
+      </span>
+    );
+  };
+
+  // Helper File Upload untuk Detail Gaji Karyawan
+  const handleGajiSubItemFileAdd = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      const newFiles = Array.from(e.target.files);
+      const existing = gajiItemSubData.files || [];
+      const updatedFiles = [...existing, ...newFiles];
+      const previewUrls = updatedFiles.map(f => URL.createObjectURL(f));
+      setGajiItemSubData(prev => ({
+        ...prev,
+        files: updatedFiles,
+        fileUrls: previewUrls
+      }));
+    }
+  };
+
+  const handleRemoveGajiSubItemFile = (index: number) => {
+    const updatedFiles = (gajiItemSubData.files || []).filter((_, i) => i !== index);
+    const previewUrls = updatedFiles.map(f => URL.createObjectURL(f));
+    setGajiItemSubData(prev => ({
+      ...prev,
+      files: updatedFiles,
+      fileUrls: previewUrls
+    }));
+  };
+
+  // Helper Kalkulasi Netto Item Karyawan
+  const calculateItemNetto = (item: GajiItemForm, headerQty: number) => {
+    const qty = Math.max(1, Number(headerQty) || 1);
+    const pokok = Number(item.pokok) || 0;
+    const tunjangan = Number(item.tunjangan) || 0;
+    const nilaiDasar = qty > 0 ? (pokok + tunjangan) / qty : 0;
+
+    const t1 = pokok + tunjangan + Number(item.bonus_1) + Number(item.bonus_2) + Number(item.bonus_3) + Number(item.bonus_4) + Number(item.program) + Number(item.lembur);
+    const t2 = (nilaiDasar * Number(item.alfa)) + ((nilaiDasar / 2) * Number(item.setengah_hari)) + (nilaiDasar * 0.9 * Number(item.sakit)) + (Number(item.telat) * 1000);
+    const t3 = Number(item.bpjs) + Number(item.bon_diambil) + Number(item.bon_dibayar);
+
+    return t1 - t2 - t3;
+  };
+
+  // Tambah/Edit Item Penerima Gaji dari Sub-Modal ke List
+  const handleSaveSubGajiItem = () => {
+    if (!gajiItemSubData.person) {
+      showAlert('Perhatian', 'Pilih Karyawan penerima gaji terlebih dahulu!');
+      return;
+    }
+    const netto = calculateItemNetto(gajiItemSubData, gajiHeader.qty);
+    const itemToSave = { ...gajiItemSubData, netto };
+
+    if (editingGajiItemIndex !== null) {
+      const updated = [...gajiItemList];
+      updated[editingGajiItemIndex] = itemToSave;
+      setGajiItemList(updated);
+    } else {
+      setGajiItemList([...gajiItemList, { ...itemToSave, id: 'tmp_' + Date.now() }]);
+    }
+
+    setIsGajiItemSubModalOpen(false);
+    setEditingGajiItemIndex(null);
+    setGajiItemSubData({
+      id: '', person: '', pokok: 0, tunjangan: 0, bonus_1: 0, bonus_2: 0, bonus_3: 0, bonus_4: 0,
+      program: 0, lembur: 0, alfa: 0, setengah_hari: 0, sakit: 0, telat: 0, bpjs: 0, bon_diambil: 0, bon_dibayar: 0, netto: 0,
+      note: '', files: [], fileUrls: []
+    });
+  };
+
+  const handleEditGajiItem = (index: number) => {
+    setEditingGajiItemIndex(index);
+    const item = gajiItemList[index];
+    setGajiItemSubData({ ...item });
+    setIsGajiItemSubModalOpen(true);
+    handleSelectPerson(item.person, true);
+  };
+
+  const handleDeleteGajiItem = (index: number) => {
+    setGajiItemList(gajiItemList.filter((_, i) => i !== index));
+  };
+
+  // Helper Simpan Seluruh Batch Slip Gaji (Perangkum + Children)
+  const handleSaveGaji = async () => {
+    if (gajiItemList.length === 0) {
+      showAlert('Perhatian', 'Tambahkan minimal 1 Penerima Gaji ke dalam daftar!');
+      return;
+    }
+    setIsProcessing(true);
+    try {
+      const grandTotal = gajiItemList.reduce((sum, item) => sum + item.netto, 0);
+
+      // 1. Simpan Perangkum Utama ke collection 'menu'
+      const menuRecord = await pb.collection('menu').create({
+        jenis: 'gaji',
+        status: 'lunas',
+        total: grandTotal,
+        dibayar: grandTotal,
+        qty: gajiHeader.qty,
+        text: gajiHeader.note || `Gaji Periode ${gajiHeader.date}`,
+        person: gajiItemList.map(i => i.person).join(', '),
+        person_baru: gajiItemList[0]?.person || '',
+        operator: currentUser?.name || currentUser?.username || 'System',
+        created_at: gajiHeader.date ? `${gajiHeader.date} 12:00:00` : new Date().toISOString(),
+      });
+
+      // 2. Simpan setiap rincian karyawan ke collection 'gaji' (dengan FormData jika ada file/note)
+      for (const item of gajiItemList) {
+        const formData = new FormData();
+        formData.append('ref', menuRecord.id);
+        formData.append('person', item.person);
+        formData.append('pokok', String(item.pokok || 0));
+        formData.append('tunjangan', String(item.tunjangan || 0));
+        formData.append('bonus_1', String(item.bonus_1 || 0));
+        formData.append('bonus_2', String(item.bonus_2 || 0));
+        formData.append('bonus_3', String(item.bonus_3 || 0));
+        formData.append('bonus_4', String(item.bonus_4 || 0));
+        formData.append('program', String(item.program || 0));
+        formData.append('lembur', String(item.lembur || 0));
+        formData.append('alfa', String(item.alfa || 0));
+        formData.append('setengah_hari', String(item.setengah_hari || 0));
+        formData.append('sakit', String(item.sakit || 0));
+        formData.append('telat', String(item.telat || 0));
+        formData.append('bpjs', String(item.bpjs || 0));
+        formData.append('bon_diambil', String(item.bon_diambil || 0));
+        formData.append('bon_dibayar', String(item.bon_dibayar || 0));
+        if (item.note) formData.append('note', item.note);
+        if (gajiHeader.date) formData.append('created_at', `${gajiHeader.date} 12:00:00`);
+
+        if (item.files && item.files.length > 0) {
+          item.files.forEach(file => {
+            formData.append('file', file);
+          });
+        }
+
+        await pb.collection('gaji').create(formData);
+
+        // 2a. Otomatis buat record di collection 'bon' jika ada bon_dibayar (> 0) (Pemotongan / Pelunasan Bon)
+        if (item.bon_dibayar && item.bon_dibayar > 0) {
+          try {
+            await pb.collection('bon').create({
+              persontext: item.person,
+              jenis: 'out', // 'out' = pelunasan / pemotongan bon
+              nominal: item.bon_dibayar,
+              nominal_bon: item.bon_dibayar,
+              note: `Potongan Bon via Slip Gaji Periode ${gajiHeader.date}`,
+              ref: menuRecord.id,
+              operator: currentUser?.name || currentUser?.username || 'System'
+            });
+          } catch (bonErr) {
+            console.error("Error auto-creating bon payment record:", bonErr);
+          }
+        }
+
+        // 2b. Otomatis buat record di collection 'bon' jika ada bon_diambil (> 0) (Pinjaman Bon Baru)
+        if (item.bon_diambil && item.bon_diambil > 0) {
+          try {
+            await pb.collection('bon').create({
+              persontext: item.person,
+              jenis: 'in', // 'in' = pinjam / ambil bon baru
+              nominal: item.bon_diambil,
+              nominal_bon: item.bon_diambil,
+              note: `Pinjaman Bon Baru via Slip Gaji Periode ${gajiHeader.date}`,
+              ref: menuRecord.id,
+              operator: currentUser?.name || currentUser?.username || 'System'
+            });
+          } catch (bonErr) {
+            console.error("Error auto-creating new bon loan record:", bonErr);
+          }
+        }
+      }
+
+      notifyLaravelApi('menu', 'created', menuRecord.id);
+
+      showAlert('Berhasil 🎉', `Slip Gaji Karyawan (${gajiItemList.length} Penerima) berhasil disimpan!`);
+      setIsGajiFormOpen(false);
+      setGajiItemList([]);
+      setGajiHeader({ date: new Date().toISOString().split('T')[0], qty: 1, note: '' });
+      fetchData();
+    } catch (err: any) {
+      console.error("Gagal simpan gaji:", err);
+      showAlert('Error', 'Gagal menyimpan Slip Gaji: ' + (err.message || 'Error server'));
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   // --- HELPER WARNA TEMA DINAMIS ---
@@ -370,15 +796,19 @@ export default function MenuPage() {
   // --- 7. LOAD SUB-DETAILS (dipindah ke atas) ---
   const loadHistorySubDetails = async (menuItem: HistoryMenu) => {
     setShowDetailHistory(menuItem);
-    setHistoryItems([]); setHistoryCashflow([]); setHistoryOngkos([]);
+    setHistoryItems([]); setHistoryCashflow([]); setHistoryOngkos([]); setHistoryGajiSubItems([]);
     try {
-      // expand: 'item_baru' untuk menarik semua detail produk yang berelasi
-      const logs = await pb.collection('log_stock').getFullList<LogStockDetail>({ filter: `ref_baru = "${menuItem.id}"`, expand: 'item_baru', $autoCancel: false });
-      setHistoryItems(logs);
-     const cfs = await pb.collection('cashflow').getFullList<CashflowDetail>({ filter: `ref_baru = "${menuItem.id}"`, $autoCancel: false });
-      setHistoryCashflow(cfs);
-      const fees = await pb.collection('ongkos').getFullList<OngkosDetail>({ filter: `ref_baru = "${menuItem.id}"`, $autoCancel: false });
-      setHistoryOngkos(fees);
+      if (menuItem.jenis?.toLowerCase().includes('gaji')) {
+        const gajiRecords = await pb.collection('gaji').getFullList({ filter: `ref = "${menuItem.id}"`, $autoCancel: false });
+        setHistoryGajiSubItems(gajiRecords);
+      } else {
+        const logs = await pb.collection('log_stock').getFullList<LogStockDetail>({ filter: `ref_baru = "${menuItem.id}"`, expand: 'item_baru', $autoCancel: false });
+        setHistoryItems(logs);
+        const cfs = await pb.collection('cashflow').getFullList<CashflowDetail>({ filter: `ref_baru = "${menuItem.id}"`, $autoCancel: false });
+        setHistoryCashflow(cfs);
+        const fees = await pb.collection('ongkos').getFullList<OngkosDetail>({ filter: `ref_baru = "${menuItem.id}"`, $autoCancel: false });
+        setHistoryOngkos(fees);
+      }
     } catch (e) { console.log("Detail sub-item tidak ditemukan."); }
   };
 
@@ -432,6 +862,12 @@ export default function MenuPage() {
             $autoCancel: false
           });
           setMechanics(mechs);
+
+          const usersList = await pb.collection('user').getFullList({
+            sort: 'name',
+            $autoCancel: false
+          });
+          setAllUsers(usersList);
         } catch (e) { console.error("Error Fetch Init Data:", e); }
       };
       
@@ -1942,9 +2378,29 @@ export default function MenuPage() {
                 </div>
               )}
 
-              {/* LIST GAJI */}
+              {/* LIST GAJI & BANNER PEMBUATAN GAJI */}
               {selectedMenu && selectedMenu.toLowerCase().includes('gaji') && (
-                groupedHistory && Object.keys(groupedHistory).length === 0 ? (
+                <div className="space-y-6">
+                  {/* TOP ACTION BANNER UNTUK BUAT SLIP GAJI */}
+                  <div className="p-5 bg-gradient-to-r from-slate-900 via-teal-950 to-emerald-950 rounded-3xl text-white shadow-xl flex flex-col sm:flex-row items-center justify-between gap-4 border border-emerald-500/30">
+                    <div className="flex items-center gap-3.5">
+                      <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center shrink-0">
+                        <CreditCard size={24} className="text-emerald-400" />
+                      </div>
+                      <div>
+                        <h3 className="text-base sm:text-lg font-black text-white uppercase tracking-wider">Kelola Slip Gaji Karyawan</h3>
+                        <p className="text-xs text-emerald-200/80">Buat slip gaji baru, tetapkan periode & rincian penambahan/pengurangan gaji.</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setIsGajiFormOpen(true)}
+                      className="w-full sm:w-auto px-5 py-3 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white font-black text-xs uppercase tracking-wider rounded-2xl shadow-lg shadow-emerald-500/30 flex items-center justify-center gap-2 active:scale-95 transition-all shrink-0"
+                    >
+                      <Plus size={18} /> Buat Slip Gaji Baru
+                    </button>
+                  </div>
+
+                  {groupedHistory && Object.keys(groupedHistory).length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-20 opacity-50">
                     <div className="w-20 h-20 bg-teal-50 rounded-full flex items-center justify-center mb-4">
                       <Calendar size={32} className="text-teal-500" />
@@ -2012,7 +2468,8 @@ export default function MenuPage() {
                       </div>
                     </div>
                   ))
-                )
+                )}
+                </div>
               )}
             </div>
           </>
@@ -2029,20 +2486,30 @@ export default function MenuPage() {
         </div>
       </div>
 
-      {/* ===== FLOATING CART BUTTON (SINKRON DENGAN TEMA) ===== */}
-      <button 
-        onClick={() => setIsCartModalOpen(true)}
-        className={`fixed bottom-24 right-6 md:bottom-30 md:right-10 z-50 p-4 md:p-5 ${activeTheme.main} text-white rounded-full shadow-2xl shadow-${activeTheme.main.replace('bg-', '')}/50 flex items-center justify-center hover:scale-110 active:scale-95 transition-all duration-300 border-2 border-white`}
-      >
-        <div className="relative">
-          <ShoppingCart size={28} />
-          {totalQtyKeranjang > 0 && (
-            <span className="absolute -top-3 -right-4 bg-rose-500 text-white text-[11px] font-black min-w-[24px] h-6 px-1 flex items-center justify-center rounded-full border-2 border-white animate-bounce shadow-lg">
-              {totalQtyKeranjang}
-            </span>
-          )}
-        </div>
-      </button>
+      {/* ===== FLOATING BUTTON (DITUKAR GAJI JIKA MENU GAJI AKTIF) ===== */}
+      {!selectedMenu.toLowerCase().includes('gaji') ? (
+        <button 
+          onClick={() => setIsCartModalOpen(true)}
+          className={`fixed bottom-24 right-6 md:bottom-30 md:right-10 z-50 p-4 md:p-5 ${activeTheme.main} text-white rounded-full shadow-2xl shadow-${activeTheme.main.replace('bg-', '')}/50 flex items-center justify-center hover:scale-110 active:scale-95 transition-all duration-300 border-2 border-white`}
+        >
+          <div className="relative">
+            <ShoppingCart size={28} />
+            {totalQtyKeranjang > 0 && (
+              <span className="absolute -top-3 -right-4 bg-rose-500 text-white text-[11px] font-black min-w-[24px] h-6 px-1 flex items-center justify-center rounded-full border-2 border-white animate-bounce shadow-lg">
+                {totalQtyKeranjang}
+              </span>
+            )}
+          </div>
+        </button>
+      ) : (
+        <button 
+          onClick={() => setIsGajiFormOpen(true)}
+          className="fixed bottom-24 right-6 md:bottom-30 md:right-10 z-50 px-5 py-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-full shadow-2xl shadow-emerald-600/50 flex items-center gap-2 hover:scale-105 active:scale-95 transition-all duration-300 border-2 border-white font-black text-xs uppercase tracking-wider"
+        >
+          <Plus size={22} />
+          <span className="hidden sm:inline">Buat Slip Gaji</span>
+        </button>
+      )}
 
       {/* ===== MODAL KERANJANG (POPUP) – DYNAMIC THEME ===== */}
       <Modal
@@ -2934,30 +3401,129 @@ export default function MenuPage() {
               {/* ========== TAB DETAIL ========== */}
               {activeTab === 'detail' && (
                 <>
-                  {/* Header besar (Rombak Khusus Gaji) */}
-                  {showDetailHistory.jenis.toLowerCase().includes('gaji') ? (
-                    <div className="bg-slate-900 p-5 sm:p-6 md:p-8 rounded-[2rem] text-center text-white shadow-xl shadow-slate-900/20 relative overflow-hidden">
-                      <div className="absolute -top-10 -right-10 w-32 h-32 bg-white/5 rounded-full blur-2xl pointer-events-none" />
-                      <span className="text-[10px] font-black uppercase tracking-widest text-emerald-400 mb-1 block">Total Bersih (Slip Gaji)</span>
-                      <h3 className="text-3xl sm:text-4xl md:text-5xl font-black tracking-tighter text-white drop-shadow-md">
-                        Rp {(showDetailHistory?.total || 0).toLocaleString('id-ID')}
-                      </h3>
-                      
-                      <div className="mt-6 flex flex-col items-center gap-1.5">
-                        <h4 className="font-black text-white/90 text-lg uppercase tracking-wider">
-                          {showDetailHistory.person}
-                        </h4>
-                        <div className="flex justify-center gap-3">
-                          <span className="text-[10px] font-black text-white/60 bg-white/10 px-3 py-1.5 rounded-lg flex items-center gap-1.5">
-                            <User size={12}/> Opr: {showDetailHistory.operator || 'System'}
+                  {/* Header besar (Rombak Khusus Gaji - Emerald/Teal Theme) */}
+                  {showDetailHistory.jenis.toLowerCase().includes('gaji') ? (() => {
+                    const sal = getSalaryDetails(showDetailHistory);
+                    const grandTotalVal = showDetailHistory.total || sal.grandTotal;
+
+                    return (
+                      <div className="space-y-5">
+                        {/* BANNER UTAMA HASIL PERANGKUM BATCH GAJI */}
+                        <div className="bg-gradient-to-br from-slate-900 via-teal-950 to-emerald-950 p-6 sm:p-8 rounded-[2rem] text-center text-white shadow-2xl relative overflow-hidden border border-emerald-500/30">
+                          <div className="absolute -top-12 -right-12 w-48 h-48 bg-emerald-500/20 rounded-full blur-3xl pointer-events-none" />
+                          <span className="text-[10px] font-black uppercase tracking-widest text-emerald-400 mb-1 block">
+                            PERANGKUM GAJI BATCH (TOTAL NETTO)
                           </span>
-                          <span className="text-[10px] font-black text-white/60 bg-white/10 px-3 py-1.5 rounded-lg flex items-center gap-1.5">
-                            <Calendar size={12}/> {new Date(showDetailHistory.created_at).toLocaleDateString('id-ID', { month: 'long', year: 'numeric' })}
-                          </span>
+                          <h3 className="text-3xl sm:text-4xl md:text-5xl font-black tracking-tighter text-emerald-300 drop-shadow-md">
+                            Rp {grandTotalVal.toLocaleString('id-ID')}
+                          </h3>
+                          
+                          <div className="mt-5 flex flex-col items-center gap-2">
+                            <h4 className="font-black text-white text-base sm:text-lg uppercase tracking-wider bg-white/10 px-4 py-1.5 rounded-2xl backdrop-blur-md border border-white/10">
+                              📋 {showDetailHistory.text || 'Gaji Periode'}
+                            </h4>
+                            <div className="flex flex-wrap justify-center gap-2 mt-1">
+                              <span className="text-[10px] font-black text-emerald-200 bg-emerald-950/60 px-3 py-1 rounded-xl flex items-center gap-1.5 border border-emerald-500/30">
+                                <User size={12}/> Opr: {showDetailHistory.operator || 'System'}
+                              </span>
+                              <span className="text-[10px] font-black text-emerald-200 bg-emerald-950/60 px-3 py-1 rounded-xl flex items-center gap-1.5 border border-emerald-500/30">
+                                <Calendar size={12}/> {formatLocalDateTime ? formatLocalDateTime(sal.date) : sal.date}
+                              </span>
+                              <span className="text-[10px] font-black text-amber-300 bg-amber-950/60 px-3 py-1 rounded-xl flex items-center gap-1.5 border border-amber-500/30">
+                                Qty: {showDetailHistory.qty || 1} Bulan
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* LIST RINCIAN SLIP GAJI PER KARYAWAN */}
+                        <div className="space-y-4">
+                          <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                            <Users size={16} className="text-emerald-600" /> Rincian Slip Gaji Karyawan ({historyGajiSubItems.length > 0 ? historyGajiSubItems.length : 1} Person)
+                          </h4>
+
+                          {historyGajiSubItems.length > 0 ? (
+                            historyGajiSubItems.map((gRec, gIdx) => {
+                              const gSal = getSalaryDetails({ ...gRec, qty: showDetailHistory.qty || gRec.qty });
+                              return (
+                                <div key={gRec.id || gIdx} className="p-5 bg-white border-2 border-emerald-100/80 rounded-2xl space-y-4 shadow-sm">
+                                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-emerald-100 pb-3">
+                                    <div className="flex items-center gap-2">
+                                      <span className="px-2.5 py-0.5 bg-emerald-100 text-emerald-800 rounded-lg text-[10px] font-black">
+                                        #{gIdx + 1}
+                                      </span>
+                                      <h5 className="font-extrabold text-slate-900 text-base uppercase">👤 {gRec.person}</h5>
+                                    </div>
+                                    <div className="text-emerald-700 font-black text-base">
+                                      Netto: Rp {gSal.grandTotal.toLocaleString('id-ID')}
+                                    </div>
+                                  </div>
+
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                                    {/* Card Pendapatan */}
+                                    <div className="p-3.5 bg-emerald-50/70 border border-emerald-200/80 rounded-xl space-y-2">
+                                      <div className="flex justify-between items-center border-b border-emerald-200/60 pb-1.5">
+                                        <span className="text-[11px] font-black text-emerald-900 uppercase">Pendapatan (+)</span>
+                                        <span className="text-xs font-black text-emerald-700">Rp {gSal.total1.toLocaleString('id-ID')}</span>
+                                      </div>
+                                      <div className="space-y-1 text-[11px]">
+                                        <div className="flex justify-between text-slate-600"><span>Pokok:</span><strong className="text-slate-800">Rp {(gSal.t1.pokok || 0).toLocaleString('id-ID')}</strong></div>
+                                        <div className="flex justify-between text-slate-600"><span>Tunjangan:</span><strong className="text-slate-800">Rp {(gSal.t1.tunjangan || 0).toLocaleString('id-ID')}</strong></div>
+                                        {gSal.t1.bonus_1 > 0 && <div className="flex justify-between text-slate-600"><span>Bonus 1:</span><strong className="text-slate-800">Rp {gSal.t1.bonus_1.toLocaleString('id-ID')}</strong></div>}
+                                        {gSal.t1.bonus_2 > 0 && <div className="flex justify-between text-slate-600"><span>Bonus 2:</span><strong className="text-slate-800">Rp {gSal.t1.bonus_2.toLocaleString('id-ID')}</strong></div>}
+                                        {gSal.t1.lembur > 0 && <div className="flex justify-between text-slate-600"><span>Lembur:</span><strong className="text-slate-800">Rp {gSal.t1.lembur.toLocaleString('id-ID')}</strong></div>}
+                                      </div>
+                                    </div>
+
+                                    {/* Card Potongan */}
+                                    <div className="p-3.5 bg-rose-50/70 border border-rose-200/80 rounded-xl space-y-2">
+                                      <div className="flex justify-between items-center border-b border-rose-200/60 pb-1.5">
+                                        <span className="text-[11px] font-black text-rose-900 uppercase">Potongan (-)</span>
+                                        <span className="text-xs font-black text-rose-700">Rp {(gSal.total2 + gSal.total3).toLocaleString('id-ID')}</span>
+                                      </div>
+                                      <div className="space-y-1 text-[11px]">
+                                        <div className="flex justify-between text-slate-600"><span>Potongan Absensi:</span><strong className="text-rose-700">Rp {gSal.total2.toLocaleString('id-ID')}</strong></div>
+                                        <div className="flex justify-between text-slate-600"><span>Potongan BPJS / Bon:</span><strong className="text-rose-700">Rp {gSal.total3.toLocaleString('id-ID')}</strong></div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })
+                          ) : (
+                            /* Legacy / Single view fallback */
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div className="p-4 bg-emerald-50/80 border border-emerald-200 rounded-2xl space-y-3">
+                                <div className="flex justify-between items-center border-b border-emerald-200 pb-2">
+                                  <span className="text-xs font-black text-emerald-900 uppercase tracking-wider flex items-center gap-1">
+                                    <Plus size={14} className="text-emerald-600" /> Total Pendapatan (+)
+                                  </span>
+                                  <span className="text-sm font-black text-emerald-700">Rp {sal.total1.toLocaleString('id-ID')}</span>
+                                </div>
+                                <div className="space-y-1.5 text-xs">
+                                  <div className="flex justify-between text-slate-600"><span>Gaji Pokok:</span><strong className="text-slate-800">Rp {(sal.t1.pokok || 0).toLocaleString('id-ID')}</strong></div>
+                                  <div className="flex justify-between text-slate-600"><span>Tunjangan:</span><strong className="text-slate-800">Rp {(sal.t1.tunjangan || 0).toLocaleString('id-ID')}</strong></div>
+                                </div>
+                              </div>
+
+                              <div className="p-4 bg-rose-50/80 border border-rose-200 rounded-2xl space-y-3">
+                                <div className="flex justify-between items-center border-b border-rose-200 pb-2">
+                                  <span className="text-xs font-black text-rose-900 uppercase tracking-wider flex items-center gap-1">
+                                    <AlertCircle size={14} className="text-rose-600" /> Total Potongan (-)
+                                  </span>
+                                  <span className="text-sm font-black text-rose-700">Rp {(sal.total2 + sal.total3).toLocaleString('id-ID')}</span>
+                                </div>
+                                <div className="space-y-1.5 text-xs">
+                                  <div className="flex justify-between text-slate-600"><span>Absensi:</span><strong className="text-rose-700">Rp {sal.total2.toLocaleString('id-ID')}</strong></div>
+                                  <div className="flex justify-between text-slate-600"><span>BPJS/Bon:</span><strong className="text-rose-700">Rp {sal.total3.toLocaleString('id-ID')}</strong></div>
+                                </div>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       </div>
-                    </div>
-                  ) : (
+                    );
+                  })() : (
                     <div className={`p-6 md:p-8 rounded-[2rem] text-center text-white relative shadow-xl overflow-hidden ${getThemeConfig(showDetailHistory.jenis).main}`}>
                       <div className="absolute top-0 right-0 w-40 h-40 bg-white rounded-full blur-3xl opacity-20 pointer-events-none" />
                       <span className="text-[11px] font-black bg-black/20 px-3 py-1.5 rounded-full uppercase tracking-widest backdrop-blur-md relative z-10">
@@ -3584,6 +4150,566 @@ export default function MenuPage() {
           </button>
         </div>
       )}
+
+      {/* ===== 1. MODAL FORM PERANGKUM GAJI UTAMA (HEADER + DAFTAR LIST KARYAWAN) ===== */}
+      <Modal
+        isOpen={isGajiFormOpen}
+        onClose={() => setIsGajiFormOpen(false)}
+        title="Slip Gaji"
+      >
+        {(() => {
+          const grandTotalBatch = gajiItemList.reduce((sum, item) => sum + item.netto, 0);
+
+          return (
+            <div className="flex flex-col max-h-[85vh] bg-white rounded-3xl overflow-hidden">
+              {/* HEADER MODAL */}
+              <div className="p-4 sm:p-5 bg-gradient-to-r from-slate-900 via-teal-950 to-emerald-950 text-white shrink-0 border-b border-emerald-500/30 flex items-center justify-between gap-3">
+                <div>
+                  <span className="text-[10px] font-black uppercase tracking-widest text-emerald-400 flex items-center gap-1.5">
+                    <CreditCard size={13} /> Gaji Batch Periode
+                  </span>
+                  <h3 className="text-lg sm:text-xl font-black text-white mt-0.5">Ringkasan Slip Gaji</h3>
+                </div>
+                <span className="px-3 py-1 bg-emerald-500/20 text-emerald-300 rounded-xl text-[10px] font-black border border-emerald-500/30 shrink-0">
+                  {gajiItemList.length} Karyawan
+                </span>
+              </div>
+
+              {/* BODY SCROLLABLE */}
+              <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-5 custom-scrollbar">
+                {/* SECTION HEADER PERANGKUM: PERIODE, QTY, NOTE */}
+                <div className="p-4 bg-amber-50/70 border-2 border-amber-200/80 rounded-2xl space-y-3">
+                  <h4 className="text-xs font-black text-amber-900 uppercase tracking-wider flex items-center gap-1.5">
+                    <Calendar size={15} className="text-amber-600" /> Header Periode Gaji
+                  </h4>
+                  
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {/* Tanggal Periode Gaji */}
+                    <div>
+                      <label className="text-[10px] font-black text-slate-700 uppercase tracking-wider block mb-1">
+                        Tanggal Periode *
+                      </label>
+                      <input
+                        type="date"
+                        value={gajiHeader.date}
+                        onChange={e => {
+                          const newDate = e.target.value;
+                          const autoQty = calculateWorkingDays(newDate);
+                          setGajiHeader({ ...gajiHeader, date: newDate, qty: autoQty });
+                        }}
+                        className="w-full p-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:ring-2 focus:ring-emerald-500 outline-none"
+                      />
+                    </div>
+
+                    {/* Qty Periode */}
+                    <div>
+                      <label className="text-[10px] font-black text-slate-700 uppercase tracking-wider block mb-1">
+                        Qty Pembantu (Hari Kerja / Bulan) *
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={gajiHeader.qty}
+                        onChange={e => setGajiHeader({ ...gajiHeader, qty: Math.max(1, Number(e.target.value)) })}
+                        className="w-full p-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:ring-2 focus:ring-emerald-500 outline-none"
+                        placeholder="26"
+                      />
+                      <span className="text-[9px] font-bold text-emerald-700 block mt-1">
+                        💡 Otomatis: {calculateWorkingDays(gajiHeader.date)} hari kerja (total hari - hari Minggu). Dapat diubah manual.
+                      </span>
+                    </div>
+
+                    {/* Note / Keterangan Periode */}
+                    <div>
+                      <label className="text-[10px] font-black text-slate-700 uppercase tracking-wider block mb-1">
+                        Catatan Periode Gaji
+                      </label>
+                      <input
+                        type="text"
+                        value={gajiHeader.note}
+                        onChange={e => setGajiHeader({ ...gajiHeader, note: e.target.value })}
+                        className="w-full p-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:ring-2 focus:ring-emerald-500 outline-none"
+                        placeholder="Contoh: Gaji Periode 1 - 15 Agustus 2026"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* SECTION DAFTAR KARYAWAN PENERIMA GAJI */}
+                <div className="space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-200">
+                    <div>
+                      <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                        <Users size={15} className="text-emerald-600" /> Daftar Penerima Gaji ({gajiItemList.length} Karyawan)
+                      </h4>
+                      <p className="text-[10px] text-slate-500 mt-0.5">Tambahkan rincian gaji karyawan dari koleksi users.</p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setEditingGajiItemIndex(null);
+                        setGajiItemSubData({
+                          id: '', person: '', pokok: 0, tunjangan: 0, bonus_1: 0, bonus_2: 0, bonus_3: 0, bonus_4: 0,
+                          program: 0, lembur: 0, alfa: 0, setengah_hari: 0, sakit: 0, telat: 0, bpjs: 0, bon_diambil: 0, bon_dibayar: 0, netto: 0
+                        });
+                        setIsGajiItemSubModalOpen(true);
+                      }}
+                      className="px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-md flex items-center justify-center gap-1.5 active:scale-95 transition-all shrink-0"
+                    >
+                      <Plus size={15} /> + Tambah Karyawan
+                    </button>
+                  </div>
+
+                  {/* LIST CARDS KARYAWAN */}
+                  {gajiItemList.length === 0 ? (
+                    <div className="text-center py-10 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200 text-slate-400 font-bold text-xs">
+                      Belum ada penerima gaji ditambahkan. Klik <strong className="text-emerald-600">+ Tambah Karyawan</strong> di atas.
+                    </div>
+                  ) : (
+                    <div className="space-y-2.5">
+                      {gajiItemList.map((item, idx) => (
+                        <div key={item.id || idx} className="p-3.5 bg-white border-2 border-emerald-100 hover:border-emerald-300 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs transition-all">
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-lg text-[10px] font-black">
+                                #{idx + 1}
+                              </span>
+                              <h5 className="font-extrabold text-slate-800 text-sm uppercase">👤 {item.person}</h5>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-500 font-medium">
+                              <span>Pendapatan: <strong className="text-emerald-600">Rp {(item.pokok + item.tunjangan + item.bonus_1 + item.bonus_2 + item.bonus_3 + item.bonus_4 + item.program + item.lembur).toLocaleString('id-ID')}</strong></span>
+                              <span>|</span>
+                              <span>Netto: {renderFormattedNetto(item.netto, "text-xs sm:text-sm", "text-emerald-700", "text-emerald-700")}</span>
+                              {item.note && <span className="bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded text-[10px] font-bold">📝 Note</span>}
+                              {item.files && item.files.length > 0 && <span className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded text-[10px] font-bold">📎 {item.files.length} File</span>}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 self-end sm:self-auto">
+                            <button
+                              onClick={() => handleEditGajiItem(idx)}
+                              className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-black text-[11px] rounded-lg uppercase transition-colors flex items-center gap-1"
+                            >
+                              <Edit size={13} /> Edit
+                            </button>
+                            <button
+                              onClick={() => handleDeleteGajiItem(idx)}
+                              className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 font-black text-[11px] rounded-lg uppercase transition-colors flex items-center gap-1 border border-rose-200"
+                            >
+                              <Trash2 size={13} /> Hapus
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* FOOTER LIVE SUMMARY & ACTION */}
+              <div className="p-4 sm:p-5 bg-slate-900 text-white shrink-0 flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-slate-800">
+                <div>
+                  <p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">Total Gaji Batch</p>
+                  <div>
+                    {renderFormattedNetto(grandTotalBatch, "text-xl sm:text-2xl", "text-emerald-300", "text-emerald-400")}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2.5 w-full sm:w-auto">
+                  <button
+                    onClick={() => setIsGajiFormOpen(false)}
+                    className="flex-1 sm:flex-none px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-white text-xs font-black rounded-xl uppercase tracking-wider transition-colors"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    onClick={handleSaveGaji}
+                    disabled={isProcessing}
+                    className="flex-1 sm:flex-none px-6 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-white text-xs font-black rounded-xl uppercase tracking-wider shadow-lg flex items-center justify-center gap-1.5 transition-all"
+                  >
+                    {isProcessing ? 'Menyimpan...' : 'Simpan Semua Slip Gaji'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+      </Modal>
+
+      {/* ===== 2. POP-UP SUB-MODAL FORM DETAIL GAJI KARYAWAN (3-PART LAYOUT SEPERTI Halaman AKUN) ===== */}
+      <Modal
+        isOpen={isGajiItemSubModalOpen}
+        onClose={() => setIsGajiItemSubModalOpen(false)}
+        title="Detail Gaji Karyawan"
+      >
+        {(() => {
+          const calcNettoItem = calculateItemNetto(gajiItemSubData, gajiHeader.qty);
+
+          return (
+            <div className="flex flex-col max-h-[85vh] bg-white rounded-3xl overflow-hidden">
+              {/* HEADER SUB-MODAL */}
+              <div className="p-4 sm:p-5 bg-gradient-to-r from-slate-900 via-teal-950 to-emerald-950 text-white shrink-0 border-b border-emerald-500/30 flex items-center justify-between gap-3">
+                <div>
+                  <span className="text-[10px] font-black uppercase tracking-widest text-emerald-400 flex items-center gap-1.5">
+                    <User size={13} /> Detail Karyawan
+                  </span>
+                  <h3 className="text-base sm:text-lg font-black text-white mt-0.5">
+                    {editingGajiItemIndex !== null ? 'Edit Slip Karyawan' : 'Tambah Slip Karyawan'}
+                  </h3>
+                </div>
+                <span className="px-3 py-1 bg-amber-500/20 text-amber-300 rounded-xl text-[10px] font-black border border-amber-500/30 shrink-0">
+                  Pembagi Qty: {gajiHeader.qty} Bln
+                </span>
+              </div>
+
+              {/* BODY SCROLLABLE */}
+              <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-5 custom-scrollbar">
+                {/* PILIH KARYAWAN (USER COLLECTION) */}
+                <div className="p-4 bg-emerald-50/60 border border-emerald-200/80 rounded-2xl space-y-1">
+                  <label className="text-[11px] font-black text-emerald-900 uppercase tracking-wider block">
+                    Penerima Gaji (Karyawan) *
+                  </label>
+                  <select
+                    value={gajiItemSubData.person}
+                    onChange={e => handleSelectPerson(e.target.value)}
+                    className="w-full p-3 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:ring-2 focus:ring-emerald-500 outline-none"
+                  >
+                    <option value="">-- Pilih Karyawan Penerima --</option>
+                    {availableUsers.map(u => {
+                      const val = u.username || u.name || u.id;
+                      const label = u.name ? `${u.name} (@${u.username || u.id})` : (u.username || u.id);
+                      return (
+                        <option key={u.id} value={val}>
+                          👤 {label} {u.level ? `[Level ${u.level}]` : ''}
+                        </option>
+                      );
+                    })}
+                  </select>
+                  {availableUsers.length === 0 && (
+                    <p className="text-[10px] text-amber-600 font-bold mt-1">
+                      ⚠️ Semua karyawan (users) selain level 1 sudah dimasukkan ke dalam daftar periode ini.
+                    </p>
+                  )}
+                </div>
+
+                {/* Sembunyikan field di bawah jika Karyawan Belum Dipilih */}
+                {!gajiItemSubData.person ? (
+                  <div className="p-8 text-center bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl text-slate-400 font-bold text-xs space-y-2">
+                    <User size={32} className="mx-auto text-slate-300 animate-pulse" />
+                    <p className="text-slate-700 font-black text-sm">Pilih Karyawan Penerima Gaji</p>
+                    <p className="text-[11px] text-slate-400 font-medium max-w-xs mx-auto">
+                      Silakan pilih nama karyawan di atas terlebih dahulu untuk menampilkan form rincian gaji & potongan.
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    {/* INDIKATOR APABILA AUTO-FILL DARI PERIODE SEBELUMNYA */}
+                    {hasLoadedPreviousSlip && (
+                      <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-2xl text-[11px] text-emerald-800 font-extrabold flex items-center gap-2">
+                        <Info size={16} className="text-emerald-600 shrink-0" />
+                        <span>Form otomatis diisi dari komponen gaji periode sebelumnya untuk karyawan ini. Bebas disesuaikan manual.</span>
+                      </div>
+                    )}
+
+                    {isFetchingEmployeeData && (
+                      <div className="p-3 bg-amber-50 border border-amber-200 rounded-2xl text-[11px] text-amber-800 font-bold flex items-center gap-2 animate-pulse">
+                        <Info size={16} className="text-amber-600 shrink-0" />
+                        <span>Memuat data sisa bon & riwayat gaji karyawan...</span>
+                      </div>
+                    )}
+
+                    {/* === 3 SECTION TERBAGI SEPERTI HALAMAN AKUN === */}
+                    
+                    {/* SECTION 1: PENDAPATAN */}
+                    <div className="border-2 border-emerald-200 rounded-2xl overflow-hidden shadow-xs">
+                      <div className="bg-gradient-to-r from-emerald-600 to-teal-600 px-4 py-2.5 text-white flex justify-between items-center">
+                        <span className="font-black text-xs uppercase tracking-wider flex items-center gap-1.5">
+                          <DollarSign size={15} /> 1. Pendapatan (+)
+                        </span>
+                        <span className="font-black text-xs text-emerald-100">
+                          Subtotal: Rp {(
+                            (Number(gajiItemSubData.pokok)||0) + 
+                            (Number(gajiItemSubData.tunjangan)||0) + 
+                            (Number(gajiItemSubData.bonus_1)||0) + 
+                            (Number(gajiItemSubData.bonus_2)||0) + 
+                            (Number(gajiItemSubData.bonus_3)||0) + 
+                            (Number(gajiItemSubData.bonus_4)||0) + 
+                            (Number(gajiItemSubData.program)||0) + 
+                            (Number(gajiItemSubData.lembur)||0)
+                          ).toLocaleString('id-ID')}
+                        </span>
+                      </div>
+                      <div className="p-4 bg-white grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                        <div>
+                          <label className="text-[10px] font-black text-slate-600 uppercase block mb-1">Gaji Pokok</label>
+                          <input type="number" value={gajiItemSubData.pokok || ''} onChange={e => setGajiItemSubData({...gajiItemSubData, pokok: Number(e.target.value)})} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="0" />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-black text-slate-600 uppercase block mb-1">Tunjangan</label>
+                          <input type="number" value={gajiItemSubData.tunjangan || ''} onChange={e => setGajiItemSubData({...gajiItemSubData, tunjangan: Number(e.target.value)})} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="0" />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-black text-slate-600 uppercase block mb-1">Bonus 1</label>
+                          <input type="number" value={gajiItemSubData.bonus_1 || ''} onChange={e => setGajiItemSubData({...gajiItemSubData, bonus_1: Number(e.target.value)})} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="0" />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-black text-slate-600 uppercase block mb-1">Bonus 2</label>
+                          <input type="number" value={gajiItemSubData.bonus_2 || ''} onChange={e => setGajiItemSubData({...gajiItemSubData, bonus_2: Number(e.target.value)})} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="0" />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-black text-slate-600 uppercase block mb-1">Bonus 3</label>
+                          <input type="number" value={gajiItemSubData.bonus_3 || ''} onChange={e => setGajiItemSubData({...gajiItemSubData, bonus_3: Number(e.target.value)})} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="0" />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-black text-slate-600 uppercase block mb-1">Bonus 4</label>
+                          <input type="number" value={gajiItemSubData.bonus_4 || ''} onChange={e => setGajiItemSubData({...gajiItemSubData, bonus_4: Number(e.target.value)})} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="0" />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-black text-slate-600 uppercase block mb-1">Program</label>
+                          <input type="number" value={gajiItemSubData.program || ''} onChange={e => setGajiItemSubData({...gajiItemSubData, program: Number(e.target.value)})} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="0" />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-black text-slate-600 uppercase block mb-1">Lembur</label>
+                          <input type="number" value={gajiItemSubData.lembur || ''} onChange={e => setGajiItemSubData({...gajiItemSubData, lembur: Number(e.target.value)})} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="0" />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* HITUNG PREVIEW SUB-NOMINAL POTONGAN KEHADIRAN & POTONGAN LAIN */}
+                    {(() => {
+                      const headerQty = Math.max(1, gajiHeader.qty || 1);
+                      const pokokVal = Number(gajiItemSubData.pokok) || 0;
+                      const tunjVal = Number(gajiItemSubData.tunjangan) || 0;
+                      const nilaiDasar = (pokokVal + tunjVal) / headerQty;
+
+                      const alfaVal = Number(gajiItemSubData.alfa) || 0;
+                      const setengahHariVal = Number(gajiItemSubData.setengah_hari) || 0;
+                      const sakitVal = Number(gajiItemSubData.sakit) || 0;
+                      const telatVal = Number(gajiItemSubData.telat) || 0;
+
+                      const potAlfa = nilaiDasar * alfaVal;
+                      const potSetengahHari = (nilaiDasar / 2) * setengahHariVal;
+                      const potSakit = (nilaiDasar * 0.9) * sakitVal;
+                      const potTelat = telatVal * 1000;
+
+                      const subtotalKehadiran = potAlfa + potSetengahHari + potSakit + potTelat;
+
+                      const bpjsVal = Number(gajiItemSubData.bpjs) || 0;
+                      const bonDiambilVal = Number(gajiItemSubData.bon_diambil) || 0;
+                      const bonDibayarVal = Number(gajiItemSubData.bon_dibayar) || 0;
+
+                      const subtotalPotonganLain = bpjsVal + bonDiambilVal + bonDibayarVal;
+
+                      return (
+                        <>
+                          {/* SECTION 2: POTONGAN KEHADIRAN */}
+                          <div className="border-2 border-amber-200 rounded-2xl overflow-hidden shadow-xs">
+                            <div className="bg-gradient-to-r from-amber-500 to-orange-500 px-4 py-2.5 text-white flex justify-between items-center">
+                              <span className="font-black text-xs uppercase tracking-wider flex items-center gap-1.5">
+                                <Calendar size={15} /> 2. Potongan Kehadiran (-)
+                              </span>
+                              <span className="font-black text-xs text-amber-100">
+                                Subtotal: -Rp {Math.round(subtotalKehadiran).toLocaleString('id-ID')}
+                              </span>
+                            </div>
+                            <div className="p-4 bg-white grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                              <div>
+                                <label className="text-[10px] font-black text-slate-600 uppercase block mb-1">Alfa (Hari)</label>
+                                <input type="number" value={gajiItemSubData.alfa || ''} onChange={e => setGajiItemSubData({...gajiItemSubData, alfa: Number(e.target.value)})} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-rose-600 focus:bg-white focus:ring-2 focus:ring-rose-500 outline-none" placeholder="0" />
+                                {alfaVal > 0 && (
+                                  <span className="text-[9px] font-bold text-amber-700 block mt-1">
+                                    → Potongan: {alfaVal} hari × Rp {Math.round(nilaiDasar).toLocaleString('id-ID')} = -Rp {Math.round(potAlfa).toLocaleString('id-ID')}
+                                  </span>
+                                )}
+                              </div>
+                              <div>
+                                <label className="text-[10px] font-black text-slate-600 uppercase block mb-1">Setengah Hari (Hari)</label>
+                                <input type="number" value={gajiItemSubData.setengah_hari || ''} onChange={e => setGajiItemSubData({...gajiItemSubData, setengah_hari: Number(e.target.value)})} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-rose-600 focus:bg-white focus:ring-2 focus:ring-rose-500 outline-none" placeholder="0" />
+                                {setengahHariVal > 0 && (
+                                  <span className="text-[9px] font-bold text-amber-700 block mt-1">
+                                    → Potongan: {setengahHariVal} hari × Rp {Math.round(nilaiDasar / 2).toLocaleString('id-ID')} = -Rp {Math.round(potSetengahHari).toLocaleString('id-ID')}
+                                  </span>
+                                )}
+                              </div>
+                              <div>
+                                <label className="text-[10px] font-black text-slate-600 uppercase block mb-1">Sakit (Hari)</label>
+                                <input type="number" value={gajiItemSubData.sakit || ''} onChange={e => setGajiItemSubData({...gajiItemSubData, sakit: Number(e.target.value)})} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-rose-600 focus:bg-white focus:ring-2 focus:ring-rose-500 outline-none" placeholder="0" />
+                                {sakitVal > 0 && (
+                                  <span className="text-[9px] font-bold text-amber-700 block mt-1">
+                                    → Potongan: {sakitVal} hari × Rp {Math.round(nilaiDasar * 0.9).toLocaleString('id-ID')} (90%) = -Rp {Math.round(potSakit).toLocaleString('id-ID')}
+                                  </span>
+                                )}
+                              </div>
+                              <div>
+                                <label className="text-[10px] font-black text-slate-600 uppercase block mb-1">Telat (Menit/Kali)</label>
+                                <input type="number" value={gajiItemSubData.telat || ''} onChange={e => setGajiItemSubData({...gajiItemSubData, telat: Number(e.target.value)})} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-rose-600 focus:bg-white focus:ring-2 focus:ring-rose-500 outline-none" placeholder="0" />
+                                {telatVal > 0 && (
+                                  <span className="text-[9px] font-bold text-amber-700 block mt-1">
+                                    → Potongan: {telatVal} kali/menit × Rp 1.000 = -Rp {Math.round(potTelat).toLocaleString('id-ID')}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* SECTION 3: POTONGAN LAINNYA & BON */}
+                          <div className="border-2 border-rose-200 rounded-2xl overflow-hidden shadow-xs">
+                            <div className="bg-gradient-to-r from-rose-600 to-pink-600 px-4 py-2.5 text-white flex justify-between items-center">
+                              <span className="font-black text-xs uppercase tracking-wider flex items-center gap-1.5">
+                                <FileText size={15} /> 3. Potongan Lain & Bon (-)
+                              </span>
+                              <span className="font-black text-xs text-rose-100">
+                                Subtotal: -Rp {subtotalPotonganLain.toLocaleString('id-ID')}
+                              </span>
+                            </div>
+                            <div className="p-4 bg-white grid grid-cols-1 sm:grid-cols-3 gap-3">
+                              <div>
+                                <label className="text-[10px] font-black text-slate-600 uppercase block mb-1">BPJS (Rp)</label>
+                                <input type="number" value={gajiItemSubData.bpjs || ''} onChange={e => setGajiItemSubData({...gajiItemSubData, bpjs: Number(e.target.value)})} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-rose-600 focus:bg-white focus:ring-2 focus:ring-rose-500 outline-none" placeholder="0" />
+                              </div>
+                              <div>
+                                <div className="flex items-center justify-between mb-1">
+                                  <label className="text-[10px] font-black text-slate-600 uppercase">Bayar Bon (Rp)</label>
+                                  {employeeActiveBon > 0 && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setGajiItemSubData({ ...gajiItemSubData, bon_dibayar: employeeActiveBon })}
+                                      className="text-[9px] font-black text-emerald-700 hover:text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-md uppercase tracking-wider transition-colors"
+                                    >
+                                      Gunakan Sisa
+                                    </button>
+                                  )}
+                                </div>
+                                <input type="number" value={gajiItemSubData.bon_dibayar || ''} onChange={e => setGajiItemSubData({...gajiItemSubData, bon_dibayar: Number(e.target.value)})} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-rose-600 focus:bg-white focus:ring-2 focus:ring-rose-500 outline-none" placeholder="0" />
+                                {employeeActiveBon > 0 ? (
+                                  <span className="text-[9px] font-bold text-emerald-700 block mt-1">
+                                    💳 Sisa Bon Aktif: Rp {employeeActiveBon.toLocaleString('id-ID')}
+                                  </span>
+                                ) : (
+                                  <span className="text-[9px] font-medium text-slate-400 block mt-1">
+                                    Karyawan tidak memiliki sisa bon aktif.
+                                  </span>
+                                )}
+                              </div>
+                              <div>
+                                <label className="text-[10px] font-black text-slate-600 uppercase block mb-1">Ambil Bon (Rp)</label>
+                                <input type="number" value={gajiItemSubData.bon_diambil || ''} onChange={e => setGajiItemSubData({...gajiItemSubData, bon_diambil: Number(e.target.value)})} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-rose-600 focus:bg-white focus:ring-2 focus:ring-rose-500 outline-none" placeholder="0" />
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* SECTION 4: CATATAN & BUKTI TRANSFER (NOTE & FILE) */}
+                          <div className="border-2 border-indigo-200 rounded-2xl overflow-hidden shadow-xs">
+                            <div className="bg-gradient-to-r from-indigo-600 to-blue-600 px-4 py-2.5 text-white flex justify-between items-center">
+                              <span className="font-black text-xs uppercase tracking-wider flex items-center gap-1.5">
+                                <FileText size={15} /> 4. Catatan & Bukti Transfer
+                              </span>
+                              {gajiItemSubData.files && gajiItemSubData.files.length > 0 && (
+                                <span className="font-black text-[10px] text-indigo-100 bg-indigo-500/30 px-2 py-0.5 rounded-lg border border-indigo-400/30">
+                                  {gajiItemSubData.files.length} Lampiran File
+                                </span>
+                              )}
+                            </div>
+                            <div className="p-4 bg-white space-y-3">
+                              {/* Input Note / Catatan Karyawan */}
+                              <div>
+                                <label className="text-[10px] font-black text-slate-600 uppercase block mb-1">
+                                  Catatan Slip Karyawan (Note)
+                                </label>
+                                <input
+                                  type="text"
+                                  value={gajiItemSubData.note || ''}
+                                  onChange={e => setGajiItemSubData({ ...gajiItemSubData, note: e.target.value })}
+                                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none"
+                                  placeholder="Contoh: Transfer via Mandiri a.n Karyawan / Catatan khusus"
+                                />
+                              </div>
+
+                              {/* Upload Bukti Transfer / File */}
+                              <div>
+                                <label className="text-[10px] font-black text-slate-600 uppercase block mb-1">
+                                  Bukti Transfer / Lampiran File
+                                </label>
+                                <div className="flex flex-col gap-2">
+                                  <label className="flex items-center justify-center gap-2 p-3 bg-indigo-50 hover:bg-indigo-100 border-2 border-dashed border-indigo-200 rounded-xl cursor-pointer text-indigo-700 transition-colors">
+                                    <Upload size={16} />
+                                    <span className="text-xs font-black uppercase tracking-wider">
+                                      Upload Bukti Transfer / File
+                                    </span>
+                                    <input
+                                      type="file"
+                                      multiple
+                                      accept="image/*,.pdf"
+                                      onChange={handleGajiSubItemFileAdd}
+                                      className="hidden"
+                                    />
+                                  </label>
+
+                                  {/* List Preview File Upload */}
+                                  {gajiItemSubData.files && gajiItemSubData.files.length > 0 && (
+                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2">
+                                      {gajiItemSubData.files.map((file, fIdx) => {
+                                        const url = gajiItemSubData.fileUrls?.[fIdx] || '';
+                                        const isImg = file.type.startsWith('image/');
+                                        return (
+                                          <div key={fIdx} className="relative group bg-slate-100 rounded-xl p-2 border border-slate-200 flex flex-col items-center">
+                                            {isImg && url ? (
+                                              <img src={url} alt={file.name} className="w-full h-16 object-cover rounded-lg mb-1" />
+                                            ) : (
+                                              <div className="w-full h-16 bg-indigo-100 text-indigo-700 flex items-center justify-center rounded-lg mb-1">
+                                                <FileText size={24} />
+                                              </div>
+                                            )}
+                                            <span className="text-[9px] font-bold text-slate-700 truncate w-full text-center">
+                                              {file.name}
+                                            </span>
+                                            <button
+                                              type="button"
+                                              onClick={() => handleRemoveGajiSubItemFile(fIdx)}
+                                              className="absolute -top-1.5 -right-1.5 bg-rose-500 hover:bg-rose-600 text-white rounded-full p-1 shadow-md transition-colors"
+                                            >
+                                              <Trash2 size={11} />
+                                            </button>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </>
+                      );
+                    })()}
+                  </>
+                )}
+              </div>
+
+              {/* FOOTER SUB-MODAL ACTION */}
+              <div className="p-4 sm:p-5 bg-slate-900 text-white shrink-0 flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-slate-800">
+                <div>
+                  <p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">Netto Karyawan Ini</p>
+                  <div>
+                    {renderFormattedNetto(calcNettoItem, "text-xl sm:text-2xl", "text-emerald-300", "text-emerald-400")}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2.5 w-full sm:w-auto">
+                  <button
+                    onClick={() => setIsGajiItemSubModalOpen(false)}
+                    className="flex-1 sm:flex-none px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-white text-xs font-black rounded-xl uppercase tracking-wider transition-colors"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    onClick={handleSaveSubGajiItem}
+                    className="flex-1 sm:flex-none px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-white text-xs font-black rounded-xl uppercase tracking-wider shadow-lg flex items-center justify-center gap-1.5 transition-all"
+                  >
+                    {editingGajiItemIndex !== null ? 'Simpan Perubahan' : 'Tambahkan Karyawan Ini'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+      </Modal>
 
     </div> 
   );
