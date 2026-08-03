@@ -373,15 +373,17 @@ export default function PeoplePage() {
     if (!editUserData) return;
     setIsProcessingUser(true);
     try {
+      const emailVal = (editUserData.email || '').trim();
       const formData = new FormData();
       formData.append('name', editUserData.name || '');
-      formData.append('email', editUserData.email || '');
+      formData.append('email', emailVal);
       formData.append('status', editUserData.status || 'active');
       formData.append('level', String(editUserData.level ?? 2));
       formData.append('link_image', editUserData.link_image || '');
       formData.append('number', String(editUserData.number ?? 0));
-      formData.append('emailVisibility', String(!!editUserData.emailVisibility));
-      formData.append('verified', String(!!editUserData.verified));
+      // PocketBase menyembunyikan field email jika emailVisibility false. Selalu set 'true' agar email dapat dibaca.
+      formData.append('emailVisibility', editUserData.emailVisibility === false ? 'false' : 'true');
+      formData.append('verified', editUserData.verified === true ? 'true' : 'false');
 
       if (editUserData.avatarFile) {
         formData.append('avatar', editUserData.avatarFile);
@@ -446,7 +448,18 @@ export default function PeoplePage() {
           <button
             onClick={() => { 
               if (activeTab === 'user') {
-                setEditUserData({ status: 'active', level: 2 }); 
+                setEditUserData({ 
+                  name: '',
+                  username: '',
+                  email: '',
+                  password: '',
+                  level: 2,
+                  status: 'active',
+                  link_image: '',
+                  number: 0,
+                  emailVisibility: true,
+                  verified: true
+                }); 
                 setIsEditUserModalOpen(true);
               } else {
                 // Inisialisasi default field saat tambah baru
@@ -590,7 +603,7 @@ export default function PeoplePage() {
                             </div>
                             <div>
                               <p className="font-extrabold text-slate-800 text-sm group-hover:text-cyan-600 transition-colors">{user.name || user.username}</p>
-                              <p className="text-xs text-slate-400 font-medium">@{user.username}</p>
+                              <p className="text-xs text-slate-400 font-medium">{user.email ? `${user.email} • @${user.username}` : `@${user.username}`}</p>
                             </div>
                           </div>
                         </td>
