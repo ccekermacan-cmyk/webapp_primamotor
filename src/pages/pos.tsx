@@ -1597,9 +1597,9 @@ export default function MenuPage() {
         
         if (mekanikValid.length > 0) {
           try {
-            // Buat array promise dengan $autoCancel: false
-            const ongkosPromises = mekanikValid.map(mek => 
-              pb.collection('ongkos').create(
+            // Buat array promise dengan $autoCancel: false dan panggil webhook Laravel API
+            const ongkosPromises = mekanikValid.map(async (mek) => {
+              const res = await pb.collection('ongkos').create(
                 {
                   id_lama: '',
                   date: timestamp,
@@ -1610,8 +1610,10 @@ export default function MenuPage() {
                   ref_baru: menuRecordId
                 },
                 { '$autoCancel': false } // Nonaktifkan auto-cancellation per request
-              )
-            );
+              );
+              await notifyLaravelApi('ongkos', 'created', res.id);
+              return res;
+            });
             // Jalankan semua promise secara paralel
             await Promise.all(ongkosPromises);
           } catch (error) {

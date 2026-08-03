@@ -24,16 +24,23 @@ export async function fetchFileAsBlobUrl(record: any, filename: string): Promise
     return URL.createObjectURL(blob);
 }
 
-export const LARAVEL_API_URL = import.meta.env.VITE_LARAVEL_API_URL || (
-  typeof window !== 'undefined' && window.location.hostname.includes('primamotorgladag') 
-    ? 'http://127.0.0.1:8000/api'
-    : 'http://127.0.0.1:8000/api'
-);
+export const getLaravelApiUrl = () => {
+  if (import.meta.env.VITE_LARAVEL_API_URL) {
+    return import.meta.env.VITE_LARAVEL_API_URL;
+  }
+  if (typeof window !== 'undefined' && window.location.hostname.includes('primamotorgladag')) {
+    return 'https://backend.primamotorgladag.my.id/api';
+  }
+  return 'http://127.0.0.1:8000/api';
+};
+
+export const LARAVEL_API_URL = getLaravelApiUrl();
 
 export async function notifyLaravelApi(collection: string, event: 'created' | 'updated' | 'deleted', id: string) {
   if (!id) return;
   try {
-    const targetUrl = `${LARAVEL_API_URL}/webhook/${collection}/${event}/${id}`;
+    const apiUrl = getLaravelApiUrl();
+    const targetUrl = `${apiUrl}/webhook/${collection}/${event}/${id}`;
     await fetch(targetUrl, { method: 'POST' });
   } catch (err) {
     console.warn('[Laravel API Notify Error]', err);

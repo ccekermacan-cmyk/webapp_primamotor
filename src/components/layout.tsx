@@ -87,9 +87,15 @@ export default function Layout({ setAuth }: { setAuth: (status: boolean) => void
           });
           return;
         }
-      } catch (error) {
-        console.error("Gagal verifikasi user:", error);
-        forceLogout();
+      } catch (error: any) {
+        // Hanya logout jika server mengembalikan status 401/403 (Sesi kedaluwarsa/ditolak)
+        // Jangan logout jika terjadi kesalahan koneksi jaringan / timeout sementara!
+        if (error?.status === 401 || error?.status === 403) {
+          console.error("Sesi tidak valid / kedaluwarsa:", error);
+          forceLogout();
+        } else {
+          console.warn("Notice: Gagal verifikasi user sementara (network/timeout), sesi tetap dipertahankan:", error);
+        }
       }
     };
     checkSecurityGuard();
@@ -125,8 +131,10 @@ export default function Layout({ setAuth }: { setAuth: (status: boolean) => void
       if (pb.authStore.isValid && pb.authStore.model) {
         try {
           await pb.collection('user').getOne(pb.authStore.model.id, { $autoCancel: false });
-        } catch {
-          forceLogout();
+        } catch (err: any) {
+          if (err?.status === 401 || err?.status === 403) {
+            forceLogout();
+          }
         }
       }
     }, 5 * 60 * 1000); // 5 menit

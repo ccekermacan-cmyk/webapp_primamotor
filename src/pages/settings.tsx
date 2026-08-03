@@ -54,6 +54,59 @@ interface DropdownData {
   operator: string;
 }
 
+// Helper Field Wrapper (ditarik ke luar agar tidak re-mount dan kehilangan fokus saat mengetik)
+const Field = ({ label, children }: { label: string; children: React.ReactNode }) => (
+  <label className="block text-xs font-semibold text-slate-500 mb-1 space-y-1">
+    <span className="block text-[11px] font-bold uppercase tracking-wider text-slate-400">{label}</span>
+    {children}
+  </label>
+);
+
+// Helper Multi-Select Enum
+const BeautifulEnumList = ({ label, options, selectedValues, gridCols = 'grid-cols-2', onChange }: {
+  label: string;
+  options: { label: string; value: any }[];
+  selectedValues: any[];
+  gridCols?: string;
+  onChange: (updated: any[]) => void
+}) => {
+  const currentList = Array.isArray(selectedValues) ? selectedValues : [];
+
+  const toggleSelection = (val: any) => {
+    if (currentList.includes(val)) {
+      onChange(currentList.filter(item => item !== val));
+    } else {
+      onChange([...currentList, val]);
+    }
+  };
+
+  return (
+    <div className="space-y-1.5">
+      <span className="block text-[11px] font-bold uppercase tracking-wider text-slate-400">{label}</span>
+      <div className={`border border-slate-200 bg-slate-50 rounded-2xl p-3 max-h-36 overflow-y-auto grid ${gridCols} gap-2 custom-scrollbar`}>
+        {options.map(opt => {
+          const isChecked = currentList.includes(opt.value);
+          return (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => toggleSelection(opt.value)}
+              className={`flex items-center justify-between px-3 py-2 rounded-xl text-left font-bold text-xs transition-all ${
+                isChecked
+                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-100'
+                  : 'bg-white text-slate-600 border border-slate-100 hover:bg-slate-100'
+              }`}
+            >
+              <span className="truncate">{opt.label}</span>
+              {isChecked && <Check size={12} strokeWidth={3} className="shrink-0 ml-1" />}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
 export default function Settings() {
   const [data, setData] = useState<DropdownData[]>([]);
   const [allUsers, setAllUsers] = useState<any[]>([]);
@@ -318,58 +371,7 @@ export default function Settings() {
     }
   };
 
-  // Helper Field Wrapper
-  const Field = ({ label, children }: { label: string; children: React.ReactNode }) => (
-    <label className="block text-xs font-semibold text-slate-500 mb-1 space-y-1">
-      <span className="block text-[11px] font-bold uppercase tracking-wider text-slate-400">{label}</span>
-      {children}
-    </label>
-  );
 
-  // Helper Multi-Select Enum
-  const BeautifulEnumList = ({ label, options, selectedValues, gridCols = 'grid-cols-2', onChange }: {
-    label: string;
-    options: { label: string; value: any }[];
-    selectedValues: any[];
-    gridCols?: string;
-    onChange: (updated: any[]) => void
-  }) => {
-    const currentList = Array.isArray(selectedValues) ? selectedValues : [];
-
-    const toggleSelection = (val: any) => {
-      if (currentList.includes(val)) {
-        onChange(currentList.filter(item => item !== val));
-      } else {
-        onChange([...currentList, val]);
-      }
-    };
-
-    return (
-      <div className="space-y-1.5">
-        <span className="block text-[11px] font-bold uppercase tracking-wider text-slate-400">{label}</span>
-        <div className={`border border-slate-200 bg-slate-50 rounded-2xl p-3 max-h-36 overflow-y-auto grid ${gridCols} gap-2 custom-scrollbar`}>
-          {options.map(opt => {
-            const isChecked = currentList.includes(opt.value);
-            return (
-              <button
-                key={opt.value}
-                type="button"
-                onClick={() => toggleSelection(opt.value)}
-                className={`flex items-center justify-between px-3 py-2 rounded-xl text-left font-bold text-xs transition-all ${
-                  isChecked
-                    ? 'bg-indigo-600 text-white shadow-md shadow-indigo-100'
-                    : 'bg-white text-slate-600 border border-slate-100 hover:bg-slate-100'
-                }`}
-              >
-                <span className="truncate">{opt.label}</span>
-                {isChecked && <Check size={12} strokeWidth={3} className="shrink-0 ml-1" />}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-    );
-  };
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 pt-16 md:pt-8 w-full pb-16 font-sans">
