@@ -102,6 +102,7 @@ export default function MenuPage() {
   
   const [loading, setLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [selectedMenu, setSelectedMenu] = useState<string>('Overview');
   const [cart, setCart] = useState<CartItem[]>([]);
   const [page, setPage] = useState(1);
@@ -1930,6 +1931,16 @@ export default function MenuPage() {
   };
 
   const handleDeleteHistory = async (menuItem: HistoryMenu) => {
+    if (isDeleting) return; // guard double-call
+    setIsDeleting(true);
+
+    // Blokir refresh / navigasi selama proses hapus berjalan
+    const blockUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', blockUnload);
+
     try {
       setIsProcessing(true);
       await deleteTransactionWithRevert(menuItem.id);
@@ -1940,6 +1951,8 @@ export default function MenuPage() {
       console.error(e);
       setDialog({ show: true, title: 'Gagal Hapus', message: 'Gagal menghapus data transaksi: ' + (e.message || e), type: 'alert' });
     } finally {
+      window.removeEventListener('beforeunload', blockUnload);
+      setIsDeleting(false);
       setIsProcessing(false);
     }
   };
@@ -4106,20 +4119,38 @@ export default function MenuPage() {
                   const bolehDelete = (userLevel === '1' || userLevel === '5') || (isStatusBelum && ['1','2','3','4','5','6','7'].includes(userLevel));
                   return bolehDelete && (
                     <button
-                      onClick={() => confirmAction('Hapus Permanen', 'Peringatan: Menghapus nota ini akan mengembalikan seluruh stok barang dan menghapus jejak jurnal kas terkait. Lanjutkan?', () => handleDeleteHistory(showDetailHistory!))}
-                      className="h-14 min-w-[3.5rem] flex-1 bg-rose-50 text-rose-600 rounded-2xl hover:bg-rose-500 hover:text-white border border-rose-100 transition-colors flex justify-center items-center group"
-                      title="Hapus Nota"
+                      onClick={() => !isDeleting && confirmAction('Hapus Permanen', 'Peringatan: Menghapus nota ini akan mengembalikan seluruh stok barang dan menghapus jejak jurnal kas terkait. Lanjutkan?', () => handleDeleteHistory(showDetailHistory!))}
+                      disabled={isDeleting}
+                      className={`h-14 min-w-[3.5rem] flex-1 rounded-2xl border transition-colors flex justify-center items-center gap-2 group ${
+                        isDeleting
+                          ? 'bg-rose-100 text-rose-400 border-rose-200 cursor-not-allowed opacity-70'
+                          : 'bg-rose-50 text-rose-600 hover:bg-rose-500 hover:text-white border-rose-100'
+                      }`}
+                      title={isDeleting ? 'Sedang menghapus...' : 'Hapus Nota'}
                     >
-                      <Trash2 size={20} className="group-hover:scale-110 transition-transform"/>
+                      {isDeleting ? (
+                        <>
+                          <svg className="animate-spin h-4 w-4 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                          </svg>
+                          <span className="text-[10px] font-black tracking-wider">MENGHAPUS...</span>
+                        </>
+                      ) : (
+                        <Trash2 size={20} className="group-hover:scale-110 transition-transform"/>
+                      )}
                     </button>
                   );
                 })()}
 
                 {['1','2','3','4','5','6','7'].includes(userLevel) && (
                   <button
-                    onClick={() => showDetailHistory && handleEditHistoryToCart(showDetailHistory)}
-                    className="h-14 min-w-[3.5rem] flex-1 bg-blue-50 text-blue-600 rounded-2xl hover:bg-blue-600 hover:text-white border border-blue-100 transition-colors flex justify-center items-center group"
-                    title="Revisi Nota"
+                    onClick={() => !isDeleting && showDetailHistory && handleEditHistoryToCart(showDetailHistory)}
+                    disabled={isDeleting}
+                    className={`h-14 min-w-[3.5rem] flex-1 rounded-2xl border transition-colors flex justify-center items-center group ${
+                      isDeleting ? 'bg-slate-100 text-slate-300 border-slate-200 cursor-not-allowed opacity-50' : 'bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white border-blue-100'
+                    }`}
+                    title={isDeleting ? 'Tunggu proses selesai' : 'Revisi Nota'}
                   >
                     <Edit size={20} className="group-hover:scale-110 transition-transform"/>
                   </button>
@@ -4128,16 +4159,22 @@ export default function MenuPage() {
                 {showDetailHistory?.status === 'lunas' && (
                   <>
                     <button
-                      onClick={handlePrint}
-                      className="h-14 min-w-[3.5rem] flex-1 bg-emerald-50 text-emerald-600 rounded-2xl hover:bg-emerald-500 hover:text-white border border-emerald-100 transition-colors flex justify-center items-center group"
-                      title="Print"
+                      onClick={() => !isDeleting && handlePrint()}
+                      disabled={isDeleting}
+                      className={`h-14 min-w-[3.5rem] flex-1 rounded-2xl border transition-colors flex justify-center items-center group ${
+                        isDeleting ? 'bg-slate-100 text-slate-300 border-slate-200 cursor-not-allowed opacity-50' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-500 hover:text-white border-emerald-100'
+                      }`}
+                      title={isDeleting ? 'Tunggu proses selesai' : 'Print'}
                     >
                       <Printer size={20} />
                     </button>
                     <button
-                      onClick={() => alert('Fitur Share menyusul!')}
-                      className="h-14 min-w-[3.5rem] flex-1 bg-amber-50 text-amber-600 rounded-2xl hover:bg-amber-500 hover:text-white border border-amber-100 transition-colors flex justify-center items-center group"
-                      title="Share"
+                      onClick={() => !isDeleting && alert('Fitur Share menyusul!')}
+                      disabled={isDeleting}
+                      className={`h-14 min-w-[3.5rem] flex-1 rounded-2xl border transition-colors flex justify-center items-center group ${
+                        isDeleting ? 'bg-slate-100 text-slate-300 border-slate-200 cursor-not-allowed opacity-50' : 'bg-amber-50 text-amber-600 hover:bg-amber-500 hover:text-white border-amber-100'
+                      }`}
+                      title={isDeleting ? 'Tunggu proses selesai' : 'Share'}
                     >
                       <Share2 size={20} />
                     </button>
@@ -4145,10 +4182,13 @@ export default function MenuPage() {
                 )}
 
                 <button
-                  onClick={() => setShowDetailHistory(null)}
-                  className="h-14 min-w-[6rem] flex-[2] bg-slate-900 text-white rounded-2xl hover:bg-slate-800 transition-colors flex items-center justify-center font-bold text-xs tracking-wider"
+                  onClick={() => !isDeleting && setShowDetailHistory(null)}
+                  disabled={isDeleting}
+                  className={`h-14 min-w-[6rem] flex-[2] rounded-2xl transition-colors flex items-center justify-center font-bold text-xs tracking-wider ${
+                    isDeleting ? 'bg-slate-400 text-white cursor-not-allowed opacity-60' : 'bg-slate-900 text-white hover:bg-slate-800'
+                  }`}
                 >
-                  TUTUP
+                  {isDeleting ? 'HARAP TUNGGU...' : 'TUTUP'}
                 </button>
               </div>
             </div>
