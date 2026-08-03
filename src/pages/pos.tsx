@@ -1643,7 +1643,6 @@ export default function MenuPage() {
       setMenuFiles([]);
       setEditSession(null);
       setIsCartModalOpen(false);
-      setIsAutoLunas(false); // Reset auto lunas
       setFormBayar({
         personIdLama: 'umum1',
         payment: 'Tunai',
