@@ -3479,6 +3479,7 @@ export default function MenuPage() {
       <Modal
         isOpen={!!showDetailHistory}
         onClose={() => setShowDetailHistory(null)}
+        maxWidth="max-w-4xl"
         title={showDetailHistory?.jenis?.toLowerCase().includes('gaji') ? "Rincian Perangkum & Slip Gaji Karyawan" : "Rincian Histori & Log Finansial"}
       >
         {showDetailHistory && (
@@ -4355,6 +4356,7 @@ export default function MenuPage() {
       <Modal
         isOpen={isGajiFormOpen}
         onClose={() => setIsGajiFormOpen(false)}
+        maxWidth="max-w-4xl"
         title="Slip Gaji"
       >
         {(() => {
@@ -4537,6 +4539,7 @@ export default function MenuPage() {
       <Modal
         isOpen={isGajiItemSubModalOpen}
         onClose={() => setIsGajiItemSubModalOpen(false)}
+        maxWidth="max-w-4xl"
         title="Detail Gaji Karyawan"
       >
         {(() => {
