@@ -151,6 +151,7 @@
     const [tempoGroups, setTempoGroups] = useState<{ date: string; items: any[] }[]>([]);
     const [loadingTempo, setLoadingTempo] = useState(false);
     const [tempoPage, setTempoPage] = useState(1);
+    const [tempoCategoryFilter, setTempoCategoryFilter] = useState<'all' | 'overdue' | 'upcoming'>('all');
     const tempoPerPage = 10;
     
     // TAMBAHAN: State untuk System Alert/Confirm Modal
@@ -1028,7 +1029,7 @@
             </div>
             
             {/* CONTAINER TOMBOL AKSI */}
-            <div className="hidden md:flex items-center gap-3 flex-wrap">
+            <div className="hidden md:flex items-center gap-2.5 flex-wrap">
               {/* Tombol Tambah Bon (Merespon Visibilitas) */}
               {configBon && (
                 <button
@@ -1041,9 +1042,10 @@
                     setFiles([]);
                     setModalType('formBon' as any);
                   }}
-                  className="bg-purple-600 hover:bg-purple-700 text-white px-5 py-3.5 rounded-2xl font-black text-sm shadow-xl shadow-purple-200 transition-all active:scale-95 flex items-center justify-center gap-2"
+                  className="bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white px-4 py-3 rounded-xl font-black text-xs uppercase tracking-wider shadow-lg shadow-purple-500/20 hover:shadow-purple-500/30 hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center justify-center gap-2"
                 >
-                  <Plus size={18} className="text-purple-300" /> TAMBAH BON
+                  <FileText size={16} className="text-purple-200" />
+                  <span>TAMBAH BON</span>
                 </button>
               )}
 
@@ -1059,13 +1061,14 @@
                     });
                     setModalType('formGaji' as any);
                   }}
-                  className="bg-amber-500 hover:bg-amber-600 text-white px-5 py-3.5 rounded-2xl font-black text-sm shadow-xl shadow-amber-200 transition-all active:scale-95 flex items-center justify-center gap-2"
+                  className="bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-500 hover:to-emerald-500 text-white px-4 py-3 rounded-xl font-black text-xs uppercase tracking-wider shadow-lg shadow-teal-500/20 hover:shadow-teal-500/30 hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center justify-center gap-2"
                 >
-                  <Plus size={18} className="text-amber-200" /> TAMBAH GAJI
+                  <DollarSign size={16} className="text-teal-200" />
+                  <span>CATAT GAJI</span>
                 </button>
               )}
 
-              {/* Tombol Catat Kas (Asli) */}
+              {/* Tombol Catat Kas Utama */}
               <button
                 onClick={() => {
                   setSelectedTx(null);
@@ -1076,9 +1079,10 @@
                   });
                   setModalType('form');
                 }}
-                className="bg-slate-900 hover:bg-black text-white px-6 py-3.5 rounded-2xl font-black text-sm shadow-xl shadow-slate-200 transition-all active:scale-95 flex items-center justify-center gap-2"
+                className="bg-slate-900 hover:bg-slate-800 text-white px-5 py-3 rounded-xl font-black text-xs uppercase tracking-wider shadow-lg shadow-slate-900/20 hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center justify-center gap-2"
               >
-                <span className="text-emerald-400 text-lg leading-none">+</span> CATAT KAS
+                <Plus size={16} className="text-slate-300" />
+                <span>CATAT TRANSAKSI KAS</span>
               </button>
             </div>
           </div>
@@ -1691,9 +1695,8 @@
                           {showZeroBalances ? 'Sembunyikan Akun Kosong/Minus' : `Tampilkan ${zeroList.length} Akun Kosong/Minus`}
                         </button>
                         
-                        {/* Area Folded Data */}
                         <div className={`transition-all duration-500 overflow-hidden ${showZeroBalances ? 'max-h-[5000px] mt-4 opacity-100' : 'max-h-0 opacity-0'}`}>
-                           {renderGrid(zeroList)}
+                          {renderGrid(zeroList)}
                         </div>
                       </div>
                     )}
@@ -1706,45 +1709,223 @@
       )}
 
       {/* ============================================================ */}
-      {/* CONTAINER JATUH TEMPO – DENGAN PAGINATION */}
+      {/* ============================================================ */}
+      {/* CONTAINER JATUH TEMPO – DENGAN INTERAKSI FILTER & RESPONSIF MOBIL/TABLET */}
       {/* ============================================================ */}
       {activeTab === 'tempo' && ['1', '2', '5', '6'].includes(userLevel) && (() => {
         // Flatten data dari tempoGroups
         const allItems = tempoGroups.flatMap(g => g.items.map(item => ({ ...item, tempoDate: g.date })));
-        const totalItems = allItems.length;
+        const totalItemsCount = allItems.length;
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        // Perhitungan Ringkasan Metrik (Overdue vs Upcoming)
+        let overdueCount = 0;
+        let overdueSisaTotal = 0;
+        let upcomingCount = 0;
+        let upcomingSisaTotal = 0;
+        let grandSisaTotal = 0;
+
+        allItems.forEach(item => {
+          const groupDate = new Date(item.tempoDate);
+          groupDate.setHours(0, 0, 0, 0);
+          const sisa = (item.total || 0) - (item.dibayar || 0);
+          grandSisaTotal += sisa;
+
+          if (groupDate < today) {
+            overdueCount += 1;
+            overdueSisaTotal += sisa;
+          } else {
+            upcomingCount += 1;
+            upcomingSisaTotal += sisa;
+          }
+        });
+
+        // Filtering data berdasarkan kategori yang diklik pada metric cards
+        const filteredAllItems = allItems.filter(item => {
+          const groupDate = new Date(item.tempoDate);
+          groupDate.setHours(0, 0, 0, 0);
+          if (tempoCategoryFilter === 'overdue') return groupDate < today;
+          if (tempoCategoryFilter === 'upcoming') return groupDate >= today;
+          return true;
+        });
+
+        const totalFilteredItems = filteredAllItems.length;
 
         // Pagination
-        const totalPages = Math.ceil(totalItems / tempoPerPage) || 1;
+        const totalPages = Math.ceil(totalFilteredItems / tempoPerPage) || 1;
         const startIndex = (tempoPage - 1) * tempoPerPage;
-        const endIndex = Math.min(startIndex + tempoPerPage, totalItems);
-        const currentPageItems = allItems.slice(startIndex, endIndex);
+        const endIndex = Math.min(startIndex + tempoPerPage, totalFilteredItems);
+        const currentPageItems = filteredAllItems.slice(startIndex, endIndex);
 
-        // Hitung total nominal per halaman dan keseluruhan
         const totalHalaman = currentPageItems.reduce((acc, item) => acc + (item.total || 0), 0);
-        const totalSemua = allItems.reduce((acc, item) => acc + (item.total || 0), 0);
+
+        const getDaysDiffText = (dateStr: string) => {
+          const groupDate = new Date(dateStr);
+          groupDate.setHours(0, 0, 0, 0);
+          const diffMs = groupDate.getTime() - today.getTime();
+          const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+          if (diffDays < 0) return `Lewat ${Math.abs(diffDays)} Hari`;
+          if (diffDays === 0) return `Jatuh Tempo Hari Ini`;
+          return `Sisa ${diffDays} Hari`;
+        };
 
         return (
           <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/40 border border-slate-100 flex-1 min-h-0 flex flex-col overflow-hidden relative">
-            <div className="p-4 border-b border-slate-100 bg-slate-50/50 shrink-0">
-              <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                <Calendar size={16} className="text-amber-500" />
-                Daftar Pembelian Belum Lunas (Jatuh Tempo)
-              </h4>
-              <p className="text-xs text-slate-500 mt-1">Transaksi dengan status <span className="font-black text-rose-600">BELUM LUNAS</span> dan memiliki tanggal jatuh tempo.</p>
+            {/* HEADER CONTAINER */}
+            <div className="p-4 sm:p-5 border-b border-slate-100 bg-slate-50/50 shrink-0 flex flex-col md:flex-row md:items-center justify-between gap-3">
+              <div>
+                <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                  <Calendar size={18} className="text-amber-500 shrink-0" />
+                  Daftar Pembelian Belum Lunas (Monitoring Jatuh Tempo)
+                </h4>
+                <p className="text-[11px] sm:text-xs text-slate-500 mt-0.5">
+                  Klik pada banner metrik di bawah untuk menyaring data berdasarkan keterlambatan pelunasan.
+                </p>
+              </div>
+              <div className="flex items-center gap-2 self-start md:self-auto flex-wrap">
+                {tempoCategoryFilter !== 'all' && (
+                  <button
+                    onClick={() => { setTempoCategoryFilter('all'); setTempoPage(1); }}
+                    className="px-2.5 py-1 bg-rose-100 text-rose-700 hover:bg-rose-200 text-[10px] font-black uppercase rounded-xl border border-rose-200 transition-colors flex items-center gap-1"
+                  >
+                    <X size={12} /> Reset Filter ({tempoCategoryFilter})
+                  </button>
+                )}
+                <span className="px-3 py-1 bg-amber-100 text-amber-800 text-[10px] font-black uppercase rounded-xl border border-amber-200">
+                  {totalFilteredItems} Transaksi Tampil
+                </span>
+              </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 custom-scrollbar">
+            {/* MAIN SCROLLABLE CONTENT BODY (BANNERS & LIST ITEM UNIFIED SCROLL) */}
+            <div className="flex-1 overflow-y-auto p-3.5 sm:p-5 md:p-6 space-y-5 sm:space-y-6 custom-scrollbar">
+              {/* RINGKASAN STATISTIK METRIK INTERAKTIF (3 CARDS METRIC - KLIK UNTUK FILTER) */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3.5 pb-2 border-b border-slate-100">
+                {/* Card 1: Overdue */}
+                <div 
+                  onClick={() => {
+                    setTempoCategoryFilter(tempoCategoryFilter === 'overdue' ? 'all' : 'overdue');
+                    setTempoPage(1);
+                  }}
+                  className={`p-3.5 sm:p-4 bg-gradient-to-br from-rose-50 to-red-50/80 border-2 rounded-2xl flex flex-col justify-between shadow-xs cursor-pointer transition-all duration-200 active:scale-98 ${
+                    tempoCategoryFilter === 'overdue'
+                      ? 'border-rose-600 ring-4 ring-rose-200 shadow-md scale-[1.01]'
+                      : 'border-rose-200 hover:border-rose-400'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-black text-rose-600 uppercase tracking-widest flex items-center gap-1.5">
+                      <AlertCircle size={14} /> Lewat Jatuh Tempo
+                    </span>
+                    <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black border ${
+                      tempoCategoryFilter === 'overdue'
+                        ? 'bg-rose-600 text-white border-rose-700'
+                        : 'bg-rose-200/60 text-rose-800 border-rose-300/50'
+                    }`}>
+                      {overdueCount} Nota
+                    </span>
+                  </div>
+                  <div className="mt-2 sm:mt-3">
+                    <p className="text-lg sm:text-2xl font-black text-rose-700 tracking-tight">
+                      {formatRupiah(overdueSisaTotal)}
+                    </p>
+                    <div className="flex items-center justify-between mt-1">
+                      <p className="text-[9px] sm:text-[10px] font-bold text-rose-500">Sisa Hutang Terlambat</p>
+                      <span className="text-[9px] font-black text-rose-700 uppercase tracking-wider underline">
+                        {tempoCategoryFilter === 'overdue' ? '✓ Filter Aktif' : 'Klik Filter ↗'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Card 2: Upcoming */}
+                <div 
+                  onClick={() => {
+                    setTempoCategoryFilter(tempoCategoryFilter === 'upcoming' ? 'all' : 'upcoming');
+                    setTempoPage(1);
+                  }}
+                  className={`p-3.5 sm:p-4 bg-gradient-to-br from-amber-50 to-orange-50/80 border-2 rounded-2xl flex flex-col justify-between shadow-xs cursor-pointer transition-all duration-200 active:scale-98 ${
+                    tempoCategoryFilter === 'upcoming'
+                      ? 'border-amber-500 ring-4 ring-amber-200 shadow-md scale-[1.01]'
+                      : 'border-amber-200 hover:border-amber-400'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-black text-amber-600 uppercase tracking-widest flex items-center gap-1.5">
+                      <Calendar size={14} /> Akan Jatuh Tempo
+                    </span>
+                    <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black border ${
+                      tempoCategoryFilter === 'upcoming'
+                        ? 'bg-amber-500 text-white border-amber-600'
+                        : 'bg-amber-200/60 text-amber-800 border-amber-300/50'
+                    }`}>
+                      {upcomingCount} Nota
+                    </span>
+                  </div>
+                  <div className="mt-2 sm:mt-3">
+                    <p className="text-lg sm:text-2xl font-black text-amber-700 tracking-tight">
+                      {formatRupiah(upcomingSisaTotal)}
+                    </p>
+                    <div className="flex items-center justify-between mt-1">
+                      <p className="text-[9px] sm:text-[10px] font-bold text-amber-600">Dalam Tenggat Waktu</p>
+                      <span className="text-[9px] font-black text-amber-800 uppercase tracking-wider underline">
+                        {tempoCategoryFilter === 'upcoming' ? '✓ Filter Aktif' : 'Klik Filter ↗'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Card 3: Total Sisa Tagihan */}
+                <div 
+                  onClick={() => {
+                    setTempoCategoryFilter('all');
+                    setTempoPage(1);
+                  }}
+                  className={`p-3.5 sm:p-4 bg-gradient-to-br from-slate-900 to-slate-800 text-white border-2 rounded-2xl flex flex-col justify-between shadow-md cursor-pointer transition-all duration-200 active:scale-98 ${
+                    tempoCategoryFilter === 'all'
+                      ? 'border-emerald-400 ring-4 ring-emerald-400/30 scale-[1.01]'
+                      : 'border-slate-700 hover:border-slate-500'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest flex items-center gap-1.5">
+                      <DollarSign size={14} className="text-emerald-400" /> Total Sisa Tagihan
+                    </span>
+                    <span className="px-2 py-0.5 bg-white/10 text-emerald-300 rounded-lg text-[10px] font-black border border-white/10">
+                      {totalItemsCount} Nota
+                    </span>
+                  </div>
+                  <div className="mt-2 sm:mt-3">
+                    <p className="text-lg sm:text-2xl font-black text-emerald-400 tracking-tight">
+                      {formatRupiah(grandSisaTotal)}
+                    </p>
+                    <div className="flex items-center justify-between mt-1">
+                      <p className="text-[9px] sm:text-[10px] font-bold text-slate-300">Total Kewajiban Pembayaran</p>
+                      <span className="text-[9px] font-black text-emerald-300 uppercase tracking-wider underline">
+                        {tempoCategoryFilter === 'all' ? '✓ Tampil Semua' : 'Tampilkan Semua ↗'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
               {loadingTempo ? (
                 <div className="flex justify-center py-20">
                   <div className="w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" />
                 </div>
-              ) : totalItems === 0 ? (
-                <div className="text-center py-20 text-slate-400 font-bold bg-slate-50 rounded-3xl border-2 border-dashed border-slate-200">
-                  Tidak ada pembelian yang jatuh tempo saat ini.
+              ) : totalFilteredItems === 0 ? (
+                <div className="text-center py-16 sm:py-20 text-slate-400 font-bold bg-slate-50 rounded-3xl border-2 border-dashed border-slate-200 px-4">
+                  <p className="text-base sm:text-lg">🎉 Tidak ada pembelian dalam kategori filter ini ({tempoCategoryFilter}).</p>
+                  <button 
+                    onClick={() => { setTempoCategoryFilter('all'); setTempoPage(1); }}
+                    className="mt-3 px-4 py-2 bg-slate-800 text-white rounded-xl text-xs font-black uppercase tracking-wider"
+                  >
+                    Tampilkan Semua Transaksi Jatuh Tempo
+                  </button>
                 </div>
               ) : (
                 (() => {
-                  // Kelompokkan currentPageItems berdasarkan tanggal tempo
                   const groupedPageItems: Record<string, any[]> = {};
                   currentPageItems.forEach(item => {
                     const key = item.tempoDate;
@@ -1754,56 +1935,97 @@
                   const sortedGroupKeys = Object.keys(groupedPageItems).sort((a, b) => a.localeCompare(b));
 
                   return sortedGroupKeys.map((dateKey) => {
-                    const today = new Date();
-                    today.setHours(0, 0, 0, 0);
                     const groupDate = new Date(dateKey);
                     groupDate.setHours(0, 0, 0, 0);
                     const isOverdueGroup = groupDate < today;
                     const items = groupedPageItems[dateKey];
+                    const daysDiffText = getDaysDiffText(dateKey);
 
                     return (
                       <div key={dateKey} className="space-y-3">
-                        <div className="flex items-center gap-3 px-2">
-                          <span className={`text-[11px] font-black uppercase tracking-widest ${isOverdueGroup ? 'text-rose-500' : 'text-amber-500'}`}>
-                            {isOverdueGroup ? '🔴 Lewat Jatuh Tempo' : '🟡 Akan Jatuh Tempo'}
+                        {/* Header Kelompok Tanggal Tempo */}
+                        <div className="flex items-center gap-2 sm:gap-3 px-1 flex-wrap">
+                          <span className={`px-2.5 sm:px-3 py-1 rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-wider flex items-center gap-1.5 border shadow-xs ${
+                            isOverdueGroup 
+                              ? 'bg-rose-600 text-white border-rose-700' 
+                              : 'bg-amber-500 text-white border-amber-600'
+                          }`}>
+                            {isOverdueGroup ? <AlertCircle size={13} /> : <Calendar size={13} />}
+                            {isOverdueGroup ? `LEWAT JATUH TEMPO (${daysDiffText})` : `AKAN JATUH TEMPO (${daysDiffText})`}
                           </span>
-                          <span className="text-xs font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded">
-                            {formatLocalDateTime(dateKey)}
+                          <span className="text-[10px] sm:text-xs font-black text-slate-700 bg-slate-100 px-2.5 py-1 rounded-xl border border-slate-200">
+                            Batas: {formatLocalDateTime(dateKey)}
                           </span>
-                          <div className="h-px flex-1 bg-slate-200" />
+                          <div className="h-px flex-1 bg-slate-200 min-w-[30px]" />
                         </div>
+
+                        {/* List Items Card */}
                         {items.map((item) => {
-                          const personName = getPersonName(item.person) || item.person || 'Tidak diketahui';
+                          const personName = getPersonName(item.person) || item.person || 'Supplier Umum';
+                          const dibayar = item.dibayar || 0;
+                          const total = item.total || 0;
+                          const sisa = total - dibayar;
+                          const percentPaid = total > 0 ? Math.min(100, Math.round((dibayar / total) * 100)) : 0;
+
                           return (
                             <div
                               key={item.id}
                               onClick={() => navigate(`/?ref=${item.id}`)}
-                              className={`bg-white border-2 border-slate-100 rounded-2xl p-4 hover:border-amber-300 hover:shadow-lg cursor-pointer transition-all flex items-center justify-between gap-4 ${
-                                isOverdueGroup ? 'opacity-60 border-rose-200 bg-rose-50/30' : ''
+                              className={`group bg-white border-2 rounded-2xl p-3.5 sm:p-4 md:p-5 hover:shadow-xl transition-all cursor-pointer flex flex-col md:flex-row md:items-center justify-between gap-3.5 md:gap-4 relative overflow-hidden ${
+                                isOverdueGroup 
+                                  ? 'border-rose-200 hover:border-rose-400 bg-rose-50/20' 
+                                  : 'border-slate-200 hover:border-amber-400 hover:bg-amber-50/10'
                               }`}
                             >
-                              <div className="flex flex-col gap-1 min-w-0 flex-1">
-                                <div className="flex items-center gap-3 flex-wrap">
-                                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">
-                                    {item.id.slice(-6)}
+                              {/* Left Color Indicator Bar */}
+                              <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${isOverdueGroup ? 'bg-rose-500' : 'bg-amber-500'}`} />
+
+                              <div className="flex flex-col gap-2 min-w-0 flex-1 pl-1.5 sm:pl-2">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="text-[11px] sm:text-xs font-mono font-black bg-slate-100 text-slate-700 px-2 sm:px-2.5 py-0.5 rounded-lg border border-slate-200">
+                                    ID: #{item.id.slice(-6).toUpperCase()}
                                   </span>
-                                  <span className={`text-[10px] font-black px-2 py-0.5 rounded-full border ${isOverdueGroup ? 'bg-rose-100 text-rose-600 border-rose-200' : 'bg-amber-100 text-amber-600 border-amber-200'}`}>
-                                    {isOverdueGroup ? 'LEWAT' : 'AKAN DATANG'}
+                                  <span className={`text-[9px] sm:text-[10px] font-black px-2 sm:px-2.5 py-0.5 rounded-lg uppercase tracking-wider border ${
+                                    isOverdueGroup ? 'bg-rose-100 text-rose-800 border-rose-300' : 'bg-amber-100 text-amber-800 border-amber-300'
+                                  }`}>
+                                    {isOverdueGroup ? '🔴 TERLAMBAT' : '🟡 MENUNGGU PELUNASAN'}
                                   </span>
                                 </div>
-                                <p className="font-bold text-slate-800 text-sm truncate">
-                                  {personName}
-                                </p>
-                                <div className="flex flex-wrap gap-3 text-[10px] text-slate-500">
-                                  <span>Dibayar: <span className="font-black text-emerald-600">{formatRupiah(item.dibayar || 0)}</span></span>
-                                  <span>Sisa: <span className="font-black text-rose-600">{formatRupiah((item.total || 0) - (item.dibayar || 0))}</span></span>
+
+                                <div className="flex items-center gap-2">
+                                  <User size={16} className="text-slate-400 shrink-0" />
+                                  <p className="font-extrabold text-slate-800 text-sm sm:text-base truncate">
+                                    {personName}
+                                  </p>
+                                </div>
+
+                                {/* Progress Bar Pelunasan */}
+                                <div className="mt-1 w-full max-w-md">
+                                  <div className="flex justify-between items-center text-[10px] font-bold mb-1 flex-wrap gap-1">
+                                    <span className="text-slate-500">Progress: <strong className="text-emerald-700">{percentPaid}%</strong></span>
+                                    <span className="text-slate-500">Terbayar: <strong className="text-emerald-700">{formatRupiah(dibayar)}</strong></span>
+                                  </div>
+                                  <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden border border-slate-200 flex">
+                                    <div className="bg-emerald-500 h-full transition-all duration-500" style={{ width: `${percentPaid}%` }} />
+                                    <div className={`h-full transition-all duration-500 ${isOverdueGroup ? 'bg-rose-400' : 'bg-amber-400'}`} style={{ width: `${100 - percentPaid}%` }} />
+                                  </div>
                                 </div>
                               </div>
-                              <div className="text-right shrink-0">
-                                <p className="text-[10px] font-black text-slate-400 uppercase">Total</p>
-                                <p className="text-base font-black text-slate-800">
-                                  {formatRupiah(item.total || 0)}
-                                </p>
+
+                              {/* Right Column: Sisa Tagihan & Total */}
+                              <div className="flex md:flex-col items-center md:items-end justify-between md:justify-center border-t md:border-t-0 md:border-l border-slate-100 pt-2.5 md:pt-0 md:pl-5 shrink-0 text-right gap-1.5 sm:gap-2">
+                                <div className="text-left md:text-right">
+                                  <p className="text-[9px] sm:text-[10px] font-black text-rose-500 uppercase tracking-widest">Sisa Tagihan Belum Lunas</p>
+                                  <p className="text-base sm:text-xl font-black text-rose-600 tracking-tight">
+                                    {formatRupiah(sisa)}
+                                  </p>
+                                </div>
+                                <div className="text-right">
+                                  <p className="text-[10px] font-bold text-slate-400 hidden sm:block">Total: <strong className="text-slate-700">{formatRupiah(total)}</strong></p>
+                                  <span className="inline-flex items-center gap-1 text-[10px] sm:text-[11px] font-black text-blue-600 group-hover:text-blue-700 uppercase tracking-wider bg-blue-50 sm:bg-transparent px-2 py-1 sm:p-0 rounded-lg sm:rounded-none">
+                                    LIHAT NOTA <ArrowRight size={12} className="sm:w-3.5 sm:h-3.5" />
+                                  </span>
+                                </div>
                               </div>
                             </div>
                           );
@@ -1815,38 +2037,30 @@
               )}
             </div>
 
-            {/* Footer dengan Pagination & Summary */}
-            <div className="p-4 border-t border-slate-100 bg-white rounded-b-3xl flex flex-col sm:flex-row justify-between items-center gap-3 shrink-0">
-              <div className="flex flex-wrap items-center gap-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                <span>Total {totalItems} transaksi</span>
+            {/* FOOTER DENGAN PAGINATION & SUMMARY */}
+            <div className="p-3.5 sm:p-4 border-t border-slate-100 bg-white rounded-b-3xl flex flex-col sm:flex-row justify-between items-center gap-3 shrink-0">
+              <div className="flex flex-wrap items-center gap-2 sm:gap-4 text-[10px] font-black text-slate-500 uppercase tracking-widest text-center sm:text-left">
+                <span>Tampil {totalFilteredItems} / {totalItemsCount} Transaksi</span>
                 <span className="hidden sm:inline">|</span>
-                <span>Halaman ini: {formatRupiah(totalHalaman)}</span>
-                <span className="hidden sm:inline">|</span>
-                <span>Total keseluruhan: {formatRupiah(totalSemua)}</span>
+                <span>Subtotal Hal: <strong className="text-slate-800">{formatRupiah(totalHalaman)}</strong></span>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 sm:gap-3">
                 <button
                   onClick={() => setTempoPage(p => Math.max(1, p - 1))}
                   disabled={tempoPage === 1}
-                  className="p-2 rounded-xl border border-slate-200 hover:bg-slate-50 disabled:opacity-30 transition"
+                  className="px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-xl border border-slate-200 hover:bg-slate-50 disabled:opacity-30 transition font-black text-[11px] sm:text-xs flex items-center gap-1"
                 >
-                  <ChevronLeft size={16} />
+                  <ChevronLeft size={15} /> SEBELUMNYA
                 </button>
-                <span className="text-[10px] font-black text-slate-400">
-                  Hal {tempoPage} / {totalPages}
+                <span className="text-[11px] sm:text-xs font-black text-slate-700 bg-slate-100 px-2.5 sm:px-3 py-1.5 rounded-xl border border-slate-200">
+                  {tempoPage} / {totalPages}
                 </span>
                 <button
                   onClick={() => setTempoPage(p => Math.min(totalPages, p + 1))}
                   disabled={tempoPage === totalPages}
-                  className="p-2 rounded-xl border border-slate-200 hover:bg-slate-50 disabled:opacity-30 transition"
+                  className="px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-xl border border-slate-200 hover:bg-slate-50 disabled:opacity-30 transition font-black text-[11px] sm:text-xs flex items-center gap-1"
                 >
-                  <ChevronRight size={16} />
-                </button>
-                <button
-                  onClick={() => { fetchTempo(); setTempoPage(1); }}
-                  className="text-[10px] font-black text-emerald-600 hover:text-emerald-700 flex items-center gap-1"
-                >
-                  <RefreshCw size={14} /> Refresh
+                  SELANJUTNYA <ChevronRight size={15} />
                 </button>
               </div>
             </div>
@@ -2138,13 +2352,13 @@
                 {/* Pilih Person (dari semua kategori person) */}
                 <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 relative">
                   <label className="text-[10px] font-black text-purple-600 uppercase tracking-wider ml-1 flex items-center gap-1.5">
-                    <User size={14} /> Pilih Person
+                    <User size={14} /> Pilih Karyawan (User)
                   </label>
                   <div className="relative mt-2">
                     <div className="flex items-center gap-2">
                       <input
                         type="text"
-                        placeholder="Cari nama person..."
+                        placeholder="Cari nama karyawan..."
                         value={searchPerson}
                         onChange={(e) => setSearchPerson(e.target.value)}
                         onFocus={() => setIsPersonOpen(true)}
@@ -2161,13 +2375,15 @@
 
                     {isPersonOpen && (
                       <div className="absolute z-20 mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-lg max-h-60 overflow-y-auto">
-                        {personOptions.length === 0 ? (
-                          <div className="px-4 py-3 text-xs text-slate-500 text-center">Tidak ada person terdaftar</div>
+                        {personOptions.filter(p => p.jenis?.toLowerCase() === 'user' || p.source === 'user').length === 0 ? (
+                          <div className="px-4 py-3 text-xs text-slate-500 text-center">Tidak ada karyawan terdaftar</div>
                         ) : (
                           personOptions
+                            .filter(p => p.jenis?.toLowerCase() === 'user' || p.source === 'user')
                             .filter(p => 
                               p.text_1.toLowerCase().includes(searchPerson.toLowerCase()) ||
-                              (p.text_2 && p.text_2.toLowerCase().includes(searchPerson.toLowerCase()))
+                              (p.text_2 && p.text_2.toLowerCase().includes(searchPerson.toLowerCase())) ||
+                              (p.id_lama && p.id_lama.toLowerCase().includes(searchPerson.toLowerCase()))
                             )
                             .map(opt => (
                               <div
@@ -2180,8 +2396,8 @@
                                 className="px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-purple-50 cursor-pointer border-b border-slate-100 last:border-0 flex justify-between items-center"
                               >
                                 <span>{opt.text_1} {opt.text_2 ? `- ${opt.text_2}` : ''}</span>
-                                <span className="text-[9px] font-black text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
-                                  {opt.jenis || 'Person'}
+                                <span className="text-[9px] font-black text-purple-600 bg-purple-50 px-2 py-0.5 rounded-full border border-purple-100">
+                                  Karyawan
                                 </span>
                               </div>
                             ))
@@ -2422,62 +2638,181 @@
                       </div>
                     )}
                   </div>
-                  {formDataBon.person && (
-                    <div className="mt-3 text-xs font-bold text-purple-700 bg-white p-2.5 rounded-lg border border-purple-100 flex items-center justify-between shadow-sm">
-                      <span>Dipilih:</span>
-                      <span className="text-slate-800">{formDataBon.persontext}</span>
+                  {formDataGaji.person && (
+                    <div className="mt-3 text-xs font-bold text-amber-700 bg-white p-2.5 rounded-xl border border-amber-200/60 flex items-center justify-between shadow-2xs">
+                      <span className="text-[11px] uppercase tracking-wider text-slate-400">Karyawan Terpilih:</span>
+                      <span className="text-slate-800 font-black">{formDataGaji.persontext}</span>
                     </div>
                   )}
                 </div>
 
                 {/* Form Pendapatan Dasar */}
-                <div className="p-4 rounded-2xl border border-blue-100 bg-blue-50/50">
-                  <h4 className="font-black text-blue-600 text-[11px] mb-3 uppercase tracking-widest border-b border-blue-100 pb-2">Pendapatan Dasar</h4>
-                  <div className="grid grid-cols-2 gap-3">
+                <div className="p-4 rounded-2xl border border-blue-200/70 bg-blue-50/40">
+                  <h4 className="font-black text-blue-600 text-xs mb-3 uppercase tracking-wider border-b border-blue-200/50 pb-2 flex items-center gap-1.5">
+                    <DollarSign size={14} /> Pendapatan Dasar
+                  </h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
-                      <label className="text-[10px] font-bold text-slate-500">Gaji Pokok</label>
-                      <input type="number" value={formDataGaji.pokok || ''} onChange={e => setFormDataGaji({...formDataGaji, pokok: Number(e.target.value)})} className="w-full mt-1 p-2 text-xs font-bold bg-white border border-slate-200 rounded-lg outline-none focus:border-blue-400" placeholder="0" />
+                      <label className="text-[10px] font-bold text-slate-600">Gaji Pokok</label>
+                      <div className="relative mt-1">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-black text-blue-500">Rp</span>
+                        <input
+                          type="number"
+                          value={formDataGaji.pokok || ''}
+                          onChange={e => setFormDataGaji({...formDataGaji, pokok: Number(e.target.value)})}
+                          className="w-full py-2 pl-9 pr-3 text-xs font-black text-slate-800 bg-white border border-slate-200 rounded-xl outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-500/20"
+                          placeholder="0"
+                        />
+                      </div>
                     </div>
                     <div>
-                      <label className="text-[10px] font-bold text-slate-500">Tunjangan</label>
-                      <input type="number" value={formDataGaji.tunjangan || ''} onChange={e => setFormDataGaji({...formDataGaji, tunjangan: Number(e.target.value)})} className="w-full mt-1 p-2 text-xs font-bold bg-white border border-slate-200 rounded-lg outline-none focus:border-blue-400" placeholder="0" />
+                      <label className="text-[10px] font-bold text-slate-600">Tunjangan</label>
+                      <div className="relative mt-1">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-black text-blue-500">Rp</span>
+                        <input
+                          type="number"
+                          value={formDataGaji.tunjangan || ''}
+                          onChange={e => setFormDataGaji({...formDataGaji, tunjangan: Number(e.target.value)})}
+                          className="w-full py-2 pl-9 pr-3 text-xs font-black text-slate-800 bg-white border border-slate-200 rounded-xl outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-500/20"
+                          placeholder="0"
+                        />
+                      </div>
                     </div>
                   </div>
                 </div>
 
                 {/* Form Tambahan Pendapatan */}
-                <div className="p-4 rounded-2xl border border-emerald-100 bg-emerald-50/50">
-                  <h4 className="font-black text-emerald-600 text-[11px] mb-3 uppercase tracking-widest border-b border-emerald-100 pb-2">Pendapatan Tambahan</h4>
+                <div className="p-4 rounded-2xl border border-emerald-200/70 bg-emerald-50/40">
+                  <h4 className="font-black text-emerald-600 text-xs mb-3 uppercase tracking-wider border-b border-emerald-200/50 pb-2 flex items-center gap-1.5">
+                    <Plus size={14} /> Pendapatan Tambahan
+                  </h4>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                    <div><label className="text-[10px] font-bold text-slate-500">Bonus 1</label><input type="number" value={formDataGaji.bonus_1 || ''} onChange={e => setFormDataGaji({...formDataGaji, bonus_1: Number(e.target.value)})} className="w-full mt-1 p-2 text-xs font-bold bg-white border border-slate-200 rounded-lg outline-none" placeholder="0" /></div>
-                    <div><label className="text-[10px] font-bold text-slate-500">Bonus 2</label><input type="number" value={formDataGaji.bonus_2 || ''} onChange={e => setFormDataGaji({...formDataGaji, bonus_2: Number(e.target.value)})} className="w-full mt-1 p-2 text-xs font-bold bg-white border border-slate-200 rounded-lg outline-none" placeholder="0" /></div>
-                    <div><label className="text-[10px] font-bold text-slate-500">Bonus 3</label><input type="number" value={formDataGaji.bonus_3 || ''} onChange={e => setFormDataGaji({...formDataGaji, bonus_3: Number(e.target.value)})} className="w-full mt-1 p-2 text-xs font-bold bg-white border border-slate-200 rounded-lg outline-none" placeholder="0" /></div>
-                    <div><label className="text-[10px] font-bold text-slate-500">Bonus 4</label><input type="number" value={formDataGaji.bonus_4 || ''} onChange={e => setFormDataGaji({...formDataGaji, bonus_4: Number(e.target.value)})} className="w-full mt-1 p-2 text-xs font-bold bg-white border border-slate-200 rounded-lg outline-none" placeholder="0" /></div>
-                    <div><label className="text-[10px] font-bold text-slate-500">Program / KPI</label><input type="number" value={formDataGaji.program || ''} onChange={e => setFormDataGaji({...formDataGaji, program: Number(e.target.value)})} className="w-full mt-1 p-2 text-xs font-bold bg-white border border-slate-200 rounded-lg outline-none" placeholder="0" /></div>
-                    <div><label className="text-[10px] font-bold text-slate-500">Lembur</label><input type="number" value={formDataGaji.lembur || ''} onChange={e => setFormDataGaji({...formDataGaji, lembur: Number(e.target.value)})} className="w-full mt-1 p-2 text-xs font-bold bg-white border border-slate-200 rounded-lg outline-none" placeholder="0" /></div>
+                    {[
+                      { label: 'Bonus 1', key: 'bonus_1' },
+                      { label: 'Bonus 2', key: 'bonus_2' },
+                      { label: 'Bonus 3', key: 'bonus_3' },
+                      { label: 'Bonus 4', key: 'bonus_4' },
+                      { label: 'Program / KPI', key: 'program' },
+                      { label: 'Lembur', key: 'lembur' },
+                    ].map(field => (
+                      <div key={field.key}>
+                        <label className="text-[10px] font-bold text-slate-600">{field.label}</label>
+                        <div className="relative mt-1">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-black text-emerald-500">Rp</span>
+                          <input
+                            type="number"
+                            value={(formDataGaji as any)[field.key] || ''}
+                            onChange={e => setFormDataGaji({...formDataGaji, [field.key]: Number(e.target.value)})}
+                            className="w-full py-2 pl-9 pr-3 text-xs font-black text-slate-800 bg-white border border-slate-200 rounded-xl outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-500/20"
+                            placeholder="0"
+                          />
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
 
                 {/* Form Potongan Kehadiran */}
-                <div className="p-4 rounded-2xl border border-rose-100 bg-rose-50/50">
-                  <h4 className="font-black text-rose-600 text-[11px] mb-3 uppercase tracking-widest border-b border-rose-100 pb-2">Pelanggaran & Kehadiran (X Kali)</h4>
+                <div className="p-4 rounded-2xl border border-rose-200/70 bg-rose-50/40">
+                  <h4 className="font-black text-rose-600 text-xs mb-3 uppercase tracking-wider border-b border-rose-200/50 pb-2 flex items-center gap-1.5">
+                    <AlertCircle size={14} /> Pelanggaran & Kehadiran (X Kali)
+                  </h4>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    <div><label className="text-[10px] font-bold text-slate-500">Alfa (Mangkir)</label><input type="number" value={formDataGaji.alfa || ''} onChange={e => setFormDataGaji({...formDataGaji, alfa: Number(e.target.value)})} className="w-full mt-1 p-2 text-xs font-bold bg-white border border-slate-200 rounded-lg outline-none text-rose-600" placeholder="0x" /></div>
-                    <div><label className="text-[10px] font-bold text-slate-500">Sakit (Tanpa Srt)</label><input type="number" value={formDataGaji.sakit || ''} onChange={e => setFormDataGaji({...formDataGaji, sakit: Number(e.target.value)})} className="w-full mt-1 p-2 text-xs font-bold bg-white border border-slate-200 rounded-lg outline-none text-rose-600" placeholder="0x" /></div>
-                    <div><label className="text-[10px] font-bold text-slate-500">Setengah Hari</label><input type="number" value={formDataGaji.setengah_hari || ''} onChange={e => setFormDataGaji({...formDataGaji, setengah_hari: Number(e.target.value)})} className="w-full mt-1 p-2 text-xs font-bold bg-white border border-slate-200 rounded-lg outline-none text-rose-600" placeholder="0x" /></div>
-                    <div><label className="text-[10px] font-bold text-slate-500">Telat Menit</label><input type="number" value={formDataGaji.telat || ''} onChange={e => setFormDataGaji({...formDataGaji, telat: Number(e.target.value)})} className="w-full mt-1 p-2 text-xs font-bold bg-white border border-slate-200 rounded-lg outline-none text-rose-600" placeholder="0 mnt" /></div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-600">Alfa (Mangkir)</label>
+                      <div className="relative mt-1">
+                        <input type="number" value={formDataGaji.alfa || ''} onChange={e => setFormDataGaji({...formDataGaji, alfa: Number(e.target.value)})} className="w-full py-2 px-3 pr-7 text-xs font-black text-rose-600 bg-white border border-slate-200 rounded-xl outline-none focus:border-rose-400 focus:ring-2 focus:ring-rose-500/20 text-right" placeholder="0" />
+                        <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-black text-rose-400">x</span>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-600">Sakit (Tanpa Srt)</label>
+                      <div className="relative mt-1">
+                        <input type="number" value={formDataGaji.sakit || ''} onChange={e => setFormDataGaji({...formDataGaji, sakit: Number(e.target.value)})} className="w-full py-2 px-3 pr-7 text-xs font-black text-rose-600 bg-white border border-slate-200 rounded-xl outline-none focus:border-rose-400 focus:ring-2 focus:ring-rose-500/20 text-right" placeholder="0" />
+                        <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-black text-rose-400">x</span>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-600">Setengah Hari</label>
+                      <div className="relative mt-1">
+                        <input type="number" value={formDataGaji.setengah_hari || ''} onChange={e => setFormDataGaji({...formDataGaji, setengah_hari: Number(e.target.value)})} className="w-full py-2 px-3 pr-7 text-xs font-black text-rose-600 bg-white border border-slate-200 rounded-xl outline-none focus:border-rose-400 focus:ring-2 focus:ring-rose-500/20 text-right" placeholder="0" />
+                        <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-black text-rose-400">x</span>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-600">Telat (Menit)</label>
+                      <div className="relative mt-1">
+                        <input type="number" value={formDataGaji.telat || ''} onChange={e => setFormDataGaji({...formDataGaji, telat: Number(e.target.value)})} className="w-full py-2 px-3 pr-10 text-xs font-black text-rose-600 bg-white border border-slate-200 rounded-xl outline-none focus:border-rose-400 focus:ring-2 focus:ring-rose-500/20 text-right" placeholder="0" />
+                        <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-black text-rose-400">mnt</span>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
-                {/* Form Potongan Lainnya */}
-                <div className="p-4 rounded-2xl border border-orange-100 bg-orange-50/50">
-                  <h4 className="font-black text-orange-600 text-[11px] mb-3 uppercase tracking-widest border-b border-orange-100 pb-2">Potongan Operasional Lain</h4>
+                {/* Form Potongan Lain */}
+                <div className="p-4 rounded-2xl border border-amber-200/70 bg-amber-50/40">
+                  <h4 className="font-black text-amber-600 text-xs mb-3 uppercase tracking-wider border-b border-amber-200/50 pb-2 flex items-center gap-1.5">
+                    <Filter size={14} /> Potongan Lain
+                  </h4>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <div><label className="text-[10px] font-bold text-slate-500">Iuran BPJS</label><input type="number" value={formDataGaji.bpjs || ''} onChange={e => setFormDataGaji({...formDataGaji, bpjs: Number(e.target.value)})} className="w-full mt-1 p-2 text-xs font-bold bg-white border border-slate-200 rounded-lg outline-none text-orange-600" placeholder="Rp 0" /></div>
-                    <div><label className="text-[10px] font-bold text-slate-500">Bon Tambahan (Minta)</label><input type="number" value={formDataGaji.bon_diambil || ''} onChange={e => setFormDataGaji({...formDataGaji, bon_diambil: Number(e.target.value)})} className="w-full mt-1 p-2 text-xs font-bold bg-white border border-slate-200 rounded-lg outline-none text-orange-600" placeholder="Rp 0" /></div>
-                    <div><label className="text-[10px] font-bold text-slate-500">Cicilan Bon (Potong)</label><input type="number" value={formDataGaji.bon_dibayar || ''} onChange={e => setFormDataGaji({...formDataGaji, bon_dibayar: Number(e.target.value)})} className="w-full mt-1 p-2 text-xs font-bold bg-white border border-slate-200 rounded-lg outline-none text-orange-600" placeholder="Rp 0" /></div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-600">Iuran BPJS</label>
+                      <div className="relative mt-1">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-black text-amber-500">Rp</span>
+                        <input type="number" value={formDataGaji.bpjs || ''} onChange={e => setFormDataGaji({...formDataGaji, bpjs: Number(e.target.value)})} className="w-full py-2 pl-9 pr-3 text-xs font-black text-amber-700 bg-white border border-slate-200 rounded-xl outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-500/20" placeholder="0" />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-600">Bon Tambahan (Minta)</label>
+                      <div className="relative mt-1">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-black text-amber-500">Rp</span>
+                        <input type="number" value={formDataGaji.bon_diambil || ''} onChange={e => setFormDataGaji({...formDataGaji, bon_diambil: Number(e.target.value)})} className="w-full py-2 pl-9 pr-3 text-xs font-black text-amber-700 bg-white border border-slate-200 rounded-xl outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-500/20" placeholder="0" />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-600">Cicilan Bon (Potong)</label>
+                      <div className="relative mt-1">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-black text-amber-500">Rp</span>
+                        <input type="number" value={formDataGaji.bon_dibayar || ''} onChange={e => setFormDataGaji({...formDataGaji, bon_dibayar: Number(e.target.value)})} className="w-full py-2 pl-9 pr-3 text-xs font-black text-amber-700 bg-white border border-slate-200 rounded-xl outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-500/20" placeholder="0" />
+                      </div>
+                    </div>
                   </div>
                 </div>
+
+                {/* Live Real-Time Calculation Summary Card (Setema Amber/Gaji) */}
+                {(() => {
+                  const pokok = Number(formDataGaji.pokok || 0);
+                  const tunjangan = Number(formDataGaji.tunjangan || 0);
+                  const bonus = Number(formDataGaji.bonus_1 || 0) + Number(formDataGaji.bonus_2 || 0) + Number(formDataGaji.bonus_3 || 0) + Number(formDataGaji.bonus_4 || 0) + Number(formDataGaji.program || 0) + Number(formDataGaji.lembur || 0);
+                  const totalPendapatan = pokok + tunjangan + bonus;
+                  
+                  const nilaiDasar = (pokok + tunjangan) / 25;
+                  const potKehadiran = (nilaiDasar * Number(formDataGaji.alfa || 0)) + ((nilaiDasar / 2) * Number(formDataGaji.setengah_hari || 0)) + ((nilaiDasar * 0.9) * Number(formDataGaji.sakit || 0)) + (Number(formDataGaji.telat || 0) * 1000);
+                  const potLain = Number(formDataGaji.bpjs || 0) + Number(formDataGaji.bon_diambil || 0) + Number(formDataGaji.bon_dibayar || 0);
+                  const totalPotongan = potKehadiran + potLain;
+                  const gajiNetto = Math.max(0, totalPendapatan - totalPotongan);
+
+                  return (
+                    <div className="bg-gradient-to-br from-amber-50 to-orange-50/60 p-4 rounded-2xl border-2 border-amber-200/80 shadow-xs space-y-2.5">
+                      <div className="flex justify-between items-center text-xs font-bold border-b border-amber-200/60 pb-2">
+                        <span className="text-emerald-700 flex items-center gap-1.5"><Plus size={14}/> Total Pendapatan:</span>
+                        <span className="text-emerald-700 font-black">Rp {totalPendapatan.toLocaleString('id-ID')}</span>
+                      </div>
+                      <div className="flex justify-between items-center text-xs font-bold border-b border-amber-200/60 pb-2">
+                        <span className="text-rose-700 flex items-center gap-1.5"><Trash2 size={14}/> Total Potongan:</span>
+                        <span className="text-rose-700 font-black">− Rp {Math.round(totalPotongan).toLocaleString('id-ID')}</span>
+                      </div>
+                      <div className="flex justify-between items-center pt-1 bg-gradient-to-r from-amber-500 to-amber-600 text-white p-3 rounded-xl shadow-md">
+                        <span className="text-xs font-black uppercase tracking-wider text-amber-100 flex items-center gap-1.5">
+                          <DollarSign size={16} /> Gaji Netto Diterima:
+                        </span>
+                        <span className="text-base sm:text-lg font-black text-white">
+                          Rp {Math.round(gajiNetto).toLocaleString('id-ID')}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* Note/Ref */}
                 <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
@@ -2725,7 +3060,7 @@
         </div>
         
         {/* TOMBOL-TOMBOL FLOATING MOBILE */}
-        <div className="md:hidden fixed bottom-25 right-6 z-50 flex flex-col gap-3">
+        <div className="md:hidden fixed bottom-24 right-5 z-50 flex flex-col items-end gap-2.5">
           
           {/* Tombol Bon */}
           {configBon && (
@@ -2739,9 +3074,10 @@
                 setFiles([]);
                 setModalType('formBon' as any);
               }}
-              className="w-14 h-14 bg-purple-600 text-white rounded-full shadow-xl flex items-center justify-center hover:scale-105 active:scale-95 transition-all"
+              className="py-2.5 px-4 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-full shadow-xl shadow-purple-600/30 flex items-center gap-2 text-xs font-black tracking-wider active:scale-95 transition-all border border-purple-400/30"
             >
-              <Plus size={20} /> <span className="text-[8px] font-black uppercase">BON</span>
+              <FileText size={15} />
+              <span>+ BON</span>
             </button>
           )}
 
@@ -2757,9 +3093,10 @@
                 });
                 setModalType('formGaji' as any);
               }}
-              className="w-14 h-14 bg-amber-500 text-white rounded-full shadow-xl flex items-center justify-center hover:scale-105 active:scale-95 transition-all"
+              className="py-2.5 px-4 bg-gradient-to-r from-teal-600 to-emerald-600 text-white rounded-full shadow-xl shadow-teal-600/30 flex items-center gap-2 text-xs font-black tracking-wider active:scale-95 transition-all border border-teal-400/30"
             >
-              <Plus size={20} /> <span className="text-[8px] font-black uppercase">GAJI</span>
+              <DollarSign size={15} />
+              <span>+ GAJI</span>
             </button>
           )}
 
@@ -2774,9 +3111,10 @@
               });
               setModalType('form');
             }}
-            className="w-16 h-16 bg-slate-900 text-white rounded-full shadow-2xl shadow-slate-500/50 flex items-center justify-center hover:scale-105 active:scale-95 transition-all duration-300"
+            className="p-3.5 bg-slate-900 text-white rounded-full shadow-2xl shadow-slate-900/50 flex items-center justify-center active:scale-95 transition-all border border-slate-700"
+            title="Catat Kas Baru"
           >
-            <Plus size={30} strokeWidth={3} />
+            <Plus size={22} strokeWidth={2.5} />
           </button>
         </div>
 

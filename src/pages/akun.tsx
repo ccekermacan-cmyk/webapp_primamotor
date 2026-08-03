@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { pb } from '../lib/pocketbase';
 import Modal from '../components/modal';
 import { 
   User, Mail, Shield, Camera, Edit3, Lock, 
-  Eye, ChevronLeft, ChevronRight, DollarSign, Calendar,
+  Eye, EyeOff, ChevronLeft, ChevronRight, DollarSign, Calendar, FileText,
+  Award, TrendingUp, AlertTriangle, Key, ShieldCheck
 } from 'lucide-react';
 
 interface UserData {
@@ -38,6 +39,8 @@ interface Gaji {
   bon_dibayar: number;
   created_at: string;
   ref: string;
+  note?: string;
+  operator?: string;
   expand?: {
     ref?: {
       qty: number;
@@ -51,11 +54,54 @@ export default function AkunPage() {
   const [loading, setLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
 
+  // Privacy Toggle State (Hide / Show Nominals)
+  const [hideNominal, setHideNominal] = useState(true);
+
   // Pagination Gaji
   const [totalGaji, setTotalGaji] = useState(0);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+
+  // States & Pagination Bon
+  const [bonList, setBonList] = useState<any[]>([]);
+  const [totalBon, setTotalBon] = useState(0);
+  const [bonPage, setBonPage] = useState(1);
+  const [bonTotalPages, setBonTotalPages] = useState(1);
   const perPage = 5;
+
+  // Kalkulasi Skor Kredit Karyawan (diambil dari rasio pelunasan bon)
+  const creditAnalysis = useMemo(() => {
+    let totalBonDiambil = 0;
+    let totalBonDibayar = 0;
+
+    salaryList.forEach(g => {
+      totalBonDiambil += (g.bon_diambil || 0);
+      totalBonDibayar += (g.bon_dibayar || 0);
+    });
+
+    bonList.forEach(b => {
+      if (b.id_lama === 'addbon' || (b.note && b.note.toLowerCase().includes('bon'))) {
+        totalBonDiambil += (b.nominal || 0);
+      }
+    });
+
+    if (totalBonDiambil === 0 && totalBon === 0) {
+      return { rate: 100, status: 'SANGAT BAGUS', color: 'bg-emerald-500 text-white border-emerald-600', desc: 'Tidak Memiliki Penunggakan Bon (100% Bersih)' };
+    }
+
+    const effectiveTotalDiambil = totalBonDiambil || totalBon;
+    const rate = effectiveTotalDiambil > 0 ? Math.round((totalBonDibayar / effectiveTotalDiambil) * 100) : 0;
+
+    if (rate >= 15) {
+      return { rate, status: 'BAGUS', color: 'bg-emerald-500 text-white border-emerald-600', desc: 'Pelunasan Cepat & Lancar (≥ 15% / bln)' };
+    } else if (rate >= 10) {
+      return { rate, status: 'SEDANG', color: 'bg-blue-500 text-white border-blue-600', desc: 'Pelunasan Cukup (10% - 14% / bln)' };
+    } else if (rate >= 0) {
+      return { rate, status: 'KURANG', color: 'bg-amber-500 text-white border-amber-600', desc: 'Pelunasan Lambat (< 10% / bln)' };
+    } else {
+      return { rate, status: 'JELEK POL', color: 'bg-rose-600 text-white border-rose-700 animate-pulse', desc: 'Penunggakan Bon Tinggi (< 0% / bln)' };
+    }
+  }, [salaryList, bonList, totalBon]);
 
   // Modal States
   const [modalType, setModalType] = useState<'editProfile' | 'verifyPassword' | 'salaryDetail' | null>(null);
@@ -120,8 +166,9 @@ export default function AkunPage() {
   }, []);
 
   useEffect(() => {
-    if (userData?.username) fetchGaji();
-  }, [userData?.username, page]);
+    fetchGaji();
+    fetchBon();
+  }, [userData?.username, userData?.user_level, page, bonPage]);
 
   const fetchProfile = async () => {
       try {
@@ -144,12 +191,15 @@ export default function AkunPage() {
 
   const fetchGaji = async () => {
     try {
-      // Ambil username dari localStorage (lebih langsung)
       const currentUsername = localStorage.getItem('user_username') || userData?.username || '';
-      if (!currentUsername) return;
+      const userLevel = userData?.user_level ?? parseInt(localStorage.getItem('user_level') || '10');
+      const isSuperUser = userLevel === 1 || userLevel === 2;
+
+      // Jika level 1 atau 2, tampilkan semua data tanpa terkecuali (tanpa filter username)
+      const filterClause = isSuperUser ? '' : (currentUsername ? `person = "${currentUsername}"` : '');
 
       const result = await pb.collection('gaji').getList<Gaji>(page, perPage, {
-        filter: `person = "${currentUsername}"`,
+        ...(filterClause ? { filter: filterClause } : {}),
         sort: '-created_at',
         expand: 'ref',
         $autoCancel: false 
@@ -157,10 +207,8 @@ export default function AkunPage() {
       setSalaryList(result.items);
       setTotalPages(result.totalPages);
 
-      // Hitung total gaji bersih (akumulasi semua halaman? hanya untuk halaman saat ini atau semua? 
-      // Di sini kita hitung dari seluruh data yang ada (panggil getFullList untuk akumulasi)
       const allGaji = await pb.collection('gaji').getFullList<Gaji>({
-        filter: `person = "${currentUsername}"`,
+        ...(filterClause ? { filter: filterClause } : {}),
         expand: 'ref',
         $autoCancel: false
       });
@@ -171,6 +219,37 @@ export default function AkunPage() {
       setTotalGaji(total);
     } catch (error) {
       console.error("Gagal load gaji:", error);
+    }
+  };
+
+  const fetchBon = async () => {
+    try {
+      const currentUsername = localStorage.getItem('user_username') || userData?.username || '';
+      const userLevel = userData?.user_level ?? parseInt(localStorage.getItem('user_level') || '10');
+      const isSuperUser = userLevel === 1 || userLevel === 2;
+
+      // Jika level 1 atau 2, tampilkan semua data bon tanpa terkecuali
+      const baseBonFilter = '(id_lama = "addbon" || note ~ "bon")';
+      const filterClause = isSuperUser 
+        ? baseBonFilter 
+        : (currentUsername ? `${baseBonFilter} && (person = "${currentUsername}" || persontext = "${currentUsername}")` : baseBonFilter);
+
+      const result = await pb.collection('cashflow').getList(bonPage, perPage, {
+        filter: filterClause,
+        sort: '-created_at',
+        $autoCancel: false 
+      });
+      setBonList(result.items);
+      setBonTotalPages(result.totalPages);
+
+      const allBon = await pb.collection('cashflow').getFullList({
+        filter: filterClause,
+        $autoCancel: false
+      });
+      const total = allBon.reduce((sum, b) => sum + (b.nominal || 0), 0);
+      setTotalBon(total);
+    } catch (error) {
+      console.error("Gagal load bon:", error);
     }
   };
 
@@ -211,7 +290,12 @@ export default function AkunPage() {
     setIsProcessing(true);
     try {
       await pb.collection('user').authWithPassword(userData?.username || '', verifyPass);
-      setModalType('salaryDetail');
+      setHideNominal(false); // Membuka sensitivitas privasi nominal seluruh halaman
+      if (selectedGaji) {
+        setModalType('salaryDetail');
+      } else {
+        setModalType(null);
+      }
       setVerifyPass('');
     } catch (error) {
       alert("Password salah! Akses ditolak.");
@@ -220,8 +304,33 @@ export default function AkunPage() {
     }
   };
 
+  const handleToggleSensitivity = () => {
+    if (hideNominal) {
+      // Memerlukan konfirmasi password untuk membuka sensitivitas nominal
+      setSelectedGaji(null);
+      setModalType('verifyPassword');
+    } else {
+      // Menyembunyikan kembali tanpa perlu password
+      setHideNominal(true);
+    }
+  };
+
+  const handleSelectSalaryItem = (item: Gaji) => {
+    setSelectedGaji(item);
+    if (hideNominal) {
+      setModalType('verifyPassword');
+    } else {
+      setModalType('salaryDetail');
+    }
+  };
+
   const formatRupiah = (number: number) => {
     return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(number);
+  };
+
+  const formatNominalPrivasi = (nominal: number) => {
+    if (hideNominal) return 'Rp •••••••••';
+    return formatRupiah(nominal);
   };
 
   const getSalaryDetails = (gaji: Gaji) => {
@@ -268,7 +377,26 @@ export default function AkunPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-white p-4 sm:p-6 lg:p-8 pt-16 md:pt-8">
       <div className="max-w-5xl mx-auto space-y-6 md:space-y-8">
-        
+        {/* HEADER BAR & PRIVACY TOGGLE */}
+        <div className="flex justify-between items-center bg-white p-4 sm:p-5 rounded-2xl sm:rounded-3xl shadow-sm border border-slate-100">
+          <div>
+            <h1 className="text-xl sm:text-2xl font-black text-slate-800 tracking-tight">Akun Saya</h1>
+            <p className="text-xs font-bold text-slate-400">Pengaturan profil, riwayat gaji, dan transaksi bon</p>
+          </div>
+          <button
+            onClick={handleToggleSensitivity}
+            className={`px-4 py-2.5 rounded-2xl font-black text-xs uppercase tracking-wider transition-all flex items-center gap-2 shadow-sm border ${
+              hideNominal
+                ? 'bg-slate-900 text-white border-slate-800 hover:bg-slate-800'
+                : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+            }`}
+            title="Sembunyikan / Tampilkan Nominal Privasi"
+          >
+            {hideNominal ? <EyeOff size={16} /> : <Eye size={16} />}
+            <span className="hidden sm:inline">{hideNominal ? 'Sensitivitas: Tersembunyi' : 'Sensitivitas: Terlihat'}</span>
+          </button>
+        </div>
+
         {/* 1. SECTION PROFILE - Responsive */}
         <div className="bg-white rounded-3xl md:rounded-[2.5rem] shadow-xl shadow-slate-200/50 border border-slate-100 overflow-hidden relative group transition-all duration-300 hover:shadow-2xl">
           <div 
@@ -297,52 +425,134 @@ export default function AkunPage() {
               </span>
             </div>
 
+            {/* HAL PENTING: EMAIL & STATUS JABATAN */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full mt-5 sm:mt-6 px-2 sm:px-4">
-              <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-2xl border border-slate-100 text-left">
-                <div className="p-2 bg-white rounded-xl shadow-sm text-blue-500 shrink-0"><Mail size={18} className="sm:w-5 sm:h-5" /></div>
+              <div className="flex items-center gap-3 p-3.5 bg-slate-50 rounded-2xl border border-slate-100 text-left">
+                <div className="p-2.5 bg-white rounded-xl shadow-xs text-blue-600 shrink-0"><Mail size={18} /></div>
                 <div className="min-w-0">
-                  <p className="text-[10px] font-black text-slate-400 uppercase">Email Address</p>
-                  <p className="font-bold text-slate-700 text-sm sm:text-base truncate">{userData?.email || '-'}</p>
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Email Terdaftar</p>
+                  <p className="font-bold text-slate-800 text-sm sm:text-base truncate">{userData?.email || '-'}</p>
                 </div>
               </div>
-              <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-2xl border border-slate-100 text-left">
-                <div className="p-2 bg-white rounded-xl shadow-sm text-indigo-500 shrink-0"><Lock size={18} className="sm:w-5 sm:h-5" /></div>
+              <div className="flex items-center gap-3 p-3.5 bg-slate-50 rounded-2xl border border-slate-100 text-left">
+                <div className="p-2.5 bg-white rounded-xl shadow-xs text-emerald-600 shrink-0"><ShieldCheck size={18} /></div>
                 <div className="min-w-0">
-                  <p className="text-[10px] font-black text-slate-400 uppercase">Token Key</p>
-                  <p className="font-bold text-slate-700 text-sm sm:text-base truncate">{userData?.tokenkey || 'Not Set'}</p>
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Status Jabatan</p>
+                  <p className="font-bold text-slate-800 text-sm sm:text-base truncate">
+                    {userData?.user_level === 1 ? 'Administrator' : userData?.user_level === 10 ? 'Mekanik Utama' : 'Karyawan / User'}
+                  </p>
                 </div>
               </div>
             </div>
 
-            <button 
-              onClick={() => setModalType('editProfile')}
-              className="mt-6 sm:mt-8 flex items-center gap-2 px-6 sm:px-8 py-2.5 sm:py-3 bg-slate-800 text-white rounded-2xl font-black hover:bg-slate-900 transition-all shadow-xl shadow-slate-200 text-sm"
-            >
-              <Edit3 size={16} className="sm:w-[18px] sm:h-[18px]" /> EDIT PROFIL
-            </button>
+            {/* TOMBOL AKSI: EDIT PROFIL & RESET PASSWORD */}
+            <div className="flex flex-col sm:flex-row gap-3 w-full mt-6 px-2 sm:px-4">
+              <button 
+                onClick={() => setModalType('editProfile')}
+                className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-slate-900 hover:bg-black text-white rounded-2xl font-black transition-all shadow-lg text-xs uppercase tracking-wider"
+              >
+                <Edit3 size={15} /> EDIT PROFIL
+              </button>
+              <button 
+                onClick={() => {
+                  setFormData(userData || {});
+                  setPasswordData({ oldPassword: '', password: '', passwordConfirm: '' });
+                  setModalType('editProfile');
+                }}
+                className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-2xl font-black transition-all text-xs uppercase tracking-wider"
+              >
+                <Key size={15} /> RESET PASSWORD
+              </button>
+            </div>
           </div>
         </div>
 
-        {/* 2. SECTION GAJI - RIWAYAT (Responsive list) */}
+        {/* 2. SECTION GAJI - RIWAYAT (Ditingkatkan setema dengan UI Bon) */}
         <div className="bg-white rounded-3xl sm:rounded-[2.5rem] shadow-xl border border-slate-100 p-4 sm:p-6 md:p-8">
           <div className="flex justify-between items-center mb-4 sm:mb-6">
             <h3 className="text-lg sm:text-xl font-black text-slate-800 flex items-center gap-2">
-              <div className="p-2 bg-emerald-50 text-emerald-600 rounded-xl"><DollarSign size={18} className="sm:w-5 sm:h-5" /></div>
-              RIWAYAT GAJI
+              <div className="p-2 bg-emerald-50 text-emerald-600 rounded-xl">
+                <DollarSign size={18} className="sm:w-5 sm:h-5" />
+              </div>
+              RIWAYAT GAJI KARYAWAN
             </h3>
           </div>
 
-          {totalGaji > 0 && (
-          <div className="mb-6 p-4 bg-gradient-to-r from-emerald-50 to-teal-50 rounded-2xl border border-emerald-100">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-              <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">Total Seluruh Gaji Diterima</p>
-              <p className="text-2xl sm:text-3xl font-black text-emerald-700 blur-sm">
-                {formatRupiah(totalGaji)}
-              </p>
+          {/* GAJI CONTAINER (1 HORIZONTAL TOP + 2 VERTICAL SUB-CARDS BELOW) */}
+          <div className="mb-6 space-y-4">
+            {/* 1. HORIZONTAL CARD UTAMA (Top Banner Gaji) */}
+            <div className="p-5 sm:p-6 bg-gradient-to-r from-emerald-900 via-teal-900 to-slate-900 text-white rounded-3xl shadow-xl border border-emerald-500/20 relative overflow-hidden">
+              <div className="absolute -right-8 -top-8 w-40 h-40 bg-emerald-500/20 rounded-full blur-3xl pointer-events-none" />
+              <div className="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <span className="px-3 py-1 bg-emerald-500/20 text-emerald-300 rounded-lg text-[10px] font-black uppercase tracking-widest border border-emerald-400/30">
+                    Ringkasan Penghasilan
+                  </span>
+                  <h4 className="text-xl sm:text-2xl font-black text-white mt-2">Total Akumulasi Gaji Diterima</h4>
+                  <p className="text-xs text-emerald-200/80 font-medium mt-0.5">Akumulasi pendapatan bersih dari seluruh slip gaji yang telah tercatat</p>
+                </div>
+                <div className="text-left sm:text-right shrink-0 bg-white/10 backdrop-blur-md p-4 rounded-2xl border border-white/10">
+                  <p className="text-[10px] font-black text-emerald-200 uppercase tracking-widest">Total Gaji Netto</p>
+                  <p className="text-2xl sm:text-3xl font-black text-emerald-300 mt-1">
+                    {formatNominalPrivasi(totalGaji)}
+                  </p>
+                </div>
+              </div>
             </div>
-            <p className="text-[10px] text-slate-500 mt-1">Akumulasi dari semua periode gaji yang telah tercatat</p>
+
+            {/* 2 & 3. DUA VERTICAL CARDS GAJI */}
+            <div className="flex flex-col gap-4">
+              {/* Sub-Card 1: Status Pembayaran Gaji */}
+              <div className="p-5 bg-white rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
+                <div className="flex justify-between items-center border-b border-slate-100 pb-3">
+                  <div className="flex items-center gap-2">
+                    <div className="p-2 bg-emerald-50 text-emerald-600 rounded-xl">
+                      <Calendar size={16} />
+                    </div>
+                    <div>
+                      <h5 className="font-black text-slate-800 text-xs uppercase tracking-wider">Status Pembayaran Gaji</h5>
+                      <p className="text-[10px] text-slate-400 font-medium">Periode & kelancaran penerimaan gaji</p>
+                    </div>
+                  </div>
+                  <span className="px-3 py-1 rounded-xl text-xs font-black uppercase tracking-wider border shadow-xs bg-emerald-100 text-emerald-800 border-emerald-200">
+                    {salaryList.length > 0 ? 'TERCATAT' : 'BELUM ADA'}
+                  </span>
+                </div>
+                <div className="mt-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-2xl sm:text-3xl font-black text-slate-900">{salaryList.length}</span>
+                    <span className="text-[10px] font-bold text-slate-500">Periode Slip Tercatat</span>
+                  </div>
+                  <span className="text-[10px] font-bold text-slate-500 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100">
+                    📌 Rincian detail dapat dibuka via verifikasi password
+                  </span>
+                </div>
+              </div>
+
+              {/* Sub-Card 2: Privasi & Keamanan Slip Gaji */}
+              <div className="p-5 bg-gradient-to-br from-emerald-50 to-teal-50/60 rounded-2xl border border-emerald-100 shadow-xs flex flex-col justify-between">
+                <div className="flex items-center gap-2 border-b border-emerald-200/50 pb-3">
+                  <div className="p-2 bg-white text-emerald-600 rounded-xl shadow-xs">
+                    <ShieldCheck size={16} />
+                  </div>
+                  <div>
+                    <h5 className="font-black text-emerald-900 text-xs uppercase tracking-wider">Perhitungan Komponen Gaji</h5>
+                    <p className="text-[10px] text-emerald-600/80 font-medium">Meliputi pendapatan dasar, bonus, tunjangan, dan potongan</p>
+                  </div>
+                </div>
+                <div className="mt-3 space-y-2 text-xs font-bold text-emerald-950">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-slate-600">Pendapatan Utama:</span>
+                    <span className="text-emerald-700 font-black">Gaji Pokok + Tunjangan + Lembur</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-slate-600">Pengurangan:</span>
+                    <span className="text-rose-700 font-black">Potongan Absensi + Potongan Lain + Bon</span>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
-        )}
 
           <div className="space-y-3">
             {salaryList.length === 0 ? (
@@ -355,22 +565,26 @@ export default function AkunPage() {
                 return (
                   <div 
                     key={item.id}
-                    onClick={() => { setSelectedGaji(item); setModalType('verifyPassword'); }}
-                    className="group flex flex-col sm:flex-row sm:items-center justify-between p-3 sm:p-4 bg-slate-50 border border-slate-100 rounded-2xl hover:bg-white hover:border-emerald-200 hover:shadow-lg transition-all cursor-pointer"
+                    onClick={() => handleSelectSalaryItem(item)}
+                    className="group flex flex-col sm:flex-row sm:items-center justify-between p-3.5 sm:p-4 bg-slate-50 border border-slate-100 rounded-2xl hover:bg-white hover:border-emerald-300 hover:shadow-lg transition-all cursor-pointer"
                   >
                     <div className="flex items-center gap-3 sm:gap-4 mb-3 sm:mb-0">
-                      <div className="p-2 sm:p-3 bg-white text-emerald-600 rounded-xl sm:rounded-2xl shadow-sm shrink-0"><Calendar size={18} className="sm:w-5 sm:h-5" /></div>
+                      <div className="p-2.5 sm:p-3 bg-white text-emerald-600 rounded-xl sm:rounded-2xl shadow-xs shrink-0">
+                        <Calendar size={18} className="sm:w-5 sm:h-5" />
+                      </div>
                       <div>
                         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{periode}</p>
-                        <p className="font-bold text-slate-700 text-sm">Slip Gaji Bulanan</p>
+                        <p className="font-bold text-slate-800 text-sm">Slip Gaji Bulanan</p>
                       </div>
                     </div>
                     <div className="flex items-center justify-between sm:justify-end gap-4 sm:gap-6">
                       <div className="text-right">
                         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Diterima</p>
-                        <p className="font-black text-emerald-600 text-base sm:text-lg">******</p>
+                        <p className="font-black text-emerald-600 text-base sm:text-lg">
+                          {formatNominalPrivasi(grandTotal)}
+                        </p>
                       </div>
-                      <div className="p-2 bg-slate-200/50 text-slate-400 rounded-full group-hover:bg-emerald-500 group-hover:text-white transition-all shrink-0">
+                      <div className="p-2 bg-emerald-50 text-emerald-600 rounded-full group-hover:bg-emerald-600 group-hover:text-white transition-all shrink-0">
                         <Eye size={16} className="sm:w-[18px] sm:h-[18px]" />
                       </div>
                     </div>
@@ -392,6 +606,157 @@ export default function AkunPage() {
               <button 
                 disabled={page >= totalPages} 
                 onClick={() => setPage(p => p + 1)}
+                className="p-2 sm:p-3 bg-slate-100 rounded-xl disabled:opacity-30 transition hover:bg-slate-200"
+              ><ChevronRight size={18} className="sm:w-5 sm:h-5" /></button>
+            </div>
+          )}
+        </div>
+
+        {/* 3. SECTION BON - RIWAYAT BON KARYAWAN */}
+        <div className="bg-white rounded-3xl sm:rounded-[2.5rem] shadow-xl border border-slate-100 p-4 sm:p-6 md:p-8">
+          <div className="flex justify-between items-center mb-4 sm:mb-6">
+            <h3 className="text-lg sm:text-xl font-black text-slate-800 flex items-center gap-2">
+              <div className="p-2 bg-purple-50 text-purple-600 rounded-xl">
+                <FileText size={18} className="sm:w-5 sm:h-5" />
+              </div>
+              RIWAYAT BON KARYAWAN
+            </h3>
+          </div>
+
+          {/* TOTAL BON & SKOR KREDIT CONTAINER (1 HORIZONTAL TOP + 2 VERTICAL SUB-CARDS BELOW) */}
+          <div className="mb-6 space-y-4">
+            {/* 1. HORIZONTAL CARD UTAMA (Top Banner) */}
+            <div className="p-5 sm:p-6 bg-gradient-to-r from-purple-900 via-indigo-900 to-slate-900 text-white rounded-3xl shadow-xl border border-purple-500/20 relative overflow-hidden">
+              <div className="absolute -right-8 -top-8 w-40 h-40 bg-purple-500/20 rounded-full blur-3xl pointer-events-none" />
+              <div className="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <span className="px-3 py-1 bg-purple-500/20 text-purple-300 rounded-lg text-[10px] font-black uppercase tracking-widest border border-purple-400/30">
+                    Ringkasan Pinjaman
+                  </span>
+                  <h4 className="text-xl sm:text-2xl font-black text-white mt-2">Total Akumulasi Bon Karyawan</h4>
+                  <p className="text-xs text-purple-200/80 font-medium mt-0.5">Seluruh nominal pinjaman bon yang telah dicatat dan dalam proses pelunasan</p>
+                </div>
+                <div className="text-left sm:text-right shrink-0 bg-white/10 backdrop-blur-md p-4 rounded-2xl border border-white/10">
+                  <p className="text-[10px] font-black text-purple-200 uppercase tracking-widest">Total Akumulasi Bon</p>
+                  <p className="text-2xl sm:text-3xl font-black text-amber-300 mt-1">
+                    {formatNominalPrivasi(totalBon)}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* 2 & 3. DUA VERTICAL CARDS (Sub-Cards Di Bawahnya) */}
+            <div className="flex flex-col gap-4">
+              {/* Vertical Card 1: Analisa Skor Kredit & Status */}
+              <div className="p-5 bg-white rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
+                <div className="flex justify-between items-center border-b border-slate-100 pb-3">
+                  <div className="flex items-center gap-2">
+                    <div className="p-2 bg-amber-50 text-amber-600 rounded-xl">
+                      <Award size={16} />
+                    </div>
+                    <div>
+                      <h5 className="font-black text-slate-800 text-xs uppercase tracking-wider">Skor Kredit & Kelancaran</h5>
+                      <p className="text-[10px] text-slate-400 font-medium">Kategori reputasi pembayaran pinjaman</p>
+                    </div>
+                  </div>
+                  <span className={`px-3 py-1 rounded-xl text-xs font-black uppercase tracking-wider border shadow-xs ${creditAnalysis.color}`}>
+                    {creditAnalysis.status}
+                  </span>
+                </div>
+                <div className="mt-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-2xl sm:text-3xl font-black text-slate-900">{creditAnalysis.rate}%</span>
+                    <span className="text-[10px] font-bold text-slate-500">Pelunasan / Bln</span>
+                  </div>
+                  <span className="text-[10px] font-bold text-slate-500 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100">
+                    📌 {creditAnalysis.desc}
+                  </span>
+                </div>
+              </div>
+
+              {/* Vertical Card 2: Indikator & Catatan Pengajuan Bon */}
+              <div className="p-5 bg-gradient-to-br from-purple-50 to-indigo-50/60 rounded-2xl border border-purple-100 shadow-xs flex flex-col justify-between">
+                <div className="flex items-center gap-2 border-b border-purple-200/50 pb-3">
+                  <div className="p-2 bg-white text-purple-600 rounded-xl shadow-xs">
+                    <TrendingUp size={16} />
+                  </div>
+                  <div>
+                    <h5 className="font-black text-purple-900 text-xs uppercase tracking-wider">Ketentuan Pengajuan Bon</h5>
+                    <p className="text-[10px] text-purple-600/80 font-medium">Standar kelayakan pinjaman karyawan</p>
+                  </div>
+                </div>
+                <div className="mt-3 space-y-2 text-xs font-bold text-purple-950">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-slate-600">≥ 15% / Bulan:</span>
+                    <span className="text-emerald-700 font-black bg-emerald-100 px-2 py-0.5 rounded border border-emerald-200">BAGUS (Lancar)</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-slate-600">10% - 14% / Bulan:</span>
+                    <span className="text-blue-700 font-black bg-blue-100 px-2 py-0.5 rounded border border-blue-200">SEDANG (Cukup)</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-slate-600">&lt; 10% / Bulan:</span>
+                    <span className="text-amber-700 font-black bg-amber-100 px-2 py-0.5 rounded border border-amber-200">KURANG (Lambat)</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-slate-600">&lt; 0% / Menunggak:</span>
+                    <span className="text-rose-700 font-black bg-rose-100 px-2 py-0.5 rounded border border-rose-200">JELEK POL</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            {bonList.length === 0 ? (
+              <div className="text-center py-10 text-slate-400 font-bold text-sm">Belum ada riwayat bon tercatat.</div>
+            ) : (
+              bonList.map((item) => {
+                const dateStr = item.created_at ? new Date(item.created_at).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-';
+
+                return (
+                  <div 
+                    key={item.id}
+                    className="flex flex-col sm:flex-row sm:items-center justify-between p-3.5 sm:p-4 bg-slate-50 border border-slate-100 rounded-2xl hover:bg-white hover:border-purple-200 hover:shadow-lg transition-all"
+                  >
+                    <div className="flex items-center gap-3 sm:gap-4 mb-3 sm:mb-0">
+                      <div className="p-2.5 sm:p-3 bg-white text-purple-600 rounded-xl sm:rounded-2xl shadow-xs shrink-0">
+                        <FileText size={18} className="sm:w-5 sm:h-5" />
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{dateStr}</p>
+                        <p className="font-bold text-slate-700 text-sm">{item.note || 'Bon Karyawan'}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between sm:justify-end gap-4 sm:gap-6">
+                      <div className="text-right">
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Nominal Bon</p>
+                        <p className="font-black text-purple-600 text-base sm:text-lg">
+                          {formatNominalPrivasi(item.nominal || 0)}
+                        </p>
+                      </div>
+                      <span className="px-3 py-1 bg-purple-100 text-purple-700 text-[10px] font-black uppercase rounded-lg border border-purple-200 shrink-0">
+                        {item.operator ? `Opr: ${item.operator}` : 'Bon'}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          {/* PAGINATION BON */}
+          {bonList.length > 0 && (
+            <div className="flex justify-between items-center mt-6 sm:mt-8 pt-4 sm:pt-6 border-t border-slate-100">
+              <button 
+                disabled={bonPage === 1} 
+                onClick={() => setBonPage(p => p - 1)}
+                className="p-2 sm:p-3 bg-slate-100 rounded-xl disabled:opacity-30 transition hover:bg-slate-200"
+              ><ChevronLeft size={18} className="sm:w-5 sm:h-5" /></button>
+              <span className="text-xs sm:text-sm font-black text-slate-400 uppercase">Hal {bonPage} / {bonTotalPages}</span>
+              <button 
+                disabled={bonPage >= bonTotalPages} 
+                onClick={() => setBonPage(p => p + 1)}
                 className="p-2 sm:p-3 bg-slate-100 rounded-xl disabled:opacity-30 transition hover:bg-slate-200"
               ><ChevronRight size={18} className="sm:w-5 sm:h-5" /></button>
             </div>
@@ -473,32 +838,32 @@ export default function AkunPage() {
         </form>
       </Modal>
 
-      {/* --- MODAL: VERIFIKASI PASSWORD --- */}
-      <Modal isOpen={modalType === 'verifyPassword'} onClose={() => setModalType(null)} title="Security Check">
+      {/* --- MODAL: VERIFIKASI PASSWORD PRIVASI --- */}
+      <Modal isOpen={modalType === 'verifyPassword'} onClose={() => setModalType(null)} title="Otentikasi Keamanan & Privasi">
         <form onSubmit={checkSalaryPassword} className="text-center space-y-6">
-          <div className="w-16 h-16 sm:w-20 sm:h-20 bg-rose-50 text-rose-600 rounded-full flex items-center justify-center mx-auto shadow-inner">
+          <div className="w-16 h-16 sm:w-20 sm:h-20 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center mx-auto shadow-inner border border-emerald-200">
             <Lock size={28} className="sm:w-8 sm:h-8" />
           </div>
           <div>
-            <h4 className="font-black text-slate-800 uppercase tracking-tight">Konfirmasi Password</h4>
-            <p className="text-xs sm:text-sm text-slate-500 mt-1">Masukkan password login Anda untuk melihat rincian gaji.</p>
+            <h4 className="font-black text-slate-800 uppercase tracking-tight">Verifikasi Akses Privasi</h4>
+            <p className="text-xs sm:text-sm text-slate-500 mt-1">Masukkan password akun Anda untuk membuka tampilan nominal gaji & bon.</p>
           </div>
           <input 
             type="password" 
             required
             value={verifyPass}
             onChange={e => setVerifyPass(e.target.value)}
-            placeholder="Password Anda"
-            className="w-full p-3 sm:p-4 bg-slate-50 border border-slate-200 rounded-2xl text-center text-lg sm:text-xl outline-none focus:ring-4 focus:ring-rose-100 transition-all text-slate-800"
+            placeholder="Password Login Anda"
+            className="w-full p-3.5 sm:p-4 bg-slate-50 border border-slate-200 rounded-2xl text-center text-lg sm:text-xl outline-none focus:ring-4 focus:ring-emerald-100 transition-all font-bold text-slate-800"
           />
           <div className="flex gap-3">
-            <button type="button" onClick={() => setModalType(null)} className="flex-1 py-3 sm:py-4 bg-slate-100 rounded-2xl font-black text-slate-400 text-sm">BATAL</button>
-            <button type="submit" disabled={isProcessing} className="flex-1 py-3 sm:py-4 bg-slate-800 text-white rounded-2xl font-black text-sm">VERIFIKASI</button>
+            <button type="button" onClick={() => setModalType(null)} className="flex-1 py-3.5 sm:py-4 bg-slate-100 rounded-2xl font-black text-slate-500 text-xs uppercase tracking-wider hover:bg-slate-200">BATAL</button>
+            <button type="submit" disabled={isProcessing} className="flex-1 py-3.5 sm:py-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-black text-xs uppercase tracking-wider shadow-lg">BUKA PRIVASI</button>
           </div>
         </form>
       </Modal>
 
-      {/* --- MODAL: DETAIL GAJI --- */}
+      {/* --- MODAL: DETAIL GAJI (REDESIGNED PREMIUM UI WITH ORIGINAL FIELD LOGIC) --- */}
       <Modal isOpen={modalType === 'salaryDetail'} onClose={() => setModalType(null)} title="Slip Rincian Gaji">
         {selectedGaji && (() => {
           const { t1, total1, t2, total2, t3, total3, grandTotal } = getSalaryDetails(selectedGaji);
@@ -506,78 +871,102 @@ export default function AkunPage() {
           const periodeString = periodeDate.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' });
 
           return (
-            <div className="space-y-5 max-h-[80vh] overflow-y-auto pr-1">
-              <div className="bg-slate-900 p-5 sm:p-6 md:p-8 rounded-2xl sm:rounded-[2rem] text-center text-white shadow-xl shadow-slate-900/20 relative overflow-hidden">
-                <div className="absolute -top-10 -right-10 w-32 h-32 bg-white/5 rounded-full blur-2xl" />
-                <p className="text-[10px] font-black uppercase tracking-widest text-emerald-400 mb-1">Total Bersih (T1 - T2 - T3)</p>
-                <h3 className="text-2xl sm:text-3xl md:text-4xl font-black tracking-tighter text-white">
+            <div className="space-y-5 max-h-[82vh] overflow-y-auto pr-1 custom-scrollbar">
+              {/* Top Banner Netto Header */}
+              <div className="bg-gradient-to-br from-emerald-900 via-teal-900 to-slate-900 p-6 sm:p-7 rounded-3xl text-center text-white shadow-xl relative overflow-hidden border border-emerald-500/30">
+                <div className="absolute -top-12 -right-12 w-40 h-40 bg-emerald-400/20 rounded-full blur-3xl pointer-events-none" />
+                <p className="text-[10px] font-black uppercase tracking-widest text-emerald-300 mb-1">Gaji Netto Diterima</p>
+                <h3 className="text-3xl sm:text-4xl font-black tracking-tight text-emerald-300">
                   {formatRupiah(grandTotal)}
                 </h3>
+                <div className="mt-3 pt-3 border-t border-emerald-800/80 flex items-center justify-center gap-2 text-xs font-bold text-emerald-200">
+                  <span>ID: <code className="bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-700/50 text-[11px]">{selectedGaji.id}</code></span>
+                  <span>•</span>
+                  <span>Periode: <strong className="text-white uppercase">{periodeString}</strong></span>
+                </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3 p-3 sm:p-4 bg-slate-50 border border-slate-200 rounded-xl sm:rounded-2xl">
+              {/* Info Penerima */}
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex items-center justify-between">
                 <div>
-                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">ID Rekap</p>
-                  <p className="font-bold text-slate-700 text-xs break-all">{selectedGaji.id}</p>
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Penerima Slip Gaji</p>
+                  <p className="font-extrabold text-slate-800 text-sm sm:text-base">{userData?.name || selectedGaji.person} <span className="text-slate-500 text-xs font-semibold">(@{selectedGaji.person})</span></p>
                 </div>
-                <div className="text-right">
-                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Periode Gaji</p>
-                  <p className="font-bold text-slate-700 text-xs uppercase">{periodeString}</p>
+                <span className="px-3 py-1 bg-emerald-100 text-emerald-800 text-xs font-black uppercase rounded-xl border border-emerald-200">
+                  Resmi / Valid
+                </span>
+              </div>
+
+              {/* FIELD NOTE (CATATAN SLIP GAJI) */}
+              {(selectedGaji.note || selectedGaji.ref) && (
+                <div className="p-4 bg-amber-50/90 border border-amber-200/90 rounded-2xl">
+                  <p className="text-[10px] font-black text-amber-600 uppercase tracking-widest flex items-center gap-1.5">
+                    <FileText size={14} /> Catatan Slip Gaji (Note)
+                  </p>
+                  <p className="text-xs font-bold text-amber-950 mt-1">{selectedGaji.note || selectedGaji.ref}</p>
                 </div>
-                <div className="col-span-2 pt-2 border-t border-slate-200 mt-1">
-                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Diterima Oleh (Person)</p>
-                  <p className="font-bold text-slate-800 text-sm">{userData?.name} <span className="text-slate-400 font-medium">(@{selectedGaji.person})</span></p>
+              )}
+
+              {/* Rincian Komponen Breakdown */}
+              <div className="space-y-4">
+                {/* 1. PENDAPATAN */}
+                <div className="border border-emerald-200 rounded-2xl overflow-hidden shadow-xs">
+                  <div className="bg-gradient-to-r from-emerald-600 to-teal-600 px-4 py-3 text-white flex justify-between items-center">
+                    <span className="font-black text-xs uppercase tracking-wider flex items-center gap-1.5">
+                      <DollarSign size={16} /> 1. Pendapatan
+                    </span>
+                    <span className="font-black text-sm sm:text-base text-emerald-100">{formatRupiah(total1)}</span>
+                  </div>
+                  <div className="bg-white divide-y divide-slate-100 text-xs">
+                    <div className="flex justify-between p-3"><span className="text-slate-600 font-semibold">Gaji Pokok</span><span className="font-black text-slate-800">{formatRupiah(t1.pokok)}</span></div>
+                    <div className="flex justify-between p-3"><span className="text-slate-600 font-semibold">Tunjangan</span><span className="font-black text-slate-800">{formatRupiah(t1.tunjangan)}</span></div>
+                    <div className="flex justify-between p-3"><span className="text-slate-600 font-semibold">Bonus 1</span><span className="font-black text-slate-800">{formatRupiah(t1.bonus_1)}</span></div>
+                    <div className="flex justify-between p-3"><span className="text-slate-600 font-semibold">Bonus 2</span><span className="font-black text-slate-800">{formatRupiah(t1.bonus_2)}</span></div>
+                    <div className="flex justify-between p-3"><span className="text-slate-600 font-semibold">Bonus 3</span><span className="font-black text-slate-800">{formatRupiah(t1.bonus_3)}</span></div>
+                    <div className="flex justify-between p-3"><span className="text-slate-600 font-semibold">Bonus 4</span><span className="font-black text-slate-800">{formatRupiah(t1.bonus_4)}</span></div>
+                    <div className="flex justify-between p-3"><span className="text-slate-600 font-semibold">Program</span><span className="font-black text-slate-800">{formatRupiah(t1.program)}</span></div>
+                    <div className="flex justify-between p-3"><span className="text-slate-600 font-semibold">Lembur</span><span className="font-black text-slate-800">{formatRupiah(t1.lembur)}</span></div>
+                  </div>
+                </div>
+
+                {/* 2. POTONGAN KEHADIRAN */}
+                <div className="border border-amber-200 rounded-2xl overflow-hidden shadow-xs">
+                  <div className="bg-gradient-to-r from-amber-500 to-orange-500 px-4 py-3 text-white flex justify-between items-center">
+                    <span className="font-black text-xs uppercase tracking-wider flex items-center gap-1.5">
+                      <Calendar size={16} /> 2. Potongan Kehadiran
+                    </span>
+                    <span className="font-black text-sm sm:text-base text-amber-100">-{formatRupiah(total2)}</span>
+                  </div>
+                  <div className="bg-white divide-y divide-slate-100 text-xs">
+                    <div className="flex justify-between p-3"><span className="text-slate-600 font-semibold">Alfa ({selectedGaji.alfa || 0}x)</span><span className="font-black text-amber-600">{formatRupiah(t2.alfa)}</span></div>
+                    <div className="flex justify-between p-3"><span className="text-slate-600 font-semibold">Setengah Hari ({selectedGaji.setengah_hari || 0}x)</span><span className="font-black text-amber-600">{formatRupiah(t2.setengah_hari)}</span></div>
+                    <div className="flex justify-between p-3"><span className="text-slate-600 font-semibold">Sakit ({selectedGaji.sakit || 0}x)</span><span className="font-black text-amber-600">{formatRupiah(t2.sakit)}</span></div>
+                    <div className="flex justify-between p-3"><span className="text-slate-600 font-semibold">Telat ({selectedGaji.telat || 0}x)</span><span className="font-black text-amber-600">{formatRupiah(t2.telat)}</span></div>
+                  </div>
+                </div>
+
+                {/* 3. POTONGAN LAINNYA & BON */}
+                <div className="border border-rose-200 rounded-2xl overflow-hidden shadow-xs">
+                  <div className="bg-gradient-to-r from-rose-600 to-pink-600 px-4 py-3 text-white flex justify-between items-center">
+                    <span className="font-black text-xs uppercase tracking-wider flex items-center gap-1.5">
+                      <FileText size={16} /> 3. Potongan Lain & Bon
+                    </span>
+                    <span className="font-black text-sm sm:text-base text-rose-100">-{formatRupiah(total3)}</span>
+                  </div>
+                  <div className="bg-white divide-y divide-slate-100 text-xs">
+                    <div className="flex justify-between p-3"><span className="text-slate-600 font-semibold">BPJS</span><span className="font-black text-rose-600">{formatRupiah(t3.bpjs)}</span></div>
+                    <div className="flex justify-between p-3"><span className="text-slate-600 font-semibold">Bon Diambil</span><span className="font-black text-rose-600">{formatRupiah(t3.bon_diambil)}</span></div>
+                    <div className="flex justify-between p-3"><span className="text-slate-600 font-semibold">Bon Dibayar</span><span className="font-black text-rose-600">{formatRupiah(t3.bon_dibayar)}</span></div>
+                  </div>
                 </div>
               </div>
 
-              <div className="max-h-[40vh] overflow-y-auto pr-2 space-y-4 custom-scrollbar">
-                {/* Pendapatan */}
-                <div className="border border-blue-100 rounded-xl sm:rounded-2xl overflow-hidden">
-                  <div className="bg-blue-50 px-3 sm:px-4 py-2 sm:py-3 border-b border-blue-100 flex justify-between items-center">
-                    <span className="font-black text-[10px] text-blue-600 uppercase tracking-widest">Pendapatan (Total 1)</span>
-                    <span className="font-black text-blue-700 text-sm">{formatRupiah(total1)}</span>
-                  </div>
-                  <div className="bg-white divide-y divide-slate-50 text-xs">
-                    <div className="flex justify-between p-2.5 sm:p-3"><span className="text-slate-500 font-medium">Gaji Pokok</span><span className="font-bold text-slate-800">{formatRupiah(t1.pokok)}</span></div>
-                    <div className="flex justify-between p-2.5 sm:p-3"><span className="text-slate-500 font-medium">Tunjangan</span><span className="font-bold text-slate-800">{formatRupiah(t1.tunjangan)}</span></div>
-                    <div className="flex justify-between p-2.5 sm:p-3"><span className="text-slate-500 font-medium">Bonus 1</span><span className="font-bold text-slate-800">{formatRupiah(t1.bonus_1)}</span></div>
-                    <div className="flex justify-between p-2.5 sm:p-3"><span className="text-slate-500 font-medium">Bonus 2</span><span className="font-bold text-slate-800">{formatRupiah(t1.bonus_2)}</span></div>
-                    <div className="flex justify-between p-2.5 sm:p-3"><span className="text-slate-500 font-medium">Bonus 3</span><span className="font-bold text-slate-800">{formatRupiah(t1.bonus_3)}</span></div>
-                    <div className="flex justify-between p-2.5 sm:p-3"><span className="text-slate-500 font-medium">Bonus 4</span><span className="font-bold text-slate-800">{formatRupiah(t1.bonus_4)}</span></div>
-                    <div className="flex justify-between p-2.5 sm:p-3"><span className="text-slate-500 font-medium">Program</span><span className="font-bold text-slate-800">{formatRupiah(t1.program)}</span></div>
-                    <div className="flex justify-between p-2.5 sm:p-3"><span className="text-slate-500 font-medium">Lembur</span><span className="font-bold text-slate-800">{formatRupiah(t1.lembur)}</span></div>
-                  </div>
-                </div>
-
-                {/* Potongan Kehadiran */}
-                <div className="border border-rose-100 rounded-xl sm:rounded-2xl overflow-hidden">
-                  <div className="bg-rose-50 px-3 sm:px-4 py-2 sm:py-3 border-b border-rose-100 flex justify-between items-center">
-                    <span className="font-black text-[10px] text-rose-600 uppercase tracking-widest">Potongan Kehadiran (Total 2)</span>
-                    <span className="font-black text-rose-700 text-sm">-{formatRupiah(total2)}</span>
-                  </div>
-                  <div className="bg-white divide-y divide-slate-50 text-xs">
-                    <div className="flex justify-between p-2.5 sm:p-3"><span className="text-slate-500 font-medium">Alfa ({selectedGaji.alfa || 0}x)</span><span className="font-bold text-rose-600">{formatRupiah(t2.alfa)}</span></div>
-                    <div className="flex justify-between p-2.5 sm:p-3"><span className="text-slate-500 font-medium">Setengah Hari ({selectedGaji.setengah_hari || 0}x)</span><span className="font-bold text-rose-600">{formatRupiah(t2.setengah_hari)}</span></div>
-                    <div className="flex justify-between p-2.5 sm:p-3"><span className="text-slate-500 font-medium">Sakit ({selectedGaji.sakit || 0}x)</span><span className="font-bold text-rose-600">{formatRupiah(t2.sakit)}</span></div>
-                    <div className="flex justify-between p-2.5 sm:p-3"><span className="text-slate-500 font-medium">Telat ({selectedGaji.telat || 0}x)</span><span className="font-bold text-rose-600">{formatRupiah(t2.telat)}</span></div>
-                  </div>
-                </div>
-
-                {/* Potongan Lainnya */}
-                <div className="border border-orange-100 rounded-xl sm:rounded-2xl overflow-hidden">
-                  <div className="bg-orange-50 px-3 sm:px-4 py-2 sm:py-3 border-b border-orange-100 flex justify-between items-center">
-                    <span className="font-black text-[10px] text-orange-600 uppercase tracking-widest">Potongan Lainnya (Total 3)</span>
-                    <span className="font-black text-orange-700 text-sm">-{formatRupiah(total3)}</span>
-                  </div>
-                  <div className="bg-white divide-y divide-slate-50 text-xs">
-                    <div className="flex justify-between p-2.5 sm:p-3"><span className="text-slate-500 font-medium">BPJS</span><span className="font-bold text-orange-600">{formatRupiah(t3.bpjs)}</span></div>
-                    <div className="flex justify-between p-2.5 sm:p-3"><span className="text-slate-500 font-medium">Bon Diambil</span><span className="font-bold text-orange-600">{formatRupiah(t3.bon_diambil)}</span></div>
-                    <div className="flex justify-between p-2.5 sm:p-3"><span className="text-slate-500 font-medium">Bon Dibayar</span><span className="font-bold text-orange-600">{formatRupiah(t3.bon_dibayar)}</span></div>
-                  </div>
-                </div>
-              </div>
-
-              <button onClick={() => setModalType(null)} className="w-full py-3 sm:py-4 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl sm:rounded-2xl font-black transition-colors text-sm">TUTUP RINCIAN</button>
+              <button 
+                onClick={() => setModalType(null)} 
+                className="w-full py-3.5 bg-slate-900 hover:bg-black text-white rounded-2xl font-black transition-all shadow-lg text-xs uppercase tracking-wider mt-2"
+              >
+                TUTUP RINCIAN SLIP GAJI
+              </button>
             </div>
           );
         })()}

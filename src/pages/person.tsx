@@ -3,7 +3,8 @@ import { pb } from '../lib/pocketbase';
 import Modal from '../components/modal';
 import { 
   Search, Plus, Edit, Trash2, Users, UserCheck, 
-  UserX, ChevronLeft, ChevronRight, Eye, X,
+  UserX, ChevronLeft, ChevronRight, Eye, X, User,
+  DollarSign, FileText, Calendar
 } from 'lucide-react';
 
 interface Person {
@@ -217,22 +218,63 @@ export default function PeoplePage() {
     }
   }, [isUserDetailModalOpen, selectedUserForDetail, personDetailTab]);
 
-  const generateDummyGaji = () => {
-    const dummy = [];
-    for (let i = 1; i <= 10; i++) {
-      dummy.push({ id: i, created_at: `2025-${String(i).padStart(2,'0')}-01`, nominal: 5000000 + i * 500000, operator: 'Admin' });
+  const fetchUserGaji = async (username: string, pageNum: number = 1) => {
+    try {
+      if (!username) return;
+      // Mencocokkan field person dari koleksi gaji dengan field username user
+      const res = await pb.collection('gaji').getList(pageNum, 5, {
+        filter: `person = "${username}"`,
+        sort: '-created_at',
+        $autoCancel: false
+      });
+      if (res.items.length > 0) {
+        const formatted = res.items.map(item => ({
+          id: item.id,
+          created_at: formatLocalDateTime(item.created_at || item.created),
+          nominal: (item.pokok || 0) + (item.tunjangan || 0) + (item.bonus_1 || 0) + (item.bonus_2 || 0) + (item.bonus_3 || 0) + (item.bonus_4 || 0) + (item.program || 0) + (item.lembur || 0),
+          operator: item.operator || item.persontext || 'Admin',
+          ref: item.ref || ''
+        }));
+        setDummySalaryList(formatted);
+        setSalaryTotalPages(res.totalPages);
+      } else {
+        setDummySalaryList([]);
+        setSalaryTotalPages(1);
+      }
+    } catch (err) {
+      console.warn("Gagal memuat data gaji real:", err);
+      setDummySalaryList([]);
     }
-    setDummySalaryList(dummy);
-    setSalaryTotalPages(Math.ceil(dummy.length / 5));
   };
 
-  const generateDummyBon = () => {
-    const dummy = [];
-    for (let i = 1; i <= 8; i++) {
-      dummy.push({ id: i, created_at: `2025-05-${String(i).padStart(2,'0')}`, cicilan: 200000, sisa: 1000000 - i * 200000, operator: 'System' });
+  const fetchUserBon = async (username: string, pageNum: number = 1) => {
+    try {
+      if (!username) return;
+      // Mencocokkan field person / persontext dari koleksi cashflow dengan field username user
+      const res = await pb.collection('cashflow').getList(pageNum, 5, {
+        filter: `(id_lama = "addbon" || note ~ "bon") && (person = "${username}" || persontext = "${username}")`,
+        sort: '-created_at',
+        $autoCancel: false
+      });
+      if (res.items.length > 0) {
+        const formatted = res.items.map(item => ({
+          id: item.id,
+          created_at: formatLocalDateTime(item.created_at || item.created),
+          cicilan: item.nominal || 0,
+          sisa: item.nominal || 0,
+          operator: item.operator || 'Admin',
+          note: item.note || ''
+        }));
+        setDummyBonList(formatted);
+        setBonTotalPages(res.totalPages);
+      } else {
+        setDummyBonList([]);
+        setBonTotalPages(1);
+      }
+    } catch (err) {
+      console.warn("Gagal memuat data bon real:", err);
+      setDummyBonList([]);
     }
-    setDummyBonList(dummy);
-    setBonTotalPages(Math.ceil(dummy.length / 5));
   };
 
   useEffect(() => {
@@ -935,16 +977,20 @@ export default function PeoplePage() {
                       key={tab}
                       onClick={() => { 
                         setActiveDetailTab(tab as any);
-                        if (tab === 'Gaji' && dummySalaryList.length === 0) generateDummyGaji();
-                        if (tab === 'Bon' && dummyBonList.length === 0) generateDummyBon();
+                        const uname = selectedUserForDetail?.username || selectedUserForDetail?.id_lama || selectedUserForDetail?.name || '';
+                        if (tab === 'Gaji') fetchUserGaji(uname, 1);
+                        if (tab === 'Bon') fetchUserBon(uname, 1);
                       }}
-                      className={`px-4 py-3 text-xs font-black uppercase tracking-wider transition-all ${
+                      className={`px-4 py-3 text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1.5 ${
                         activeDetailTab === tab
-                          ? 'border-b-2 border-cyan-600 text-cyan-700'
-                          : 'text-gray-500 hover:text-gray-700'
+                          ? 'border-b-2 border-indigo-600 text-indigo-700'
+                          : 'text-gray-400 hover:text-gray-600'
                       }`}
                     >
-                      {tab}
+                      {tab === 'Overview' && <User size={14} />}
+                      {tab === 'Gaji' && <DollarSign size={14} />}
+                      {tab === 'Bon' && <FileText size={14} />}
+                      <span>{tab}</span>
                     </button>
                   ))}
                 </>
@@ -1157,73 +1203,105 @@ export default function PeoplePage() {
               ) : (
                 <>
                   {activeDetailTab === 'Overview' && (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                        <p className="text-[10px] font-black text-slate-400 uppercase">Username</p>
-                        <p className="font-bold text-slate-700 text-sm mt-1">{selectedUserForDetail.username || '-'}</p>
+                    <div className="space-y-4 animate-in fade-in duration-300">
+                      {/* Card Info Utama Karyawan */}
+                      <div className="p-5 rounded-3xl border border-indigo-100 bg-indigo-50/50 relative overflow-hidden shadow-xs">
+                        <div className="absolute -top-10 -right-10 w-32 h-32 blur-2xl opacity-40 rounded-full bg-indigo-400 pointer-events-none" />
+                        <div className="relative z-10 flex items-center justify-between">
+                          <div>
+                            <p className="text-[10px] font-black uppercase tracking-widest text-indigo-500">Informasi Karyawan</p>
+                            <h4 className="text-base font-black text-indigo-950 mt-0.5">{selectedUserForDetail.name || selectedUserForDetail.text_1 || selectedUserForDetail.username}</h4>
+                          </div>
+                          <span className={`px-3 py-1 rounded-xl text-[10px] font-black uppercase tracking-widest ${selectedUserForDetail.status === 'inactive' ? 'bg-rose-100 text-rose-700 border border-rose-200' : 'bg-emerald-100 text-emerald-700 border border-emerald-200'}`}>
+                            {selectedUserForDetail.status === 'inactive' ? 'Nonaktif' : 'Aktif'}
+                          </span>
+                        </div>
                       </div>
-                      <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                        <p className="text-[10px] font-black text-slate-400 uppercase">Status</p>
-                        <p className={`font-black text-sm mt-1 ${selectedUserForDetail.status === 'inactive' ? 'text-rose-500' : 'text-emerald-500'}`}>
-                          {selectedUserForDetail.status === 'inactive' ? 'Nonaktif' : 'Aktif'}
-                        </p>
-                      </div>
-                      <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 col-span-2">
-                        <p className="text-[10px] font-black text-slate-400 uppercase">Email</p>
-                        <p className="font-bold text-slate-700 text-sm mt-1">{selectedUserForDetail.email || '-'}</p>
-                      </div>
-                      <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                        <p className="text-[10px] font-black text-slate-400 uppercase">Nomor Telepon</p>
-                        <p className="font-bold text-slate-700 text-sm mt-1">{selectedUserForDetail.phone || '-'}</p>
-                      </div>
-                      <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                        <p className="text-[10px] font-black text-slate-400 uppercase">Level</p>
-                        <p className="font-bold text-slate-700 text-sm mt-1">
-                          {selectedUserForDetail.level === 1 ? 'Admin' : selectedUserForDetail.level === 10 ? 'Mekanik' : 'Karyawan'}
-                        </p>
+
+                      {/* Grid Detail Account */}
+                      <div className="grid grid-cols-2 gap-3.5">
+                        <div className="p-4 bg-white border border-slate-100 rounded-2xl shadow-xs">
+                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Username</p>
+                          <p className="font-bold text-slate-800 text-sm mt-1">@{selectedUserForDetail.username || '-'}</p>
+                        </div>
+                        <div className="p-4 bg-white border border-slate-100 rounded-2xl shadow-xs">
+                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Level Jabatan</p>
+                          <p className="font-bold text-slate-800 text-sm mt-1">
+                            <span className="inline-block px-2.5 py-0.5 bg-indigo-50 text-indigo-700 rounded-lg text-xs font-black border border-indigo-100">
+                              {selectedUserForDetail.level === 1 ? 'Admin' : selectedUserForDetail.level === 10 ? 'Mekanik' : 'Karyawan'}
+                            </span>
+                          </p>
+                        </div>
+                        <div className="p-4 bg-white border border-slate-100 rounded-2xl shadow-xs col-span-2 sm:col-span-1">
+                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Email</p>
+                          <p className="font-bold text-slate-700 text-xs mt-1 truncate">{selectedUserForDetail.email || '-'}</p>
+                        </div>
+                        <div className="p-4 bg-white border border-slate-100 rounded-2xl shadow-xs col-span-2 sm:col-span-1">
+                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Telepon / WA</p>
+                          <p className="font-bold text-slate-700 text-xs mt-1">{selectedUserForDetail.phone || '-'}</p>
+                        </div>
                       </div>
                     </div>
                   )}
                   {activeDetailTab === 'Gaji' && (
-                    <div>
-                      <div className="space-y-2">
-                        {dummySalaryList.slice((salaryPage-1)*5, salaryPage*5).map((gaji, idx) => (
-                          <div key={idx} className="bg-white border border-slate-200 rounded-xl p-3">
-                            <div className="flex justify-between items-center">
-                              <span className="text-xs font-mono text-slate-500">{gaji.created_at}</span>
-                              <span className="text-xs font-bold text-slate-800">Rp {gaji.nominal?.toLocaleString('id-ID')}</span>
+                    <div className="space-y-3 animate-in fade-in duration-300">
+                      {dummySalaryList.length === 0 ? (
+                        <div className="py-12 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                          <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Belum ada riwayat penerimaan gaji</p>
+                        </div>
+                      ) : (
+                        dummySalaryList.slice((salaryPage-1)*5, salaryPage*5).map((gaji, idx) => (
+                          <div key={idx} className="bg-white border border-indigo-100 rounded-2xl p-4 shadow-xs hover:border-indigo-300 transition-all">
+                            <div className="flex justify-between items-center border-b border-slate-100 pb-2.5">
+                              <span className="text-[10px] font-black text-slate-400 flex items-center gap-1.5">
+                                <Calendar size={13} /> {gaji.created_at}
+                              </span>
+                              <span className="text-xs font-black text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-100">
+                                Rp {gaji.nominal?.toLocaleString('id-ID')}
+                              </span>
                             </div>
-                            <p className="text-[10px] text-slate-500 mt-1">Operator: {gaji.operator || '-'}</p>
+                            <div className="flex justify-between items-center mt-2.5 text-[11px]">
+                              <span className="font-bold text-slate-500">Operator: <strong className="text-slate-700">{gaji.operator || '-'}</strong></span>
+                              <span className="text-[10px] font-black uppercase text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-100">Slip Gaji</span>
+                            </div>
                           </div>
-                        ))}
-                      </div>
-                      <div className="flex justify-between items-center mt-4 pt-2 border-t">
-                        <button disabled={salaryPage === 1} onClick={() => setSalaryPage(p => p-1)} className="p-1 px-3 bg-slate-100 rounded-lg text-xs disabled:opacity-30">Prev</button>
-                        <span className="text-[10px] text-slate-400">Hal {salaryPage} / {salaryTotalPages}</span>
-                        <button disabled={salaryPage === salaryTotalPages} onClick={() => setSalaryPage(p => p+1)} className="p-1 px-3 bg-slate-100 rounded-lg text-xs disabled:opacity-30">Next</button>
+                        ))
+                      )}
+                      <div className="flex justify-between items-center mt-4 pt-3 border-t border-slate-100">
+                        <button disabled={salaryPage === 1} onClick={() => setSalaryPage(p => p-1)} className="py-2 px-4 bg-white border border-slate-200 text-slate-700 rounded-xl text-xs font-black disabled:opacity-40 hover:bg-slate-50 transition-colors shadow-2xs">Prev</button>
+                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Hal {salaryPage} / {salaryTotalPages}</span>
+                        <button disabled={salaryPage === salaryTotalPages} onClick={() => setSalaryPage(p => p+1)} className="py-2 px-4 bg-white border border-slate-200 text-slate-700 rounded-xl text-xs font-black disabled:opacity-40 hover:bg-slate-50 transition-colors shadow-2xs">Next</button>
                       </div>
                     </div>
                   )}
                   {activeDetailTab === 'Bon' && (
-                    <div>
-                      <div className="space-y-2">
-                        {dummyBonList.slice((bonPage-1)*5, bonPage*5).map((bon, idx) => (
-                          <div key={idx} className="bg-white border border-slate-200 rounded-xl p-3">
-                            <div className="flex justify-between items-center">
-                              <span className="text-xs font-mono text-slate-500">{bon.created_at}</span>
-                              <span className="text-xs font-bold text-slate-800">Cicilan: Rp {bon.cicilan?.toLocaleString('id-ID')}</span>
+                    <div className="space-y-3 animate-in fade-in duration-300">
+                      {dummyBonList.length === 0 ? (
+                        <div className="py-12 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                          <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Belum ada riwayat bon karyawan</p>
+                        </div>
+                      ) : (
+                        dummyBonList.slice((bonPage-1)*5, bonPage*5).map((bon, idx) => (
+                          <div key={idx} className="bg-white border border-indigo-100 rounded-2xl p-4 shadow-xs hover:border-purple-300 transition-all">
+                            <div className="flex justify-between items-center border-b border-slate-100 pb-2.5">
+                              <span className="text-[10px] font-black text-slate-400 flex items-center gap-1.5">
+                                <Calendar size={13} /> {bon.created_at}
+                              </span>
+                              <span className="text-xs font-black text-purple-600 bg-purple-50 px-2.5 py-1 rounded-lg border border-purple-100">
+                                Cicilan: Rp {bon.cicilan?.toLocaleString('id-ID')}
+                              </span>
                             </div>
-                            <div className="flex justify-between mt-1">
-                              <span className="text-[10px] text-slate-500">Sisa: Rp {bon.sisa?.toLocaleString('id-ID')}</span>
-                              <span className="text-[10px] text-slate-500">Operator: {bon.operator}</span>
+                            <div className="flex justify-between items-center mt-2.5 text-[11px]">
+                              <span className="font-bold text-slate-500">Sisa Bon: <strong className="text-rose-600">Rp {bon.sisa?.toLocaleString('id-ID')}</strong></span>
+                              <span className="font-bold text-slate-400">Opr: <strong className="text-slate-700">{bon.operator}</strong></span>
                             </div>
                           </div>
-                        ))}
-                      </div>
-                      <div className="flex justify-between items-center mt-4 pt-2 border-t">
-                        <button disabled={bonPage === 1} onClick={() => setBonPage(p => p-1)} className="p-1 px-3 bg-slate-100 rounded-lg text-xs disabled:opacity-30">Prev</button>
-                        <span className="text-[10px] text-slate-400">Hal {bonPage} / {bonTotalPages}</span>
-                        <button disabled={bonPage === bonTotalPages} onClick={() => setBonPage(p => p+1)} className="p-1 px-3 bg-slate-100 rounded-lg text-xs disabled:opacity-30">Next</button>
+                        ))
+                      )}
+                      <div className="flex justify-between items-center mt-4 pt-3 border-t border-slate-100">
+                        <button disabled={bonPage === 1} onClick={() => setBonPage(p => p-1)} className="py-2 px-4 bg-white border border-slate-200 text-slate-700 rounded-xl text-xs font-black disabled:opacity-40 hover:bg-slate-50 transition-colors shadow-2xs">Prev</button>
+                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Hal {bonPage} / {bonTotalPages}</span>
+                        <button disabled={bonPage === bonTotalPages} onClick={() => setBonPage(p => p+1)} className="py-2 px-4 bg-white border border-slate-200 text-slate-700 rounded-xl text-xs font-black disabled:opacity-40 hover:bg-slate-50 transition-colors shadow-2xs">Next</button>
                       </div>
                     </div>
                   )}
@@ -1242,7 +1320,7 @@ export default function PeoplePage() {
               {selectedUserForDetail.kategori === 'Person' ? (
                 <button
                   onClick={() => { setCurrentPerson(selectedUserForDetail); setIsModalOpen(true); setIsUserDetailModalOpen(false); }}
-                  className="flex-1 py-3 bg-cyan-600 text-white rounded-xl font-black text-xs uppercase tracking-widest hover:bg-cyan-700 transition-colors"
+                  className="flex-1 py-3 bg-cyan-600 text-white rounded-xl font-black text-xs uppercase tracking-widest hover:bg-cyan-700 transition-colors shadow-md shadow-cyan-600/20"
                 >
                   Edit {selectedUserForDetail.jenis === 'Customer' ? 'Customer' : 'Supplier'}
                 </button>
@@ -1250,9 +1328,9 @@ export default function PeoplePage() {
                 [1,2,3,4,5,6].includes(Number(userLevelFromStorage)) && (
                   <button
                     onClick={() => { setEditUserData(selectedUserForDetail); setIsEditUserModalOpen(true); setIsUserDetailModalOpen(false); }}
-                    className="flex-1 py-3 bg-cyan-600 text-white rounded-xl font-black text-xs uppercase tracking-widest hover:bg-cyan-700 transition-colors"
+                    className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-black text-xs uppercase tracking-widest transition-colors shadow-md shadow-indigo-600/20"
                   >
-                    Edit User
+                    Edit User Karyawan
                   </button>
                 )
               )}

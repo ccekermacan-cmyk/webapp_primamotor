@@ -1,12 +1,13 @@
 import { useNavigate, useLocation } from 'react-router-dom'; // Ini yang menyebabkan error ReferenceError
 import { useState, useEffect, useMemo, useRef } from 'react';
+import { useReactToPrint } from 'react-to-print';
 import { pb, notifyLaravelApi } from '../lib/pocketbase';
 import Modal from '../components/modal';
 import { createPortal } from 'react-dom';
 import { 
   Search, ShoppingCart, ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
   Trash2, Plus, Receipt, Layers, Printer, Share2, X,
-  ArrowRight, Calendar, History, Sparkles, DollarSign, Wallet, AlertTriangle, Info, Wrench, Edit, TrendingUp, TrendingDown, Filter,
+  ArrowRight, Calendar, History, Sparkles, DollarSign, Wallet, AlertTriangle, Info, Wrench, Edit, TrendingUp, TrendingDown, Filter, Zap,
   // Tambahan ikon baru untuk UI yang diperbarui:
   ListOrdered, List, Grid, Users, CreditCard, ShoppingBag, FileText, EyeOff, ImagePlus, Save, CheckCircle2, Box, User, ExternalLink,
   Package, Eye
@@ -246,11 +247,41 @@ export default function MenuPage() {
 
   const [isPaymentFormOpen, setIsPaymentFormOpen] = useState(false);
   const [isCartOpen, setIsCartOpen] = useState(false);
-  const [isAutoLunas, setIsAutoLunas] = useState(false); // State baru untuk fitur Auto Lunas
 
   const [dialog, setDialog] = useState<{show: boolean, title: string, message: string, type: 'alert' | 'confirm', onConfirm?: () => void}>({
     show: false, title: '', message: '', type: 'alert'
   });
+
+  const receiptRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  const handleReactPrintFn = useReactToPrint({
+    contentRef: receiptRef,
+    documentTitle: `Struk_${formBayar.notaNo || 'POS'}`,
+  });
+
+  // 🟢 Keyboard Shortcuts Listener untuk Web & Tablet Hardware Keyboard
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT';
+
+      // F2 atau '/' untuk fokus pencarian produk
+      if ((e.key === 'F2' || (e.key === '/' && !isInput)) && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      }
+
+      // F4 untuk buka Form Pembayaran
+      if (e.key === 'F4' && !isPaymentFormOpen && cart.length > 0) {
+        e.preventDefault();
+        setIsPaymentFormOpen(true);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isPaymentFormOpen, cart]);
 
   const printWithRawBT = (htmlContent: string) => {
     const isAndroid = /Android/i.test(navigator.userAgent);
@@ -258,25 +289,11 @@ export default function MenuPage() {
       const encodedHtml = encodeURIComponent(htmlContent);
       const rawbtIntent = `intent://print?html=${encodedHtml}#Intent;scheme=rawbt;action=rawbt.intent.action.PRINT;end`;
       window.location.href = rawbtIntent;
-      // Fallback jika RawBT tidak terinstal
-      setTimeout(() => {
-        const printContents = document.getElementById('thermal-receipt-58mm')?.innerHTML;
-        if (printContents) {
-          const original = document.body.innerHTML;
-          document.body.innerHTML = printContents;
-          window.print();
-          document.body.innerHTML = original;
-          window.location.reload();
-        }
-      }, 1000);
     } else {
-      const printContents = document.getElementById('thermal-receipt-58mm')?.innerHTML;
-      if (printContents) {
-        const original = document.body.innerHTML;
-        document.body.innerHTML = printContents;
+      if (handleReactPrintFn) {
+        handleReactPrintFn();
+      } else {
         window.print();
-        document.body.innerHTML = original;
-        window.location.reload();
       }
     }
   };
@@ -520,27 +537,34 @@ export default function MenuPage() {
       if (menuLower === 'overview') {
         let overviewFilter = filterStr;
         
-        // Filter status (dari URL atau manual)
-        if (filterStatus !== 'all') {
-          const statusValue = filterStatus === 'lunas' ? 'lunas' : 'belum';
-          overviewFilter = overviewFilter
-            ? `(${overviewFilter}) && status ~ "${statusValue}"`
-            : `status ~ "${statusValue}"`;
-        }
-        
-        // Filter person (dari URL)
-        if (filterPerson) {
-          const personCond = `person = "${filterPerson}"`;
-          overviewFilter = overviewFilter
-            ? `(${overviewFilter}) && (${personCond})`
-            : personCond;
-        }
-        
-        if (selectedMenuFilters.length > 0) {
-          const jenisConditions = selectedMenuFilters.map(jenis => `jenis ~ "${jenis.toLowerCase()}"`).join(' || ');
-          overviewFilter = overviewFilter
-            ? `(${overviewFilter}) && (${jenisConditions})`
-            : `(${jenisConditions})`;
+        if (userLevel === '10') {
+          const currentUsername = pb.authStore.model?.username || localStorage.getItem('user_username') || '';
+          const currentName = pb.authStore.model?.name || localStorage.getItem('user_name') || '';
+          const mechanicCond = `(note ~ "${currentUsername}" || note ~ "${currentName}" || person ~ "${currentUsername}" || person ~ "${currentName}" || persontext ~ "${currentUsername}" || persontext ~ "${currentName}" || operator ~ "${currentUsername}")`;
+          overviewFilter = `jenis ~ "service" && ${mechanicCond}`;
+        } else {
+          // Filter status (dari URL atau manual)
+          if (filterStatus !== 'all') {
+            const statusValue = filterStatus === 'lunas' ? 'lunas' : 'belum';
+            overviewFilter = overviewFilter
+              ? `(${overviewFilter}) && status ~ "${statusValue}"`
+              : `status ~ "${statusValue}"`;
+          }
+          
+          // Filter person (dari URL)
+          if (filterPerson) {
+            const personCond = `person = "${filterPerson}"`;
+            overviewFilter = overviewFilter
+              ? `(${overviewFilter}) && (${personCond})`
+              : personCond;
+          }
+          
+          if (selectedMenuFilters.length > 0) {
+            const jenisConditions = selectedMenuFilters.map(jenis => `jenis ~ "${jenis.toLowerCase()}"`).join(' || ');
+            overviewFilter = overviewFilter
+              ? `(${overviewFilter}) && (${jenisConditions})`
+              : `(${jenisConditions})`;
+          }
         }
         console.log("Overview Filter yang dikirim:", overviewFilter);
         const res = await pb.collection('menu').getList<HistoryMenu>(page, perPage, {
@@ -731,15 +755,8 @@ export default function MenuPage() {
     : totalBelanja + totalOngkos - (formBayar.adminFee || 0) + (formBayar.cashback || 0);
 
   useEffect(() => { 
-    setFormBayar(prev => {
-      const next = { ...prev, nominalBayar: grandTotal };
-      // Jika toggle auto lunas aktif, selalu sinkronkan nominal akun kas dengan grand total terbaru
-      if (isAutoLunas && next.cashflowList.length > 0) {
-        next.cashflowList[0].nominal = grandTotal;
-      }
-      return next;
-    }); 
-  }, [grandTotal, isAutoLunas]);
+    setFormBayar(prev => ({ ...prev, nominalBayar: grandTotal }));
+  }, [grandTotal]);
 
   // --- CHECKOUT SAFETY GUARD ---
   const handleCheckoutValidation = () => {
@@ -913,7 +930,6 @@ export default function MenuPage() {
           setCart([]); 
           setEditSession(null); 
           setSelectedMenu(menuName); 
-          setIsAutoLunas(false); // Reset auto lunas
           setPage(1); 
           setDialog(prev => ({ ...prev, show: false }));
           setFormBayar(prev => ({
@@ -1424,7 +1440,7 @@ export default function MenuPage() {
         >
           <div className="flex p-1.5 bg-slate-200/60 rounded-2xl w-full sm:w-fit shadow-sm border border-slate-200/50 overflow-x-auto no-scrollbar">
             <div className="flex gap-1.5 sm:gap-2 px-1">
-              {menuOptions.map(m => {
+              {menuOptions.filter(m => userLevel !== '10' || m.text_1.toLowerCase() === 'overview').map(m => {
                 const tabTheme = getThemeConfig(m.text_1);
                 const isActive = selectedMenu === m.text_1;
                 return (
@@ -1454,8 +1470,9 @@ export default function MenuPage() {
             <div className="relative w-full group flex-1 min-w-[180px]">
               <Search className={`absolute left-4 top-1/2 -translate-y-1/2 transition-colors ${activeTheme.text} opacity-50 group-focus-within:opacity-100`} size={18} />
               <input 
+                ref={searchInputRef}
                 type="text" 
-                placeholder={`Cari di menu ${selectedMenu}...`} 
+                placeholder={`Cari ${selectedMenu}... (F2 / /)`} 
                 className={`w-full pl-10 pr-4 py-2.5 bg-white/90 border-2 border-transparent hover:border-slate-300 rounded-xl focus:bg-white focus:border-transparent focus:ring-4 ${activeTheme.focusRing} outline-none transition-all shadow-sm text-sm font-bold text-slate-700 placeholder-slate-400`}
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
@@ -1932,46 +1949,62 @@ export default function MenuPage() {
                     <div className="w-20 h-20 bg-teal-50 rounded-full flex items-center justify-center mb-4">
                       <Calendar size={32} className="text-teal-500" />
                     </div>
-                    <span className="text-slate-400 font-bold text-sm uppercase tracking-widest">Belum ada data gaji</span>
+                    <span className="text-slate-400 font-bold text-sm uppercase tracking-widest">Belum ada data slip gaji</span>
                   </div>
                 ) : (
                   Object.entries(groupedHistory || {}).map(([date, items]) => (
                     <div key={date} className="space-y-6">
                       <div className="flex items-center gap-4 px-2">
-                        <div className="w-2 h-2 rounded-full bg-teal-500" />
+                        <div className="w-2.5 h-2.5 rounded-full bg-teal-500 shadow-sm" />
                         <span className="text-slate-500 text-[11px] font-black uppercase tracking-widest">{date}</span>
                         <div className="h-[2px] flex-1 bg-gradient-to-r from-teal-100 to-transparent rounded-full" />
                       </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                      <div className={
+                        viewMode === 'grid' 
+                          ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 will-change-transform" 
+                          : "flex flex-col gap-4 will-change-transform"
+                      }>
                         {(items || []).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).map(item => (
                           <div key={item.id} onClick={() => loadHistorySubDetails && loadHistorySubDetails(item)}
-                            className="bg-white p-6 rounded-3xl border border-teal-100 shadow-sm hover:shadow-xl hover:-translate-y-1 hover:border-teal-300 transition-all cursor-pointer group h-52 flex flex-col justify-between relative overflow-hidden">
+                            className={`bg-white rounded-3xl border-2 border-teal-100/60 hover:border-teal-400 shadow-sm hover:shadow-2xl hover:-translate-y-1 transition-all duration-300 cursor-pointer group relative overflow-hidden ${
+                              viewMode === 'grid' ? 'flex flex-col justify-between min-h-[240px] p-6' : 'flex flex-row items-center justify-between p-4 min-h-[100px]'
+                            }`}>
                             
-                            <div className="absolute top-0 right-0 w-32 h-32 bg-teal-500 blur-3xl opacity-10 transition-opacity group-hover:opacity-30 pointer-events-none" />
+                            {/* Decorative Background Blob */}
+                            <div className="absolute -top-12 -right-12 w-40 h-40 bg-teal-50 rounded-full blur-3xl opacity-20 group-hover:opacity-70 transition-opacity duration-500 pointer-events-none" />
 
-                            <div className="flex justify-between items-start relative z-10">
-                              <span className="text-[10px] font-black bg-teal-50 text-teal-600 border border-teal-100 px-3 py-1.5 rounded-xl uppercase tracking-widest shadow-sm">
-                                GAJI KARYAWAN
-                              </span>
-                              <div className="p-2 bg-slate-50 rounded-xl text-slate-300 group-hover:text-teal-500 group-hover:bg-teal-50 transition-colors">
-                                <History size={16} />
+                            <div className={`relative z-10 ${viewMode === 'list' ? 'flex-1 pr-6' : ''}`}>
+                              <div className={`flex items-start mb-3 ${viewMode === 'grid' ? 'justify-between' : 'gap-4 mb-2'}`}>
+                                <span className="text-[10px] font-black bg-teal-50 text-teal-600 border border-teal-100 px-3 py-1.5 rounded-xl uppercase tracking-widest shadow-sm">
+                                  SLIP GAJI
+                                </span>
+                                <span className="text-[10px] font-black text-slate-400 bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-100">
+                                  Op: {item.operator || '-'}
+                                </span>
                               </div>
-                            </div>
-                            <div className="relative z-10 mt-4">
-                              <h4 className="font-black text-slate-800 text-lg uppercase leading-tight mb-2 truncate group-hover:text-teal-600 transition-colors">
-                                {item.person}
-                              </h4>
-                              <p className="text-[10px] font-bold text-slate-400 bg-slate-50 w-fit px-2 py-1 rounded-md">
-                                Operator: {item.operator || '-'}
+                              
+                              <h3 className="font-black text-slate-800 text-base md:text-lg uppercase leading-snug group-hover:text-teal-600 transition-colors line-clamp-1">
+                                {item.person || 'Karyawan'}
+                              </h3>
+                              <p className="text-xs font-bold text-slate-500 line-clamp-1 italic mt-1 bg-slate-50/60 px-2.5 py-1 rounded-lg border border-slate-100/50 w-fit">
+                                "{item.text || 'Gaji Karyawan'}"
                               </p>
-                              <p className="text-xs font-bold text-slate-500 line-clamp-2 italic mt-3 bg-slate-50/50 p-2 rounded-xl border border-slate-100">
-                                "{item.text || 'Tanpa deskripsi'}"
-                              </p>
+                              <span className="text-[10px] font-bold text-slate-400 flex items-center gap-1.5 mt-3">
+                                <Calendar size={12} /> {formatLocalDateTime ? formatLocalDateTime(item.created_at) : item.created_at}
+                              </span>
                             </div>
-                            <div className="flex justify-between items-center border-t border-slate-100 pt-4 mt-4 relative z-10">
-                              <span className="text-[10px] font-black text-slate-400 flex items-center gap-1.5"><Calendar size={12} /> {formatLocalDateTime ? formatLocalDateTime(item.created_at) : item.created_at}</span>
-                              <div className="font-black text-white bg-teal-500 shadow-md shadow-teal-500/30 px-3 py-1.5 rounded-xl text-xs">
-                                {item.qty} Item
+
+                            <div className={`flex justify-between items-center bg-teal-50/80 rounded-2xl group-hover:bg-teal-500 transition-all duration-300 relative z-10 ${
+                              viewMode === 'grid' ? 'p-3.5 px-4 mt-4' : 'p-3 px-5 min-w-[200px]'
+                            }`}>
+                              <div>
+                                <span className="text-[9px] font-black text-teal-600 group-hover:text-teal-100 uppercase tracking-widest block">Total Bersih</span>
+                                <p className="font-black text-teal-700 group-hover:text-white text-base md:text-lg tracking-tight transition-colors">
+                                  Rp {(item.total || 0).toLocaleString('id-ID')}
+                                </p>
+                              </div>
+                              <div className="w-9 h-9 bg-white rounded-xl flex items-center justify-center text-teal-600 shadow-sm group-hover:scale-110 transition-transform">
+                                <History size={16} />
                               </div>
                             </div>
                           </div>
@@ -2049,44 +2082,48 @@ export default function MenuPage() {
                     isOnlinePerson ||
                     selectedMenu.toLowerCase().includes('pembelian');
                   return (
-                    <div key={item.id} className={`bg-white border-2 ${activeTheme.border} rounded-3xl p-5 relative group hover:${activeTheme.light} transition-colors shadow-sm`}>
-                      <button
-                        onClick={() => setCart(prev => prev.filter(c => c.id !== item.id))}
-                        className="absolute top-4 right-4 text-slate-300 hover:text-rose-500 p-2 rounded-xl hover:bg-rose-50 transition-colors"
-                      >
-                        <Trash2 size={18} />
-                      </button>
+                    <div key={item.id} className={`bg-slate-50/70 hover:bg-white border ${activeTheme.border} rounded-2xl p-3 sm:p-3.5 relative group transition-all shadow-sm`}>
                       
-                      <div className="pr-10">
-                        <p className="font-black text-slate-800 text-sm md:text-base line-clamp-2 leading-tight">
-                          <span className={`font-black ${activeTheme.text} bg-white px-2 py-1 rounded-md md:rounded-lg mr-2 text-[10px] md:text-xs tracking-tight border ${activeTheme.border}`}>
-                            #{formatIdLamaDisplay(item.id_lama)}
-                          </span>
-                          {getFullLabel(item)}
-                        </p>
-                        
-                        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 mt-3">
-                          {item.isTiered && (
-                            <span className={`text-[10px] font-black px-2.5 py-1 rounded-md uppercase tracking-wider ${activeTheme.light} ${activeTheme.text}`}>
-                              {item.activeTierName}
+                      {/* BARIS UTAMA: ID, NAMA PRODUK, TIER, TOMBOL HAPUS */}
+                      <div className="flex justify-between items-start gap-2">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex flex-wrap items-center gap-1.5 mb-1">
+                            <span className={`font-black ${activeTheme.text} bg-white px-2 py-0.5 rounded-md text-[10px] tracking-tight border border-slate-200 shadow-2xs`}>
+                              #{formatIdLamaDisplay(item.id_lama)}
                             </span>
-                          )}
-                          {item.priceSelected !== item.sell_6 &&
-                            !selectedMenu.toLowerCase().includes('pembelian') && (
-                              <span className="text-xs text-slate-400 line-through font-bold">
+                            {item.isTiered && (
+                              <span className={`text-[9px] font-black px-2 py-0.5 rounded-md uppercase tracking-wider ${activeTheme.light} ${activeTheme.text} border border-slate-200/50`}>
+                                {item.activeTierName}
+                              </span>
+                            )}
+                            {item.priceSelected !== item.sell_6 && !selectedMenu.toLowerCase().includes('pembelian') && (
+                              <span className="text-[10px] text-slate-400 line-through font-bold">
                                 Rp {item.sell_6.toLocaleString('id-ID')}
                               </span>
                             )}
+                          </div>
+                          <p className="font-black text-slate-800 text-xs md:text-sm line-clamp-1 leading-snug">
+                            {getFullLabel(item)}
+                          </p>
                         </div>
+
+                        <button
+                          onClick={() => setCart(prev => prev.filter(c => c.id !== item.id))}
+                          className="text-slate-300 hover:text-rose-500 p-1.5 rounded-lg hover:bg-rose-50 transition-colors shrink-0 -mr-1 -mt-1"
+                          title="Hapus dari keranjang"
+                        >
+                          <Trash2 size={16} />
+                        </button>
                       </div>
 
-                      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mt-4 pt-4 border-t border-slate-100/60 gap-3">
-  
-                        {/* Kontrol QTY (kiri) */}
-                        <div className={`flex items-center gap-1 border-2 ${activeTheme.border} rounded-2xl bg-white overflow-hidden shadow-sm w-fit`}>
+                      {/* BARIS KONTROL: QTY & HARGA SATUAN & SUBTOTAL */}
+                      <div className="flex items-center justify-between mt-2.5 pt-2.5 border-t border-slate-200/50 gap-2">
+                        
+                        {/* QTY COUNTER COMPACT */}
+                        <div className={`flex items-center border ${activeTheme.border} rounded-xl bg-white overflow-hidden shadow-2xs shrink-0`}>
                           <button
                             onClick={() => updateQty(item.id, -1, item.stok_3)}
-                            className={`w-11 h-11 flex items-center justify-center text-slate-600 hover:${activeTheme.text} hover:${activeTheme.light} active:scale-95 transition-all duration-200 text-2xl font-bold`}
+                            className={`w-7 h-7 flex items-center justify-center text-slate-600 hover:${activeTheme.text} hover:${activeTheme.light} active:scale-95 transition-all text-base font-bold`}
                             aria-label="Kurangi jumlah"
                           >
                             −
@@ -2098,50 +2135,48 @@ export default function MenuPage() {
                               const val = parseInt(e.target.value) || 0;
                               updateQty(item.id, val - item.qty, item.stok_3);
                             }}
-                            className={`w-14 text-center text-base font-black ${activeTheme.text} bg-transparent outline-none p-0 border-none focus:ring-0 [-moz-appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none`}
+                            className={`w-10 text-center text-xs font-black ${activeTheme.text} bg-transparent outline-none p-0 border-none focus:ring-0 [-moz-appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none`}
                             min="1"
                             max={item.stok_3}
                           />
                           <button
                             onClick={() => updateQty(item.id, 1, item.stok_3)}
-                            className={`w-11 h-11 flex items-center justify-center text-slate-600 hover:${activeTheme.text} hover:${activeTheme.light} active:scale-95 transition-all duration-200 text-2xl font-bold`}
+                            className={`w-7 h-7 flex items-center justify-center text-slate-600 hover:${activeTheme.text} hover:${activeTheme.light} active:scale-95 transition-all text-base font-bold`}
                             aria-label="Tambah jumlah"
                           >
                             +
                           </button>
                         </div>
-                        
-                        {/* Kontrol Harga (kanan) */}
-                        <div className="flex items-center justify-between sm:justify-end gap-3 w-full sm:w-auto">
-                          
-                          {/* Harga Satuan (@) */}
-                          <div className="flex items-center gap-1.5 flex-1 sm:flex-none">
-                            <span className="text-[11px] md:text-xs text-slate-400 font-bold shrink-0">@</span>
+
+                        {/* HARGA @ DAN SUBTOTAL */}
+                        <div className="flex items-center justify-end gap-2 text-right">
+                          <div className="flex items-center gap-1">
+                            <span className="text-[10px] text-slate-400 font-bold shrink-0">@</span>
                             {canEditPrice ? (
-                              <div className="relative inline-block w-full sm:w-36">
+                              <div className="relative inline-block w-24 sm:w-28">
                                 <input
                                   type="number"
-                                  className={`w-full py-2.5 pl-8 pr-3 text-right text-sm font-black text-slate-700 bg-white border-2 ${activeTheme.border} rounded-xl ${activeTheme.focusRing} outline-none transition-all [&::-webkit-inner-spin-button]:appearance-none`}
+                                  className={`w-full py-1 pl-6 pr-2 text-right text-xs font-black text-slate-700 bg-white border ${activeTheme.border} rounded-lg ${activeTheme.focusRing} outline-none transition-all [&::-webkit-inner-spin-button]:appearance-none`}
                                   value={item.manualPrice !== undefined ? item.manualPrice : item.priceSelected}
                                   onChange={e => updatePrice(item.id, Number(e.target.value))}
                                   placeholder="0"
                                 />
-                                <span className={`absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-black ${activeTheme.text}`}>
+                                <span className={`absolute left-2 top-1/2 -translate-y-1/2 text-[9px] font-black ${activeTheme.text}`}>
                                   Rp
                                 </span>
                               </div>
                             ) : (
-                              <span className={`text-sm font-black ${activeTheme.text} px-2 truncate max-w-[120px]`}>
+                              <span className={`text-xs font-bold ${activeTheme.text} px-1 truncate max-w-[90px]`}>
                                 {item.priceSelected.toLocaleString('id-ID')}
                               </span>
                             )}
                           </div>
-                          
-                          {/* Total Harga (Qty × Price) */}
-                          <div className={`text-sm md:text-base font-black text-white bg-gradient-to-r ${activeTheme.main} px-4 py-2.5 rounded-xl shadow-md flex-1 sm:flex-none text-right min-w-[110px]`}>
+
+                          <div className={`text-xs md:text-sm font-black text-white ${activeTheme.main} px-3 py-1.5 rounded-lg shadow-sm text-right min-w-[90px]`}>
                             Rp {(item.qty * item.priceSelected).toLocaleString('id-ID')}
                           </div>
                         </div>
+
                       </div>
 
                     </div>
@@ -2271,44 +2306,7 @@ export default function MenuPage() {
                   </div>
                 </div>
 
-                {/* TOGGLE AUTO LUNAS (MUNCUL JIKA ADA ITEM ATAU MENU SERVICE) */}
-                {(cart.length > 0 || selectedMenu.toLowerCase().includes('service')) && (
-                  <div className="flex justify-between items-center p-6 border-b border-gray-100 bg-gradient-to-r from-gray-50 to-white rounded-2xl shadow-sm mb-4 border-2 border-slate-100">
-                    <div>
-                      <h4 className={`text-sm font-black ${activeTheme.text} flex items-center gap-2`}>
-                        <Sparkles size={16}/> Auto Lunas (Cash Kasir)
-                      </h4>
-                      <p className="text-[10px] text-slate-500 font-bold mt-1">Isi otomatis pembayaran penuh ke akun kasir</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const newState = !isAutoLunas;
-                        setIsAutoLunas(newState);
-                        if (newState) {
-                          // Mencari otomatis akun yang mengandung kata "kasir" atau "cash", jika tidak ada gunakan akun pertama.
-                          const kasirAccount = cashflowAccounts.find(a => a.text_1.toLowerCase().includes('kasir') || a.text_1.toLowerCase().includes('cash')) || cashflowAccounts[0];
-                          if (kasirAccount) {
-                            setFormBayar(prev => ({
-                              ...prev,
-                              payment: 'Tunai',
-                              cashflowList: [{ accountId: kasirAccount.id, nominal: grandTotal }]
-                            }));
-                          }
-                        } else {
-                          // Kosongkan kembali jika dimatikan
-                          setFormBayar(prev => ({
-                            ...prev,
-                            cashflowList: [{ accountId: '', nominal: 0 }]
-                          }));
-                        }
-                      }}
-                      className={`w-12 h-6 rounded-full relative transition-colors duration-300 focus:outline-none shadow-inner border border-black/10 ${isAutoLunas ? activeTheme.main : 'bg-slate-300'}`}
-                    >
-                      <div className={`w-4 h-4 bg-white rounded-full absolute top-1 shadow-sm transition-transform duration-300 ${isAutoLunas ? 'translate-x-7' : 'translate-x-1'}`} />
-                    </button>
-                  </div>
-                )}
+
 
                 {/* 2. Multi Cashflow / Akun Kas */}
                 <div className={`${activeTheme.light} p-5 rounded-3xl border-2 ${activeTheme.border} space-y-4 shadow-sm`}>
@@ -2361,19 +2359,42 @@ export default function MenuPage() {
                           <option key={a.id} value={a.id}>{a.text_1}</option>
                         ))}
                       </select>
-                      <div className="relative w-full sm:w-auto">
-                        <span className={`absolute left-3 top-1/2 -translate-y-1/2 text-[11px] font-black ${activeTheme.text}`}>Rp</span>
-                        <input
-                          type="number"
-                          placeholder="Nominal Pembayaran"
-                          value={cf.nominal || ''}
-                          onChange={e => {
+                      <div className="relative w-full sm:w-auto flex items-center gap-1.5">
+                        <div className="relative flex-1 sm:w-40">
+                          <span className={`absolute left-3 top-1/2 -translate-y-1/2 text-[11px] font-black ${activeTheme.text}`}>Rp</span>
+                          <input
+                            type="number"
+                            placeholder="Nominal Pembayaran"
+                            value={cf.nominal || ''}
+                            onChange={e => {
+                              const newList = [...formBayar.cashflowList];
+                              newList[idx].nominal = Number(e.target.value);
+                              setFormBayar({ ...formBayar, cashflowList: newList });
+                            }}
+                            className="w-full pl-9 pr-3 py-3 text-xs md:text-sm font-black text-slate-800 border-none bg-slate-50 hover:bg-slate-100 focus:bg-white rounded-xl outline-none focus:ring-2 focus:ring-slate-200"
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const kasirAcc = cashflowAccounts.find(a => a.text_1.toLowerCase().includes('kasir') || a.text_1.toLowerCase().includes('cash')) || cashflowAccounts[0];
                             const newList = [...formBayar.cashflowList];
-                            newList[idx].nominal = Number(e.target.value);
-                            setFormBayar({ ...formBayar, cashflowList: newList });
+                            newList[idx].nominal = grandTotal;
+                            if (kasirAcc) {
+                              newList[idx].accountId = kasirAcc.id;
+                            }
+                            setFormBayar(prev => ({
+                              ...prev,
+                              payment: 'Tunai',
+                              nominalBayar: grandTotal,
+                              cashflowList: newList
+                            }));
                           }}
-                          className="w-full sm:w-40 pl-9 pr-3 py-3 text-xs md:text-sm font-black text-slate-800 border-none bg-slate-50 hover:bg-slate-100 focus:bg-white rounded-xl outline-none focus:ring-2 focus:ring-slate-200"
-                        />
+                          className="px-3.5 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-black uppercase tracking-wider shrink-0 shadow-md shadow-emerald-600/20 transition-all active:scale-95 flex items-center gap-1.5"
+                          title="Auto Lunas (Isi Uang Pas & Akun Kas Kasir)"
+                        >
+                          <Zap size={15} fill="currentColor" /> Uang Pas (Auto Lunas)
+                        </button>
                       </div>
                     </div>
                   ))}
@@ -3375,7 +3396,7 @@ export default function MenuPage() {
             
             <div className="bg-slate-100 p-4 w-full rounded-2xl flex justify-center items-center shadow-inner">
               {/* Box Putih simulasi kertas thermal */}
-              <div className="border-t-[8px] border-b-[8px] border-t-slate-800 border-b-white bg-white w-[280px] text-slate-900 font-mono text-xs shadow-xl rounded-sm" id="thermal-receipt-58mm"> 
+              <div ref={receiptRef} className="border-t-[8px] border-b-[8px] border-t-slate-800 border-b-white bg-white w-[280px] text-slate-900 font-mono text-xs shadow-xl rounded-sm" id="thermal-receipt-58mm"> 
                 {/* HEADER TOKO */}
                 <div className="text-center space-y-1.5 border-b-2 border-dashed border-slate-300 pb-4 pt-4 px-3"> 
                   <h4 className="font-black text-base tracking-wide">PRIMA MOTOR GLADAG</h4> 
@@ -3470,9 +3491,34 @@ export default function MenuPage() {
                 className={`flex-[2] py-4 ${activeTheme.main} text-white rounded-2xl font-black text-xs md:text-sm shadow-xl shadow-${activeTheme.main.replace('bg-','')}/40 hover:-translate-y-1 hover:brightness-110 active:translate-y-0 transition-all tracking-widest flex justify-center items-center gap-2`}>
                 <Printer size={18}/> CETAK VIA RAWBT
               </button>
+              <button 
+                onClick={() => {
+                  setShowReceiptPrint(null);
+                  setCart([]);
+                  setIsPaymentFormOpen(false);
+                  setFormBayar({
+                    personIdLama: 'umum1',
+                    payment: 'Tunai',
+                    nominalBayar: 0,
+                    cashflowList: [{ accountId: '', nominal: 0 }],
+                    mekanikList: [{ idLama: '', ongkos: 0 }],
+                    note: '',
+                    noteMenu: '',
+                    tempoDate: '',
+                    marketplace: '',
+                    adminFee: 0,
+                    cashback: 0,
+                    createdAt: getLocalDatetimeInput(),
+                  });
+                  setTimeout(() => searchInputRef.current?.focus(), 100);
+                }} 
+                className="flex-1 py-4 px-4 bg-emerald-600 hover:bg-emerald-500 text-white font-black rounded-2xl text-xs md:text-sm tracking-widest shadow-lg shadow-emerald-500/20 transition-all flex items-center justify-center gap-1.5 active:scale-95"
+              >
+                <Zap size={16} fill="currentColor" /> TRANSAKSI BARU
+              </button>
               <button onClick={() => setShowReceiptPrint(null)} 
-                      className="flex-1 py-4 px-6 bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-700 font-black rounded-2xl text-xs md:text-sm tracking-widest transition-colors">
-                TUTUP & LEWATI
+                      className="flex-1 py-4 px-4 bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-700 font-black rounded-2xl text-xs md:text-sm tracking-widest transition-colors">
+                TUTUP
               </button>
             </div> 
           </div> 
@@ -3509,6 +3555,35 @@ export default function MenuPage() {
           );
         })()}
       </Modal>
+
+      {/* FLOATING MOBILE QUICK CHECKOUT BAR */}
+      {cart.length > 0 && !isPaymentFormOpen && !showReceiptPrint && (
+        <div className="fixed bottom-0 left-0 right-0 z-30 md:hidden bg-slate-900/95 backdrop-blur-md text-white p-3.5 px-5 flex items-center justify-between border-t border-slate-800 shadow-2xl animate-in slide-in-from-bottom duration-300">
+          <div className="flex items-center gap-3">
+            <div className="relative">
+              <div className={`w-10 h-10 rounded-xl ${activeTheme.main} flex items-center justify-center font-black text-sm text-white shadow-sm`}>
+                <ShoppingCart size={18} />
+              </div>
+              <span className="absolute -top-1.5 -right-1.5 bg-rose-500 text-white font-black text-[10px] w-5 h-5 rounded-full flex items-center justify-center border-2 border-slate-900 shadow-sm">
+                {cart.reduce((sum, item) => sum + item.qty, 0)}
+              </span>
+            </div>
+            <div>
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total ({selectedMenu})</p>
+              <p className="text-base font-black text-white tracking-tight">Rp {grandTotal.toLocaleString('id-ID')}</p>
+            </div>
+          </div>
+          <button
+            onClick={() => {
+              setIsCartModalOpen(true);
+              setIsPaymentFormOpen(true);
+            }}
+            className={`py-3 px-5 ${activeTheme.main} hover:brightness-110 text-white rounded-xl font-black text-xs uppercase tracking-widest shadow-lg flex items-center gap-1.5 active:scale-95 transition-all`}
+          >
+            <Zap size={15} fill="currentColor" /> BAYAR (1-TAP)
+          </button>
+        </div>
+      )}
 
     </div> 
   );

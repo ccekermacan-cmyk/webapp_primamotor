@@ -28,6 +28,6 @@ export default defineConfig({
     },
   },
   optimizeDeps: {
-    include: ['recharts', 'lodash', 'lucide-react'],
+    include: ['recharts', 'lucide-react'],
   },
 });

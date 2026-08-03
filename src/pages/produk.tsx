@@ -156,7 +156,7 @@ export default function Produk() {
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (categoryDropdownRef.current && !categoryDropdownRef.current.contains(event.target as Node)) {
-        setIsCategoryDropdownOpen(false);
+        setIsKategoriDropdownOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
