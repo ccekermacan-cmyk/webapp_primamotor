@@ -256,13 +256,10 @@ export default function MenuPage() {
         return true;
       }
 
-      // Saat mode edit gaji (gajiEditSession aktif), semua karyawan tetap tampil
-      // agar operator bisa mengganti karyawan mana saja
-      if (gajiEditSession !== null) return true;
-
+      // Karyawan yang sudah ada di list tidak ditampilkan (mencegah duplikat)
       return !gajiItemList.some(item => String(item.person) === userVal);
     });
-  }, [allUsers, allPersons, gajiItemList, editingGajiItemIndex, gajiItemSubData?.person, gajiEditSession]);
+  }, [allUsers, allPersons, gajiItemList, editingGajiItemIndex, gajiItemSubData?.person]);
 
   const [employeeActiveBon, setEmployeeActiveBon] = useState<number>(0);
   const [isFetchingEmployeeData, setIsFetchingEmployeeData] = useState<boolean>(false);
