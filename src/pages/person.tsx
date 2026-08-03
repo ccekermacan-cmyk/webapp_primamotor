@@ -377,6 +377,7 @@ export default function PeoplePage() {
       const formData = new FormData();
       formData.append('name', editUserData.name || '');
       formData.append('email', emailVal);
+      formData.append('phone', editUserData.phone || '');
       formData.append('status', editUserData.status || 'active');
       formData.append('level', String(editUserData.level ?? 2));
       formData.append('link_image', editUserData.link_image || '');
@@ -452,6 +453,7 @@ export default function PeoplePage() {
                   name: '',
                   username: '',
                   email: '',
+                  phone: '',
                   password: '',
                   level: 2,
                   status: 'active',
@@ -998,17 +1000,32 @@ export default function PeoplePage() {
                   </div>
                 </div>
 
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider ml-1">
-                    Angka / Poin / Nominal Tambahan (number)
-                  </label>
-                  <input 
-                    type="number" 
-                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:border-cyan-400" 
-                    value={editUserData.number ?? 0} 
-                    onChange={(e) => setEditUserData({ ...editUserData, number: Number(e.target.value) })} 
-                    placeholder="0" 
-                  />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider ml-1">
+                      Nomor Telepon / HP (phone)
+                    </label>
+                    <input 
+                      type="tel" 
+                      inputMode="tel"
+                      className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:border-cyan-400" 
+                      value={editUserData.phone || ''} 
+                      onChange={(e) => setEditUserData({ ...editUserData, phone: e.target.value })} 
+                      placeholder="Cth: 08123456789" 
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider ml-1">
+                      Angka / Poin / Nominal Tambahan (number)
+                    </label>
+                    <input 
+                      type="number" 
+                      className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:border-cyan-400" 
+                      value={editUserData.number ?? 0} 
+                      onChange={(e) => setEditUserData({ ...editUserData, number: Number(e.target.value) })} 
+                      placeholder="0" 
+                    />
+                  </div>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-6 p-3 bg-slate-50 rounded-xl border border-slate-200">
