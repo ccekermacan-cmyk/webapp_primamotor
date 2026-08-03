@@ -686,6 +686,7 @@ export default function MenuPage() {
       for (const item of gajiItemList) {
         const formData = new FormData();
         formData.append('ref', menuRecord.id);
+        formData.append('ref_baru', menuRecord.id);
         formData.append('person', item.person);
         formData.append('pokok', String(item.pokok || 0));
         formData.append('tunjangan', String(item.tunjangan || 0));
@@ -803,7 +804,10 @@ export default function MenuPage() {
     setHistoryItems([]); setHistoryCashflow([]); setHistoryOngkos([]); setHistoryGajiSubItems([]);
     try {
       if (menuItem.jenis?.toLowerCase().includes('gaji')) {
-        const gajiRecords = await pb.collection('gaji').getFullList({ filter: `ref = "${menuItem.id}"`, $autoCancel: false });
+        const gajiRecords = await pb.collection('gaji').getFullList({ 
+          filter: `ref = "${menuItem.id}" || ref_baru = "${menuItem.id}"`, 
+          $autoCancel: false 
+        });
         setHistoryGajiSubItems(gajiRecords);
       } else {
         const logs = await pb.collection('log_stock').getFullList<LogStockDetail>({ filter: `ref_baru = "${menuItem.id}"`, expand: 'item_baru', $autoCancel: false });
@@ -1897,7 +1901,7 @@ export default function MenuPage() {
 
       // 5. Fetch dan hapus seluruh slip gaji / bon jika ada
       const gajiList = await pb.collection('gaji').getFullList({
-        filter: `ref = "${menuId}"`,
+        filter: `ref = "${menuId}" || ref_baru = "${menuId}"`,
         $autoCancel: false
       }).catch(() => []);
 
@@ -3685,33 +3689,31 @@ export default function MenuPage() {
                               );
                             })
                           ) : (
-                            /* Legacy / Single view fallback */
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              <div className="p-4 bg-emerald-50/80 border border-emerald-200 rounded-2xl space-y-3">
-                                <div className="flex justify-between items-center border-b border-emerald-200 pb-2">
-                                  <span className="text-xs font-black text-emerald-900 uppercase tracking-wider flex items-center gap-1">
-                                    <Plus size={14} className="text-emerald-600" /> Total Pendapatan (+)
-                                  </span>
-                                  <span className="text-sm font-black text-emerald-700">Rp {sal.total1.toLocaleString('id-ID')}</span>
-                                </div>
-                                <div className="space-y-1.5 text-xs">
-                                  <div className="flex justify-between text-slate-600"><span>Gaji Pokok:</span><strong className="text-slate-800">Rp {(sal.t1.pokok || 0).toLocaleString('id-ID')}</strong></div>
-                                  <div className="flex justify-between text-slate-600"><span>Tunjangan:</span><strong className="text-slate-800">Rp {(sal.t1.tunjangan || 0).toLocaleString('id-ID')}</strong></div>
-                                </div>
-                              </div>
-
-                              <div className="p-4 bg-rose-50/80 border border-rose-200 rounded-2xl space-y-3">
-                                <div className="flex justify-between items-center border-b border-rose-200 pb-2">
-                                  <span className="text-xs font-black text-rose-900 uppercase tracking-wider flex items-center gap-1">
-                                    <AlertCircle size={14} className="text-rose-600" /> Total Potongan (-)
-                                  </span>
-                                  <span className="text-sm font-black text-rose-700">Rp {(sal.total2 + sal.total3).toLocaleString('id-ID')}</span>
-                                </div>
-                                <div className="space-y-1.5 text-xs">
-                                  <div className="flex justify-between text-slate-600"><span>Absensi:</span><strong className="text-rose-700">Rp {sal.total2.toLocaleString('id-ID')}</strong></div>
-                                  <div className="flex justify-between text-slate-600"><span>BPJS/Bon:</span><strong className="text-rose-700">Rp {sal.total3.toLocaleString('id-ID')}</strong></div>
-                                </div>
-                              </div>
+                            /* Fallback untuk setiap karyawan yang terdaftar di string person */
+                            <div className="space-y-3">
+                              {(showDetailHistory.person || '').split(',').map((pName, pIdx) => {
+                                const trimmed = pName.trim();
+                                if (!trimmed) return null;
+                                return (
+                                  <div key={pIdx} className="p-4 bg-emerald-50/60 border border-emerald-200 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
+                                    <div className="flex items-center gap-2.5">
+                                      <span className="px-2.5 py-1 bg-emerald-100 text-emerald-800 rounded-lg text-xs font-black">
+                                        #{pIdx + 1}
+                                      </span>
+                                      <div>
+                                        <h5 className="font-extrabold text-slate-900 text-sm uppercase">👤 {trimmed}</h5>
+                                        <span className="text-[10px] text-slate-500 font-bold">Karyawan Penerima Gaji</span>
+                                      </div>
+                                    </div>
+                                    <div className="text-right">
+                                      <span className="text-[10px] font-black text-emerald-700 uppercase tracking-widest block">Status Slip</span>
+                                      <span className="text-xs font-black text-emerald-700 bg-emerald-100/90 px-2.5 py-0.5 rounded-md">
+                                        Tercatat di Batch Nota Gaji
+                                      </span>
+                                    </div>
+                                  </div>
+                                );
+                              })}
                             </div>
                           )}
                         </div>
