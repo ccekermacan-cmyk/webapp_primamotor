@@ -1958,11 +1958,10 @@ export default function MenuPage() {
         $autoCancel: false
       }).catch(() => []);
 
+      // ponytail: log_stock cascade delete&revert handled by MenuObserver@deleting via notifyLaravelApi('menu','deleted') above.
+      // Manual revert here is safety net only — runs if Laravel cascade didn't fire (records still exist in PB).
+      // Individual notifyLaravelApi('log_stock','deleted') REMOVED to prevent double revert.
       for (const log of logStockList) {
-        // Trigger webhook deleted per log_stock
-        await notifyLaravelApi('log_stock', 'deleted', log.id);
-
-        // Revert stok fisik produk di PocketBase (produk.stok_3)
         if (log.item_baru && log.qty) {
           try {
             const prod = await pb.collection('produk').getOne(log.item_baru, { $autoCancel: false });
@@ -1970,8 +1969,6 @@ export default function MenuPage() {
               const currentStok = Number(prod.stok_3) || 0;
               const logQty = Number(log.qty) || 0;
               const isOut = String(log.boolean).toLowerCase() === 'out';
-              // Jika sebelumnya 'out' (penjualan/pengeluaran), dikembalikan (tambah stok)
-              // Jika sebelumnya 'in' (pembelian/pemasukan), dikembalikan (kurangi stok)
               const newStok = isOut ? (currentStok + logQty) : Math.max(0, currentStok - logQty);
               await pb.collection('produk').update(prod.id, { stok_3: newStok }, { $autoCancel: false });
             }
@@ -1979,8 +1976,6 @@ export default function MenuPage() {
             console.warn("Notice: Revert stok produk fallback:", prodErr);
           }
         }
-
-        // Hapus record log_stock di PocketBase
         await pb.collection('log_stock').delete(log.id).catch(() => null);
       }
 
@@ -1991,7 +1986,7 @@ export default function MenuPage() {
       }).catch(() => []);
 
       for (const cf of cashflowList) {
-        await notifyLaravelApi('cashflow', 'deleted', cf.id);
+        // ponytail: cashflow cascade delete&revert handled by MenuObserver@deleting
         await pb.collection('cashflow').delete(cf.id).catch(() => null);
       }
 
@@ -2002,7 +1997,7 @@ export default function MenuPage() {
       }).catch(() => []);
 
       for (const ong of ongkosList) {
-        await notifyLaravelApi('ongkos', 'deleted', ong.id);
+        // ponytail: ongkos cascade delete&revert handled by MenuObserver@deleting
         await pb.collection('ongkos').delete(ong.id).catch(() => null);
       }
 
