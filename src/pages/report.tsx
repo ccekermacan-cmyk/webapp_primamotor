@@ -135,13 +135,20 @@ export default function ReportPage() {
     );
   };
 
-  // Helper: konversi tanggal lokal "YYYY-MM-DD" ke rentang UTC ISO untuk filter PB
+  // Helper: konversi tanggal lokal ke rentang UTC untuk filter data (menu, log_stock, dll)
   const toUtcRange = (localDateStr: string) => {
     if (!localDateStr) return { start: '', end: '' };
     const [y, m, d] = localDateStr.split('-').map(Number);
-    const start = new Date(y, m - 1, d, 0, 0, 0).toISOString();
-    const end = new Date(y, m - 1, d + 1, 0, 0, 0).toISOString();
-    return { start, end };
+    return {
+      start: new Date(y, m - 1, d, 0, 0, 0).toISOString(),
+      end: new Date(y, m - 1, d + 1, 0, 0, 0).toISOString(),
+    };
+  };
+
+  // Helper: timestamp UTC tetap untuk created_at report (timezone-independent)
+  const toReportCreatedAt = (localDateStr: string) => {
+    const [y, m, d] = localDateStr.split('-').map(Number);
+    return new Date(Date.UTC(y, m - 1, d)).toISOString();
   };
 
   // Helper: dapatkan "YYYY-MM-DD" lokal hari ini
@@ -217,12 +224,10 @@ export default function ReportPage() {
   useEffect(() => {
     const checkTodayReport = async () => {
       const todayStr = getLocalToday();
-      const { start, end } = toUtcRange(todayStr);
+      const lookup = toReportCreatedAt(todayStr);
       try {
-        const res = await pb.collection('report').getList(1, 1, {
-          filter: pb.filter('created_at >= {:start} && created_at < {:end}', { start, end }),
-        });
-        setTodayReportExists(res.totalItems > 0);
+        const res = await pb.collection('report').getFirstListItem(`created_at = "${lookup}"`);
+        setTodayReportExists(!!res);
       } catch (e) {
         setTodayReportExists(false);
       }
@@ -284,15 +289,10 @@ export default function ReportPage() {
     setAddingReport(true);
     try {
       const todayStr = getLocalToday();
-      const { start: startToday, end: endToday } = toUtcRange(todayStr);
+      const reportCreatedAt = toReportCreatedAt(todayStr);
 
-      const existing = await pb.collection('report').getList(1, 1, {
-        filter: pb.filter('created_at >= {:start} && created_at < {:end}', { 
-          start: startToday, 
-          end: endToday 
-        }),
-      });
-      if (existing.totalItems > 0) {
+      const existing = await pb.collection('report').getFirstListItem(`created_at = "${reportCreatedAt}"`).catch(() => null);
+      if (existing) {
         showAlert('Informasi', 'Laporan untuk hari ini sudah ada!');
         setAddingReport(false);
         return;
@@ -306,30 +306,21 @@ export default function ReportPage() {
       const yM = String(yesterdayDate.getMonth() + 1).padStart(2, '0');
       const yD = String(yesterdayDate.getDate()).padStart(2, '0');
       const yesterdayFormatted = `${yY}-${yM}-${yD}`;
-      const { start: startYesterday, end: endYesterday } = toUtcRange(yesterdayFormatted);
+      const yesterdayLookup = toReportCreatedAt(yesterdayFormatted);
 
-      const yesterdayFilter = pb.filter(
-        'created_at >= {:start} && created_at < {:end}',
-        { start: startYesterday, end: endYesterday }
-      );
-
-      const yesterdayReports = await pb.collection('report').getList(1, 1, {
-        filter: yesterdayFilter,
-        sort: '-created_at',
-      });
-
-      const lastReport = yesterdayReports.items.length > 0 ? yesterdayReports.items[0] : null;
+      const lastReport = await pb.collection('report').getFirstListItem(`created_at = "${yesterdayLookup}"`).catch(() => null);
       const kasirKemarin = lastReport?.kasir_toko ?? 0;
       const piutangKemarin = lastReport?.piutang ?? 0;
       const hutangKemarin = lastReport?.hutang ?? 0;
 
+      const today = new Date();
       const newReport = {
-        text: `Laporan harian ${todayLocal.toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })}`,
+        text: `Laporan harian ${today.toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })}`,
         omset_toko: 0,
         omset_servis: 0,
         omset_minuman: 0,
         laba_penjualan: 0,
-        laba_servis: 0,     // 🟢 DIPERBAIKI
+        laba_servis: 0,
         laba_minuman: 0,    
         operasional_toko: 0,
         pengeluaran_lain: 0,
@@ -337,7 +328,7 @@ export default function ReportPage() {
         pemasukan_lain: 0,
         piutang: piutangKemarin,
         hutang: hutangKemarin,
-        created_at: startToday,
+        created_at: reportCreatedAt,
       };
 
       await pb.collection('report').create(newReport);
@@ -493,13 +484,11 @@ cashflowItems.forEach(cf => {
     setGenerating(true);
     try {
       const targetDateStr = dateStr || getLocalToday();
-      const { start, end } = toUtcRange(targetDateStr);
+      const lookup = toReportCreatedAt(targetDateStr);
 
-      const existing = await pb.collection('report').getList(1, 1, {
-        filter: pb.filter('created_at >= {:start} && created_at < {:end}', { start, end }),
-      });
-      
-      if (existing.totalItems > 0 && !forceReplace) {
+      const existing = await pb.collection('report').getFirstListItem(`created_at = "${lookup}"`).catch(() => null);
+
+      if (existing && !forceReplace) {
         confirmAction(
           'Laporan Sudah Ada', 
           `Laporan untuk tanggal ${targetDateStr} sudah ada. Hapus & buat ulang?`, 
@@ -509,8 +498,8 @@ cashflowItems.forEach(cf => {
         return;
       }
 
-      if (existing.totalItems > 0 && forceReplace) {
-        await pb.collection('report').delete(existing.items[0].id);
+      if (existing && forceReplace) {
+        await pb.collection('report').delete(existing.id);
       }
 
       const reportData = await calculateReportData(targetDateStr);
@@ -518,7 +507,7 @@ cashflowItems.forEach(cf => {
       const newReport = {
         ...reportData,
         text: `Laporan otomatis ${targetDateStr}`,
-        created_at: start,
+        created_at: lookup,
       };
 
       await pb.collection('report').create(newReport);
