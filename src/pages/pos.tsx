@@ -1654,7 +1654,16 @@ export default function MenuPage() {
           ref_baru: menuRecordId || '',
           normal: Number(normalValue || 0)
         });
-        await notifyLaravelApi('log_stock', 'created', logRecord.id);
+        const stockApiOk = await notifyLaravelApi('log_stock', 'created', logRecord.id);
+        if (!stockApiOk) {
+          try {
+            const prod = await pb.collection('produk').getOne(item.id, { $autoCancel: false });
+            const currentStok = Number(prod.stok_3) || 0;
+            const logQty = Math.max(1, Number(item.qty || 1));
+            const newStok = booleanValue === 'in' ? (currentStok + logQty) : Math.max(0, currentStok - logQty);
+            await pb.collection('produk').update(item.id, { stok_3: newStok }, { $autoCancel: false });
+          } catch (e) { console.warn('Fallback stock update failed:', e); }
+        }
       }
 
             // Cari person record ID berdasarkan personIdLama (jika ada)
@@ -1691,7 +1700,15 @@ export default function MenuPage() {
             acc1: accountIdLama,              
             acc2: '',                         
           });
-          await notifyLaravelApi('cashflow', 'created', cfRecord.id);
+          const cfApiOk = await notifyLaravelApi('cashflow', 'created', cfRecord.id);
+          if (!cfApiOk) {
+            try {
+              const acc = await pb.collection('dropdown').getOne(cf.accountId, { $autoCancel: false });
+              const currentBal = Number(acc.number_1) || 0;
+              const newBal = mutasiValue === 'in' ? (currentBal + cf.nominal) : (currentBal - cf.nominal);
+              await pb.collection('dropdown').update(cf.accountId, { number_1: newBal }, { $autoCancel: false });
+            } catch (e) { console.warn('Fallback cashflow account update failed:', e); }
+          }
         }
       }
 

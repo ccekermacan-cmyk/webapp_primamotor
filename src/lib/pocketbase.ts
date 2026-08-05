@@ -36,13 +36,19 @@ export const getLaravelApiUrl = () => {
 
 export const LARAVEL_API_URL = getLaravelApiUrl();
 
-export async function notifyLaravelApi(collection: string, event: 'created' | 'updated' | 'deleted', id: string) {
-  if (!id) return;
+export async function notifyLaravelApi(collection: string, event: 'created' | 'updated' | 'deleted', id: string): Promise<boolean> {
+  if (!id) return false;
   try {
     const apiUrl = getLaravelApiUrl();
     const targetUrl = `${apiUrl}/webhook/${collection}/${event}/${id}`;
-    await fetch(targetUrl, { method: 'POST' });
+    const response = await fetch(targetUrl, { method: 'POST' });
+    if (!response.ok) {
+      console.warn(`[Laravel API] ${collection}/${event}/${id} → HTTP ${response.status}`);
+      return false;
+    }
+    return true;
   } catch (err) {
     console.warn('[Laravel API Notify Error]', err);
+    return false;
   }
 }

@@ -223,6 +223,7 @@
 
           const createdCf = await pb.collection('cashflow').create(cfData);
           refCashflowId = createdCf.id;
+          await notifyLaravelApi('cashflow', 'created', createdCf.id);
         }
 
         // 2. TULIS KE BON (Sesuai JSON)
@@ -242,7 +243,8 @@
 
         files.forEach(f => { if (!f.isOld) bonData.append("file", f); });
 
-        await pb.collection('bon').create(bonData);
+        const createdBon = await pb.collection('bon').create(bonData);
+        await notifyLaravelApi('bon', 'created', createdBon.id);
 
         showAlert("Sukses", "Data Bon berhasil disimpan!");
         setModalType(null);
@@ -868,9 +870,11 @@
         }
 
         if (isEditMode && selectedTx) {
-          await pb.collection('cashflow').update(selectedTx.id, formDataObj);
+          const updated = await pb.collection('cashflow').update(selectedTx.id, formDataObj);
+          await notifyLaravelApi('cashflow', 'updated', selectedTx.id);
         } else {
-          await pb.collection('cashflow').create(formDataObj);
+          const created = await pb.collection('cashflow').create(formDataObj);
+          await notifyLaravelApi('cashflow', 'created', created.id);
         }
         
         setModalType(null);
