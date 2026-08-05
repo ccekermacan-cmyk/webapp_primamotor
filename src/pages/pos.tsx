@@ -1627,6 +1627,7 @@ export default function MenuPage() {
       }
 
       // ========== PENYIMPANAN LOG STOCK (ITEM BARU) ==========
+      const runningStock: Record<string, number> = {};
       for (const item of cartWithTierPrice) {
         const booleanValue = (menuLower.includes('penjualan') || menuLower.includes('service')) ? 'out' : 'in';
         
@@ -1638,13 +1639,25 @@ export default function MenuPage() {
             normalValue = 0;
         }
 
+        const prodId = item.id || '';
+        if (prodId && runningStock[prodId] === undefined) {
+          try {
+            const p = await pb.collection('produk').getOne(prodId, { $autoCancel: false });
+            runningStock[prodId] = Number(p.stok_3) || 0;
+          } catch { runningStock[prodId] = 0; }
+        }
+        const logQty = Math.max(1, Number(item.qty || 1));
+        const qtyAwal = runningStock[prodId] ?? 0;
+        const qtyAkhir = booleanValue === 'in' ? qtyAwal + logQty : Math.max(0, qtyAwal - logQty);
+        if (prodId) runningStock[prodId] = qtyAkhir;
+
         const logRecord = await pb.collection('log_stock').create({
           id_lama: '',
           created_at: timestamp,
           operator: operatorName || pb.authStore.model?.username || 'Kasir',
           item: item.id_lama || item.id || '',
-          qty: Math.max(1, Number(item.qty || 1)),
-          item_baru: item.id || '',
+          qty: logQty,
+          item_baru: prodId,
           price_1: Number(item.priceSelected || 0),
           price_2: Number(price2Value || 0),
           number_1: 0,
@@ -1652,16 +1665,14 @@ export default function MenuPage() {
           boolean: booleanValue,
           ref: menuRecordId || '',
           ref_baru: menuRecordId || '',
-          normal: Number(normalValue || 0)
+          normal: Number(normalValue || 0),
+          qty_awal: qtyAwal,
+          qty_akhir: qtyAkhir,
         });
         const stockApiOk = await notifyLaravelApi('log_stock', 'created', logRecord.id);
         if (!stockApiOk) {
           try {
-            const prod = await pb.collection('produk').getOne(item.id, { $autoCancel: false });
-            const currentStok = Number(prod.stok_3) || 0;
-            const logQty = Math.max(1, Number(item.qty || 1));
-            const newStok = booleanValue === 'in' ? (currentStok + logQty) : Math.max(0, currentStok - logQty);
-            await pb.collection('produk').update(item.id, { stok_3: newStok }, { $autoCancel: false });
+            await pb.collection('produk').update(prodId, { stok_3: qtyAkhir }, { $autoCancel: false });
           } catch (e) { console.warn('Fallback stock update failed:', e); }
         }
       }
@@ -1684,6 +1695,13 @@ export default function MenuPage() {
           const accountIdLama = selectedAccount ? selectedAccount.id_lama : '';
           const mutasiValue = (menuLower.includes('penjualan') || menuLower.includes('service')) ? 'in' : 'out';
           
+          let saldoAwal = 0;
+          try {
+            const acc = await pb.collection('dropdown').getOne(cf.accountId, { $autoCancel: false });
+            saldoAwal = Number(acc.number_1) || 0;
+          } catch { saldoAwal = 0; }
+          const saldoAkhir = mutasiValue === 'in' ? (saldoAwal + cf.nominal) : (saldoAwal - cf.nominal);
+
           const cfRecord = await pb.collection('cashflow').create({
             id_lama: '',
             created_at: timestamp,
@@ -1696,17 +1714,16 @@ export default function MenuPage() {
             note: formBayar.note || `POS System: Nota ${menuRecordId}`,
             ref_baru: menuRecordId,
             person: personRecordId,
-            persontext: formBayar.personIdLama || '',  // 🔁 tambahkan baris ini
+            persontext: formBayar.personIdLama || '',
             acc1: accountIdLama,              
-            acc2: '',                         
+            acc2: '',
+            saldo_awal: saldoAwal,
+            saldo_akhir: saldoAkhir,
           });
           const cfApiOk = await notifyLaravelApi('cashflow', 'created', cfRecord.id);
           if (!cfApiOk) {
             try {
-              const acc = await pb.collection('dropdown').getOne(cf.accountId, { $autoCancel: false });
-              const currentBal = Number(acc.number_1) || 0;
-              const newBal = mutasiValue === 'in' ? (currentBal + cf.nominal) : (currentBal - cf.nominal);
-              await pb.collection('dropdown').update(cf.accountId, { number_1: newBal }, { $autoCancel: false });
+              await pb.collection('dropdown').update(cf.accountId, { number_1: saldoAkhir }, { $autoCancel: false });
             } catch (e) { console.warn('Fallback cashflow account update failed:', e); }
           }
         }
@@ -3999,6 +4016,12 @@ export default function MenuPage() {
                                       <p className="flex justify-between"><span className="font-bold">In / Out:</span> <span className="font-black text-slate-800">{item.boolean}</span></p>
                                       <p className="flex justify-between"><span className="font-bold">Jual:</span> <span className="font-black text-slate-800">Rp {item.price_1?.toLocaleString('id-ID')}</span></p>
                                       <p className="flex justify-between"><span className="font-bold">Modal:</span> <span className="font-black text-slate-800">Rp {item.price_2?.toLocaleString('id-ID')}</span></p>
+                                      {('1' === userLevel || '2' === userLevel || '5' === userLevel) && (
+                                        <>
+                                          <p className="flex justify-between col-span-2 border-t border-slate-200 pt-2 mt-1"><span className="font-bold">Qty Awal:</span> <span className="font-black text-emerald-700">{item.qty_awal ?? '-'}</span></p>
+                                          <p className="flex justify-between col-span-2"><span className="font-bold">Qty Akhir:</span> <span className="font-black text-emerald-700">{item.qty_akhir ?? '-'}</span></p>
+                                        </>
+                                      )}
                                       {(() => {
       const logStockSemua = reportDetailData?.logStock || [];
       
@@ -4076,6 +4099,12 @@ export default function MenuPage() {
                                     <p className="flex justify-between"><span>Nominal:</span> <span className="font-black text-blue-600 text-sm">Rp {cf.nominal?.toLocaleString('id-ID')}</span></p>
                                     <p className="flex justify-between"><span>Mutasi:</span> <span className="uppercase text-slate-800 bg-slate-200 px-2 py-0.5 rounded">{cf.mutasi}</span></p>
                                     <p className="flex justify-between items-center gap-2"><span>Account:</span> <span className="text-slate-800 bg-slate-100 px-2 py-0.5 rounded-lg text-right truncate">{accName}</span></p>
+                                    {('1' === userLevel || '2' === userLevel || '5' === userLevel) && (cf.saldo_awal !== undefined || cf.saldo_akhir !== undefined) && (
+                                      <div className="mt-2 pt-2 border-t border-slate-100 space-y-1">
+                                        <p className="flex justify-between text-[10px]"><span className="font-bold text-emerald-700">Saldo Awal:</span> <span className="font-black">Rp {Number(cf.saldo_awal || 0).toLocaleString('id-ID')}</span></p>
+                                        <p className="flex justify-between text-[10px]"><span className="font-bold text-emerald-700">Saldo Akhir:</span> <span className="font-black">Rp {Number(cf.saldo_akhir || 0).toLocaleString('id-ID')}</span></p>
+                                      </div>
+                                    )}
                                     {cf.note && (
                                       <div className="mt-2 bg-slate-50 p-2 rounded-lg border border-slate-100 text-slate-500 italic font-medium leading-relaxed">
                                         " {cf.note} "

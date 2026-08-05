@@ -209,15 +209,23 @@
         let refCashflowId = "";
 
         // 1. TULIS KE CASHFLOW (Jika dicentang)
-        if (formDataBon.catatCashflow) {
+        if (formDataBon.catatCashflow && formDataBon.akun_asal) {
           const cfData = new FormData();
           cfData.append("created_at", utcDate);
           cfData.append("operator", operatorName);
-          cfData.append("jenis", "bon"); // Sesuaikan jenis cashflow Anda
+          cfData.append("jenis", "bon");
           cfData.append("mutasi", "out");
-          cfData.append("account_1", formDataBon.account_1);
+          cfData.append("account_1", formDataBon.akun_asal);
           cfData.append("nominal", String(formDataBon.nominal));
           cfData.append("note", formDataBon.note);
+          
+          let saldoAwalCf = 0;
+          try {
+            const acc = await pb.collection('dropdown').getOne(formDataBon.akun_asal, { $autoCancel: false });
+            saldoAwalCf = Number(acc.number_1) || 0;
+          } catch {}
+          cfData.append("saldo_awal", String(saldoAwalCf));
+          cfData.append("saldo_akhir", String(saldoAwalCf - Number(formDataBon.nominal)));
           
           files.forEach(f => { if (!f.isOld) cfData.append("file", f); });
 
@@ -844,6 +852,17 @@
         formDataObj.append("persontext", formData.persontext || "");
         formDataObj.append("acc1", accountIdLama);
         formDataObj.append("acc2", account2IdLama);
+
+        let saldoAwal = 0;
+        if (formData.account_1) {
+          try {
+            const acc = await pb.collection('dropdown').getOne(formData.account_1, { $autoCancel: false });
+            saldoAwal = Number(acc.number_1) || 0;
+          } catch {}
+        }
+        const saldoAkhir = mutasiValue === 'in' ? (saldoAwal + Number(formData.nominal || 0)) : (saldoAwal - Number(formData.nominal || 0));
+        formDataObj.append("saldo_awal", String(saldoAwal));
+        formDataObj.append("saldo_akhir", String(saldoAkhir));
 
         // Di PocketBase, cukup kirim 'string' nama file lama untuk dipertahankan, dan 'File object' untuk file baru
         // Abaikan file lama agar dipertahankan oleh server, dan kirim object File untuk upload baru.
@@ -2445,7 +2464,7 @@
           {/* ============================================================ */}
           {/* MODAL FILTER MOBILE */}
           <Modal
-            isOpen={modalType === 'detail'}
+            isOpen={isMobileFilterOpen}
             onClose={() => setModalType(null)}
             title="Detail Log Transaksi Kas"
             maxWidth="max-w-2xl"
@@ -2577,6 +2596,12 @@
                       {selectedTx.account_2 && <p className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1"><span className="text-slate-400 font-bold">Akun Tujuan:</span> <span className="font-bold text-blue-600 sm:text-right">{getAccountName(selectedTx.account_2)}</span></p>}
                       <p className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1"><span className="text-slate-400 font-bold">Pihak Terkait:</span> <span className="font-bold text-slate-700 sm:text-right">{getPersonName(selectedTx.person)}</span></p>
                       {selectedTx.ref_baru && <p className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1 mt-2 pt-2 border-t border-dashed border-slate-200"><span className="text-slate-400 font-bold">Ref Transaksi POS:</span> <span className="font-bold text-blue-500 bg-blue-50 px-2 py-0.5 rounded border border-blue-100 self-start sm:self-auto">{selectedTx.ref_baru}</span></p>}
+                      {(userLevel === '1' || userLevel === '2' || userLevel === '5') && (selectedTx.saldo_awal !== undefined || selectedTx.saldo_akhir !== undefined) && (
+                        <div className="mt-2 pt-2 border-t border-dashed border-slate-200 space-y-1">
+                          <p className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1"><span className="text-slate-400 font-bold">Saldo Awal:</span> <span className="font-bold text-emerald-700 sm:text-right">Rp {Number(selectedTx.saldo_awal || 0).toLocaleString('id-ID')}</span></p>
+                          <p className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1"><span className="text-slate-400 font-bold">Saldo Akhir:</span> <span className="font-bold text-emerald-700 sm:text-right">Rp {Number(selectedTx.saldo_akhir || 0).toLocaleString('id-ID')}</span></p>
+                        </div>
+                      )}
                     </div>
 
                     <div className="bg-slate-50 p-5 rounded-[1.5rem] border-2 border-slate-100 shadow-sm flex flex-col">
