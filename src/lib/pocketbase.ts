@@ -36,19 +36,34 @@ export const getLaravelApiUrl = () => {
 
 export const LARAVEL_API_URL = getLaravelApiUrl();
 
+let laravelApiDown = false;
+let laravelApiLastCheck = 0;
+const LARAVEL_RETRY_MS = 30000;
+
 export async function notifyLaravelApi(collection: string, event: 'created' | 'updated' | 'deleted', id: string): Promise<boolean> {
   if (!id) return false;
+  if (laravelApiDown && Date.now() - laravelApiLastCheck < LARAVEL_RETRY_MS) {
+    return false;
+  }
   try {
     const apiUrl = getLaravelApiUrl();
     const targetUrl = `${apiUrl}/webhook/${collection}/${event}/${id}`;
     const response = await fetch(targetUrl, { method: 'POST' });
     if (!response.ok) {
-      console.warn(`[Laravel API] ${collection}/${event}/${id} → HTTP ${response.status}`);
+      laravelApiDown = true;
+      laravelApiLastCheck = Date.now();
+      console.warn(`[Laravel API] ${collection}/${event}/${id} → HTTP ${response.status} — circuit OPEN, fallback active for ${LARAVEL_RETRY_MS/1000}s`);
       return false;
     }
+    if (laravelApiDown) {
+      console.warn(`[Laravel API] circuit CLOSED — API recovered`);
+    }
+    laravelApiDown = false;
     return true;
   } catch (err) {
-    console.warn('[Laravel API Notify Error]', err);
+    laravelApiDown = true;
+    laravelApiLastCheck = Date.now();
+    console.warn(`[Laravel API] Unreachable — circuit OPEN, fallback active for ${LARAVEL_RETRY_MS/1000}s`, err);
     return false;
   }
 }
