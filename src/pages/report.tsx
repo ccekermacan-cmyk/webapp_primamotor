@@ -345,41 +345,54 @@ export default function ReportPage() {
   // --- LOGIKA CENTRALIZED UNTUK GENERATE & KALKULASI LAPORAN ---
   const calculateReportData = async (targetDateStr: string) => {
   const { start, end } = toUtcRange(targetDateStr);
+  const rangeFilter = pb.filter('created_at >= {:start} && created_at < {:end}', { start, end });
 
-  const allProducts = await pb.collection('produk').getFullList({ fields: 'id,kategori' });
+  // Jalankan 4 query independen secara paralel
+  const [allProducts, menuItems, logStockItems, ongkosAll, cashflowItems] = await Promise.all([
+    pb.collection('produk').getFullList({ fields: 'id,kategori', $autoCancel: false, batch: 500 }),
+    pb.collection('menu').getFullList({
+      filter: rangeFilter,
+      fields: 'id, jenis, status, total, dibayar',
+      $autoCancel: false,
+      batch: 500,
+    }),
+    pb.collection('log_stock').getFullList({
+      filter: rangeFilter,
+      expand: 'ref_baru,item_baru',
+      fields: 'id,boolean,qty,price_1,price_2,ref_baru,item_baru,expand',
+      $autoCancel: false,
+      batch: 500,
+    }),
+    pb.collection('ongkos').getFullList({
+      filter: pb.filter('date >= {:start} && date < {:end}', { start, end }),
+      fields: 'ongkos',
+      $autoCancel: false,
+      batch: 500,
+    }),
+    pb.collection('cashflow').getFullList({
+      filter: rangeFilter,
+      fields: 'jenis,nominal,acc1,acc2,mutasi',
+      $autoCancel: false,
+      batch: 500,
+    }),
+  ]);
+
   const productMap: Record<string, string> = {};
   allProducts.forEach(p => { productMap[p.id] = (p.kategori || '').toLowerCase(); });
-
-  const menuItems = await pb.collection('menu').getFullList({
-    filter: pb.filter('created_at >= {:start} && created_at < {:end}', { start, end }),
-    fields: 'id, jenis, status, total, dibayar',
-  });
 
   const menuMap: Record<string, string> = {};
   let totalPiutang = 0;
   let totalHutang = 0;
-
   menuItems.forEach(m => {
     const jenis = (m.jenis || '').toLowerCase();
     menuMap[m.id] = jenis;
-    const status = (m.status || '').toLowerCase();
-    if (status === 'belum') {
-      const selisih = (m.total || 0) - (m.dibayar || 0);
-      if (selisih > 0) {
-        if (jenis.includes('penjualan') || jenis.includes('service') || jenis.includes('servis')) {
-          totalPiutang += selisih;
-        } else if (jenis.includes('pembelian')) {
-          totalHutang += selisih;
-        }
+    if ((m.status || '').toLowerCase() === 'belum') {
+      const s = (m.total || 0) - (m.dibayar || 0);
+      if (s > 0) {
+        if (jenis.includes('penjualan') || jenis.includes('service') || jenis.includes('servis')) totalPiutang += s;
+        else if (jenis.includes('pembelian')) totalHutang += s;
       }
     }
-  });
-
-  const logStockItems = await pb.collection('log_stock').getFullList({
-    filter: pb.filter('created_at >= {:start} && created_at < {:end}', { start, end }),
-    expand: 'ref_baru,item_baru',
-    $autoCancel: false,
-    batch: 500,
   });
 
   let totalOmsetPenjualan = 0;
@@ -414,18 +427,7 @@ export default function ReportPage() {
     }
   });
 
-  const ongkosFilter = pb.filter('date >= {:start} && date < {:end}', { start, end });
-  const ongkosAll = await pb.collection('ongkos').getFullList({
-    filter: ongkosFilter,
-    fields: 'ongkos',
-  });
   const omsetServis = ongkosAll.reduce((sum, item) => sum + (item.ongkos || 0), 0);
-
-  const cashflowFilter = pb.filter('created_at >= {:start} && created_at < {:end}', { start, end });
-  const cashflowItems = await pb.collection('cashflow').getFullList({
-    filter: cashflowFilter,
-    fields: 'jenis, nominal, acc1, acc2, mutasi',
-  });
 
   let operasionalToko = 0;
 let pengeluaranLain = 0;
@@ -552,39 +554,17 @@ cashflowItems.forEach(cf => {
     }
     setReportDetailLoading(true);
     try {
-      const targetDateStr = toUtcRange(new Date(report.created_at).toISOString().split('T')[0]);
-      // Actually use raw date from report's created_at
       const d = new Date(report.created_at);
-      const localDate = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+      const localDate = `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
       const { start, end } = toUtcRange(localDate);
+      const rangeFilter = pb.filter('created_at >= {:start} && created_at < {:end}', { start, end });
 
-      const menuFilter = pb.filter('created_at >= {:start} && created_at < {:end}', { start, end });
-      const menuItems = await pb.collection('menu').getFullList({
-        filter: menuFilter,
-        sort: 'created_at',
-        $autoCancel: false,
-      });
-
-      const logStockFilter = pb.filter('created_at >= {:start} && created_at < {:end}', { start, end });
-      const logStockItems = await pb.collection('log_stock').getFullList({
-        filter: logStockFilter,
-        sort: 'created_at',
-        expand: 'item_baru', 
-        $autoCancel: false,
-      });
-
-      const cashflowFilter = pb.filter('created_at >= {:start} && created_at < {:end}', { start, end });
-      const cashflowItems = await pb.collection('cashflow').getFullList({
-        filter: cashflowFilter,
-        sort: 'created_at',
-        $autoCancel: false,
-        batch: 500,
-      });
-
-      const ongkosItems = await pb.collection('ongkos').getFullList({
-        filter: pb.filter('date >= {:start} && date < {:end}', { start, end }),
-        $autoCancel: false,
-      });
+      const [menuItems, logStockItems, cashflowItems, ongkosItems] = await Promise.all([
+        pb.collection('menu').getFullList({ filter: rangeFilter, sort: 'created_at', $autoCancel: false, batch: 500 }),
+        pb.collection('log_stock').getFullList({ filter: rangeFilter, sort: 'created_at', expand: 'item_baru', $autoCancel: false, batch: 500 }),
+        pb.collection('cashflow').getFullList({ filter: rangeFilter, sort: 'created_at', $autoCancel: false, batch: 500 }),
+        pb.collection('ongkos').getFullList({ filter: pb.filter('date >= {:start} && date < {:end}', { start, end }), $autoCancel: false, batch: 500 }),
+      ]);
 
       const data = {
         menu: menuItems,
