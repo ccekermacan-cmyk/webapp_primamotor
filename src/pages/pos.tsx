@@ -96,7 +96,6 @@ export default function MenuPage() {
   const [personOptions, setPersonOptions] = useState<DropdownItem[]>([]);
   const [cashflowAccounts, setCashflowAccounts] = useState<DropdownItem[]>([]);
   const [mechanics, setMechanics] = useState<UserKaryawan[]>([]);
-  const [personMap] = useState<Record<string, string>>({});
 
   const [allPersons, setAllPersons] = useState<DropdownItem[]>([]);
   
@@ -286,6 +285,7 @@ export default function MenuPage() {
       let activeBon = 0;
       try {
         const userBonList = await pb.collection('bon').getFullList({
+          filter: `persontext = "${personVal}"`,
           $autoCancel: false
         });
         
@@ -312,6 +312,7 @@ export default function MenuPage() {
         let foundPrevious = false;
         try {
           const allGajiList = await pb.collection('gaji').getFullList({
+            filter: `person = "${personVal}"`,
             sort: '-created_at',
             $autoCancel: false
           });
@@ -889,7 +890,7 @@ export default function MenuPage() {
     return match ? themes[match] : themes.overview; // Default ke overview jika tidak ketemu
   };
 
-  const activeTheme = getThemeConfig(selectedMenu);
+  const activeTheme = useMemo(() => getThemeConfig(selectedMenu), [selectedMenu]);
 
   // Helper untuk menyeragamkan nama produk
   const getFullLabel = (p: Produk | any) => {
@@ -1291,21 +1292,18 @@ export default function MenuPage() {
       setCart(prev => prev.map(c => c.id === id ? { ...c, manualPrice: newPrice } : c));
     };
 
-  const totalBelanja = cartWithTierPrice.reduce((sum, item) => sum + (item.priceSelected * item.qty), 0);
-  const totalQtyKeranjang = cart.reduce((sum, item) => sum + item.qty, 0);
+  const totalBelanja = useMemo(() => cartWithTierPrice.reduce((sum, item) => sum + (item.priceSelected * item.qty), 0), [cartWithTierPrice]);
+  const totalQtyKeranjang = useMemo(() => cart.reduce((sum, item) => sum + item.qty, 0), [cart]);
   const totalOngkos = useMemo(() => {
   if (!selectedMenu.toLowerCase().includes('service')) return 0;
   return formBayar.mekanikList.reduce((sum, mek) => sum + (mek.ongkos || 0), 0);
 }, [formBayar.mekanikList, selectedMenu]);
 
   const isPembelianMenu = selectedMenu.toLowerCase().includes('pembelian');
-  const grandTotal = isPembelianMenu
+  const grandTotal = useMemo(() => isPembelianMenu
     ? totalBelanja
-    : totalBelanja + totalOngkos - (formBayar.adminFee || 0) + (formBayar.cashback || 0);
-
-  useEffect(() => { 
-    setFormBayar(prev => ({ ...prev, nominalBayar: grandTotal }));
-  }, [grandTotal]);
+    : totalBelanja + totalOngkos - (formBayar.adminFee || 0) + (formBayar.cashback || 0),
+    [isPembelianMenu, totalBelanja, totalOngkos, formBayar.adminFee, formBayar.cashback]);
 
   // --- CHECKOUT SAFETY GUARD ---
   const handleCheckoutValidation = () => {
@@ -1477,7 +1475,10 @@ export default function MenuPage() {
         type: 'confirm',
         onConfirm: () => { 
           setCart([]); 
-          setEditSession(null); 
+          setEditSession(null);
+          setExistingMenuFiles([]);
+          setMenuFiles([]);
+      setExistingMenuFiles([]);
           setSelectedMenu(menuName); 
           setPage(1); 
           setDialog(prev => ({ ...prev, show: false }));
@@ -1501,8 +1502,8 @@ export default function MenuPage() {
       fetchData();
     } else { 
       setSelectedMenu(menuName); 
-      setPage(1); 
-      fetchData(); // refresh data langsung
+      setPage(1);
+      // fetchData triggered by useEffect on selectedMenu/page change
     }
   };
 
@@ -1938,7 +1939,6 @@ export default function MenuPage() {
           
           // Satu kali panggil set state sudah cukup
           setEditSession({ isEditing: true, menuId: menuItem.id, createdAt: menuItem.created_at });
-          setSelectedMenu(menuItem.jenis); 
           setShowDetailHistory(null); // Tutup modal
           window.scrollTo(0, 0);
         } catch (e) { 
@@ -1967,7 +1967,7 @@ export default function MenuPage() {
     setShowReceiptPrint({
       id: showDetailHistory?.id,
       timestamp: showDetailHistory?.created_at,
-      customer: personMap[showDetailHistory?.person || ''] || 'Umum',
+      customer: allPersons.find(p => p.id_lama === showDetailHistory?.person)?.text_1 || 'Umum',
       items: historyItems.map(h => ({ ...h.expand?.item_baru, qty: h.qty, priceSelected: h.price_1 })),
       total: grandTotalHistory,
       cash: grandTotalHistory,

@@ -102,14 +102,8 @@
 
     const [activeFilter, setActiveFilter] = useState<'account' | 'jenis' | 'tanggal' | 'search' | null>(null);
 
-    // Tambahkan state ini untuk mengatur animasi buka/tutup UI
-    const [isSearchOpen, setIsSearchOpen] = useState(false);
-    const [isDateOpen, setIsDateOpen] = useState(false);
-    const [isAccountFilterOpen, setIsAccountFilterOpen] = useState(false); // State baru
-
     // State untuk filter jenis
     const [filterJenis, setFilterJenis] = useState<string[]>([]);
-    const [isJenisFilterOpen, setIsJenisFilterOpen] = useState(false);
     
     const [searchInput, setSearchInput] = useState('');
     const [searchTerm, setSearchTerm] = useState('');
@@ -132,7 +126,6 @@
 
     const [files, setFiles] = useState<any[]>([]);
     const [previewUrls, setPreviewUrls] = useState<string[]>([]);
-    const [galleryIndex, setGalleryIndex] = useState<number | null>(null);
     const [wallets, setWallets] = useState<DropdownItem[]>([]);
     const [loadingWallets, setLoadingWallets] = useState(false);
     const [activeTab, setActiveTab] = useState<'accounts' | 'history' | 'tempo'>('history');
@@ -202,9 +195,11 @@
         const currentUser = pb.authStore.model;
         const operatorName = currentUser?.name || currentUser?.username || 'Admin';
         
-        // Konversi waktu
-        const localDate = new Date(formDataBon.created_at);
-        const utcDate = new Date(localDate.getTime() + localDate.getTimezoneOffset() * 60000).toISOString();
+        // Konversi waktu lokal ke UTC (hindari double timezone offset)
+        const [datePart, timePart] = formDataBon.created_at.split('T');
+        const [year, month, day] = datePart.split('-').map(Number);
+        const [hours, minutes] = timePart.split(':').map(Number);
+        const utcDate = new Date(year, month - 1, day, hours, minutes, 0).toISOString();
 
         let refCashflowId = "";
 
@@ -621,7 +616,7 @@
     useEffect(() => {
       const delayDebounce = setTimeout(() => { setSearchTerm(searchInput); setPage(1); }, 500);
       return () => clearTimeout(delayDebounce);
-    }, [searchInput, filterMutasi]);
+    }, [searchInput]);
     
     // Tambahkan filterAccounts ke dalam dependency agar data otomatis ter-refresh
     useEffect(() => { fetchCashflow(); }, [page, searchTerm, filterMutasi, dateRange, filterAccounts, filterJenis]);
