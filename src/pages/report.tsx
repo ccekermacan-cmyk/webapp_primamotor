@@ -87,10 +87,10 @@ export default function ReportPage() {
 
   const formatDate = (dateStr: string) => {
     if (!dateStr) return '-';
-    const localDateStr = getLocalYYYYMMDD(new Date(dateStr));
-    const [year, month, day] = localDateStr.split('-');
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Ags', 'Sep', 'Okt', 'Nov', 'Des'];
-    return `${day} ${months[parseInt(month, 10) - 1]} ${year}`;
+    return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`;
   };
 
   const [detailModal, setDetailModal] = useState<{ type: string; title: string; items: { label: string; value: number }[] } | null>(null);
@@ -132,20 +132,19 @@ export default function ReportPage() {
     );
   };
 
-  // Helper: Ambil YYYY-MM-DD dari zona waktu lokal
-  const getLocalYYYYMMDD = (date?: Date) => {
-    const d = date || new Date();
-    return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().split('T')[0];
+  // Helper: konversi tanggal lokal "YYYY-MM-DD" ke rentang UTC ISO untuk filter PB
+  const toUtcRange = (localDateStr: string) => {
+    if (!localDateStr) return { start: '', end: '' };
+    const [y, m, d] = localDateStr.split('-').map(Number);
+    const start = new Date(y, m - 1, d, 0, 0, 0).toISOString();
+    const end = new Date(y, m - 1, d + 1, 0, 0, 0).toISOString();
+    return { start, end };
   };
 
-  // Helper: Buat rentang ISO (start & end) berdasarkan hari lokal DENGAN FORMAT POCKETBASE
-  const getDayRangeStr = (localDateStr: string) => {
-    const startISO = `${localDateStr} 00:00:00.000Z`;
-    const next = new Date(localDateStr);
-    next.setDate(next.getDate() + 1);
-    const nextStr = new Date(next.getTime() - next.getTimezoneOffset() * 60000).toISOString().split('T')[0];
-    const endISO = `${nextStr} 00:00:00.000Z`;
-    return { startISO, endISO };
+  // Helper: dapatkan "YYYY-MM-DD" lokal hari ini
+  const getLocalToday = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   };
 
   // --- FETCH DATA ---
@@ -162,25 +161,20 @@ export default function ReportPage() {
       
       // Filter Tanggal
       if (dateRange.start && dateRange.end) {
-        const endObj = new Date(dateRange.end);
-        endObj.setDate(endObj.getDate() + 1);
-        const endStr = new Date(endObj.getTime() - endObj.getTimezoneOffset() * 60000).toISOString().split('T')[0];
+        const r1 = toUtcRange(dateRange.start);
+        const r2 = toUtcRange(dateRange.end);
         conditions.push(`created_at >= {:start} && created_at < {:end}`);
-        params.start = `${dateRange.start} 00:00:00.000Z`;
-        params.end = `${endStr} 00:00:00.000Z`;
+        params.start = r1.start;
+        params.end = r2.end;
       } else if (dateRange.start) {
-        const startObj = new Date(dateRange.start);
-        startObj.setDate(startObj.getDate() + 1);
-        const endStr = new Date(startObj.getTime() - startObj.getTimezoneOffset() * 60000).toISOString().split('T')[0];
+        const r = toUtcRange(dateRange.start);
         conditions.push(`created_at >= {:start} && created_at < {:end}`);
-        params.start = `${dateRange.start} 00:00:00.000Z`;
-        params.end = `${endStr} 00:00:00.000Z`;
+        params.start = r.start;
+        params.end = r.end;
       } else if (dateRange.end) {
-        const endObj = new Date(dateRange.end);
-        endObj.setDate(endObj.getDate() + 1);
-        const endStr = new Date(endObj.getTime() - endObj.getTimezoneOffset() * 60000).toISOString().split('T')[0];
+        const r = toUtcRange(dateRange.end);
         conditions.push(`created_at < {:end}`);
-        params.end = `${endStr} 00:00:00.000Z`;
+        params.end = r.end;
       }
 
       const filterStr = conditions.length > 0 ? pb.filter(conditions.join(' && '), params) : '';
@@ -217,11 +211,11 @@ export default function ReportPage() {
 
   useEffect(() => {
     const checkTodayReport = async () => {
-      const todayStr = getLocalYYYYMMDD();
-      const { startISO, endISO } = getDayRangeStr(todayStr);
+      const todayStr = getLocalToday();
+      const { start, end } = toUtcRange(todayStr);
       try {
         const res = await pb.collection('report').getList(1, 1, {
-          filter: pb.filter('created_at >= {:start} && created_at < {:end}', { start: startISO, end: endISO }),
+          filter: pb.filter('created_at >= {:start} && created_at < {:end}', { start, end }),
         });
         setTodayReportExists(res.totalItems > 0);
       } catch (e) {
@@ -284,9 +278,8 @@ export default function ReportPage() {
     if (addingReport) return;
     setAddingReport(true);
     try {
-      const todayLocal = new Date(); 
-      const todayStr = getLocalYYYYMMDD(todayLocal);
-      const { startISO: startToday, endISO: endToday } = getDayRangeStr(todayStr);
+      const todayStr = getLocalToday();
+      const { start: startToday, end: endToday } = toUtcRange(todayStr);
 
       const existing = await pb.collection('report').getList(1, 1, {
         filter: pb.filter('created_at >= {:start} && created_at < {:end}', { 
@@ -300,10 +293,15 @@ export default function ReportPage() {
         return;
       }
 
-      const yesterdayObj = new Date(todayLocal);
+      const yesterdayObj = new Date();
       yesterdayObj.setDate(yesterdayObj.getDate() - 1);
-      const yesterdayStr = getLocalYYYYMMDD(yesterdayObj);
-      const { startISO: startYesterday, endISO: endYesterday } = getDayRangeStr(yesterdayStr);
+      const yesterdayStr = getLocalToday();
+      const yesterdayDate = new Date(yesterdayObj);
+      const yY = yesterdayDate.getFullYear();
+      const yM = String(yesterdayDate.getMonth() + 1).padStart(2, '0');
+      const yD = String(yesterdayDate.getDate()).padStart(2, '0');
+      const yesterdayFormatted = `${yY}-${yM}-${yD}`;
+      const { start: startYesterday, end: endYesterday } = toUtcRange(yesterdayFormatted);
 
       const yesterdayFilter = pb.filter(
         'created_at >= {:start} && created_at < {:end}',
@@ -350,14 +348,14 @@ export default function ReportPage() {
 
   // --- LOGIKA CENTRALIZED UNTUK GENERATE & KALKULASI LAPORAN ---
   const calculateReportData = async (targetDateStr: string) => {
-  const { startISO, endISO } = getDayRangeStr(targetDateStr);
+  const { start, end } = toUtcRange(targetDateStr);
 
   const allProducts = await pb.collection('produk').getFullList({ fields: 'id,kategori' });
   const productMap: Record<string, string> = {};
   allProducts.forEach(p => { productMap[p.id] = (p.kategori || '').toLowerCase(); });
 
   const menuItems = await pb.collection('menu').getFullList({
-    filter: pb.filter('created_at >= {:start} && created_at < {:end}', { start: startISO, end: endISO }),
+    filter: pb.filter('created_at >= {:start} && created_at < {:end}', { start, end }),
     fields: 'id, jenis, status, total, dibayar',
   });
 
@@ -382,7 +380,7 @@ export default function ReportPage() {
   });
 
   const logStockItems = await pb.collection('log_stock').getFullList({
-    filter: pb.filter('created_at >= {:start} && created_at < {:end}', { start: startISO, end: endISO }),
+    filter: pb.filter('created_at >= {:start} && created_at < {:end}', { start, end }),
     expand: 'ref_baru,item_baru',
   });
 
@@ -418,14 +416,14 @@ export default function ReportPage() {
     }
   });
 
-  const ongkosFilter = pb.filter('date >= {:start} && date < {:end}', { start: startISO, end: endISO });
+  const ongkosFilter = pb.filter('date >= {:start} && date < {:end}', { start, end });
   const ongkosAll = await pb.collection('ongkos').getFullList({
     filter: ongkosFilter,
     fields: 'ongkos',
   });
   const omsetServis = ongkosAll.reduce((sum, item) => sum + (item.ongkos || 0), 0);
 
-  const cashflowFilter = pb.filter('created_at >= {:start} && created_at < {:end}', { start: startISO, end: endISO });
+  const cashflowFilter = pb.filter('created_at >= {:start} && created_at < {:end}', { start, end });
   const cashflowItems = await pb.collection('cashflow').getFullList({
     filter: cashflowFilter,
     fields: 'jenis, nominal, acc1, acc2, mutasi',
@@ -487,11 +485,11 @@ cashflowItems.forEach(cf => {
     if (generating) return;
     setGenerating(true);
     try {
-      const targetDateStr = dateStr || getLocalYYYYMMDD();
-      const { startISO, endISO } = getDayRangeStr(targetDateStr);
+      const targetDateStr = dateStr || getLocalToday();
+      const { start, end } = toUtcRange(targetDateStr);
 
       const existing = await pb.collection('report').getList(1, 1, {
-        filter: pb.filter('created_at >= {:start} && created_at < {:end}', { start: startISO, end: endISO }),
+        filter: pb.filter('created_at >= {:start} && created_at < {:end}', { start, end }),
       });
       
       if (existing.totalItems > 0 && !forceReplace) {
@@ -513,7 +511,7 @@ cashflowItems.forEach(cf => {
       const newReport = {
         ...reportData,
         text: `Laporan otomatis ${targetDateStr}`,
-        created_at: startISO,
+        created_at: start,
       };
 
       await pb.collection('report').create(newReport);
@@ -554,17 +552,20 @@ cashflowItems.forEach(cf => {
     if (!report) return;
     setReportDetailLoading(true);
     try {
-      const targetDateStr = getLocalYYYYMMDD(new Date(report.created_at));
-      const { startISO, endISO } = getDayRangeStr(targetDateStr);
+      const targetDateStr = toUtcRange(new Date(report.created_at).toISOString().split('T')[0]);
+      // Actually use raw date from report's created_at
+      const d = new Date(report.created_at);
+      const localDate = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+      const { start, end } = toUtcRange(localDate);
 
-      const menuFilter = pb.filter('created_at >= {:start} && created_at < {:end}', { start: startISO, end: endISO });
+      const menuFilter = pb.filter('created_at >= {:start} && created_at < {:end}', { start, end });
       const menuItems = await pb.collection('menu').getFullList({
         filter: menuFilter,
         sort: 'created_at',
         $autoCancel: false,
       });
 
-      const logStockFilter = pb.filter('created_at >= {:start} && created_at < {:end}', { start: startISO, end: endISO });
+      const logStockFilter = pb.filter('created_at >= {:start} && created_at < {:end}', { start, end });
       const logStockItems = await pb.collection('log_stock').getFullList({
         filter: logStockFilter,
         sort: 'created_at',
@@ -572,7 +573,7 @@ cashflowItems.forEach(cf => {
         $autoCancel: false,
       });
 
-      const cashflowFilter = pb.filter('created_at >= {:start} && created_at < {:end}', { start: startISO, end: endISO });
+      const cashflowFilter = pb.filter('created_at >= {:start} && created_at < {:end}', { start, end });
       const cashflowItems = await pb.collection('cashflow').getFullList({
         filter: cashflowFilter,
         sort: 'created_at',
@@ -580,7 +581,7 @@ cashflowItems.forEach(cf => {
       });
 
       const ongkosItems = await pb.collection('ongkos').getFullList({
-        filter: pb.filter('date >= {:start} && date < {:end}', { start: startISO, end: endISO }),
+        filter: pb.filter('date >= {:start} && date < {:end}', { start, end }),
         $autoCancel: false,
       });
 
