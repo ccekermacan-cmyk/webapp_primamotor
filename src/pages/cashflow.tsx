@@ -159,9 +159,8 @@
 
     const isEditMode = !!(selectedTx && selectedTx.id);
 
-    // --- STATE & LOGIKA KHUSUS TAMBAH BON & GAJI ---
+    // --- STATE & LOGIKA KHUSUS TAMBAH BON ---
     const [configBon, setConfigBon] = useState<DropdownItem | null>(null);
-    const [configGaji, setConfigGaji] = useState<DropdownItem | null>(null);
 
     const [formDataBon, setFormDataBon] = useState({
       catatCashflow: false,
@@ -174,27 +173,17 @@
       note: ''          // Sesuai field 'note'
     });
 
-    const [formDataGaji, setFormDataGaji] = useState({
-      catatCashflow: false,
-      created_at: formatToLocalDatetimeInput(new Date().toISOString()),
-      account_1: '', person: '', persontext: '',
-      pokok: 0, tunjangan: 0, bonus_1: 0, bonus_2: 0, bonus_3: 0, bonus_4: 0, program: 0, lembur: 0,
-      alfa: 0, sakit: 0, setengah_hari: 0, telat: 0, bpjs: 0, bon_diambil: 0, bon_dibayar: 0, ref: ''
-    });
-
     useEffect(() => {
       const checkConfigVisibility = async () => {
         try {
           const userLvl = localStorage.getItem('user_level') || '';
           const configs = await pb.collection('dropdown').getFullList({
-            filter: `(id_lama="addbon" || id_lama="addgaji") && visibilitas ~ "${userLvl}"`,
+            filter: `(id_lama="addbon") && visibilitas ~ "${userLvl}"`,
             $autoCancel: false
           });
           setConfigBon(configs.find(c => c.id_lama === 'addbon') || null);
-          setConfigGaji(configs.find(c => c.id_lama === 'addgaji') || null);
         } catch(e) {
           setConfigBon(null);
-          setConfigGaji(null);
         }
       };
       checkConfigVisibility();
@@ -312,86 +301,6 @@
         console.error('Gagal mengambil data jatuh tempo:', error);
       } finally {
         setLoadingTempo(false);
-      }
-    };
-
-    const submitFormGaji = async (e: React.FormEvent) => {
-      e.preventDefault();
-      if (!formDataGaji.person) return showAlert("Validasi Gagal", "Karyawan wajib dipilih!");
-      if (formDataGaji.catatCashflow && !formDataGaji.account_1) return showAlert("Validasi Gagal", "Akun asal wajib dipilih jika dicatat ke cashflow!");
-
-      setIsProcessing(true);
-      try {
-        const currentUser = pb.authStore.model;
-        const operatorName = currentUser?.name || currentUser?.username || 'Admin';
-        
-        // Konversi ke UTC
-        const localDate = new Date(formDataGaji.created_at);
-        const utcDate = new Date(localDate.getTime() + localDate.getTimezoneOffset() * 60000).toISOString();
-
-        // Hitung Grand Total dari skema Akun.tsx
-        const pokok = Number(formDataGaji.pokok || 0);
-        const tunjangan = Number(formDataGaji.tunjangan || 0);
-        const pendapatanLain = Number(formDataGaji.bonus_1 || 0) + Number(formDataGaji.bonus_2 || 0) + 
-                               Number(formDataGaji.bonus_3 || 0) + Number(formDataGaji.bonus_4 || 0) + 
-                               Number(formDataGaji.program || 0) + Number(formDataGaji.lembur || 0);
-        
-        const nilaiDasar = pokok + tunjangan;
-        const potonganKehadiran = (nilaiDasar * Number(formDataGaji.alfa || 0)) +
-                                  ((nilaiDasar / 2) * Number(formDataGaji.setengah_hari || 0)) +
-                                  ((nilaiDasar * 0.9) * Number(formDataGaji.sakit || 0)) +
-                                  (Number(formDataGaji.telat || 0) * 1000);
-        
-        const potonganLain = Number(formDataGaji.bpjs || 0) + Number(formDataGaji.bon_diambil || 0) + Number(formDataGaji.bon_dibayar || 0);
-        
-        const grandTotal = pokok + tunjangan + pendapatanLain - potonganKehadiran - potonganLain;
-
-        let refCashflowId = "";
-
-        if (formDataGaji.catatCashflow) {
-          const cfData = new FormData();
-          cfData.append("created_at", utcDate);
-          cfData.append("operator", operatorName);
-          cfData.append("jenis", "pengeluaranlain"); // Jenis cashflow default untuk Gaji
-          cfData.append("mutasi", "out");
-          cfData.append("account_1", formDataGaji.account_1);
-          cfData.append("nominal", String(grandTotal));
-          cfData.append("note", formDataGaji.ref || `Pembayaran Gaji: ${formDataGaji.persontext}`);
-          
-          const createdCf = await pb.collection('cashflow').create(cfData);
-          refCashflowId = createdCf.id;
-        }
-
-        const gajiData = {
-          person: formDataGaji.person, // person ini nyimpan id_lama / username (dari personOptions)
-          pokok: pokok, tunjangan: tunjangan,
-          bonus_1: Number(formDataGaji.bonus_1), bonus_2: Number(formDataGaji.bonus_2),
-          bonus_3: Number(formDataGaji.bonus_3), bonus_4: Number(formDataGaji.bonus_4),
-          program: Number(formDataGaji.program), lembur: Number(formDataGaji.lembur),
-          alfa: Number(formDataGaji.alfa), sakit: Number(formDataGaji.sakit),
-          setengah_hari: Number(formDataGaji.setengah_hari), telat: Number(formDataGaji.telat),
-          bpjs: Number(formDataGaji.bpjs), bon_diambil: Number(formDataGaji.bon_diambil), bon_dibayar: Number(formDataGaji.bon_dibayar),
-          created_at: utcDate,
-          ref: formDataGaji.ref,
-          ref_baru: refCashflowId
-        };
-
-        await pb.collection('gaji').create(gajiData);
-
-        showAlert("Sukses", "Data Gaji berhasil disimpan!");
-        setModalType(null);
-        setFormDataGaji({
-          catatCashflow: false, created_at: formatToLocalDatetimeInput(new Date().toISOString()),
-          account_1: '', person: '', persontext: '', pokok: 0, tunjangan: 0,
-          bonus_1: 0, bonus_2: 0, bonus_3: 0, bonus_4: 0, program: 0, lembur: 0,
-          alfa: 0, sakit: 0, setengah_hari: 0, telat: 0, bpjs: 0, bon_diambil: 0, bon_dibayar: 0, ref: ''
-        });
-        setIsFormDirty(false);
-        fetchCashflow();
-      } catch (error: any) {
-        showAlert("Gagal Simpan", "Gagal menyimpan data gaji: " + error.message);
-      } finally {
-        setIsProcessing(false);
       }
     };
 
@@ -1047,25 +956,6 @@
                 >
                   <FileText size={16} className="text-purple-200" />
                   <span>TAMBAH BON</span>
-                </button>
-              )}
-
-              {/* Tombol Tambah Gaji (Merespon Visibilitas) */}
-              {configGaji && (
-                <button
-                  onClick={() => {
-                    setFormDataGaji({
-                      catatCashflow: false, created_at: formatToLocalDatetimeInput(new Date().toISOString()),
-                      account_1: '', person: '', persontext: '', pokok: 0, tunjangan: 0,
-                      bonus_1: 0, bonus_2: 0, bonus_3: 0, bonus_4: 0, program: 0, lembur: 0,
-                      alfa: 0, sakit: 0, setengah_hari: 0, telat: 0, bpjs: 0, bon_diambil: 0, bon_dibayar: 0, ref: ''
-                    });
-                    setModalType('formGaji' as any);
-                  }}
-                  className="bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-500 hover:to-emerald-500 text-white px-4 py-3 rounded-xl font-black text-xs uppercase tracking-wider shadow-lg shadow-teal-500/20 hover:shadow-teal-500/30 hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center justify-center gap-2"
-                >
-                  <DollarSign size={16} className="text-teal-200" />
-                  <span>CATAT GAJI</span>
                 </button>
               )}
 
@@ -2549,289 +2439,6 @@
           </Modal>
 
           {/* ============================================================ */}
-          {/* MODAL FORM TAMBAH GAJI */}
-          {/* ============================================================ */}
-          <Modal isOpen={modalType === 'formGaji' as any} onClose={() => setModalType(null)} title="Catat Rekap Gaji Karyawan" maxWidth="max-w-3xl">
-            <form onSubmit={submitFormGaji} className="flex flex-col max-h-[75vh] md:max-h-[80vh] overflow-y-auto custom-scrollbar p-1">
-              <div className="space-y-6">
-                
-                {/* Opsi Cashflow */}
-                <label className="flex items-center gap-3 p-4 bg-amber-50 border border-amber-200 rounded-2xl cursor-pointer hover:bg-amber-100 transition-colors shadow-sm">
-                  <div className="relative flex items-center justify-center">
-                    <input type="checkbox" className="w-5 h-5 cursor-pointer accent-amber-600" checked={formDataGaji.catatCashflow} onChange={(e) => setFormDataGaji({...formDataGaji, catatCashflow: e.target.checked})} />
-                  </div>
-                  <div>
-                    <p className="font-black text-amber-700 text-sm">Opsi: Keluar dari Cashflow</p>
-                    <p className="text-[10px] font-bold text-amber-500">Mencatat otomatis Grand Total Gaji ke dalam transaksi Kas Keluar.</p>
-                  </div>
-                </label>
-
-                {/* Baris Akun Kas & Tanggal */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
-                    <label className="text-[10px] font-black text-amber-600 uppercase tracking-wider ml-1 flex items-center gap-1.5"><Calendar size={14}/> Tanggal Rekap</label>
-                    <input type="datetime-local" value={formDataGaji.created_at} onChange={e => setFormDataGaji({ ...formDataGaji, created_at: e.target.value })} className="w-full mt-2 p-3 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none shadow-sm focus:ring-amber-500/20 focus:border-amber-400" required />
-                  </div>
-                 {formDataGaji.catatCashflow && (
-                    <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 animate-in fade-in slide-in-from-top-2 duration-300">
-                      <label className="text-[10px] font-black text-amber-600 uppercase tracking-wider ml-1 flex items-center gap-1.5">
-                        <Wallet size={14}/> Akun Kas Pembayaran
-                      </label>
-                      <select 
-                        value={formDataGaji.account_1} 
-                        onChange={e => setFormDataGaji({...formDataGaji, account_1: e.target.value})} 
-                        className="w-full mt-2 p-3 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none shadow-sm focus:ring-amber-500/20 focus:border-amber-400" 
-                        required
-                      >
-                        <option value="" disabled>Pilih Dompet Pengeluaran...</option>
-                        {accountOptions.map(opt => <option key={opt.id} value={opt.id}>{opt.text_1}</option>)}
-                      </select>
-                    </div>
-                  )}
-                </div>
-
-                {/* Pilih Karyawan (hanya user) */}
-                <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 relative">
-                  <label className="text-[10px] font-black text-purple-600 uppercase tracking-wider ml-1 flex items-center gap-1.5">
-                    <User size={14} /> Pilih Karyawan
-                  </label>
-                  <div className="relative mt-2">
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="text"
-                        placeholder="Cari nama karyawan..."
-                        value={searchPerson}
-                        onChange={(e) => setSearchPerson(e.target.value)}
-                        onFocus={() => setIsPersonOpen(true)}
-                        className="flex-1 p-3 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-purple-500/20"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setIsPersonOpen(!isPersonOpen)}
-                        className="p-3 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition"
-                      >
-                        <ChevronDown size={16} className={`transition-transform duration-200 ${isPersonOpen ? 'rotate-180' : ''}`} />
-                      </button>
-                    </div>
-
-                    {isPersonOpen && (
-                      <div className="absolute z-20 mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-lg max-h-60 overflow-y-auto">
-                        {personOptions.filter(p => p.jenis?.toLowerCase() === 'user').length === 0 ? (
-                          <div className="px-4 py-3 text-xs text-slate-500 text-center">Tidak ada karyawan terdaftar</div>
-                        ) : (
-                          personOptions
-                            .filter(p => p.jenis?.toLowerCase() === 'user' && p.text_1.toLowerCase().includes(searchPerson.toLowerCase()))
-                            .map(opt => (
-                              <div
-                                key={opt.id}
-                                onClick={() => {
-                                  setFormDataGaji(prev => ({ ...prev, person: opt.id_lama, persontext: opt.text_1 }));
-                                  setSearchPerson('');
-                                  setIsPersonOpen(false);
-                                }}
-                                className="px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-amber-50 cursor-pointer border-b border-slate-100 last:border-0 flex justify-between items-center"
-                              >
-                                <span>{opt.text_1}</span>
-                                <span className="text-[9px] font-black text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">Karyawan</span>
-                              </div>
-                            ))
-                        )}
-                      </div>
-                    )}
-                  </div>
-                  {formDataGaji.person && (
-                    <div className="mt-3 text-xs font-bold text-amber-700 bg-white p-2.5 rounded-xl border border-amber-200/60 flex items-center justify-between shadow-2xs">
-                      <span className="text-[11px] uppercase tracking-wider text-slate-400">Karyawan Terpilih:</span>
-                      <span className="text-slate-800 font-black">{formDataGaji.persontext}</span>
-                    </div>
-                  )}
-                </div>
-
-                {/* Form Pendapatan Dasar */}
-                <div className="p-4 rounded-2xl border border-blue-200/70 bg-blue-50/40">
-                  <h4 className="font-black text-blue-600 text-xs mb-3 uppercase tracking-wider border-b border-blue-200/50 pb-2 flex items-center gap-1.5">
-                    <DollarSign size={14} /> Pendapatan Dasar
-                  </h4>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="text-[10px] font-bold text-slate-600">Gaji Pokok</label>
-                      <div className="relative mt-1">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-black text-blue-500">Rp</span>
-                        <input
-                          type="number"
-                          value={formDataGaji.pokok || ''}
-                          onChange={e => setFormDataGaji({...formDataGaji, pokok: Number(e.target.value)})}
-                          className="w-full py-2 pl-9 pr-3 text-xs font-black text-slate-800 bg-white border border-slate-200 rounded-xl outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-500/20"
-                          placeholder="0"
-                        />
-                      </div>
-                    </div>
-                    <div>
-                      <label className="text-[10px] font-bold text-slate-600">Tunjangan</label>
-                      <div className="relative mt-1">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-black text-blue-500">Rp</span>
-                        <input
-                          type="number"
-                          value={formDataGaji.tunjangan || ''}
-                          onChange={e => setFormDataGaji({...formDataGaji, tunjangan: Number(e.target.value)})}
-                          className="w-full py-2 pl-9 pr-3 text-xs font-black text-slate-800 bg-white border border-slate-200 rounded-xl outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-500/20"
-                          placeholder="0"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Form Tambahan Pendapatan */}
-                <div className="p-4 rounded-2xl border border-emerald-200/70 bg-emerald-50/40">
-                  <h4 className="font-black text-emerald-600 text-xs mb-3 uppercase tracking-wider border-b border-emerald-200/50 pb-2 flex items-center gap-1.5">
-                    <Plus size={14} /> Pendapatan Tambahan
-                  </h4>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                    {[
-                      { label: 'Bonus 1', key: 'bonus_1' },
-                      { label: 'Bonus 2', key: 'bonus_2' },
-                      { label: 'Bonus 3', key: 'bonus_3' },
-                      { label: 'Bonus 4', key: 'bonus_4' },
-                      { label: 'Program / KPI', key: 'program' },
-                      { label: 'Lembur', key: 'lembur' },
-                    ].map(field => (
-                      <div key={field.key}>
-                        <label className="text-[10px] font-bold text-slate-600">{field.label}</label>
-                        <div className="relative mt-1">
-                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-black text-emerald-500">Rp</span>
-                          <input
-                            type="number"
-                            value={(formDataGaji as any)[field.key] || ''}
-                            onChange={e => setFormDataGaji({...formDataGaji, [field.key]: Number(e.target.value)})}
-                            className="w-full py-2 pl-9 pr-3 text-xs font-black text-slate-800 bg-white border border-slate-200 rounded-xl outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-500/20"
-                            placeholder="0"
-                          />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Form Potongan Kehadiran */}
-                <div className="p-4 rounded-2xl border border-rose-200/70 bg-rose-50/40">
-                  <h4 className="font-black text-rose-600 text-xs mb-3 uppercase tracking-wider border-b border-rose-200/50 pb-2 flex items-center gap-1.5">
-                    <AlertCircle size={14} /> Pelanggaran & Kehadiran (X Kali)
-                  </h4>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    <div>
-                      <label className="text-[10px] font-bold text-slate-600">Alfa (Mangkir)</label>
-                      <div className="relative mt-1">
-                        <input type="number" value={formDataGaji.alfa || ''} onChange={e => setFormDataGaji({...formDataGaji, alfa: Number(e.target.value)})} className="w-full py-2 px-3 pr-7 text-xs font-black text-rose-600 bg-white border border-slate-200 rounded-xl outline-none focus:border-rose-400 focus:ring-2 focus:ring-rose-500/20 text-right" placeholder="0" />
-                        <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-black text-rose-400">x</span>
-                      </div>
-                    </div>
-                    <div>
-                      <label className="text-[10px] font-bold text-slate-600">Sakit (Tanpa Srt)</label>
-                      <div className="relative mt-1">
-                        <input type="number" value={formDataGaji.sakit || ''} onChange={e => setFormDataGaji({...formDataGaji, sakit: Number(e.target.value)})} className="w-full py-2 px-3 pr-7 text-xs font-black text-rose-600 bg-white border border-slate-200 rounded-xl outline-none focus:border-rose-400 focus:ring-2 focus:ring-rose-500/20 text-right" placeholder="0" />
-                        <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-black text-rose-400">x</span>
-                      </div>
-                    </div>
-                    <div>
-                      <label className="text-[10px] font-bold text-slate-600">Setengah Hari</label>
-                      <div className="relative mt-1">
-                        <input type="number" value={formDataGaji.setengah_hari || ''} onChange={e => setFormDataGaji({...formDataGaji, setengah_hari: Number(e.target.value)})} className="w-full py-2 px-3 pr-7 text-xs font-black text-rose-600 bg-white border border-slate-200 rounded-xl outline-none focus:border-rose-400 focus:ring-2 focus:ring-rose-500/20 text-right" placeholder="0" />
-                        <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-black text-rose-400">x</span>
-                      </div>
-                    </div>
-                    <div>
-                      <label className="text-[10px] font-bold text-slate-600">Telat (Menit)</label>
-                      <div className="relative mt-1">
-                        <input type="number" value={formDataGaji.telat || ''} onChange={e => setFormDataGaji({...formDataGaji, telat: Number(e.target.value)})} className="w-full py-2 px-3 pr-10 text-xs font-black text-rose-600 bg-white border border-slate-200 rounded-xl outline-none focus:border-rose-400 focus:ring-2 focus:ring-rose-500/20 text-right" placeholder="0" />
-                        <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-black text-rose-400">mnt</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Form Potongan Lain */}
-                <div className="p-4 rounded-2xl border border-amber-200/70 bg-amber-50/40">
-                  <h4 className="font-black text-amber-600 text-xs mb-3 uppercase tracking-wider border-b border-amber-200/50 pb-2 flex items-center gap-1.5">
-                    <Filter size={14} /> Potongan Lain
-                  </h4>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <div>
-                      <label className="text-[10px] font-bold text-slate-600">Iuran BPJS</label>
-                      <div className="relative mt-1">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-black text-amber-500">Rp</span>
-                        <input type="number" value={formDataGaji.bpjs || ''} onChange={e => setFormDataGaji({...formDataGaji, bpjs: Number(e.target.value)})} className="w-full py-2 pl-9 pr-3 text-xs font-black text-amber-700 bg-white border border-slate-200 rounded-xl outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-500/20" placeholder="0" />
-                      </div>
-                    </div>
-                    <div>
-                      <label className="text-[10px] font-bold text-slate-600">Bon Tambahan (Minta)</label>
-                      <div className="relative mt-1">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-black text-amber-500">Rp</span>
-                        <input type="number" value={formDataGaji.bon_diambil || ''} onChange={e => setFormDataGaji({...formDataGaji, bon_diambil: Number(e.target.value)})} className="w-full py-2 pl-9 pr-3 text-xs font-black text-amber-700 bg-white border border-slate-200 rounded-xl outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-500/20" placeholder="0" />
-                      </div>
-                    </div>
-                    <div>
-                      <label className="text-[10px] font-bold text-slate-600">Cicilan Bon (Potong)</label>
-                      <div className="relative mt-1">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-black text-amber-500">Rp</span>
-                        <input type="number" value={formDataGaji.bon_dibayar || ''} onChange={e => setFormDataGaji({...formDataGaji, bon_dibayar: Number(e.target.value)})} className="w-full py-2 pl-9 pr-3 text-xs font-black text-amber-700 bg-white border border-slate-200 rounded-xl outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-500/20" placeholder="0" />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Live Real-Time Calculation Summary Card (Setema Amber/Gaji) */}
-                {(() => {
-                  const pokok = Number(formDataGaji.pokok || 0);
-                  const tunjangan = Number(formDataGaji.tunjangan || 0);
-                  const bonus = Number(formDataGaji.bonus_1 || 0) + Number(formDataGaji.bonus_2 || 0) + Number(formDataGaji.bonus_3 || 0) + Number(formDataGaji.bonus_4 || 0) + Number(formDataGaji.program || 0) + Number(formDataGaji.lembur || 0);
-                  const totalPendapatan = pokok + tunjangan + bonus;
-                  
-                  const nilaiDasar = (pokok + tunjangan) / 25;
-                  const potKehadiran = (nilaiDasar * Number(formDataGaji.alfa || 0)) + ((nilaiDasar / 2) * Number(formDataGaji.setengah_hari || 0)) + ((nilaiDasar * 0.9) * Number(formDataGaji.sakit || 0)) + (Number(formDataGaji.telat || 0) * 1000);
-                  const potLain = Number(formDataGaji.bpjs || 0) + Number(formDataGaji.bon_diambil || 0) + Number(formDataGaji.bon_dibayar || 0);
-                  const totalPotongan = potKehadiran + potLain;
-                  const gajiNetto = Math.max(0, totalPendapatan - totalPotongan);
-
-                  return (
-                    <div className="bg-gradient-to-br from-amber-50 to-orange-50/60 p-4 rounded-2xl border-2 border-amber-200/80 shadow-xs space-y-2.5">
-                      <div className="flex justify-between items-center text-xs font-bold border-b border-amber-200/60 pb-2">
-                        <span className="text-emerald-700 flex items-center gap-1.5"><Plus size={14}/> Total Pendapatan:</span>
-                        <span className="text-emerald-700 font-black">Rp {totalPendapatan.toLocaleString('id-ID')}</span>
-                      </div>
-                      <div className="flex justify-between items-center text-xs font-bold border-b border-amber-200/60 pb-2">
-                        <span className="text-rose-700 flex items-center gap-1.5"><Trash2 size={14}/> Total Potongan:</span>
-                        <span className="text-rose-700 font-black">− Rp {Math.round(totalPotongan).toLocaleString('id-ID')}</span>
-                      </div>
-                      <div className="flex justify-between items-center pt-1 bg-gradient-to-r from-amber-500 to-amber-600 text-white p-3 rounded-xl shadow-md">
-                        <span className="text-xs font-black uppercase tracking-wider text-amber-100 flex items-center gap-1.5">
-                          <DollarSign size={16} /> Gaji Netto Diterima:
-                        </span>
-                        <span className="text-base sm:text-lg font-black text-white">
-                          Rp {Math.round(gajiNetto).toLocaleString('id-ID')}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })()}
-
-                {/* Note/Ref */}
-                <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
-                  <label className="text-[10px] font-black text-amber-600 uppercase tracking-wider ml-1 flex items-center gap-1.5"><FileText size={14}/> Catatan / Reference ID</label>
-                  <input type="text" placeholder="Periode Gaji Bulan X..." value={formDataGaji.ref} onChange={e => setFormDataGaji({...formDataGaji, ref: e.target.value})} className="w-full mt-2 p-3 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none shadow-sm focus:ring-amber-500/20 focus:border-amber-400" />
-                </div>
-
-              </div>
-
-              <div className="mt-6 flex flex-col sm:flex-row gap-3 pt-5 border-t-2 border-slate-100 sticky bottom-0 bg-white">
-                <button type="button" onClick={() => setModalType(null)} className="flex-1 py-4 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-2xl font-black text-xs tracking-widest transition-colors">BATALKAN</button>
-                <button type="submit" disabled={isProcessing} className={`flex-[2] py-4 text-white rounded-2xl font-black text-xs shadow-xl transition-all active:scale-95 flex justify-center items-center gap-2 ${isProcessing ? 'opacity-70 cursor-not-allowed bg-slate-400' : 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/40'}`}>
-                  {isProcessing ? <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"/> MENYIMPAN...</> : <><Save size={16}/> SIMPAN TRANSAKSI GAJI</>}
-                </button>
-              </div>
-            </form>
-          </Modal>
-
           {/* MODAL FILTER MOBILE */}
           <Modal
             isOpen={modalType === 'detail'}
@@ -3079,25 +2686,6 @@
             >
               <FileText size={15} />
               <span>+ BON</span>
-            </button>
-          )}
-
-          {/* Tombol Gaji */}
-          {configGaji && (
-            <button
-              onClick={() => {
-                setFormDataGaji({
-                  catatCashflow: false, created_at: formatToLocalDatetimeInput(new Date().toISOString()),
-                  account_1: '', person: '', persontext: '', pokok: 0, tunjangan: 0,
-                  bonus_1: 0, bonus_2: 0, bonus_3: 0, bonus_4: 0, program: 0, lembur: 0,
-                  alfa: 0, sakit: 0, setengah_hari: 0, telat: 0, bpjs: 0, bon_diambil: 0, bon_dibayar: 0, ref: ''
-                });
-                setModalType('formGaji' as any);
-              }}
-              className="py-2.5 px-4 bg-gradient-to-r from-teal-600 to-emerald-600 text-white rounded-full shadow-xl shadow-teal-600/30 flex items-center gap-2 text-xs font-black tracking-wider active:scale-95 transition-all border border-teal-400/30"
-            >
-              <DollarSign size={15} />
-              <span>+ GAJI</span>
             </button>
           )}
 

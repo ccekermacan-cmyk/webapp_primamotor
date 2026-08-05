@@ -202,6 +202,7 @@ export default function MenuPage() {
     bon_diambil: number;
     bon_dibayar: number;
     netto: number;
+    diterima: number;
     note?: string;
     files?: File[];
     fileUrls?: string[];
@@ -232,6 +233,7 @@ export default function MenuPage() {
     bon_diambil: 0,
     bon_dibayar: 0,
     netto: 0,
+    diterima: 0,
     note: '',
     files: [],
     fileUrls: [],
@@ -329,6 +331,7 @@ export default function MenuPage() {
               program: Number(lastSlip.program) || 0,
               lembur: Number(lastSlip.lembur) || 0,
               bpjs: Number(lastSlip.bpjs) || 0,
+              diterima: Number(lastSlip.diterima) || 0,
               // Pertahankan isian sementara jika sudah dimasukkan, atau 0 jika kosong
               alfa: prev.alfa || 0,
               setengah_hari: prev.setengah_hari || 0,
@@ -646,7 +649,7 @@ export default function MenuPage() {
     setGajiItemSubData({
       id: '', person: '', pokok: 0, tunjangan: 0, bonus_1: 0, bonus_2: 0, bonus_3: 0, bonus_4: 0,
       program: 0, lembur: 0, alfa: 0, setengah_hari: 0, sakit: 0, telat: 0, bpjs: 0, bon_diambil: 0, bon_dibayar: 0, netto: 0,
-      note: '', files: [], fileUrls: []
+      diterima: 0, note: '', files: [], fileUrls: []
     });
   };
 
@@ -744,6 +747,7 @@ export default function MenuPage() {
         formData.append('bpjs', String(item.bpjs || 0));
         formData.append('bon_diambil', String(item.bon_diambil || 0));
         formData.append('bon_dibayar', String(item.bon_dibayar || 0));
+        formData.append('diterima', String(item.diterima || 0));
         if (item.note) formData.append('note', item.note);
         if (gajiHeader.date) formData.append('created_at', `${gajiHeader.date} 12:00:00`);
 
@@ -849,6 +853,7 @@ export default function MenuPage() {
         bon_diambil: Number(g.bon_diambil) || 0,
         bon_dibayar: Number(g.bon_dibayar) || 0,
         netto: Number(g.netto) || 0,
+        diterima: Number(g.diterima) || 0,
         note: g.note || '',
         files: [],    // File upload baru dikosongkan; file lama tidak perlu dimuat ulang
         fileUrls: [],
@@ -3710,10 +3715,18 @@ export default function MenuPage() {
                                       <h5 className="font-extrabold text-slate-900 text-base uppercase">👤 {gRec.person}</h5>
                                     </div>
                                     <div className="flex items-center gap-2">
-                                      <span className="text-xs font-bold text-slate-500">Netto Diterima:</span>
+                                      <span className="text-xs font-bold text-slate-500">Netto Slip:</span>
                                       {renderFormattedNetto(gSal.grandTotal, "text-base sm:text-lg", "text-emerald-700", "text-emerald-700")}
                                     </div>
-                                  </div>
+                                    {gRec.diterima > 0 && (
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-xs font-bold text-slate-500">Diterima Karyawan:</span>
+                                        <span className="text-base sm:text-lg font-black text-teal-600">
+                                          Rp {Number(gRec.diterima).toLocaleString('id-ID')},00
+                                        </span>
+                                      </div>
+                                    )}
+                                    </div>
 
                                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
                                     {/* Card 1: Pendapatan (+) */}
@@ -4617,7 +4630,7 @@ export default function MenuPage() {
                         setEditingGajiItemIndex(null);
                         setGajiItemSubData({
                           id: '', person: '', pokok: 0, tunjangan: 0, bonus_1: 0, bonus_2: 0, bonus_3: 0, bonus_4: 0,
-                          program: 0, lembur: 0, alfa: 0, setengah_hari: 0, sakit: 0, telat: 0, bpjs: 0, bon_diambil: 0, bon_dibayar: 0, netto: 0
+                          program: 0, lembur: 0, alfa: 0, setengah_hari: 0, sakit: 0, telat: 0, bpjs: 0, bon_diambil: 0, bon_dibayar: 0, netto: 0, diterima: 0
                         });
                         setIsGajiItemSubModalOpen(true);
                       }}
@@ -4647,6 +4660,8 @@ export default function MenuPage() {
                               <span>Pendapatan: <strong className="text-emerald-600">Rp {(item.pokok + item.tunjangan + item.bonus_1 + item.bonus_2 + item.bonus_3 + item.bonus_4 + item.program + item.lembur).toLocaleString('id-ID')}</strong></span>
                               <span>|</span>
                               <span>Netto: {renderFormattedNetto(item.netto, "text-xs sm:text-sm", "text-emerald-700", "text-emerald-700")}</span>
+                              <span>|</span>
+                              <span>Diterima: <strong className="text-teal-600">Rp {(item.diterima || 0).toLocaleString('id-ID')}</strong></span>
                               {item.note && <span className="bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded text-[10px] font-bold">📝 Note</span>}
                               {item.files && item.files.length > 0 && <span className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded text-[10px] font-bold">📎 {item.files.length} File</span>}
                             </div>
@@ -4969,11 +4984,30 @@ export default function MenuPage() {
                             </div>
                           </div>
 
-                          {/* SECTION 4: CATATAN & BUKTI TRANSFER (NOTE & FILE) */}
+                          {/* SECTION 4: DITERIMA (JUMLAH YANG DITERIMA KARYAWAN) */}
+                          <div className="border-2 border-teal-200 rounded-2xl overflow-hidden shadow-xs">
+                            <div className="bg-gradient-to-r from-teal-600 to-cyan-600 px-4 py-2.5 text-white flex justify-between items-center">
+                              <span className="font-black text-xs uppercase tracking-wider flex items-center gap-1.5">
+                                <Wallet size={15} /> 4. Diterima
+                              </span>
+                              <span className="font-black text-xs text-teal-100">
+                                Rp {(Number(gajiItemSubData.diterima) || 0).toLocaleString('id-ID')}
+                              </span>
+                            </div>
+                            <div className="p-4 bg-white">
+                              <label className="text-[10px] font-black text-slate-600 uppercase block mb-1">Jumlah Diterima Karyawan (Rp)</label>
+                              <input type="number" value={gajiItemSubData.diterima || ''} onChange={e => setGajiItemSubData({...gajiItemSubData, diterima: Number(e.target.value)})} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-teal-600 focus:bg-white focus:ring-2 focus:ring-teal-500 outline-none" placeholder="0" />
+                              <span className="text-[9px] font-medium text-slate-400 block mt-1">
+                                Isi manual jumlah uang yang diterima/ditransfer ke karyawan (optional).
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* SECTION 5: CATATAN & BUKTI TRANSFER (NOTE & FILE) */}
                           <div className="border-2 border-indigo-200 rounded-2xl overflow-hidden shadow-xs">
                             <div className="bg-gradient-to-r from-indigo-600 to-blue-600 px-4 py-2.5 text-white flex justify-between items-center">
                               <span className="font-black text-xs uppercase tracking-wider flex items-center gap-1.5">
-                                <FileText size={15} /> 4. Catatan & Bukti Transfer
+                                <FileText size={15} /> 5. Catatan & Bukti Transfer
                               </span>
                               {gajiItemSubData.files && gajiItemSubData.files.length > 0 && (
                                 <span className="font-black text-[10px] text-indigo-100 bg-indigo-500/30 px-2 py-0.5 rounded-lg border border-indigo-400/30">
