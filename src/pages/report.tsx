@@ -34,6 +34,7 @@ export default function ReportPage() {
   // --- STATES ---
   const [reports, setReports] = useState<ReportRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState('');
 
   const [selectedMetrics, setSelectedMetrics] = useState({
     Omset: true,
@@ -100,6 +101,8 @@ export default function ReportPage() {
   const [reportDetailData, setReportDetailData] = useState<{ menu: any[]; logStock: any[]; cashflow: any[]; ongkos: any[] } | null>(null);
   const [reportDetailLoading, setReportDetailLoading] = useState(false);
   const [activeDetailTab, setActiveDetailTab] = useState<'overview' | 'menu' | 'logstock' | 'cashflow' | 'ongkos'>('overview');
+  // Cache detail per report ID agar tidak fetch ulang saat tab ganti
+  const [detailCache, setDetailCache] = useState<Record<string, { menu: any[]; logStock: any[]; cashflow: any[]; ongkos: any[] }>>({});
 
   // Filter untuk tab Menu
   const [menuFilterJenis, setMenuFilterJenis] = useState<string>('semua');
@@ -187,8 +190,10 @@ export default function ReportPage() {
 
       setReports(res.items);
       setTotalPages(res.totalPages);
-    } catch (error) {
+      setFetchError('');
+    } catch (error: any) {
       console.error("Gagal:", error);
+      setFetchError('Gagal memuat laporan: ' + (error.message || 'Koneksi gagal'));
     } finally {
       setLoading(false);
     }
@@ -382,6 +387,8 @@ export default function ReportPage() {
   const logStockItems = await pb.collection('log_stock').getFullList({
     filter: pb.filter('created_at >= {:start} && created_at < {:end}', { start, end }),
     expand: 'ref_baru,item_baru',
+    $autoCancel: false,
+    batch: 500,
   });
 
   let totalOmsetPenjualan = 0;
@@ -550,6 +557,10 @@ cashflowItems.forEach(cf => {
 
   const fetchReportDetails = async (report: ReportRecord) => {
     if (!report) return;
+    if (detailCache[report.id]) {
+      setReportDetailData(detailCache[report.id]);
+      return;
+    }
     setReportDetailLoading(true);
     try {
       const targetDateStr = toUtcRange(new Date(report.created_at).toISOString().split('T')[0]);
@@ -578,6 +589,7 @@ cashflowItems.forEach(cf => {
         filter: cashflowFilter,
         sort: 'created_at',
         $autoCancel: false,
+        batch: 500,
       });
 
       const ongkosItems = await pb.collection('ongkos').getFullList({
@@ -585,12 +597,14 @@ cashflowItems.forEach(cf => {
         $autoCancel: false,
       });
 
-      setReportDetailData({
+      const data = {
         menu: menuItems,
         logStock: logStockItems,
         cashflow: cashflowItems,
         ongkos: ongkosItems,
-      });
+      };
+      setDetailCache(prev => ({ ...prev, [report.id]: data }));
+      setReportDetailData(data);
     } catch (error) {
       console.error('Gagal mengambil detail:', error);
       setReportDetailData({ menu: [], logStock: [], cashflow: [], ongkos: [] });
@@ -838,6 +852,13 @@ cashflowItems.forEach(cf => {
         <div className="flex-1 flex flex-col pb-10">
           <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-4 ml-2">Detail Riwayat Laporan</h3>
 
+          {fetchError && !loading && (
+            <div className="p-4 bg-red-50 border border-red-200 rounded-2xl text-xs font-bold text-red-700 flex items-center gap-2 mb-4">
+              <AlertTriangle size={16} className="text-red-500 shrink-0" />
+              {fetchError}
+              <button onClick={()=>{setFetchError('');fetchReports();}} className="ml-auto px-3 py-1 bg-red-100 hover:bg-red-200 rounded-lg text-[10px] font-black uppercase">Retry</button>
+            </div>
+          )}
           {loading ? (
             <div className="py-20 text-center bg-white rounded-3xl border border-slate-100">
               <div className="w-10 h-10 border-4 border-blue-100 border-t-blue-600 rounded-full animate-spin mx-auto" />
