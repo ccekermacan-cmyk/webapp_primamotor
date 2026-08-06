@@ -865,30 +865,49 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
                     
                     <div className="grid grid-cols-2 gap-4 mt-4 p-4 bg-gray-50 rounded-xl mb-4">
                       <div>
-                        <p className="text-xs text-gray-500 font-medium mb-1">Stok (Realtime)</p>
-                        <p className={`font-black text-lg ${prod.stok_3 <= 0 ? 'text-red-500' : 'text-green-600'}`}>
-                          {prod.stok_3} <span className="text-xs font-medium text-gray-500">{prod.unit}</span>
-                        </p>
+                        <p className="text-xs text-gray-500 font-medium mb-1">Stok</p>
+                        <div className="flex items-center gap-1.5">
+                          <p className={`font-black text-lg ${prod.stok_3 <= 0 ? 'text-red-500' : prod.stok_3 <= (prod.stok_2||0) ? 'text-amber-500 animate-pulse' : 'text-green-600'}`}>
+                            {prod.stok_3}
+                          </p>
+                          <span className="text-[10px] text-gray-400">{prod.unit}</span>
+                        </div>
+                        {prod.stok_3 <= (prod.stok_2||0) && prod.stok_3 > 0 && (
+                          <span className="text-[9px] font-bold text-amber-600 bg-amber-100 px-1.5 py-0.5 rounded">Menipis</span>
+                        )}
                       </div>
                       <div className="text-right">
-                        <p className="text-xs text-gray-500 font-medium mb-1">Harga Default</p>
+                        <p className="text-xs text-gray-500 font-medium mb-1">Harga</p>
                         <p className="font-black text-blue-600">Rp {prod.sell_6?.toLocaleString('id-ID') || 0}</p>
-                        <p className="text-xs font-bold text-purple-600 mt-1">Plg: Rp {prod.sell_5?.toLocaleString('id-ID') || 0}</p>
+                        {prod.beli > 0 && prod.sell_6 > 0 && (
+                          <p className={`text-[9px] font-bold mt-0.5 ${prod.sell_6 > prod.beli ? 'text-emerald-600' : 'text-red-500'}`}>
+                            Margin {Math.round((1 - prod.beli/prod.sell_6)*100)}%
+                          </p>
+                        )}
                       </div>
                     </div>
 
                     {/* Tombol Aksi */}
-                    <div className="flex gap-2 justify-end border-t border-gray-100 pt-4">
-                      <button onClick={(e) => handleOpenEdit(prod, e)} className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg">
-                        <Edit size={14} /> Edit
-                      </button>
-                      <button onClick={(e) => handleOpenCopy(prod, e)} className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg">
-                        <Copy size={14} /> Copy
-                      </button>
+                    <div className="flex gap-2 justify-between items-center border-t border-gray-100 pt-4">
+                      <div className="flex gap-1">
+                        <button onClick={(e) => handleOpenEdit(prod, e)} className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg">
+                          <Edit size={13} /> Edit
+                        </button>
+                        <button onClick={(e) => handleOpenCopy(prod, e)} className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg">
+                          <Copy size={13} /> Copy
+                        </button>
+                        {userLevel === '1' && (
+                        <button onClick={(e) => handleOpenDelete(prod, e)} className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded-lg">
+                          <Trash2 size={13} />
+                        </button>
+                        )}
+                      </div>
                       {userLevel === '1' && (
-                      <button onClick={(e) => handleOpenDelete(prod, e)} className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded-lg">
-                        <Trash2 size={14} /> Hapus
-                      </button>
+                      <div className="flex items-center gap-0.5" onClick={e => e.stopPropagation()}>
+                        <button onClick={async () => { try { await pb.collection('produk').update(prod.id, {stok_3: Math.max(0, prod.stok_3 - 1)}); fetchProducts(); } catch{ /* ignore */ }}} className="w-6 h-6 flex items-center justify-center rounded-md bg-red-50 hover:bg-red-100 text-red-600 text-xs font-black">−</button>
+                        <span className="text-[10px] font-bold text-gray-400 w-5 text-center">{prod.stok_3}</span>
+                        <button onClick={async () => { try { await pb.collection('produk').update(prod.id, {stok_3: prod.stok_3 + 1}); fetchProducts(); } catch{ /* ignore */ }}} className="w-6 h-6 flex items-center justify-center rounded-md bg-green-50 hover:bg-green-100 text-green-600 text-xs font-black">+</button>
+                      </div>
                       )}
                     </div>
                   </div>
