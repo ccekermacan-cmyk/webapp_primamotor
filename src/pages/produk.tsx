@@ -840,7 +840,7 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
             </div>
           ) : 
             viewMode === 'grid' ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 lg:gap-5">
+              <div className="grid grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-3 lg:gap-5">
                 {sortedProducts.map((prod) => (
                   <div 
                     key={prod.id} 
@@ -848,7 +848,7 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
                     className="group bg-white border border-orange-200 rounded-2xl hover:border-orange-500 hover:shadow-lg hover:shadow-orange-300 transition-all duration-300 cursor-pointer flex flex-col overflow-hidden"
                   >
                     {/* Thumbnail */}
-                    <div className="relative w-full aspect-[4/3] bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center overflow-hidden">
+                    <div className="relative w-full aspect-[3/2] sm:aspect-[4/3] bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center overflow-hidden">
                       {prod.file && prod.file.length > 0 ? (
                         <img src={`${pb.files.getUrl(prod, prod.file[0])}?thumb=300x225`} alt="" loading="lazy" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
                       ) : (
@@ -862,7 +862,7 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
                       )}
                     </div>
 
-                    <div className="p-3 sm:p-4 flex flex-col flex-1">
+                    <div className="p-2 sm:p-4 flex flex-col flex-1">
                       {/* ID + Unit */}
                       <div className="flex justify-between items-start gap-2 mb-2">
                         <span className="text-[10px] font-mono text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded">{formatIdLamaDisplay(prod.id_lama)}</span>
