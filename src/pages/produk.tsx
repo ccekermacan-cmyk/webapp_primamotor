@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { pb } from '../lib/pocketbase';
+import { pb, notifyLaravelApi } from '../lib/pocketbase';
 import Modal from '../components/modal';
-import { Package, Search, Trash2, Edit, Copy, ChevronLeft, ChevronRight, X, Filter, LayoutGrid, List, ArrowUp, ArrowDown, ImagePlus, ExternalLink, Plus } from 'lucide-react';
+import { Package, Search, Trash2, Edit, Copy, ChevronLeft, ChevronRight, X, Filter, LayoutGrid, List, ArrowUp, ArrowDown, ImagePlus, ExternalLink, Plus, AlertTriangle } from 'lucide-react';
 interface Produk {
   [key: string]: any; 
   id: string;
@@ -33,6 +33,7 @@ interface Produk {
 export default function Produk() {
   const [products, setProducts] = useState<Produk[]>([]);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
 
   const [logHistory, setLogHistory] = useState<any[]>([]);
@@ -137,8 +138,17 @@ export default function Produk() {
       const filterString = conditions.length ? conditions.join(' && ') : '';
       console.log("Filter Query:", filterString);
 
+      const sortMap: Record<string, string> = {
+        id_lama: '+id_lama',
+        nama: '+kategori',
+        stok: '+stok_3',
+        harga_customer: '+sell_5',
+        harga_retail: '+sell_6',
+      };
+      const sortStr = sortOrder === 'desc' ? (sortMap[sortField] || '+id_lama').replace('+','-') : (sortMap[sortField] || '+id_lama');
+
       const result = await pb.collection('produk').getList<Produk>(page, perPage, {
-        sort: 'id_lama',
+        sort: sortStr,
         filter: filterString,
         $autoCancel: false,
       });
@@ -146,8 +156,12 @@ export default function Produk() {
       setProducts(result.items);
       setTotalPages(result.totalPages);
       setTotalItems(result.totalItems);
+      setFetchError('');
     } catch (error: any) {
-      if (!error.isAbort) console.error("Gagal mengambil data:", error);
+      if (!error.isAbort) {
+        console.error("Gagal mengambil data:", error);
+        setFetchError('Gagal memuat data: ' + (error.message || 'Koneksi gagal'));
+      }
     } finally {
       setLoading(false);
     }
@@ -163,42 +177,7 @@ export default function Produk() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const sortedProducts = useMemo(() => {
-    if (products.length === 0) return [];
-    const sorted = [...products];
-    sorted.sort((a, b) => {
-      let aVal: any, bVal: any;
-      switch (sortField) {
-        case 'id_lama':
-          aVal = parseInt(a.id_lama, 10) || 0;
-          bVal = parseInt(b.id_lama, 10) || 0;
-          break;
-        case 'nama':
-          aVal = `${a.kategori} ${a.merk} ${a.jenis} ${a.varian} ${a.keterangan || ''} ${a.tipe || ''}`.trim().toLowerCase();
-          bVal = `${b.kategori} ${b.merk} ${b.jenis} ${b.varian} ${b.keterangan || ''} ${b.tipe || ''}`.trim().toLowerCase();
-          break;
-        case 'stok':
-          aVal = a.stok_3;
-          bVal = b.stok_3;
-          break;
-        case 'harga_customer':
-          aVal = a.sell_5;
-          bVal = b.sell_5;
-          break;
-        case 'harga_retail':
-          aVal = a.sell_6;
-          bVal = b.sell_6;
-          break;
-        default:
-          aVal = a.id_lama;
-          bVal = b.id_lama;
-      }
-      if (aVal < bVal) return sortOrder === 'asc' ? -1 : 1;
-      if (aVal > bVal) return sortOrder === 'asc' ? 1 : -1;
-      return 0;
-    });
-    return sorted;
-  }, [products, sortField, sortOrder]);
+  const sortedProducts = useMemo(() => products, [products]);
 
   // Helper untuk menampilkan datetime lokal dari string ISO UTC
   const formatLocalDateTime = (isoString: string | undefined) => {
@@ -235,7 +214,7 @@ export default function Produk() {
   // BLOK 2: Jalan setiap kali ganti halaman atau ketik pencarian
   useEffect(() => {
     fetchProducts();
-  }, [page, searchTerm, filterKategori, filterStok]);
+  }, [page, searchTerm, filterKategori, filterStok, sortField, sortOrder]);
 
   useEffect(() => {
     const delayDebounceFn = setTimeout(() => {
@@ -416,10 +395,11 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
     setIsProcessing(true);
     try {
       await pb.collection('produk').delete(selectedProduct.id);
+      await notifyLaravelApi('produk', 'deleted', selectedProduct.id);
       setModalType(null);
       fetchProducts(); 
-    } catch (error) {
-      alert("Terjadi kesalahan saat menghapus data.");
+    } catch (error: any) {
+      alert("Gagal menghapus: " + (error.message || 'Koneksi gagal'));
     } finally {
       setIsProcessing(false);
     }
@@ -823,6 +803,13 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
 
         {/* List Grid Produk */}
         <div className="flex-1 overflow-y-auto p-6" ref={scrollContainerRef}>
+          {fetchError && (
+            <div className="p-4 bg-red-50 border border-red-200 rounded-2xl text-xs font-bold text-red-700 flex items-center gap-2 mx-6 mt-4">
+              <AlertTriangle size={16} className="text-red-500 shrink-0" />
+              {fetchError}
+              <button onClick={()=>{setFetchError('');fetchProducts();}} className="ml-auto px-3 py-1 bg-red-100 hover:bg-red-200 rounded-lg text-[10px] font-black uppercase">Retry</button>
+            </div>
+          )}
           {loading ? (
             <div className="flex flex-col items-center justify-center h-full text-gray-400">
               <div className="w-12 h-12 border-4 border-orange-200 border-t-orange-500 rounded-full animate-spin"></div>
