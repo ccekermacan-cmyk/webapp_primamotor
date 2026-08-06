@@ -218,7 +218,7 @@
           try {
             const acc = await pb.collection('dropdown').getOne(formDataBon.akun_asal, { $autoCancel: false });
             saldoAwalCf = Number(acc.number_1) || 0;
-          } catch {}
+          } catch { console.warn('Could not fetch account balance for saldo_awal'); }
           cfData.append("saldo_awal", String(saldoAwalCf));
           cfData.append("saldo_akhir", String(saldoAwalCf - Number(formDataBon.nominal)));
           
@@ -255,7 +255,8 @@
         files.forEach(f => { if (!f.isOld) bonData.append("file", f); });
 
         const createdBon = await pb.collection('bon').create(bonData);
-        await notifyLaravelApi('bon', 'created', createdBon.id);
+        const bonOk = await notifyLaravelApi('bon', 'created', createdBon.id);
+        if (!bonOk) console.warn('Laravel bon notify failed, BonObserver not triggered');
 
         showAlert("Sukses", "Data Bon berhasil disimpan!");
         setModalType(null);
@@ -450,46 +451,43 @@
           return;
         }
         
+        // Batch pre-fetch semua data sekaligus
+        let allMenu: any[] = [];
+        let allBon: any[] = [];
+        if (activeAccountTab === 'customer' || activeAccountTab === 'supplier') {
+          allMenu = await pb.collection('menu').getFullList({
+            filter: `status != "lunas"`,
+            fields: 'person,total,dibayar',
+            $autoCancel: false,
+            batch: 500,
+          });
+        } else if (activeAccountTab === 'karyawan') {
+          allBon = await pb.collection('bon').getFullList({
+            fields: 'persontext,jenis,nominal_bon',
+            $autoCancel: false,
+            batch: 500,
+          });
+        }
+
+        // Group by person untuk perhitungan cepat
+        const menuByPerson: Record<string, number> = {};
+        allMenu.forEach(m => {
+          const p = m.person || '';
+          menuByPerson[p] = (menuByPerson[p] || 0) + ((m.total || 0) - (m.dibayar || 0));
+        });
+        const bonByPerson: Record<string, number> = {};
+        allBon.forEach(b => {
+          const p = b.persontext || '';
+          const v = (b.jenis || '').toLowerCase() === 'in' ? (b.nominal_bon || 0) : -(b.nominal_bon || 0);
+          bonByPerson[p] = (bonByPerson[p] || 0) + v;
+        });
+
         let updateCount = 0;
-        
         for (const item of targetItems) {
           const personId = (item as any).id_lama;
           if (!personId) continue;
-          
-          let totalBalance = 0;
-          
-          if (activeAccountTab === 'customer' || activeAccountTab === 'supplier') {
-            // Ambil semua menu dengan person = personId dan status != 'lunas'
-            const menuItems = await pb.collection('menu').getFullList({
-              filter: pb.filter('person = {:person} && status != "lunas"', { person: personId }),
-              fields: 'total, dibayar',
-              $autoCancel: false,
-            });
-            
-            totalBalance = menuItems.reduce((acc, m) => acc + ((m.total || 0) - (m.dibayar || 0)), 0);
-            
-          } else if (activeAccountTab === 'karyawan') {
-            // Ambil semua bon dengan persontext = personId
-            const bonItems = await pb.collection('bon').getFullList({
-              filter: pb.filter('persontext = {:person}', { person: personId }),
-              fields: 'jenis, nominal_bon',
-              $autoCancel: false,
-            });
-            
-            let totalIn = 0;
-            let totalOut = 0;
-            bonItems.forEach((bon: any) => {
-              const jenis = (bon.jenis || '').toLowerCase();
-              if (jenis === 'in') {
-                totalIn += (bon.nominal_bon || 0);
-              } else if (jenis === 'out') {
-                totalOut += (bon.nominal_bon || 0);
-              }
-            });
-            totalBalance = totalIn - totalOut;
-          }
-          
-          // Update data wallet
+          const totalBalance = menuByPerson[personId] || bonByPerson[personId] || 0;
+
           await pb.collection('dropdown').update(item.id, {
             number_1: totalBalance,
             text_8: dateStr,
@@ -861,7 +859,7 @@
           try {
             const acc = await pb.collection('dropdown').getOne(formData.account_1, { $autoCancel: false });
             saldoAwal = Number(acc.number_1) || 0;
-          } catch {}
+          } catch { console.warn('Could not fetch account balance for saldo_awal'); }
         }
         const saldoAkhir = mutasiValue === 'in' ? (saldoAwal + Number(formData.nominal || 0)) : (saldoAwal - Number(formData.nominal || 0));
         formDataObj.append("saldo_awal", String(saldoAwal));
@@ -896,8 +894,13 @@
           const editOk = await notifyLaravelApi('cashflow', 'updated', selectedTx.id);
           if (!editOk) {
             try {
-              const oldBal = selectedTx.saldo_akhir??0; const newNom = Number(formData.nominal||0);
-              if (formData.account_1) await pb.collection('dropdown').update(formData.account_1, {number_1:newNom},{$autoCancel:false}).catch(()=>{});
+              const oldNom = Number(selectedTx.nominal || 0);
+              const newNom = Number(formData.nominal || 0);
+              const oldSaldo = Number(selectedTx.saldo_akhir || 0);
+              const mut = (selectedTx.mutasi || '').toLowerCase() === 'in' ? 'in' : 'out';
+              const oldSaldoAwal = mut === 'in' ? oldSaldo - oldNom : oldSaldo + oldNom;
+              const corrected = mut === 'in' ? oldSaldoAwal + newNom : oldSaldoAwal - newNom;
+              if (formData.account_1) await pb.collection('dropdown').update(formData.account_1, {number_1:corrected},{$autoCancel:false}).catch(()=>{});
             } catch{ /* best effort */ }
           }
         } else {
@@ -936,8 +939,8 @@
       if (!selectedTx) return;
       setIsProcessing(true);
       try {
-        await notifyLaravelApi('cashflow', 'deleted', selectedTx.id);
         await pb.collection('cashflow').delete(selectedTx.id);
+        await notifyLaravelApi('cashflow', 'deleted', selectedTx.id);
         setModalType(null);
         fetchCashflow();
       } catch (error) {

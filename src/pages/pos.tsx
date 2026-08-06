@@ -795,7 +795,7 @@ export default function MenuPage() {
         }
       }
 
-      notifyLaravelApi('menu', isEditMode ? 'updated' : 'created', menuId);
+      await notifyLaravelApi('menu', isEditMode ? 'updated' : 'created', menuId);
 
       showAlert('Berhasil 🎉', `Slip Gaji Karyawan (${gajiItemList.length} Penerima) berhasil ${isEditMode ? 'diperbarui' : 'disimpan'}!`);
       setIsGajiFormOpen(false);
@@ -916,14 +916,16 @@ export default function MenuPage() {
         });
         setHistoryGajiSubItems(gajiRecords);
       } else {
-        const logs = await pb.collection('log_stock').getFullList<LogStockDetail>({ filter: `ref_baru = "${menuItem.id}"`, expand: 'item_baru', $autoCancel: false });
+        const [logs, cfs, fees] = await Promise.all([
+          pb.collection('log_stock').getFullList<LogStockDetail>({ filter: `ref_baru = "${menuItem.id}"`, expand: 'item_baru', $autoCancel: false }),
+          pb.collection('cashflow').getFullList<CashflowDetail>({ filter: `ref_baru = "${menuItem.id}"`, $autoCancel: false }),
+          pb.collection('ongkos').getFullList<OngkosDetail>({ filter: `ref_baru = "${menuItem.id}"`, $autoCancel: false }),
+        ]);
         setHistoryItems(logs);
-        const cfs = await pb.collection('cashflow').getFullList<CashflowDetail>({ filter: `ref_baru = "${menuItem.id}"`, $autoCancel: false });
         setHistoryCashflow(cfs);
-        const fees = await pb.collection('ongkos').getFullList<OngkosDetail>({ filter: `ref_baru = "${menuItem.id}"`, $autoCancel: false });
         setHistoryOngkos(fees);
       }
-    } catch (e) { console.log("Detail sub-item tidak ditemukan."); }
+    } catch (e) { console.error("Detail sub-item gagal:", e); }
   };
 
   // --- FITUR AUTO BUKA NOTA DARI URL (?ref=id_transaksi) ---
@@ -951,37 +953,19 @@ export default function MenuPage() {
     useEffect(() => {
       const initData = async () => {
         try {
-          const persons = await pb.collection('dropdown').getFullList<DropdownItem>({ 
-            filter: `kategori ~ "person"`,
-            $autoCancel: false 
-          });
-            setAllPersons(persons);
-
-          const menus = await pb.collection('dropdown').getFullList<DropdownItem>({
-            filter: `kategori ~ "menu" && jenis ~ "jenis menu" && visibilitas ~ "${userLevel}"`,
-            sort: 'text_1', $autoCancel: false
-          });
+          const [persons, menus, accounts, mechs, usersList] = await Promise.all([
+            pb.collection('dropdown').getFullList<DropdownItem>({ filter: `kategori ~ "person"`, $autoCancel: false }),
+            pb.collection('dropdown').getFullList<DropdownItem>({ filter: `kategori ~ "menu" && jenis ~ "jenis menu" && visibilitas ~ "${userLevel}"`, sort: 'text_1', $autoCancel: false }),
+            pb.collection('dropdown').getFullList<DropdownItem>({ filter: `jenis ~ "cashflow account" && visibilitas ~ "${userLevel}"`, sort: 'text_1', $autoCancel: false }),
+            pb.collection('user').getFullList<UserKaryawan>({ filter: `level = 10 && status = "Active"`, $autoCancel: false }),
+            pb.collection('user').getFullList({ sort: 'name', $autoCancel: false }),
+          ]);
+          setAllPersons(persons);
           setMenuOptions([{ id: 'ov-1', text_1: 'Overview' } as any, ...menus]);
-
-          // Dropdown Cashflow Accounts
-          const accounts = await pb.collection('dropdown').getFullList<DropdownItem>({
-            filter: `jenis ~ "cashflow account" && visibilitas ~ "${userLevel}"`,
-            sort: 'text_1', $autoCancel: false
-          });
           setCashflowAccounts(accounts);
-          console.log("Cek Data Cashflow:", accounts);
-
-          const mechs = await pb.collection('user').getFullList<UserKaryawan>({
-            filter: `level = 10 && status = "Active"`,
-            $autoCancel: false
-          });
           setMechanics(mechs);
-
-          const usersList = await pb.collection('user').getFullList({
-            sort: 'name',
-            $autoCancel: false
-          });
           setAllUsers(usersList);
+          console.log("Cek Data Cashflow:", accounts);
         } catch (e) { console.error("Error Fetch Init Data:", e); }
       };
       
