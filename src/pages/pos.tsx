@@ -1842,6 +1842,7 @@ export default function MenuPage() {
       setDialog({ show: true, title: 'Sinkronisasi Gagal', message: "Gagal menyimpan data entri: " + (err.message || err), type: 'alert' });
     } finally {
       setIsProcessing(false);
+      setProcessingMsg('');
     }
   };
 
@@ -3511,7 +3512,7 @@ export default function MenuPage() {
                     onClick={handleCheckoutValidation}
                     className={`w-full md:w-auto px-10 py-5 ${activeTheme.main} text-white rounded-2xl text-sm font-black shadow-xl shadow-${activeTheme.main.replace('bg-', '')}/40 hover:brightness-110 hover:shadow-2xl hover:-translate-y-1 active:translate-y-0 active:scale-95 transition-all uppercase tracking-widest flex justify-center items-center gap-3`}
                   >
-                    {editSession ? <><Save size={18}/> SIMPAN PERUBAHAN</> : <><CheckCircle2 size={18}/>CHECKOUT</>}
+                    {isProcessing ? (processingMsg || 'Menyimpan...') : (editSession ? <><Save size={18}/> SIMPAN PERUBAHAN</> : <><CheckCircle2 size={18}/>CHECKOUT</>)}
                   </button>
                 </div>
 
@@ -3661,7 +3662,7 @@ export default function MenuPage() {
             <button type="button" onClick={() => setShowCheckoutReview(false)} className="flex-1 py-4 bg-slate-100 hover:bg-slate-200 rounded-2xl font-black text-slate-500 text-xs tracking-widest transition-colors">BATALKAN</button> 
             <button type="button" onClick={executeStoringData} disabled={isProcessing} className={`flex-[2] py-4 text-white rounded-2xl font-black text-sm shadow-xl tracking-widest transition-all active:scale-95 ${editSession ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/30' : `${activeTheme.main} hover:brightness-110 shadow-${activeTheme.main.replace('bg-','')}/40`} ${isProcessing ? 'opacity-70 cursor-not-allowed' : ''}`}> 
               {isProcessing ? (
-                <span className="flex items-center justify-center gap-2"><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"/> MENYIMPAN KE DATABASE...</span>
+                <span className="flex items-center justify-center gap-2"><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"/> {processingMsg || 'MENYIMPAN KE DATABASE...'}</span>
               ) : 'KONFIRMASI SIMPAN TRANSAKSI'} 
             </button> 
           </div> 
@@ -4586,7 +4587,7 @@ export default function MenuPage() {
                 <ShoppingCart size={18} />
               </div>
               <span className="absolute -top-1.5 -right-1.5 bg-rose-500 text-white font-black text-[10px] w-5 h-5 rounded-full flex items-center justify-center border-2 border-slate-900 shadow-sm">
-                {cart.reduce((sum, item) => sum + item.qty, 0)}
+                {totalQtyKeranjang}
               </span>
             </div>
             <div>
@@ -4599,9 +4600,10 @@ export default function MenuPage() {
               setIsCartModalOpen(true);
               setIsPaymentFormOpen(true);
             }}
-            className={`py-3 px-5 ${activeTheme.main} hover:brightness-110 text-white rounded-xl font-black text-xs uppercase tracking-widest shadow-lg flex items-center gap-1.5 active:scale-95 transition-all`}
+            className={`py-3 px-5 ${activeTheme.main} hover:brightness-110 text-white rounded-xl font-black text-xs uppercase tracking-widest shadow-lg flex items-center gap-1.5 active:scale-95 transition-all disabled:opacity-60`}
+            disabled={isProcessing}
           >
-            <Zap size={15} fill="currentColor" /> BAYAR (1-TAP)
+            {isProcessing ? processingMsg || 'Menyimpan...' : <><Zap size={15} fill="currentColor" /> BAYAR (1-TAP)</>}
           </button>
         </div>
       )}
