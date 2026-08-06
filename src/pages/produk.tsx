@@ -840,75 +840,82 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
             </div>
           ) : 
             viewMode === 'grid' ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 lg:gap-5">
                 {sortedProducts.map((prod) => (
                   <div 
                     key={prod.id} 
                     onClick={() => handleOpenDetail(prod)}
-                    className="group bg-white border border-orange-200 p-5 rounded-2xl hover:border-orange-500 hover:shadow-lg hover:shadow-orange-300 transition-all duration-300 cursor-pointer flex flex-col justify-between"
+                    className="group bg-white border border-orange-200 rounded-2xl hover:border-orange-500 hover:shadow-lg hover:shadow-orange-300 transition-all duration-300 cursor-pointer flex flex-col overflow-hidden"
                   >
-                    <div className="flex justify-between items-start mb-4">
-                      <div>
-                        <span className="inline-block px-2 py-1 bg-gray-100 text-gray-600 text-xs font-bold rounded-lg mb-2">
-                          ID: {formatIdLamaDisplay(prod.id_lama)}
-                        </span>
-                        <h3 className="font-bold text-gray-800 text-lg leading-tight group-hover:text-orange-600 line-clamp-2">
-                          {`${prod.kategori} ${prod.merk} ${prod.jenis} ${prod.varian} ${prod.keterangan || ''} ${prod.tipe || ''}`.trim()}
-                        </h3>
-                      </div>
-                      <div className="text-right">
-                        <span className="inline-block px-2 py-1 bg-orange-100 text-orange-600 text-xs font-bold rounded-lg">
-                          {prod.unit || '-'}
-                        </span>
-                      </div>
-                    </div>
-                    
-                    <div className="grid grid-cols-2 gap-4 mt-4 p-4 bg-gray-50 rounded-xl mb-4">
-                      <div>
-                        <p className="text-xs text-gray-500 font-medium mb-1">Stok</p>
-                        <div className="flex items-center gap-1.5">
-                          <p className={`font-black text-lg ${prod.stok_3 <= 0 ? 'text-red-500' : prod.stok_3 <= (prod.stok_2||0) ? 'text-amber-500 animate-pulse' : 'text-green-600'}`}>
-                            {prod.stok_3}
-                          </p>
-                          <span className="text-[10px] text-gray-400">{prod.unit}</span>
-                        </div>
-                        {prod.stok_3 <= (prod.stok_2||0) && prod.stok_3 > 0 && (
-                          <span className="text-[9px] font-bold text-amber-600 bg-amber-100 px-1.5 py-0.5 rounded">Menipis</span>
-                        )}
-                      </div>
-                      <div className="text-right">
-                        <p className="text-xs text-gray-500 font-medium mb-1">Harga</p>
-                        <p className="font-black text-blue-600">Rp {prod.sell_6?.toLocaleString('id-ID') || 0}</p>
-                        {prod.beli > 0 && prod.sell_6 > 0 && (
-                          <p className={`text-[9px] font-bold mt-0.5 ${prod.sell_6 > prod.beli ? 'text-emerald-600' : 'text-red-500'}`}>
-                            Margin {Math.round((1 - prod.beli/prod.sell_6)*100)}%
-                          </p>
-                        )}
-                      </div>
+                    {/* Thumbnail */}
+                    <div className="relative w-full aspect-[4/3] bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center overflow-hidden">
+                      {prod.file && prod.file.length > 0 ? (
+                        <img src={pb.files.getUrl(prod, prod.file[0])} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                      ) : (
+                        <Package size={40} className="text-gray-300" />
+                      )}
+                      {prod.stok_3 <= 0 && (
+                        <span className="absolute top-2 left-2 px-2 py-0.5 bg-red-500 text-white text-[9px] font-black rounded-lg">HABIS</span>
+                      )}
+                      {prod.stok_3 > 0 && prod.stok_3 <= (prod.stok_2||0) && (
+                        <span className="absolute top-2 left-2 px-2 py-0.5 bg-amber-500 text-white text-[9px] font-black rounded-lg animate-pulse">MENIPIS</span>
+                      )}
                     </div>
 
-                    {/* Tombol Aksi */}
-                    <div className="flex gap-2 justify-between items-center border-t border-gray-100 pt-4">
-                      <div className="flex gap-1">
-                        <button onClick={(e) => handleOpenEdit(prod, e)} className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg">
-                          <Edit size={13} /> Edit
-                        </button>
-                        <button onClick={(e) => handleOpenCopy(prod, e)} className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg">
-                          <Copy size={13} /> Copy
-                        </button>
+                    <div className="p-3 sm:p-4 flex flex-col flex-1">
+                      {/* ID + Unit */}
+                      <div className="flex justify-between items-start gap-2 mb-2">
+                        <span className="text-[10px] font-mono text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded">{formatIdLamaDisplay(prod.id_lama)}</span>
+                        <span className="text-[10px] font-bold text-orange-500 bg-orange-50 px-1.5 py-0.5 rounded">{prod.unit || '-'}</span>
+                      </div>
+                      
+                      {/* Nama */}
+                      <h3 className="font-bold text-gray-800 text-sm leading-snug group-hover:text-orange-600 line-clamp-2 mb-3 flex-1">
+                        {`${prod.kategori} ${prod.merk} ${prod.jenis} ${prod.varian} ${prod.keterangan || ''} ${prod.tipe || ''}`.trim()}
+                      </h3>
+                      
+                      {/* Stok + Harga */}
+                      <div className="grid grid-cols-2 gap-2 p-2.5 sm:p-3 bg-gray-50 rounded-xl mb-2">
+                        <div>
+                          <p className="text-[9px] text-gray-400 font-medium mb-0.5">Stok</p>
+                          <p className={`font-black text-base ${prod.stok_3 <= 0 ? 'text-red-500' : prod.stok_3 <= (prod.stok_2||0) ? 'text-amber-500' : 'text-green-600'}`}>
+                            {prod.stok_3} <span className="text-[9px] font-normal text-gray-400">{prod.unit}</span>
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-[9px] text-gray-400 font-medium mb-0.5">Harga</p>
+                          <p className="font-black text-blue-600 text-sm">Rp {prod.sell_6?.toLocaleString('id-ID') || 0}</p>
+                          {(userLevel === '1' || userLevel === '2' || userLevel === '5' || userLevel === '6') && prod.beli > 0 && prod.sell_6 > 0 && (
+                            <p className={`text-[8px] font-bold mt-0.5 ${prod.sell_6 > prod.beli ? 'text-emerald-600' : 'text-red-500'}`}>
+                              Mgn {Math.round((1 - prod.beli/prod.sell_6)*100)}%
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Tombol Aksi */}
+                      <div className="flex gap-1 justify-between items-center border-t border-gray-100 pt-2">
+                        <div className="flex gap-0.5 sm:gap-1">
+                          <button onClick={(e) => handleOpenEdit(prod, e)} className="flex items-center gap-0.5 sm:gap-1 px-2 py-1.5 text-[9px] sm:text-[10px] font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg">
+                            <Edit size={12} /> Edit
+                          </button>
+                          <button onClick={(e) => handleOpenCopy(prod, e)} className="flex items-center gap-0.5 sm:gap-1 px-2 py-1.5 text-[9px] sm:text-[10px] font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg">
+                            <Copy size={12} /> Copy
+                          </button>
+                          {userLevel === '1' && (
+                          <button onClick={(e) => handleOpenDelete(prod, e)} className="flex items-center gap-0.5 sm:gap-1 px-2 py-1.5 text-[9px] sm:text-[10px] font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded-lg">
+                            <Trash2 size={12} />
+                          </button>
+                          )}
+                        </div>
                         {userLevel === '1' && (
-                        <button onClick={(e) => handleOpenDelete(prod, e)} className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded-lg">
-                          <Trash2 size={13} />
-                        </button>
+                        <div className="flex items-center gap-0.5" onClick={e => e.stopPropagation()}>
+                          <button onClick={async () => { try { await pb.collection('produk').update(prod.id, {stok_3: Math.max(0, prod.stok_3 - 1)}); fetchProducts(); } catch{ /* ignore */ }}} className="w-6 h-6 flex items-center justify-center rounded-md bg-red-50 hover:bg-red-100 text-red-600 text-xs font-black">−</button>
+                          <span className="text-[9px] font-bold text-gray-400 w-4 text-center">{prod.stok_3}</span>
+                          <button onClick={async () => { try { await pb.collection('produk').update(prod.id, {stok_3: prod.stok_3 + 1}); fetchProducts(); } catch{ /* ignore */ }}} className="w-6 h-6 flex items-center justify-center rounded-md bg-green-50 hover:bg-green-100 text-green-600 text-xs font-black">+</button>
+                        </div>
                         )}
                       </div>
-                      {userLevel === '1' && (
-                      <div className="flex items-center gap-0.5" onClick={e => e.stopPropagation()}>
-                        <button onClick={async () => { try { await pb.collection('produk').update(prod.id, {stok_3: Math.max(0, prod.stok_3 - 1)}); fetchProducts(); } catch{ /* ignore */ }}} className="w-6 h-6 flex items-center justify-center rounded-md bg-red-50 hover:bg-red-100 text-red-600 text-xs font-black">−</button>
-                        <span className="text-[10px] font-bold text-gray-400 w-5 text-center">{prod.stok_3}</span>
-                        <button onClick={async () => { try { await pb.collection('produk').update(prod.id, {stok_3: prod.stok_3 + 1}); fetchProducts(); } catch{ /* ignore */ }}} className="w-6 h-6 flex items-center justify-center rounded-md bg-green-50 hover:bg-green-100 text-green-600 text-xs font-black">+</button>
-                      </div>
-                      )}
                     </div>
                   </div>
                 ))}
@@ -1023,58 +1030,44 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
       {/* Tambahkan maxWidth agar tabel/konten tidak saling berhimpitan di layar */}
       <Modal isOpen={modalType === 'detail'} onClose={() => setModalType(null)} title="Detail Spesifikasi Produk" maxWidth="max-w-2xl">
         {selectedProduct && (
-          <div className="space-y-6">
-            <div className="flex gap-4 items-center p-4 bg-orange-50 rounded-2xl border border-orange-100">
-              <div className="relative">
-                <div className="w-16 h-16 bg-white rounded-xl flex items-center justify-center text-orange-500 shrink-0 overflow-hidden">
-                  {selectedProduct.file && selectedProduct.file.length > 0 ? (
-                    <img 
-                      src={pb.files.getUrl(selectedProduct, selectedProduct.file[currentImageIndex])} 
-                      alt="produk" 
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <Package size={32} />
+          <div className="space-y-5">
+            {/* Hero image */}
+            <div className="relative w-full aspect-[16/9] sm:aspect-[2/1] bg-gradient-to-br from-gray-100 to-gray-200 rounded-2xl overflow-hidden">
+              {selectedProduct.file && selectedProduct.file.length > 0 ? (
+                <>
+                  <img 
+                    src={pb.files.getUrl(selectedProduct, selectedProduct.file[currentImageIndex])} 
+                    alt="" 
+                    className="w-full h-full object-cover"
+                  />
+                  {selectedProduct.file.length > 1 && (
+                    <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-black/40 backdrop-blur rounded-full px-3 py-1.5">
+                      <button onClick={e => { e.stopPropagation(); setCurrentImageIndex(p => p === 0 ? selectedProduct.file.length - 1 : p - 1); }} className="text-white text-xs font-black px-1">‹</button>
+                      <span className="text-white text-[10px] font-bold">{currentImageIndex + 1}/{selectedProduct.file.length}</span>
+                      <button onClick={e => { e.stopPropagation(); setCurrentImageIndex(p => p === selectedProduct.file.length - 1 ? 0 : p + 1); }} className="text-white text-xs font-black px-1">›</button>
+                    </div>
                   )}
-                </div>
-                
-                {/* Tombol navigasi hanya muncul jika ada lebih dari 1 file */}
-                {selectedProduct.file && selectedProduct.file.length > 1 && (
-                  <div className="absolute -bottom-2 left-1/2 transform -translate-x-1/2 flex gap-1 bg-black/50 rounded-full px-1 py-0.5">
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setCurrentImageIndex(prev => (prev === 0 ? selectedProduct.file.length - 1 : prev - 1));
-                      }}
-                      className="w-4 h-4 text-white text-[8px] font-bold hover:bg-white/20 rounded-full flex items-center justify-center"
-                    >
-                      ‹
-                    </button>
-                    <span className="text-[8px] text-white font-bold">
-                      {currentImageIndex + 1}/{selectedProduct.file.length}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setCurrentImageIndex(prev => (prev === selectedProduct.file.length - 1 ? 0 : prev + 1));
-                      }}
-                      className="w-4 h-4 text-white text-[8px] font-bold hover:bg-white/20 rounded-full flex items-center justify-center"
-                    >
-                      ›
-                    </button>
-                  </div>
-                )}
-              </div>
-              <div>
-                <p className="text-sm font-bold text-orange-600 mb-1">
-                  ID: {formatIdLamaDisplay(selectedProduct.id_lama)}
-                </p>
-                <h3 className="font-bold text-gray-900 text-lg leading-tight">
+                </>
+              ) : (
+                <Package size={56} className="text-gray-300" />
+              )}
+              {selectedProduct.stok_3 <= 0 && (
+                <span className="absolute top-3 left-3 px-2.5 py-1 bg-red-500 text-white text-[10px] font-black rounded-lg">HABIS</span>
+              )}
+            </div>
+
+            {/* Info header */}
+            <div className="flex items-start gap-3 p-3 bg-orange-50 rounded-xl border border-orange-100">
+              <div className="flex-1 min-w-0">
+                <p className="text-[10px] font-mono text-gray-400 mb-0.5">ID: {formatIdLamaDisplay(selectedProduct.id_lama)}</p>
+                <h3 className="font-black text-gray-800 text-base leading-snug">
                   {`${selectedProduct.kategori} ${selectedProduct.merk} ${selectedProduct.jenis} ${selectedProduct.varian} ${selectedProduct.keterangan || ''} ${selectedProduct.tipe || ''}`.trim()}
                 </h3>
-                <div className="flex items-center gap-3 mt-2">
+              </div>
+              <span className="px-2 py-1 bg-orange-100 text-orange-600 text-[10px] font-black rounded-lg shrink-0">{selectedProduct.unit || '-'}</span>
+            </div>
+
+            <div className="flex items-center gap-3 mt-2">
                   <span className="inline-flex items-center gap-1 text-xs font-semibold text-green-700 bg-green-100 px-2 py-0.5 rounded-full">
                     <Package size={12} />
                     Stok: {selectedProduct.stok_3 ?? 0} {selectedProduct.unit || ''}
@@ -1090,8 +1083,6 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
                     </span>
                   )}
                 </div>
-              </div>
-            </div>
 
             <div className="flex justify-end gap-2 border-b pb-4">
               <button onClick={() => handleOpenEdit(selectedProduct)} className="flex items-center gap-1 px-4 py-2 text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors"><Edit size={16} /> Edit Data</button>
