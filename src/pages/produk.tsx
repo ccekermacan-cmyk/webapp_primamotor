@@ -850,7 +850,7 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
                     {/* Thumbnail */}
                     <div className="relative w-full aspect-[4/3] bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center overflow-hidden">
                       {prod.file && prod.file.length > 0 ? (
-                        <img src={pb.files.getUrl(prod, prod.file[0])} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                        <img src={`${pb.files.getUrl(prod, prod.file[0])}?thumb=300x225`} alt="" loading="lazy" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
                       ) : (
                         <Package size={40} className="text-gray-300" />
                       )}
@@ -931,6 +931,7 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
                           {sortField === 'id_lama' && (sortOrder === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />)}
                         </div>
                       </th>
+                      <th className="text-left py-3 px-2 font-semibold text-gray-600 w-12"></th>
                       <th className="text-left py-3 px-4 font-semibold text-gray-600 cursor-pointer select-none" onClick={() => { if (sortField === 'nama') setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc'); else { setSortField('nama'); setSortOrder('asc'); } }}>
                         <div className="flex items-center gap-1">
                           Nama Produk
@@ -962,6 +963,15 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
                     {sortedProducts.map((prod) => (
                       <tr key={prod.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => handleOpenDetail(prod)}>
                         <td className="py-3 px-4 font-mono text-xs">{formatIdLamaDisplay(prod.id_lama)}</td>
+                        <td className="py-2 px-2">
+                          <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg bg-gray-100 overflow-hidden flex items-center justify-center shrink-0">
+                            {prod.file && prod.file.length > 0 ? (
+                              <img src={`${pb.files.getUrl(prod, prod.file[0])}?thumb=80x80`} alt="" loading="lazy" className="w-full h-full object-cover" />
+                            ) : (
+                              <Package size={14} className="text-gray-300" />
+                            )}
+                          </div>
+                        </td>
                         <td className="py-3 px-4 font-medium text-gray-800">
                           {`${prod.kategori} ${prod.merk} ${prod.jenis} ${prod.varian} ${prod.keterangan || ''} ${prod.tipe || ''}`.trim()}
                         </td>
