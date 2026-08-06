@@ -466,11 +466,17 @@ export default function MenuPage() {
   };
 
   const receiptRef = useRef<HTMLDivElement>(null);
+  const detailPrintRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const handleReactPrintFn = useReactToPrint({
     contentRef: receiptRef,
     documentTitle: `Struk_${formBayar.notaNo || 'POS'}`,
+  });
+
+  const handleDetailPrintFn = useReactToPrint({
+    contentRef: detailPrintRef,
+    documentTitle: `Detail_Transaksi`,
   });
 
   // 🟢 Keyboard Shortcuts Listener untuk Web & Tablet Hardware Keyboard
@@ -3667,7 +3673,57 @@ export default function MenuPage() {
             </button> 
           </div> 
         </div> 
-      </Modal> 
+      </Modal>
+
+      {/* Hidden printable div for detail transaction print */}
+      <div ref={detailPrintRef} className="hidden">
+        {showDetailHistory && (
+          <div style={{fontFamily:'monospace',fontSize:'11px',padding:'10px',maxWidth:'300px'}}>
+            <div style={{textAlign:'center',borderBottom:'2px dashed #ccc',paddingBottom:'8px',marginBottom:'8px'}}>
+              <h3 style={{fontWeight:900,fontSize:'14px',margin:0}}>PRIMA MOTOR GLADAG</h3>
+              <p style={{fontSize:'10px',margin:'2px 0'}}>Jl. Raya Gladag, Rogojampi</p>
+              <p style={{fontSize:'10px',margin:'2px 0'}}>{showDetailHistory.jenis?.toUpperCase()}</p>
+            </div>
+            <div style={{borderBottom:'2px dashed #ccc',paddingBottom:'4px',marginBottom:'4px'}}>
+              <p style={{margin:'1px 0'}}><b>ID:</b> {showDetailHistory.ref || showDetailHistory.id}</p>
+              <p style={{margin:'1px 0'}}><b>Waktu:</b> {formatLocalDateTime(showDetailHistory.created_at)}</p>
+              <p style={{margin:'1px 0'}}><b>Pelanggan:</b> {allPersons.find(p => p.id_lama === showDetailHistory.person)?.text_1 || showDetailHistory.person || 'Umum'}</p>
+              <p style={{margin:'1px 0'}}><b>Kasir:</b> {showDetailHistory.operator || '-'}</p>
+            </div>
+            {historyItems.length > 0 && (
+              <div style={{borderBottom:'2px dashed #ccc',paddingBottom:'4px',marginBottom:'4px'}}>
+                {historyItems.map((item, i) => (
+                  <div key={i} style={{margin:'4px 0'}}>
+                    <p style={{fontWeight:700,margin:'1px 0',fontSize:'10px'}}>{getFullLabel(item.expand?.item_baru)}</p>
+                    <p style={{margin:'1px 0',display:'flex',justifyContent:'space-between'}}>
+                      <span>{item.qty} x Rp {Number(item.price_1).toLocaleString('id-ID')}</span>
+                      <b>Rp {Number(item.price_1 * item.qty).toLocaleString('id-ID')}</b>
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+            {historyCashflow.length > 0 && (
+              <div style={{borderBottom:'2px dashed #ccc',paddingBottom:'4px',marginBottom:'4px'}}>
+                <p style={{fontWeight:900,fontSize:'10px',textAlign:'center',margin:'2px 0'}}>-- PEMBAYARAN --</p>
+                {historyCashflow.map((cf, i) => (
+                  <p key={i} style={{margin:'1px 0',display:'flex',justifyContent:'space-between',fontSize:'10px'}}>
+                    <span>{cf.mutasi === 'in' ? 'Masuk' : 'Keluar'} - {cashflowAccounts.find(a => a.id === cf.account_1)?.text_1 || cf.account_1}</span>
+                    <b>Rp {Number(cf.nominal).toLocaleString('id-ID')}</b>
+                  </p>
+                ))}
+              </div>
+            )}
+            <div style={{textAlign:'right',fontWeight:900,fontSize:'13px',paddingTop:'4px'}}>
+              <p style={{margin:'2px 0'}}>TOTAL: Rp {Number(showDetailHistory.total).toLocaleString('id-ID')}</p>
+              <p style={{margin:'2px 0'}}>DIBAYAR: Rp {Number(showDetailHistory.dibayar).toLocaleString('id-ID')}</p>
+            </div>
+            <div style={{textAlign:'center',marginTop:'8px',fontSize:'10px'}}>
+              <p style={{fontWeight:900,margin:'2px 0'}}>TERIMA KASIH</p>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* ========================================================= */} 
       {/* 2. MODAL DETAIL HISTORI TRANSAKSI BESERTA SUB-DETAILS */} 
@@ -4371,6 +4427,16 @@ export default function MenuPage() {
 
                 {showDetailHistory?.status === 'lunas' && (
                   <>
+                    <button
+                      onClick={() => !isDeleting && handleDetailPrintFn && handleDetailPrintFn()}
+                      disabled={isDeleting}
+                      className={`h-14 min-w-[3.5rem] flex-1 rounded-2xl border transition-all flex justify-center items-center group ${
+                        isDeleting ? 'bg-slate-100 text-slate-300 border-slate-200 cursor-not-allowed opacity-50' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-600 hover:text-white border-emerald-200 hover:border-emerald-600'
+                      }`}
+                      title={isDeleting ? 'Tunggu proses selesai' : 'Cetak Detail'}
+                    >
+                      <Printer size={20} />
+                    </button>
                     <button
                       onClick={() => {
                         if (isDeleting) return;
