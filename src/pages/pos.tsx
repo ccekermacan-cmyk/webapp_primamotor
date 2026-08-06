@@ -2037,7 +2037,16 @@ export default function MenuPage() {
       }).catch(() => []);
 
       for (const cf of cashflowList) {
-        // ponytail: cashflow cascade delete&revert handled by MenuObserver@deleting
+        // Manual revert saldo akun (fallback jika Laravel cascade tidak jalan)
+        if (cf.account_1 && cf.nominal) {
+          try {
+            const acc = await pb.collection('dropdown').getOne(cf.account_1, { $autoCancel: false });
+            const currentBal = Number(acc.number_1) || 0;
+            const isOut = String(cf.mutasi).toLowerCase() === 'out';
+            const newBal = isOut ? (currentBal + cf.nominal) : Math.max(0, currentBal - cf.nominal);
+            await pb.collection('dropdown').update(cf.account_1, { number_1: newBal }, { $autoCancel: false });
+          } catch (e) { console.warn('Revert saldo akun fallback:', e); }
+        }
         await pb.collection('cashflow').delete(cf.id).catch(() => null);
       }
 
