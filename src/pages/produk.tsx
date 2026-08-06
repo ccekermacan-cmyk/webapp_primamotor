@@ -65,6 +65,8 @@ export default function Produk() {
 
   // Modal States
   const [modalType, setModalType] = useState<'detail' | 'form' | 'delete' | 'copy' | null>(null);
+  const [deletePass, setDeletePass] = useState('');
+  const [deleteError, setDeleteError] = useState('');
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [selectedProduct, setSelectedProduct] = useState<Produk | null>(null);
   const [formData, setFormData] = useState<Partial<Produk>>({});
@@ -376,6 +378,8 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
   const handleOpenDelete = (prod: Produk, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
     setSelectedProduct(prod);
+    setDeletePass('');
+    setDeleteError('');
     setModalType('delete');
   };
 
@@ -392,11 +396,25 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
   // ==========================================
   const submitDelete = async () => {
     if (!selectedProduct) return;
+    if (!deletePass) { setDeleteError('Password wajib diisi'); return; }
     setIsProcessing(true);
+    setDeleteError('');
+    try {
+      const email = pb.authStore.model?.email || localStorage.getItem('user_email') || '';
+      const username = pb.authStore.model?.username || localStorage.getItem('user_username') || '';
+      const identity = email || username;
+      if (identity) await pb.collection('users').authWithPassword(identity, deletePass);
+      else throw new Error('no identity');
+    } catch {
+      setDeleteError('Password salah');
+      setIsProcessing(false);
+      return;
+    }
     try {
       await pb.collection('produk').delete(selectedProduct.id);
       await notifyLaravelApi('produk', 'deleted', selectedProduct.id);
       setModalType(null);
+      setDeletePass('');
       fetchProducts(); 
     } catch (error: any) {
       alert("Gagal menghapus: " + (error.message || 'Koneksi gagal'));
@@ -866,9 +884,11 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
                       <button onClick={(e) => handleOpenCopy(prod, e)} className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg">
                         <Copy size={14} /> Copy
                       </button>
+                      {userLevel === '1' && (
                       <button onClick={(e) => handleOpenDelete(prod, e)} className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded-lg">
                         <Trash2 size={14} /> Hapus
                       </button>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -937,9 +957,11 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
                             <button onClick={(e) => handleOpenCopy(prod, e)} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-md transition" title="Copy">
                               <Copy size={14} />
                             </button>
+                            {userLevel === '1' && (
                             <button onClick={(e) => handleOpenDelete(prod, e)} className="p-1.5 text-red-600 hover:bg-red-50 rounded-md transition" title="Hapus">
                               <Trash2 size={14} />
                             </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -1054,7 +1076,9 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
             <div className="flex justify-end gap-2 border-b pb-4">
               <button onClick={() => handleOpenEdit(selectedProduct)} className="flex items-center gap-1 px-4 py-2 text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors"><Edit size={16} /> Edit Data</button>
               <button onClick={() => handleOpenCopy(selectedProduct)} className="flex items-center gap-1 px-4 py-2 text-sm font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-xl transition-colors"><Copy size={16} /> Salin</button>
+              {userLevel === '1' && (
               <button onClick={() => handleOpenDelete(selectedProduct)} className="flex items-center gap-1 px-4 py-2 text-sm font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded-xl transition-colors"><Trash2 size={16} /> Hapus</button>
+              )}
             </div>
 
             <div>
@@ -1607,17 +1631,24 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
       {/* ========================================================= */}
       <Modal 
         isOpen={modalType === 'delete'} 
-        onClose={() => setModalType(null)} 
-        isAlert={true}
-        title="Hapus Produk Ini?"
-        alertDescription={<>Yakin ingin menghapus produk <span className="font-bold text-slate-800">{selectedProduct?.kategori} {selectedProduct?.merk} {selectedProduct?.jenis} {selectedProduct?.varian}</span> secara permanen?</>}
-        alertIcon={<Trash2 size={24} />}
-        alertIconBg="bg-rose-50 text-rose-500 border-rose-100"
-        onConfirm={submitDelete}
-        confirmText={isProcessing ? 'Menghapus...' : 'Ya, Hapus'}
-        cancelText="Batal"
-        confirmBg="bg-rose-600 hover:bg-rose-500 shadow-rose-200"
-      />
+        onClose={() => { setModalType(null); setDeletePass(''); setDeleteError(''); }} 
+        title="Konfirmasi Hapus Produk"
+      >
+        <div className="p-4 space-y-4">
+          <p className="text-sm text-slate-600">Yakin ingin menghapus <b>{selectedProduct?.kategori} {selectedProduct?.merk} {selectedProduct?.jenis} {selectedProduct?.varian}</b>? Tindakan ini <b className="text-red-600">tidak dapat dibatalkan</b>.</p>
+          <div>
+            <label className="text-[10px] font-black text-slate-500 uppercase block mb-1">Password Admin</label>
+            <input type="password" value={deletePass} onChange={e => { setDeletePass(e.target.value); setDeleteError(''); }} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-red-400" placeholder="Masukkan password untuk konfirmasi" />
+            {deleteError && <p className="text-xs text-red-500 font-bold mt-1">{deleteError}</p>}
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => { setModalType(null); setDeletePass(''); setDeleteError(''); }} className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 rounded-xl font-bold text-xs uppercase">Batal</button>
+            <button onClick={submitDelete} disabled={isProcessing} className="flex-1 py-2.5 bg-red-600 hover:bg-red-500 text-white rounded-xl font-bold text-xs uppercase disabled:opacity-50">
+              {isProcessing ? 'Menghapus...' : 'Hapus Permanen'}
+            </button>
+          </div>
+        </div>
+      </Modal>
 
       {/* ========================================================= */}
       {/* 4. MODAL KONFIRMASI COPY (Alert Dinamis) */}
