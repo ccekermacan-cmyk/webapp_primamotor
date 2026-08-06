@@ -4509,20 +4509,33 @@ export default function MenuPage() {
               </div>
             </div>
 
-            {/* TOMBOL CETAK & BATAL */}
+            {/* TOMBOL CETAK, SHARE & BATAL */}
             <div className="flex flex-col sm:flex-row w-full gap-3 mt-2"> 
+              <button 
+                onClick={() => {
+                  if (!showReceiptPrint?.id) return;
+                  const items = (showReceiptPrint.items || []).map((i: any) => 
+                    `${getFullLabel(i)} | Qty: ${i.qty} @ ${Number(i.priceSelected).toLocaleString('id-ID')} = ${Number(i.priceSelected * i.qty).toLocaleString('id-ID')}`
+                  ).join('\n');
+                  const text = `*NOTA ${showReceiptPrint.jenis?.toUpperCase() || ''}*\nID: ${showReceiptPrint.id}\n${formatLocalDateTime(showReceiptPrint.timestamp)}\nPelanggan: ${showReceiptPrint.customer}\nTotal: Rp ${Number(showReceiptPrint.total).toLocaleString('id-ID')}\nDibayar: Rp ${Number(showReceiptPrint.cash).toLocaleString('id-ID')}\n\nItems:\n${items}`;
+                  navigator.clipboard.writeText(text).then(() => {
+                    setDialog({ show: true, title: 'Berhasil', message: 'Detail nota disalin ke clipboard!', type: 'alert' });
+                  }).catch(() => alert('Gagal menyalin ke clipboard'));
+                }}
+                className="flex-1 py-4 bg-amber-500 hover:bg-amber-400 text-white rounded-2xl font-black text-xs md:text-sm shadow-lg shadow-amber-500/30 hover:-translate-y-1 active:translate-y-0 transition-all tracking-widest flex justify-center items-center gap-2">
+                <Share2 size={18}/> SHARE
+              </button>
               <button 
                 onClick={() => {
                   const receiptElement = document.getElementById('thermal-receipt-58mm');
                   if (receiptElement) {
-                    const htmlContent = receiptElement.outerHTML;
-                    printWithRawBT(htmlContent);
+                    printWithRawBT(receiptElement.outerHTML);
                   } else {
                     alert("Konten kertas nota gagal di-render oleh DOM.");
                   }
                 }} 
                 className={`flex-[2] py-4 ${activeTheme.main} text-white rounded-2xl font-black text-xs md:text-sm shadow-xl shadow-${activeTheme.main.replace('bg-','')}/40 hover:-translate-y-1 hover:brightness-110 active:translate-y-0 transition-all tracking-widest flex justify-center items-center gap-2`}>
-                <Printer size={18}/> CETAK VIA RAWBT
+                <Printer size={18}/> PRINT
               </button>
               <button 
                 onClick={() => {
