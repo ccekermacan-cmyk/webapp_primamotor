@@ -3675,51 +3675,68 @@ export default function MenuPage() {
         </div> 
       </Modal>
 
-      {/* Hidden printable div for detail transaction print */}
+      {/* Hidden printable thermal 58mm for detail transaction */}
       <div ref={detailPrintRef} className="hidden">
         {showDetailHistory && (
-          <div style={{fontFamily:'monospace',fontSize:'11px',padding:'10px',maxWidth:'300px'}}>
-            <div style={{textAlign:'center',borderBottom:'2px dashed #ccc',paddingBottom:'8px',marginBottom:'8px'}}>
-              <h3 style={{fontWeight:900,fontSize:'14px',margin:0}}>PRIMA MOTOR GLADAG</h3>
-              <p style={{fontSize:'10px',margin:'2px 0'}}>Jl. Raya Gladag, Rogojampi</p>
-              <p style={{fontSize:'10px',margin:'2px 0'}}>{showDetailHistory.jenis?.toUpperCase()}</p>
+          <div style={{fontFamily:'monospace',fontSize:'11px',width:'280px',color:'#1e293b'}}>
+            <div style={{textAlign:'center',borderBottom:'2px dashed #cbd5e1',padding:'12px 8px'}}>
+              <h3 style={{fontWeight:900,fontSize:'14px',margin:'0 0 2px'}}>PRIMA MOTOR GLADAG</h3>
+              <p style={{fontSize:'9px',margin:'1px 0'}}>Jl. Raya Gladag, Rogojampi</p>
+              <p style={{fontSize:'9px',margin:'1px 0'}}>Banyuwangi - Jawa Timur</p>
+              <p style={{fontSize:'10px',fontWeight:900,margin:'4px 0 0'}}>{showDetailHistory.jenis?.toUpperCase()}</p>
             </div>
-            <div style={{borderBottom:'2px dashed #ccc',paddingBottom:'4px',marginBottom:'4px'}}>
-              <p style={{margin:'1px 0'}}><b>ID:</b> {showDetailHistory.ref || showDetailHistory.id}</p>
-              <p style={{margin:'1px 0'}}><b>Waktu:</b> {formatLocalDateTime(showDetailHistory.created_at)}</p>
-              <p style={{margin:'1px 0'}}><b>Pelanggan:</b> {allPersons.find(p => p.id_lama === showDetailHistory.person)?.text_1 || showDetailHistory.person || 'Umum'}</p>
-              <p style={{margin:'1px 0'}}><b>Kasir:</b> {showDetailHistory.operator || '-'}</p>
+            <div style={{padding:'8px',borderBottom:'2px dashed #cbd5e1',fontSize:'10px'}}>
+              <p style={{margin:'2px 0',display:'flex',justifyContent:'space-between'}}><span style={{color:'#64748b'}}>Nota:</span> <span>{showDetailHistory.ref || showDetailHistory.id}</span></p>
+              <p style={{margin:'2px 0',display:'flex',justifyContent:'space-between'}}><span style={{color:'#64748b'}}>Waktu:</span> <span>{formatLocalDateTime(showDetailHistory.created_at)}</span></p>
+              <p style={{margin:'2px 0',display:'flex',justifyContent:'space-between'}}><span style={{color:'#64748b'}}>Cust:</span> <span>{allPersons.find(p => p.id_lama === showDetailHistory.person)?.text_1 || showDetailHistory.person || 'Umum'}</span></p>
+              <p style={{margin:'2px 0',display:'flex',justifyContent:'space-between'}}><span style={{color:'#64748b'}}>Kasir:</span> <span>{showDetailHistory.operator || operatorName}</span></p>
             </div>
             {historyItems.length > 0 && (
-              <div style={{borderBottom:'2px dashed #ccc',paddingBottom:'4px',marginBottom:'4px'}}>
+              <div style={{padding:'8px',borderBottom:'2px dashed #cbd5e1',fontSize:'10px'}}>
                 {historyItems.map((item, i) => (
-                  <div key={i} style={{margin:'4px 0'}}>
-                    <p style={{fontWeight:700,margin:'1px 0',fontSize:'10px'}}>{getFullLabel(item.expand?.item_baru)}</p>
-                    <p style={{margin:'1px 0',display:'flex',justifyContent:'space-between'}}>
+                  <div key={i} style={{marginBottom:'4px'}}>
+                    <p style={{fontWeight:700,margin:'1px 0',fontSize:'10px',textTransform:'uppercase'}}>{getFullLabel(item.expand?.item_baru)}</p>
+                    <p style={{margin:'1px 0',display:'flex',justifyContent:'space-between',color:'#475569'}}>
                       <span>{item.qty} x Rp {Number(item.price_1).toLocaleString('id-ID')}</span>
-                      <b>Rp {Number(item.price_1 * item.qty).toLocaleString('id-ID')}</b>
+                      <b style={{color:'#1e293b'}}>Rp {Number(item.price_1 * item.qty).toLocaleString('id-ID')}</b>
                     </p>
                   </div>
                 ))}
               </div>
             )}
             {historyCashflow.length > 0 && (
-              <div style={{borderBottom:'2px dashed #ccc',paddingBottom:'4px',marginBottom:'4px'}}>
-                <p style={{fontWeight:900,fontSize:'10px',textAlign:'center',margin:'2px 0'}}>-- PEMBAYARAN --</p>
+              <div style={{padding:'8px',borderBottom:'2px dashed #cbd5e1',fontSize:'10px'}}>
+                <p style={{fontWeight:900,fontSize:'9px',textAlign:'center',margin:'2px 0',color:'#64748b'}}>-- PEMBAYARAN --</p>
                 {historyCashflow.map((cf, i) => (
-                  <p key={i} style={{margin:'1px 0',display:'flex',justifyContent:'space-between',fontSize:'10px'}}>
-                    <span>{cf.mutasi === 'in' ? 'Masuk' : 'Keluar'} - {cashflowAccounts.find(a => a.id === cf.account_1)?.text_1 || cf.account_1}</span>
+                  <p key={i} style={{margin:'2px 0',display:'flex',justifyContent:'space-between'}}>
+                    <span>{cf.mutasi === 'in' ? 'Masuk' : 'Keluar'} ({cashflowAccounts.find(a => a.id === cf.account_1)?.text_1 || 'Acc'})</span>
                     <b>Rp {Number(cf.nominal).toLocaleString('id-ID')}</b>
                   </p>
                 ))}
               </div>
             )}
-            <div style={{textAlign:'right',fontWeight:900,fontSize:'13px',paddingTop:'4px'}}>
-              <p style={{margin:'2px 0'}}>TOTAL: Rp {Number(showDetailHistory.total).toLocaleString('id-ID')}</p>
-              <p style={{margin:'2px 0'}}>DIBAYAR: Rp {Number(showDetailHistory.dibayar).toLocaleString('id-ID')}</p>
+            {historyOngkos.length > 0 && (
+              <div style={{padding:'8px',borderBottom:'2px dashed #cbd5e1',fontSize:'10px'}}>
+                <p style={{fontWeight:900,fontSize:'9px',textAlign:'center',margin:'2px 0',color:'#64748b'}}>-- BIAYA SERVIS --</p>
+                {historyOngkos.map((o, i) => (
+                  <p key={i} style={{margin:'2px 0',display:'flex',justifyContent:'space-between'}}>
+                    <span>Mek: {o.person}</span>
+                    <b>Rp {Number(o.ongkos).toLocaleString('id-ID')}</b>
+                  </p>
+                ))}
+              </div>
+            )}
+            <div style={{padding:'8px',backgroundColor:'#f8fafc',borderBottom:'2px dashed #cbd5e1'}}>
+              <p style={{margin:'2px 0',display:'flex',justifyContent:'space-between',fontSize:'12px',fontWeight:900}}>
+                <span>TOTAL:</span><span>Rp {Number(showDetailHistory.total).toLocaleString('id-ID')}</span>
+              </p>
+              <p style={{margin:'2px 0',display:'flex',justifyContent:'space-between',color:'#475569',fontSize:'10px'}}>
+                <span>DIBAYAR:</span><span>Rp {Number(showDetailHistory.dibayar).toLocaleString('id-ID')}</span>
+              </p>
             </div>
-            <div style={{textAlign:'center',marginTop:'8px',fontSize:'10px'}}>
-              <p style={{fontWeight:900,margin:'2px 0'}}>TERIMA KASIH</p>
+            <div style={{textAlign:'center',padding:'12px 8px'}}>
+              <p style={{fontWeight:900,fontSize:'10px',margin:'2px 0'}}>TERIMA KASIH</p>
+              <p style={{fontSize:'8px',color:'#64748b',margin:'2px 0'}}>Barang yang dibeli tidak dapat ditukar</p>
             </div>
           </div>
         )}
@@ -4425,18 +4442,19 @@ export default function MenuPage() {
                   </button>
                 )}
 
+                <button
+                  onClick={() => !isDeleting && handleDetailPrintFn && handleDetailPrintFn()}
+                  disabled={isDeleting}
+                  className={`h-14 min-w-[3.5rem] flex-1 rounded-2xl border transition-all flex justify-center items-center group ${
+                    isDeleting ? 'bg-slate-100 text-slate-300 border-slate-200 cursor-not-allowed opacity-50' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-600 hover:text-white border-emerald-200 hover:border-emerald-600'
+                  }`}
+                  title={isDeleting ? 'Tunggu proses selesai' : 'Cetak Nota 58mm'}
+                >
+                  <Printer size={20} />
+                </button>
+
                 {showDetailHistory?.status === 'lunas' && (
                   <>
-                    <button
-                      onClick={() => !isDeleting && handleDetailPrintFn && handleDetailPrintFn()}
-                      disabled={isDeleting}
-                      className={`h-14 min-w-[3.5rem] flex-1 rounded-2xl border transition-all flex justify-center items-center group ${
-                        isDeleting ? 'bg-slate-100 text-slate-300 border-slate-200 cursor-not-allowed opacity-50' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-600 hover:text-white border-emerald-200 hover:border-emerald-600'
-                      }`}
-                      title={isDeleting ? 'Tunggu proses selesai' : 'Cetak Detail'}
-                    >
-                      <Printer size={20} />
-                    </button>
                     <button
                       onClick={() => {
                         if (isDeleting) return;
