@@ -38,7 +38,7 @@ export const LARAVEL_API_URL = getLaravelApiUrl();
 
 let laravelApiDown = false;
 let laravelApiLastCheck = 0;
-const LARAVEL_RETRY_MS = 30000;
+const LARAVEL_RETRY_MS = 5000;
 
 export async function notifyLaravelApi(collection: string, event: 'created' | 'updated' | 'deleted', id: string): Promise<boolean> {
   if (!id) return false;

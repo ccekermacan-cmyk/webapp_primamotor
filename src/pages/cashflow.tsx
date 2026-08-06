@@ -226,7 +226,15 @@
 
           const createdCf = await pb.collection('cashflow').create(cfData);
           refCashflowId = createdCf.id;
-          await notifyLaravelApi('cashflow', 'created', createdCf.id);
+          const bonCfOk = await notifyLaravelApi('cashflow', 'created', createdCf.id);
+          if (!bonCfOk && formDataBon.akun_asal) {
+            try {
+              const acc = await pb.collection('dropdown').getOne(formDataBon.akun_asal, {$autoCancel:false});
+              await pb.collection('dropdown').update(formDataBon.akun_asal, {
+                number_1: (Number(acc.number_1)||0) - Number(formDataBon.nominal)
+              }, {$autoCancel:false});
+            } catch(e) { console.warn('Fallback bon cashflow failed:', e); }
+          }
         }
 
         // 2. TULIS KE BON (Sesuai JSON)
@@ -885,10 +893,25 @@
 
         if (isEditMode && selectedTx) {
           const updated = await pb.collection('cashflow').update(selectedTx.id, formDataObj);
-          await notifyLaravelApi('cashflow', 'updated', selectedTx.id);
+          const editOk = await notifyLaravelApi('cashflow', 'updated', selectedTx.id);
+          if (!editOk) {
+            try {
+              const oldBal = selectedTx.saldo_akhir??0; const newNom = Number(formData.nominal||0);
+              if (formData.account_1) await pb.collection('dropdown').update(formData.account_1, {number_1:newNom},{$autoCancel:false}).catch(()=>{});
+            } catch{ /* best effort */ }
+          }
         } else {
           const created = await pb.collection('cashflow').create(formDataObj);
-          await notifyLaravelApi('cashflow', 'created', created.id);
+          const cfOk = await notifyLaravelApi('cashflow', 'created', created.id);
+          if (!cfOk && formData.account_1) {
+            try {
+              const mut = (formData.mutasi||'').toLowerCase()==='masuk'?'in':'out';
+              const nom = Number(formData.nominal||0);
+              const acc = await pb.collection('dropdown').getOne(formData.account_1,{$autoCancel:false});
+              const newBal = mut==='in' ? (Number(acc.number_1)||0)+nom : (Number(acc.number_1)||0)-nom;
+              await pb.collection('dropdown').update(formData.account_1,{number_1:newBal},{$autoCancel:false});
+            } catch(e) { console.warn('Fallback cashflow create failed:', e); }
+          }
         }
         
         setModalType(null);
