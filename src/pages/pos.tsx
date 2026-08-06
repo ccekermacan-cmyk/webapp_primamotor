@@ -101,6 +101,7 @@ export default function MenuPage() {
   
   const [loading, setLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [processingMsg, setProcessingMsg] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
   const [selectedMenu, setSelectedMenu] = useState<string>('Overview');
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -1549,6 +1550,26 @@ export default function MenuPage() {
       // Hitung akumulasi parameter keuangan pembayaran kasir
       const totalDibayar = formBayar.cashflowList.reduce((sum, cf) => sum + (cf.nominal || 0), 0);
 
+      // === PRE-FLIGHT: ambil snapshot stok & saldo sebelum write ===
+      setProcessingMsg('Memverifikasi stok & saldo...');
+      const preflightStocks: Record<string, number> = {};
+      const preflightBalances: Record<string, number> = {};
+      try {
+        const stockPromises = cartWithTierPrice
+          .filter(item => item.id)
+          .map(item => pb.collection('produk').getOne(item.id, { $autoCancel: false }).then(p => ({ id: item.id, stok: Number(p.stok_3) || 0 })).catch(() => ({ id: item.id, stok: 0 })));
+        const balancePromises = formBayar.cashflowList
+          .filter(cf => cf.accountId && cf.nominal > 0)
+          .map(cf => pb.collection('dropdown').getOne(cf.accountId, { $autoCancel: false }).then(a => ({ id: cf.accountId, bal: Number(a.number_1) || 0 })).catch(() => ({ id: cf.accountId, bal: 0 })));
+        const [stocks, balances] = await Promise.all([Promise.all(stockPromises), Promise.all(balancePromises)]);
+        stocks.forEach(s => { preflightStocks[s.id] = s.stok; });
+        balances.forEach(b => { preflightBalances[b.id] = b.bal; });
+      } catch { /* pre-flight failure is non-fatal, fallbacks handle it */ }
+      setProcessingMsg('Menyimpan transaksi...');
+
+      // Track created records for potential rollback
+      const createdRecords: { type: string; id: string }[] = [];
+
       // Logika baru: Untuk pembelian, jika belum ada file → tetap 'belum' meski sudah dibayar penuh
       let statusBaru = totalDibayar >= grandTotal ? 'lunas' : 'belum';
 
@@ -1604,10 +1625,12 @@ export default function MenuPage() {
         menuFormData.append('id', menuRecordId);
         const menuRecord = await pb.collection('menu').create(menuFormData);
         menuRecordId = menuRecord.id;
+        createdRecords.push({ type: 'menu', id: menuRecordId });
         await notifyLaravelApi('menu', 'created', menuRecordId);
       } else {
         const menuRecord = await pb.collection('menu').create(menuFormData);
         menuRecordId = menuRecord.id;
+        createdRecords.push({ type: 'menu', id: menuRecordId });
         await notifyLaravelApi('menu', 'created', menuRecordId);
       }
 
@@ -1626,10 +1649,7 @@ export default function MenuPage() {
 
         const prodId = item.id || '';
         if (prodId && runningStock[prodId] === undefined) {
-          try {
-            const p = await pb.collection('produk').getOne(prodId, { $autoCancel: false });
-            runningStock[prodId] = Number(p.stok_3) || 0;
-          } catch { runningStock[prodId] = 0; }
+          runningStock[prodId] = preflightStocks[prodId] ?? 0;
         }
         const logQty = Math.max(1, Number(item.qty || 1));
         const qtyAwal = runningStock[prodId] ?? 0;
@@ -1651,9 +1671,10 @@ export default function MenuPage() {
           ref: menuRecordId || '',
           ref_baru: menuRecordId || '',
           normal: Number(normalValue || 0),
-          qty_awal: qtyAwal,
-          qty_akhir: qtyAkhir,
+          stok_awal: qtyAwal,
+          stok_akhir: qtyAkhir,
         });
+        createdRecords.push({ type: 'log_stock', id: logRecord.id });
         const stockApiOk = await notifyLaravelApi('log_stock', 'created', logRecord.id);
         if (!stockApiOk) {
           try {
@@ -1680,11 +1701,7 @@ export default function MenuPage() {
           const accountIdLama = selectedAccount ? selectedAccount.id_lama : '';
           const mutasiValue = (menuLower.includes('penjualan') || menuLower.includes('service')) ? 'in' : 'out';
           
-          let saldoAwal = 0;
-          try {
-            const acc = await pb.collection('dropdown').getOne(cf.accountId, { $autoCancel: false });
-            saldoAwal = Number(acc.number_1) || 0;
-          } catch { saldoAwal = 0; }
+          let saldoAwal = preflightBalances[cf.accountId] ?? 0;
           const saldoAkhir = mutasiValue === 'in' ? (saldoAwal + cf.nominal) : (saldoAwal - cf.nominal);
 
           const cfRecord = await pb.collection('cashflow').create({
@@ -1705,6 +1722,7 @@ export default function MenuPage() {
             saldo_awal: saldoAwal,
             saldo_akhir: saldoAkhir,
           });
+          createdRecords.push({ type: 'cashflow', id: cfRecord.id });
           const cfApiOk = await notifyLaravelApi('cashflow', 'created', cfRecord.id);
           if (!cfApiOk) {
             try {
@@ -1733,8 +1751,9 @@ export default function MenuPage() {
                   ref: '',
                   ref_baru: menuRecordId
                 },
-                { '$autoCancel': false } // Nonaktifkan auto-cancellation per request
+                { '$autoCancel': false }
               );
+              createdRecords.push({ type: 'ongkos', id: res.id });
               await notifyLaravelApi('ongkos', 'created', res.id);
               return res;
             });
@@ -1795,6 +1814,20 @@ export default function MenuPage() {
 
     } catch (err: any) {
       console.error(err);
+      // Rollback: hapus record yang sudah terlanjur dibuat
+      if (createdRecords.length > 0) {
+        setProcessingMsg('Rollback perubahan...');
+        for (const r of createdRecords.reverse()) {
+          try { await pb.collection(r.type).delete(r.id, { $autoCancel: false }); } catch {}
+        }
+        // Revert stok & saldo ke nilai pre-flight
+        for (const [prodId, stok] of Object.entries(preflightStocks)) {
+          try { await pb.collection('produk').update(prodId, { stok_3: stok }, { $autoCancel: false }); } catch {}
+        }
+        for (const [accId, bal] of Object.entries(preflightBalances)) {
+          try { await pb.collection('dropdown').update(accId, { number_1: bal }, { $autoCancel: false }); } catch {}
+        }
+      }
       setDialog({ show: true, title: 'Sinkronisasi Gagal', message: "Gagal menyimpan data entri: " + (err.message || err), type: 'alert' });
     } finally {
       setIsProcessing(false);
@@ -4002,8 +4035,8 @@ export default function MenuPage() {
                                       <p className="flex justify-between"><span className="font-bold">Modal:</span> <span className="font-black text-slate-800">Rp {item.price_2?.toLocaleString('id-ID')}</span></p>
                                       {('1' === userLevel || '2' === userLevel || '5' === userLevel) && (
                                         <>
-                                          <p className="flex justify-between col-span-2 border-t border-slate-200 pt-2 mt-1"><span className="font-bold">Qty Awal:</span> <span className="font-black text-emerald-700">{item.qty_awal ?? '-'}</span></p>
-                                          <p className="flex justify-between col-span-2"><span className="font-bold">Qty Akhir:</span> <span className="font-black text-emerald-700">{item.qty_akhir ?? '-'}</span></p>
+                                          <p className="flex justify-between col-span-2 border-t border-slate-200 pt-2 mt-1"><span className="font-bold">Stok Awal:</span> <span className="font-black text-emerald-700">{item.stok_awal ?? '-'}</span></p>
+                                          <p className="flex justify-between col-span-2"><span className="font-bold">Stok Akhir:</span> <span className="font-black text-emerald-700">{item.stok_akhir ?? '-'}</span></p>
                                         </>
                                       )}
                                       {(() => {
