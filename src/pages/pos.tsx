@@ -699,6 +699,7 @@ export default function MenuPage() {
           $autoCancel: false
         }).catch(() => []);
         for (const og of oldGajiList) {
+          await notifyLaravelApi('gaji', 'deleted', og.id);
           await pb.collection('gaji').delete(og.id).catch(() => null);
         }
 
@@ -708,6 +709,16 @@ export default function MenuPage() {
           $autoCancel: false
         }).catch(() => []);
         for (const ob of oldBonList) {
+          const obOk = await notifyLaravelApi('bon', 'deleted', ob.id);
+          if (!obOk && ob.user) {
+            try {
+              const u = await pb.collection('user').getOne(ob.user, { $autoCancel: false });
+              const bJ = String(ob.jenis||'').toLowerCase();
+              const bN = Number(ob.nominal_bon || ob.nominal || 0);
+              const newU = bJ==='in' ? Math.max(0,(Number(u.number)||0)-bN) : (Number(u.number)||0)+bN;
+              await pb.collection('user').update(ob.user,{number:newU},{$autoCancel:false});
+            } catch(e) { console.warn('Gaji bon revert fallback:',e); }
+          }
           await pb.collection('bon').delete(ob.id).catch(() => null);
         }
       } else {
@@ -2068,7 +2079,8 @@ export default function MenuPage() {
       }).catch(() => []);
 
       for (const g of gajiList) {
-        await notifyLaravelApi('gaji', 'deleted', g.id);
+        const gajiOk = await notifyLaravelApi('gaji', 'deleted', g.id);
+        if (!gajiOk) console.warn('Laravel gaji delete notify failed, record deleted from PB only');
         await pb.collection('gaji').delete(g.id).catch(() => null);
       }
 
@@ -2078,7 +2090,17 @@ export default function MenuPage() {
       }).catch(() => []);
 
       for (const b of bonList) {
-        await notifyLaravelApi('bon', 'deleted', b.id);
+        const bonOk = await notifyLaravelApi('bon', 'deleted', b.id);
+        // Fallback: revert employee/user bon balance if Laravel didn't fire
+        if (!bonOk && b.user) {
+          try {
+            const u = await pb.collection('user').getOne(b.user, { $autoCancel: false });
+            const bJenis = String(b.jenis || '').toLowerCase();
+            const bNom = Number(b.nominal_bon || b.nominal || 0);
+            const newNum = bJenis === 'in' ? Math.max(0, (Number(u.number)||0) - bNom) : (Number(u.number)||0) + bNom;
+            await pb.collection('user').update(b.user, { number: newNum }, { $autoCancel: false });
+          } catch(e) { console.warn('Fallback bon balance revert failed:', e); }
+        }
         await pb.collection('bon').delete(b.id).catch(() => null);
       }
     } catch (err) {
@@ -2086,7 +2108,7 @@ export default function MenuPage() {
     }
 
     // 6. Hapus entitas menu utama di PocketBase
-    await pb.collection('menu').delete(menuId).catch(() => null);
+    await pb.collection('menu').delete(menuId).catch(e => console.warn('Menu delete failed (may already be deleted by Laravel):', e.message));
   };
 
   const handleDeleteHistory = async (menuItem: HistoryMenu) => {
