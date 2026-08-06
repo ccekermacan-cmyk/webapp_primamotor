@@ -4372,17 +4372,28 @@ export default function MenuPage() {
                 {showDetailHistory?.status === 'lunas' && (
                   <>
                     <button
-                      onClick={() => !isDeleting && handlePrint()}
+                      onClick={() => !isDeleting && handleReactPrintFn && handleReactPrintFn()}
                       disabled={isDeleting}
-                      className={`h-14 min-w-[3.5rem] flex-1 rounded-2xl border transition-colors flex justify-center items-center group ${
-                        isDeleting ? 'bg-slate-100 text-slate-300 border-slate-200 cursor-not-allowed opacity-50' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-500 hover:text-white border-emerald-100'
+                      className={`h-14 min-w-[3.5rem] flex-1 rounded-2xl border transition-all flex justify-center items-center group ${
+                        isDeleting ? 'bg-slate-100 text-slate-300 border-slate-200 cursor-not-allowed opacity-50' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-600 hover:text-white border-emerald-200 hover:border-emerald-600'
                       }`}
-                      title={isDeleting ? 'Tunggu proses selesai' : 'Print'}
+                      title={isDeleting ? 'Tunggu proses selesai' : 'Cetak Struk'}
                     >
                       <Printer size={20} />
                     </button>
                     <button
-                      onClick={() => !isDeleting && alert('Fitur Share menyusul!')}
+                      onClick={() => {
+                        if (isDeleting) return;
+                        const detail = showDetailHistory;
+                        if (!detail) return;
+                        const items = historyItems.map(h => 
+                          `${getFullLabel(h.expand?.item_baru)} | Qty: ${h.qty} @ ${Number(h.price_1).toLocaleString('id-ID')} = ${Number(h.price_1 * h.qty).toLocaleString('id-ID')}`
+                        ).join('\n');
+                        const text = `*${detail.jenis?.toUpperCase()}*\nID: ${detail.ref || detail.id}\n${formatLocalDateTime(detail.created_at)}\nPelanggan: ${allPersons.find(p => p.id_lama === detail.person)?.text_1 || detail.person || 'Umum'}\nTotal: Rp ${Number(detail.total).toLocaleString('id-ID')}\nDibayar: Rp ${Number(detail.dibayar).toLocaleString('id-ID')}\n\nItems:\n${items}`;
+                        navigator.clipboard.writeText(text).then(() => {
+                          setDialog({ show: true, title: 'Berhasil', message: 'Detail transaksi disalin ke clipboard!', type: 'alert' });
+                        }).catch(() => alert('Gagal menyalin ke clipboard'));
+                      }}
                       disabled={isDeleting}
                       className={`h-14 min-w-[3.5rem] flex-1 rounded-2xl border transition-colors flex justify-center items-center group ${
                         isDeleting ? 'bg-slate-100 text-slate-300 border-slate-200 cursor-not-allowed opacity-50' : 'bg-amber-50 text-amber-600 hover:bg-amber-500 hover:text-white border-amber-100'

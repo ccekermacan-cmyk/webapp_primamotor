@@ -98,7 +98,7 @@ export default function Modal({
         className={`bg-white shadow-2xl transform scale-100 animate-in zoom-in-95 duration-200 overflow-hidden w-full ${
           isAlert 
             ? `p-6 max-w-sm rounded-[2.5rem] text-center space-y-4 border ${themeConfig.cardBorder}` 
-            : `${maxWidth} rounded-3xl border border-gray-100`
+            : `${maxWidth} rounded-2xl border border-slate-200`
         }`}
         onClick={(e) => e.stopPropagation()} 
       >
@@ -137,16 +137,16 @@ export default function Modal({
         /* RENDER MODE MODAL STANDARD                */
         /* ========================================= */
           <>
-            <div className="flex justify-between items-center p-6 border-b border-gray-100 bg-gradient-to-r from-gray-50 to-white">
-              <h3 className="text-xl font-bold text-gray-800 tracking-tight">{title}</h3>
+            <div className="flex justify-between items-center p-5 px-6 border-b border-slate-200 bg-gradient-to-r from-slate-50 via-white to-slate-50">
+              <h3 className="text-lg font-black text-slate-800 tracking-tight">{title}</h3>
               <button 
                 onClick={onClose} 
-                className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-all duration-200"
+                className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all duration-200"
               >
-                <X size={20} />
+                <X size={18} />
               </button>
             </div>
-            <div className="p-6 overflow-y-auto max-h-[80vh]">
+            <div className="p-5 overflow-y-auto max-h-[80vh]">
               {children}
             </div>
           </>
