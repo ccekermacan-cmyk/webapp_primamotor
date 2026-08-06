@@ -685,8 +685,8 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
                             key={kat}
                             className="px-4 py-2 text-sm font-bold text-gray-700 hover:bg-orange-50 cursor-pointer"
                             onClick={() => {
-                              setFilterKategori('all');
-                              setKategoriSearch('');
+                              setFilterKategori(kat);
+                              setKategoriSearch(kat);
                               setPage(1);
                               setIsKategoriDropdownOpen(false);
                             }}
@@ -785,8 +785,8 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
                             key={kat}
                             className="px-4 py-2 text-sm font-bold text-gray-700 hover:bg-orange-50 cursor-pointer"
                             onClick={() => {
-                              setFilterKategori('all');
-                              setKategoriSearch('');
+                              setFilterKategori(kat);
+                              setKategoriSearch(kat);
                               setPage(1);
                               setIsKategoriDropdownOpen(false);
                             }}
@@ -819,15 +819,16 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
           </div>
         </div>
 
+        {fetchError && (
+          <div className="p-4 bg-red-50 border border-red-200 rounded-2xl text-xs font-bold text-red-700 flex items-center gap-2 mx-6 mt-4">
+            <AlertTriangle size={16} className="text-red-500 shrink-0" />
+            {fetchError}
+            <button onClick={()=>{setFetchError('');fetchProducts();}} className="ml-auto px-3 py-1 bg-red-100 hover:bg-red-200 rounded-lg text-[10px] font-black uppercase">Retry</button>
+          </div>
+        )}
+
         {/* List Grid Produk */}
         <div className="flex-1 overflow-y-auto p-6" ref={scrollContainerRef}>
-          {fetchError && (
-            <div className="p-4 bg-red-50 border border-red-200 rounded-2xl text-xs font-bold text-red-700 flex items-center gap-2 mx-6 mt-4">
-              <AlertTriangle size={16} className="text-red-500 shrink-0" />
-              {fetchError}
-              <button onClick={()=>{setFetchError('');fetchProducts();}} className="ml-auto px-3 py-1 bg-red-100 hover:bg-red-200 rounded-lg text-[10px] font-black uppercase">Retry</button>
-            </div>
-          )}
           {loading ? (
             <div className="flex flex-col items-center justify-center h-full text-gray-400">
               <div className="w-12 h-12 border-4 border-orange-200 border-t-orange-500 rounded-full animate-spin"></div>
