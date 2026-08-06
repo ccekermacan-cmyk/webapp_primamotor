@@ -894,25 +894,25 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
                       </div>
 
                       {/* Tombol Aksi */}
-                      <div className="flex gap-1 justify-between items-center border-t border-gray-100 pt-2">
-                        <div className="flex gap-0.5 sm:gap-1">
-                          <button onClick={(e) => handleOpenEdit(prod, e)} className="flex items-center gap-0.5 sm:gap-1 px-2 py-1.5 text-[9px] sm:text-[10px] font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg">
-                            <Edit size={12} /> Edit
+                      <div className="flex gap-1 justify-between items-center border-t border-gray-100 pt-1.5">
+                        <div className="flex gap-0.5">
+                          <button onClick={(e) => handleOpenEdit(prod, e)} className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-500 bg-slate-100 hover:bg-slate-200" title="Edit">
+                            <Edit size={13} />
                           </button>
-                          <button onClick={(e) => handleOpenCopy(prod, e)} className="flex items-center gap-0.5 sm:gap-1 px-2 py-1.5 text-[9px] sm:text-[10px] font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg">
-                            <Copy size={12} /> Copy
+                          <button onClick={(e) => handleOpenCopy(prod, e)} className="w-7 h-7 flex items-center justify-center rounded-lg text-blue-500 bg-blue-50 hover:bg-blue-100" title="Copy">
+                            <Copy size={13} />
                           </button>
                           {userLevel === '1' && (
-                          <button onClick={(e) => handleOpenDelete(prod, e)} className="flex items-center gap-0.5 sm:gap-1 px-2 py-1.5 text-[9px] sm:text-[10px] font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded-lg">
-                            <Trash2 size={12} />
+                          <button onClick={(e) => handleOpenDelete(prod, e)} className="w-7 h-7 flex items-center justify-center rounded-lg text-red-500 bg-red-50 hover:bg-red-100" title="Hapus">
+                            <Trash2 size={13} />
                           </button>
                           )}
                         </div>
                         {userLevel === '1' && (
                         <div className="flex items-center gap-0.5" onClick={e => e.stopPropagation()}>
-                          <button onClick={async () => { try { await pb.collection('produk').update(prod.id, {stok_3: Math.max(0, prod.stok_3 - 1)}); fetchProducts(); } catch{ /* ignore */ }}} className="w-6 h-6 flex items-center justify-center rounded-md bg-red-50 hover:bg-red-100 text-red-600 text-xs font-black">−</button>
+                          <button onClick={async () => { try { await pb.collection('produk').update(prod.id, {stok_3: Math.max(0, prod.stok_3 - 1)}); fetchProducts(); } catch{} }} className="w-6 h-6 flex items-center justify-center rounded-md bg-red-50 hover:bg-red-100 text-red-600 text-xs font-black">−</button>
                           <span className="text-[9px] font-bold text-gray-400 w-4 text-center">{prod.stok_3}</span>
-                          <button onClick={async () => { try { await pb.collection('produk').update(prod.id, {stok_3: prod.stok_3 + 1}); fetchProducts(); } catch{ /* ignore */ }}} className="w-6 h-6 flex items-center justify-center rounded-md bg-green-50 hover:bg-green-100 text-green-600 text-xs font-black">+</button>
+                          <button onClick={async () => { try { await pb.collection('produk').update(prod.id, {stok_3: prod.stok_3 + 1}); fetchProducts(); } catch{} }} className="w-6 h-6 flex items-center justify-center rounded-md bg-green-50 hover:bg-green-100 text-green-600 text-xs font-black">+</button>
                         </div>
                         )}
                       </div>
