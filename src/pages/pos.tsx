@@ -4372,16 +4372,6 @@ export default function MenuPage() {
                 {showDetailHistory?.status === 'lunas' && (
                   <>
                     <button
-                      onClick={() => !isDeleting && handleReactPrintFn && handleReactPrintFn()}
-                      disabled={isDeleting}
-                      className={`h-14 min-w-[3.5rem] flex-1 rounded-2xl border transition-all flex justify-center items-center group ${
-                        isDeleting ? 'bg-slate-100 text-slate-300 border-slate-200 cursor-not-allowed opacity-50' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-600 hover:text-white border-emerald-200 hover:border-emerald-600'
-                      }`}
-                      title={isDeleting ? 'Tunggu proses selesai' : 'Cetak Struk'}
-                    >
-                      <Printer size={20} />
-                    </button>
-                    <button
                       onClick={() => {
                         if (isDeleting) return;
                         const detail = showDetailHistory;
