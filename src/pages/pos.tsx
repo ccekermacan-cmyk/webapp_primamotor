@@ -427,6 +427,7 @@ export default function MenuPage() {
 
   // Edit Session Tracker
   const [editSession, setEditSession] = useState<{ isEditing: boolean, menuId: string, createdAt: string } | null>(null);
+  const [editOldItems, setEditOldItems] = useState<{ item_baru: string; qty: number; boolean: string }[]>([]);
 
   const [formBayar, setFormBayar] = useState({
       personIdLama: 'umum1',
@@ -1478,7 +1479,9 @@ export default function MenuPage() {
         onConfirm: () => { 
           setCart([]); 
           setEditSession(null);
-          setExistingMenuFiles([]);
+          setEditOldItems([]);
+      setEditOldItems([]);
+      setExistingMenuFiles([]);
           setMenuFiles([]);
       setExistingMenuFiles([]);
           setSelectedMenu(menuName); 
@@ -1652,6 +1655,10 @@ export default function MenuPage() {
       }
 
       // ========== PENYIMPANAN LOG STOCK (ITEM BARU) ==========
+      const oldItemMap: Record<string, { qty: number; boolean: string }> = {};
+      if (isEditing && editOldItems.length > 0) {
+        editOldItems.forEach(o => { oldItemMap[o.item_baru] = o; });
+      }
       const runningStock: Record<string, number> = {};
       for (const item of cartWithTierPrice) {
         const booleanValue = (menuLower.includes('penjualan') || menuLower.includes('service')) ? 'out' : 'in';
@@ -1670,8 +1677,14 @@ export default function MenuPage() {
         }
         const logQty = Math.max(1, Number(item.qty || 1));
         const qtyAwal = runningStock[prodId] ?? 0;
-        const qtyAkhir = booleanValue === 'in' ? qtyAwal + logQty : Math.max(0, qtyAwal - logQty);
-        if (prodId) runningStock[prodId] = qtyAkhir;
+
+        // Smart edit: unchanged items don't trigger stock change
+        const wasUnchanged = isEditing && oldItemMap[prodId] &&
+          oldItemMap[prodId].qty === logQty &&
+          oldItemMap[prodId].boolean === booleanValue;
+
+        const qtyAkhir = wasUnchanged ? qtyAwal : (booleanValue === 'in' ? qtyAwal + logQty : Math.max(0, qtyAwal - logQty));
+        if (prodId && !wasUnchanged) runningStock[prodId] = qtyAkhir;
 
         const logRecord = await pb.collection('log_stock').create({
           id_lama: '',
@@ -1692,11 +1705,13 @@ export default function MenuPage() {
           stok_akhir: qtyAkhir,
         });
         createdRecords.push({ type: 'log_stock', id: logRecord.id });
-        const stockApiOk = await notifyLaravelApi('log_stock', 'created', logRecord.id);
-        if (!stockApiOk) {
-          try {
-            await pb.collection('produk').update(prodId, { stok_3: qtyAkhir }, { $autoCancel: false });
-          } catch (e) { console.warn('Fallback stock update failed:', e); }
+        if (!wasUnchanged) {
+          const stockApiOk = await notifyLaravelApi('log_stock', 'created', logRecord.id);
+          if (!stockApiOk) {
+            try {
+              await pb.collection('produk').update(prodId, { stok_3: qtyAkhir }, { $autoCancel: false });
+            } catch (e) { console.warn('Fallback stock update failed:', e); }
+          }
         }
       }
 
@@ -1970,6 +1985,7 @@ export default function MenuPage() {
           
           // Satu kali panggil set state sudah cukup
           setEditSession({ isEditing: true, menuId: menuItem.id, createdAt: menuItem.created_at });
+          setEditOldItems(logs.map((l: any) => ({ item_baru: l.item_baru, qty: l.qty, boolean: l.boolean })));
           setShowDetailHistory(null); // Tutup modal
           window.scrollTo(0, 0);
         } catch (e) { 
