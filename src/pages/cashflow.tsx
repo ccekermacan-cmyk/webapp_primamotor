@@ -1359,8 +1359,18 @@
             className="flex-1 overflow-y-auto p-4 md:p-6 space-y-8 scroll-smooth custom-scrollbar"
           >
             {loading ? (
-              <div className="flex justify-center py-20">
-                <div className="w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+              <div className="space-y-3 px-3 py-6">
+                {Array.from({length:5}).map((_,i)=>(
+                  <div key={i} className="bg-slate-50 border border-slate-100 rounded-2xl p-4 animate-pulse flex gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-slate-200" />
+                    <div className="flex-1 space-y-2">
+                      <div className="h-3 bg-slate-200 rounded w-1/3" />
+                      <div className="h-4 bg-slate-200 rounded w-2/3" />
+                      <div className="h-2 bg-slate-200 rounded w-1/4" />
+                    </div>
+                    <div className="w-20 h-6 bg-slate-200 rounded" />
+                  </div>
+                ))}
               </div>
             ) : Object.keys(groupedTransactions).length === 0 ? (
               <div className="text-center py-20 text-slate-400 font-bold bg-slate-50 rounded-3xl border-2 border-dashed border-slate-200">
@@ -1376,8 +1386,19 @@
                     <div className="h-[2px] flex-1 bg-slate-100" />
                   </div>
                   <div className="grid gap-3">
-                    {items.map((tx) => {
+                    {items.map((tx, idx) => {
                       const isMasuk = tx.mutasi.toLowerCase() === 'in';
+                      const isTransfer = (tx.jenis || '').toLowerCase() === 'transfer';
+                      const iconColor = isTransfer ? 'bg-indigo-50 text-indigo-600' : (isMasuk ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600');
+                      const textColor = isTransfer ? 'text-indigo-600' : (isMasuk ? 'text-emerald-600' : 'text-rose-600');
+                      // Running balance
+                      if (idx === 0) items[0]._runningBalance = (Number(tx.saldo_akhir) ?? Number(tx.saldo_awal) ?? 0);
+                      else {
+                        const prev = items[idx-1] as any;
+                        const prevBal = prev._runningBalance ?? 0;
+                        const change = isMasuk ? Number(tx.nominal) : -Number(tx.nominal);
+                        (tx as any)._runningBalance = prevBal + change;
+                      }
                       return (
                         <div
                           key={tx.id}
@@ -1390,13 +1411,11 @@
                           <div className="p-4 md:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                             <div className="flex items-start sm:items-center gap-3 shrink-0">
                               <div
-                                className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-sm ${
-                                  isMasuk
-                                    ? 'bg-emerald-50 text-emerald-600'
-                                    : 'bg-rose-50 text-rose-600'
-                                }`}
+                                className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-sm ${iconColor}`}
                               >
-                                {isMasuk ? (
+                                {isTransfer ? (
+                                  <RefreshCw size={18} strokeWidth={2.5} />
+                                ) : isMasuk ? (
                                   <ArrowDownRight strokeWidth={2.5} />
                                 ) : (
                                   <ArrowUpRight strokeWidth={2.5} />
@@ -1435,15 +1454,13 @@
                             </div>
                             <div className="flex items-center justify-end shrink-0">
                               <p
-                                className={`text-base md:text-lg font-black tracking-tight ${
-                                  isMasuk ? 'text-emerald-600' : 'text-rose-600'
-                                }`}
+                                className={`text-base md:text-lg font-black tracking-tight ${textColor}`}
                               >
-                                {isMasuk ? '+' : '-'} {formatRupiah(tx.nominal)}
+                                {isTransfer ? '↔' : isMasuk ? '+' : '-'} {formatRupiah(tx.nominal)}
                               </p>
                             </div>
                           </div>
-                          <div className="px-4 pb-3 md:px-5 md:pb-4 border-t border-slate-100 bg-slate-50/50 flex justify-end">
+                          <div className={`px-4 pb-3 md:px-5 md:pb-4 border-t border-slate-100 flex justify-between items-center ${isTransfer ? 'bg-indigo-50/30' : 'bg-slate-50/50'}`}>
                             <span className="text-[9px] font-mono text-slate-400">
                               {tx.created_at
                                 ? new Date(tx.created_at).toLocaleTimeString(
@@ -1451,7 +1468,15 @@
                                     { hour: '2-digit', minute: '2-digit' }
                                   )
                                 : '-'}
+                              {isTransfer && (
+                                <span className="ml-2 text-indigo-400 font-bold uppercase">TRANSFER</span>
+                              )}
                             </span>
+                            {(tx as any)._runningBalance !== undefined && (
+                              <span className={`text-[9px] font-bold ${(tx as any)._runningBalance < 0 ? 'text-rose-500' : 'text-emerald-600'}`}>
+                                Saldo: {formatRupiah((tx as any)._runningBalance)}
+                              </span>
+                            )}
                           </div>
                         </div>
                       );
