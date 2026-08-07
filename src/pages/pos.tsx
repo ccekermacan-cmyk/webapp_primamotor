@@ -1543,6 +1543,14 @@ export default function MenuPage() {
   // --- 6. MULTI-COLLECTION STORING TO POCKETBASE ---
   const executeStoringData = async () => {
     setIsProcessing(true);
+    setProcessingMsg('Menyimpan...');
+    // Watchdog: auto-recover jika proses >60 detik (stall/macet)
+    const watchdog = setTimeout(() => {
+      console.warn('Watchdog: executeStoringData stalled >60s, force re-enabling UI');
+      setIsProcessing(false);
+      setProcessingMsg('');
+      setDialog({ show: true, title: 'Timeout', message: 'Proses penyimpanan terlalu lama (>60 detik). Silakan coba lagi atau refresh halaman.', type: 'alert' });
+    }, 60000);
     try {
       const isEditing = editSession?.isEditing && editSession?.menuId;
       
@@ -1858,6 +1866,7 @@ export default function MenuPage() {
       }
       setDialog({ show: true, title: 'Sinkronisasi Gagal', message: "Gagal menyimpan data entri: " + (err.message || err), type: 'alert' });
     } finally {
+      clearTimeout(watchdog);
       setIsProcessing(false);
       setProcessingMsg('');
     }
