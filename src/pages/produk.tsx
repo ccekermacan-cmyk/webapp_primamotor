@@ -60,7 +60,6 @@ export default function Produk() {
   // ========== SCROLL HEADER & FLOATING BUTTON ==========
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [showHeader, setShowHeader] = useState(true);
-  const [lastScrollTop, setLastScrollTop] = useState(0);
   const [showFloatingAdd, setShowFloatingAdd] = useState(false);
 
   // Modal States
@@ -242,29 +241,24 @@ export default function Produk() {
     fetchKategoriOptions();
   }, []);
 
-  // Deteksi scroll untuk menyembunyikan header dan menampilkan floating button
   useEffect(() => {
     const container = scrollContainerRef.current;
     if (!container) return;
-
+    let prevScrollTop = 0;
     const handleScroll = () => {
       const scrollTop = container.scrollTop;
-      // Jika scroll ke bawah > 50px, sembunyikan header
-      if (scrollTop > 50 && scrollTop > lastScrollTop) {
+      if (scrollTop > 50 && scrollTop > prevScrollTop) {
         setShowHeader(false);
         setShowFloatingAdd(true);
-      } 
-      // Jika scroll ke atas (mendekati top), tampilkan header
-      else if (scrollTop < 30) {
+      } else if (scrollTop < 30) {
         setShowHeader(true);
         setShowFloatingAdd(false);
       }
-      setLastScrollTop(scrollTop);
+      prevScrollTop = scrollTop;
     };
-
     container.addEventListener('scroll', handleScroll);
     return () => container.removeEventListener('scroll', handleScroll);
-  }, [lastScrollTop]);
+  }, []);
 
 // Effect untuk membuat preview URLs dari productFiles
 useEffect(() => {

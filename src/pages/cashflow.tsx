@@ -61,6 +61,7 @@
 
     // ========== SCROLL BEHAVIOR ==========
     const scrollContainerRef = useRef<HTMLDivElement>(null);
+    const scrollTempoRef = useRef<HTMLDivElement>(null);
     const [showHeader, setShowHeader] = useState(true);
     const [showTabs, setShowTabs] = useState(true);
     const [lastScrollTop, setLastScrollTop] = useState(0);
@@ -678,36 +679,24 @@
     useEffect(() => {
       const containerHistory = scrollContainerRef.current;
       const containerAccounts = scrollContainerAccountsRef.current;
+      const containerTempo = scrollTempoRef.current;
 
       const handleScroll = () => {
-        const activeContainer = activeTab === 'history' ? containerHistory : containerAccounts;
+        const activeContainer = activeTab === 'tempo' ? containerTempo : (activeTab === 'history' ? containerHistory : containerAccounts);
         if (!activeContainer) return;
-
         const scrollTop = activeContainer.scrollTop;
-
-        if (scrollTop > 20) {
-          setShowHeader(false);
-          setShowTabs(false);
-        } else {
-          setShowHeader(true);
-          setShowTabs(true);
-        }
+        if (scrollTop > 20) { setShowHeader(false); setShowTabs(false); }
+        else { setShowHeader(true); setShowTabs(true); }
       };
 
-      if (containerHistory) {
-        containerHistory.addEventListener('scroll', handleScroll);
-      }
-      if (containerAccounts) {
-        containerAccounts.addEventListener('scroll', handleScroll);
-      }
+      if (containerHistory) containerHistory.addEventListener('scroll', handleScroll);
+      if (containerAccounts) containerAccounts.addEventListener('scroll', handleScroll);
+      if (containerTempo) containerTempo.addEventListener('scroll', handleScroll);
 
       return () => {
-        if (containerHistory) {
-          containerHistory.removeEventListener('scroll', handleScroll);
-        }
-        if (containerAccounts) {
-          containerAccounts.removeEventListener('scroll', handleScroll);
-        }
+        if (containerHistory) containerHistory.removeEventListener('scroll', handleScroll);
+        if (containerAccounts) containerAccounts.removeEventListener('scroll', handleScroll);
+        if (containerTempo) containerTempo.removeEventListener('scroll', handleScroll);
       };
     }, [activeTab]);
 
@@ -1841,7 +1830,7 @@
             </div>
 
             {/* MAIN SCROLLABLE CONTENT BODY (BANNERS & LIST ITEM UNIFIED SCROLL) */}
-            <div className="flex-1 overflow-y-auto p-3.5 sm:p-5 md:p-6 space-y-5 sm:space-y-6 custom-scrollbar">
+            <div ref={scrollTempoRef} className="flex-1 overflow-y-auto p-3.5 sm:p-5 md:p-6 space-y-5 sm:space-y-6 custom-scrollbar">
               {/* RINGKASAN STATISTIK METRIK INTERAKTIF (3 CARDS METRIC - KLIK UNTUK FILTER) */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3.5 pb-2 border-b border-slate-100">
                 {/* Card 1: Overdue */}
