@@ -583,7 +583,7 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
     <div className={`h-full flex flex-col transition-all duration-300 ${showHeader ? 'p-4 sm:p-6 lg:p-8 pt-16 md:pt-8' : 'px-4 pb-4 pt-16 md:pt-0'}`}>
       {/* Header Halaman - akan hilang saat scroll ke bawah */}
       <div 
-        className={`flex flex-col sm:flex-row sm:justify-between sm:items-end gap-2 sm:gap-0 mb-3 sm:mb-8 shrink-0 transition-all duration-300 ${
+        className={`flex flex-col sm:flex-row sm:justify-between sm:items-end gap-2 sm:gap-0 mb-3 sm:mb-8 transition-all duration-300 ${
           showHeader ? '' : 'h-0 overflow-hidden mb-0 opacity-0'
         }`}
       >
