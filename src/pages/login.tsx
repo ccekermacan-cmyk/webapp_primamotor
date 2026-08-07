@@ -16,8 +16,9 @@ export default function Login({ setAuth }: { setAuth: (status: boolean) => void 
     setLoading(true);
 
     try {
-      // 1. Autentikasi dengan PocketBase
-      const authData = await pb.collection('user').authWithPassword(identity, password);
+      // Normalize identity to lowercase (case-insensitive username)
+      const normalizedIdentity = identity.toLowerCase().trim();
+      const authData = await pb.collection('user').authWithPassword(normalizedIdentity, password);
       
       // 2. Cek apakah record user ada
       if (!authData.record) throw new Error("User tidak ditemukan");
