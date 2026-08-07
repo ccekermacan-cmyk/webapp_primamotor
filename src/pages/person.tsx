@@ -476,7 +476,7 @@ export default function PeoplePage() {
               }
             }}
             
-            className="flex items-center justify-center gap-2 bg-cyan-600 hover:bg-cyan-500 text-white px-6 py-3.5 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-cyan-200 transition-all self-start md:self-auto transform hover:-translate-y-0.5"
+            className="hidden sm:flex items-center justify-center gap-2 bg-cyan-600 hover:bg-cyan-500 text-white px-6 py-3.5 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-cyan-200 transition-all self-start md:self-auto transform hover:-translate-y-0.5"
           >
             <Plus size={16} strokeWidth={3} /> 
             {activeTab === 'user' ? 'Add Karyawan' : 
@@ -1502,6 +1502,23 @@ export default function PeoplePage() {
           </div>
         </div>
       )}
+      {/* Floating Add Button (mobile only) */}
+      <button
+        onClick={() => { 
+          if (activeTab === 'user') {
+            setEditUserData({ name:'',username:'',email:'',phone:'',password:'',level:2,status:'active',link_image:'',number:0,emailVisibility:true,verified:true }); 
+            setIsEditUserModalOpen(true);
+          } else {
+            const defaultJenis = filterJenis === 'supplier' ? 'supplier' : (filterJenis === 'customer' ? 'customer' : 'customer');
+            const defaultText9 = activeTab === 'person' && defaultJenis === 'customer' ? 'pelanggan' : (activeTab === 'person' && defaultJenis === 'supplier' ? 'supplier' : 'pelanggan');
+            setCurrentPerson({ jenis: defaultJenis, text_9: defaultText9, visibilitas: '1,2,3,4,5,6,7' }); 
+            setIsModalOpen(true);
+          }
+        }}
+        className="sm:hidden fixed bottom-6 right-6 z-50 w-14 h-14 bg-cyan-600 text-white rounded-full shadow-2xl shadow-cyan-500/40 flex items-center justify-center transition-all hover:scale-110 active:scale-95"
+      >
+        <Plus size={26} strokeWidth={2.5} />
+      </button>
     </div>
   );
 }
