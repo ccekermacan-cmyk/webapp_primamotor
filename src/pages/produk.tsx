@@ -49,7 +49,7 @@ export default function Produk() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalItems, setTotalItems] = useState(0);
-  const perPage = 12; 
+  const [perPage, setPerPage] = useState(12);
   const [searchInput, setSearchInput] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [filterKategori, setFilterKategori] = useState<string>('all');
@@ -239,6 +239,18 @@ export default function Produk() {
       } catch (e) { console.error(e); }
     };
     fetchKategoriOptions();
+  }, []);
+
+  // Dynamic perPage based on screen width (3 rows × columns)
+  useEffect(() => {
+    const calc = () => {
+      const w = window.innerWidth;
+      const cols = w < 640 ? 2 : w < 768 ? 3 : w < 1024 ? 4 : w < 1280 ? 5 : 6;
+      setPerPage(cols * 4);
+    };
+    calc();
+    window.addEventListener('resize', calc);
+    return () => window.removeEventListener('resize', calc);
   }, []);
 
   useEffect(() => {
