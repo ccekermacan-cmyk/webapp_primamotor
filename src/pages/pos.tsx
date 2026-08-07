@@ -1835,14 +1835,10 @@ export default function MenuPage() {
       if (createdRecords.length > 0) {
         setProcessingMsg('Rollback perubahan...');
         for (const r of createdRecords.reverse()) {
-          try { await pb.collection(r.type).delete(r.id, { $autoCancel: false }); } catch {}
-        }
-        // Revert stok & saldo ke nilai pre-flight
-        for (const [prodId, stok] of Object.entries(preflightStocks)) {
-          try { await pb.collection('produk').update(prodId, { stok_3: stok }, { $autoCancel: false }); } catch {}
-        }
-        for (const [accId, bal] of Object.entries(preflightBalances)) {
-          try { await pb.collection('dropdown').update(accId, { number_1: bal }, { $autoCancel: false }); } catch {}
+          try {
+            await pb.collection(r.type).delete(r.id, { $autoCancel: false });
+            await notifyLaravelApi(r.type, 'deleted', r.id);
+          } catch {}
         }
       }
       setDialog({ show: true, title: 'Sinkronisasi Gagal', message: "Gagal menyimpan data entri: " + (err.message || err), type: 'alert' });
