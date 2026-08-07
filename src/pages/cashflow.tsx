@@ -804,6 +804,31 @@
         showAlert("Validasi Gagal", "Akun Tujuan wajib dipilih untuk transaksi Transfer!");
         return;
       }
+      // Validasi saldo cukup untuk transfer & pengeluaran
+      if ((formData.jenis?.toLowerCase() === 'transfer' || formData.mutasi?.toLowerCase() === 'keluar') && formData.account_1) {
+        try {
+          const acc = await pb.collection('dropdown').getOne(formData.account_1, {$autoCancel:false});
+          if ((Number(acc.number_1)||0) < Number(formData.nominal||0)) {
+            showAlert("Validasi Gagal", `Saldo tidak cukup! Saldo saat ini: Rp ${Number(acc.number_1).toLocaleString('id-ID')}, dibutuhkan: Rp ${Number(formData.nominal).toLocaleString('id-ID')}`);
+            return;
+          }
+        } catch {}
+      }
+
+      // Duplicate check 30 detik
+      try {
+        const recent = await pb.collection('cashflow').getList(1,1,{
+          filter: pb.filter('created_at >= {:cutoff}',{cutoff:new Date(Date.now()-30000).toISOString()}),
+          sort:'-created_at',$autoCancel:false
+        });
+        if (recent.items.length > 0) {
+          const last = recent.items[0];
+          if (last.nominal === Number(formData.nominal) && last.jenis === formData.jenis && last.account_1 === formData.account_1) {
+            showAlert('Potensi Duplikat', 'Transaksi sama tercatat <30 detik lalu. Klik simpan lagi jika yakin.');
+            return;
+          }
+        }
+      } catch {}
 
       setIsProcessing(true);
       try {
@@ -950,10 +975,38 @@
       }
     };
 
-    const submitDelete = async () => {
+    const exportCsv = () => {
+    if (!transactions.length) return;
+    const rows = transactions.map(tx => [
+      tx.id, formatLocalDateTime(tx.created_at), tx.jenis, tx.mutasi, tx.nominal,
+      getAccountName(tx.account_1), getAccountName(tx.account_2), tx.note, tx.operator
+    ].join(';'));
+    const csv = 'ID;Waktu;Jenis;Mutasi;Nominal;Akun1;Akun2;Keterangan;Operator\n' + rows.join('\n');
+    const blob = new Blob(['\uFEFF'+csv], {type:'text/csv;charset=utf-8'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href=url; a.download=`cashflow-${new Date().toISOString().split('T')[0]}.csv`; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const submitDelete = async () => {
       if (!selectedTx) return;
       setIsProcessing(true);
       try {
+        // Revert account balance manually (fallback)
+        if (selectedTx.account_1 && selectedTx.nominal) {
+          try {
+            const isOut = String(selectedTx.mutasi).toLowerCase() === 'out';
+            const acc = await pb.collection('dropdown').getOne(selectedTx.account_1,{$autoCancel:false});
+            const newBal = isOut ? (Number(acc.number_1)||0)+Number(selectedTx.nominal) : (Number(acc.number_1)||0)-Number(selectedTx.nominal);
+            await pb.collection('dropdown').update(selectedTx.account_1,{number_1:newBal},{$autoCancel:false});
+            // Transfer: revert account_2 too
+            if (String(selectedTx.jenis||'').toLowerCase()==='transfer' && selectedTx.account_2) {
+              const acc2 = await pb.collection('dropdown').getOne(selectedTx.account_2,{$autoCancel:false});
+              const newBal2 = isOut ? (Number(acc2.number_1)||0)-Number(selectedTx.nominal) : (Number(acc2.number_1)||0)+Number(selectedTx.nominal);
+              await pb.collection('dropdown').update(selectedTx.account_2,{number_1:newBal2},{$autoCancel:false});
+            }
+          } catch {}
+        }
         await pb.collection('cashflow').delete(selectedTx.id);
         await notifyLaravelApi('cashflow', 'deleted', selectedTx.id);
         setModalType(null);
@@ -1184,6 +1237,7 @@
               )}
 
               {activeFilter === 'tanggal' && (
+                <>
                 <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 h-10 w-full shadow-sm flex-nowrap overflow-x-auto no-scrollbar">
                   <Calendar size={16} className="text-emerald-500 shrink-0" />
                   <div className="flex items-center gap-2 flex-1 justify-center shrink-0">
@@ -1206,6 +1260,18 @@
                     <X size={14} strokeWidth={2.5} />
                   </button>
                 </div>
+                <div className="flex gap-1 text-[9px] font-bold">
+                  {[
+                    {label:'Hari Ini', get:()=>{const d=new Date();return d.toISOString().split('T')[0];}},
+                    {label:'7 Hari', get:()=>{const d=new Date();d.setDate(d.getDate()-7);return d.toISOString().split('T')[0];}},
+                    {label:'30 Hari', get:()=>{const d=new Date();d.setDate(d.getDate()-30);return d.toISOString().split('T')[0];}},
+                  ].map(p=>(
+                    <button key={p.label}
+                      onClick={()=>{setDateRange({start:p.get(),end:new Date().toISOString().split('T')[0]});setPage(1);}}
+                      className="px-2 py-0.5 bg-slate-100 hover:bg-emerald-100 hover:text-emerald-700 rounded-md text-slate-500 transition-colors">{p.label}</button>
+                  ))}
+                </div>
+                </>
               )}
 
               {activeFilter === 'search' && (
