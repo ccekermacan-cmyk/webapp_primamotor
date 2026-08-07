@@ -901,6 +901,15 @@
               const oldSaldoAwal = mut === 'in' ? oldSaldo - oldNom : oldSaldo + oldNom;
               const corrected = mut === 'in' ? oldSaldoAwal + newNom : oldSaldoAwal - newNom;
               if (formData.account_1) await pb.collection('dropdown').update(formData.account_1, {number_1:corrected},{$autoCancel:false}).catch(()=>{});
+              // Transfer: also fix destination account
+              if (formData.jenis?.toLowerCase() === 'transfer' && formData.account_2 && selectedTx.account_2) {
+                try {
+                  const oldAcc2Bal = Number(selectedTx.saldo_akhir || 0);
+                  const oldAcc2Awal = oldAcc2Bal - oldNom;
+                  const acc2 = await pb.collection('dropdown').getOne(formData.account_2,{$autoCancel:false});
+                  await pb.collection('dropdown').update(formData.account_2,{number_1: (Number(acc2.number_1)||0) - oldNom + newNom},{$autoCancel:false}).catch(()=>{});
+                } catch{}
+              }
             } catch{ /* best effort */ }
           }
         } else {
@@ -913,6 +922,12 @@
               const acc = await pb.collection('dropdown').getOne(formData.account_1,{$autoCancel:false});
               const newBal = mut==='in' ? (Number(acc.number_1)||0)+nom : (Number(acc.number_1)||0)-nom;
               await pb.collection('dropdown').update(formData.account_1,{number_1:newBal},{$autoCancel:false});
+              // Transfer: destination account gets the money
+              if (formData.jenis?.toLowerCase() === 'transfer' && formData.account_2) {
+                const acc2 = await pb.collection('dropdown').getOne(formData.account_2,{$autoCancel:false});
+                const newBal2 = mut==='in' ? (Number(acc2.number_1)||0)-nom : (Number(acc2.number_1)||0)+nom;
+                await pb.collection('dropdown').update(formData.account_2,{number_1:newBal2},{$autoCancel:false});
+              }
             } catch(e) { console.warn('Fallback cashflow create failed:', e); }
           }
         }
