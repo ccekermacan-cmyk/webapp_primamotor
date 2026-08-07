@@ -1952,8 +1952,18 @@
                 </div>
               </div>
               {loadingTempo ? (
-                <div className="flex justify-center py-20">
-                  <div className="w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+                <div className="space-y-3 px-3 py-6">
+                  {Array.from({length:4}).map((_,i)=>(
+                    <div key={i} className="bg-slate-50 border border-slate-100 rounded-2xl p-4 animate-pulse flex gap-3">
+                      <div className="w-1.5 rounded-full bg-slate-200" />
+                      <div className="flex-1 space-y-2">
+                        <div className="h-3 bg-slate-200 rounded w-1/3" />
+                        <div className="h-4 bg-slate-200 rounded w-2/3" />
+                        <div className="h-2 bg-slate-200 rounded w-1/2" />
+                      </div>
+                      <div className="w-20 h-6 bg-slate-200 rounded" />
+                    </div>
+                  ))}
                 </div>
               ) : totalFilteredItems === 0 ? (
                 <div className="text-center py-16 sm:py-20 text-slate-400 font-bold bg-slate-50 rounded-3xl border-2 border-dashed border-slate-200 px-4">
@@ -2053,20 +2063,18 @@
                                 </div>
                               </div>
 
-                              {/* Right Column: Sisa Tagihan & Total */}
-                              <div className="flex md:flex-col items-center md:items-end justify-between md:justify-center border-t md:border-t-0 md:border-l border-slate-100 pt-2.5 md:pt-0 md:pl-5 shrink-0 text-right gap-1.5 sm:gap-2">
-                                <div className="text-left md:text-right">
-                                  <p className="text-[9px] sm:text-[10px] font-black text-rose-500 uppercase tracking-widest">Sisa Tagihan Belum Lunas</p>
-                                  <p className="text-base sm:text-xl font-black text-rose-600 tracking-tight">
+                              {/* Right Column: Sisa Tagihan */}
+                              <div className="flex items-center justify-between gap-3 border-t border-slate-100 pt-2.5 md:border-t-0 md:border-l md:flex-col md:items-end md:justify-center md:pt-0 md:pl-4 shrink-0">
+                                <div className="text-left md:text-right min-w-0">
+                                  <p className="text-[9px] sm:text-[10px] font-black text-rose-500 uppercase tracking-wider truncate">Sisa Belum Lunas</p>
+                                  <p className="text-sm sm:text-lg font-black text-rose-600 tracking-tight">
                                     {formatRupiah(sisa)}
                                   </p>
+                                  <p className="text-[9px] font-bold text-slate-400">dari {formatRupiah(total)}</p>
                                 </div>
-                                <div className="text-right">
-                                  <p className="text-[10px] font-bold text-slate-400 hidden sm:block">Total: <strong className="text-slate-700">{formatRupiah(total)}</strong></p>
-                                  <span className="inline-flex items-center gap-1 text-[10px] sm:text-[11px] font-black text-blue-600 group-hover:text-blue-700 uppercase tracking-wider bg-blue-50 sm:bg-transparent px-2 py-1 sm:p-0 rounded-lg sm:rounded-none">
-                                    LIHAT NOTA <ArrowRight size={12} className="sm:w-3.5 sm:h-3.5" />
-                                  </span>
-                                </div>
+                                <span className="shrink-0 inline-flex items-center gap-1 text-[10px] font-black text-blue-600 group-hover:text-blue-700 uppercase tracking-wider bg-blue-50 px-2 py-1 rounded-lg">
+                                  LIHAT <ArrowRight size={12} />
+                                </span>
                               </div>
                             </div>
                           );
