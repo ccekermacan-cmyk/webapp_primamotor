@@ -1063,7 +1063,7 @@ export default function PeoplePage() {
       {/* MODAL DETAIL (TABS & DINAMIS) */}
       {isUserDetailModalOpen && selectedUserForDetail && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm transition-opacity duration-300">
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl transform scale-100 animate-in zoom-in-95 duration-200 overflow-hidden border border-gray-100 flex flex-col max-h-[90vh]">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl transform scale-100 animate-in zoom-in-95 duration-200 overflow-hidden border border-slate-200 flex flex-col max-h-[90vh]">
             
             {/* === HEADER DINAMIS === */}
             {(() => {
