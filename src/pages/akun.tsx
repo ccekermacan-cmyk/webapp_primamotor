@@ -890,7 +890,10 @@ export default function AkunPage() {
               <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex items-center justify-between">
                 <div>
                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Penerima Slip Gaji</p>
-                  <p className="font-extrabold text-slate-800 text-sm sm:text-base">{userData?.name || selectedGaji.person} <span className="text-slate-500 text-xs font-semibold">(@{selectedGaji.person})</span></p>
+                  <p className="font-extrabold text-slate-800 text-sm sm:text-base">
+                    {selectedGaji.person}
+                    {selectedGaji.note && <span className="text-slate-400 text-xs font-normal ml-1">— {selectedGaji.note}</span>}
+                  </p>
                 </div>
                 <span className="px-3 py-1 bg-emerald-100 text-emerald-800 text-xs font-black uppercase rounded-xl border border-emerald-200">
                   Resmi / Valid
