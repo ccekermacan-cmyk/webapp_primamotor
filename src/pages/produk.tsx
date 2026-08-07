@@ -586,7 +586,7 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
             setProductFiles([]);
             setModalType('form');
           }}
-          className="bg-gradient-to-r from-orange-500 to-amber-500 text-white px-4 py-2 sm:px-6 sm:py-3 rounded-2xl font-bold shadow-lg shadow-orange-500/30 hover:-translate-y-1 transition-all text-sm sm:text-base"
+          className="hidden sm:inline-flex bg-gradient-to-r from-orange-500 to-amber-500 text-white px-4 py-2 sm:px-6 sm:py-3 rounded-2xl font-bold shadow-lg shadow-orange-500/30 hover:-translate-y-1 transition-all text-sm sm:text-base"
         >
           + Produk Baru
         </button>
@@ -1002,20 +1002,18 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
           )}
         </div>
 
-        {/* Floating Add Button (muncul saat header hilang) */}
-        {showFloatingAdd && (
-          <button 
-            onClick={() => {
-              setSelectedProduct(null);
-              setFormData({ id_lama: generateRawRandomId() });
-              setProductFiles([]);
-              setModalType('form');
-            }}
-            className="fixed bottom-27 right-10 z-50 w-15 h-15 bg-gradient-to-r from-orange-500 to-amber-500 text-white rounded-full shadow-2xl shadow-orange-500/50 flex items-center justify-center transition-all hover:scale-110 active:scale-95"
-          >
-            <Plus size={28} strokeWidth={2.5} />
-          </button>
-        )}
+        {/* Floating Add Button (selalu tampil di mobile, di desktop hanya saat scroll) */}
+        <button 
+          onClick={() => {
+            setSelectedProduct(null);
+            setFormData({ id_lama: generateRawRandomId() });
+            setProductFiles([]);
+            setModalType('form');
+          }}
+          className={`fixed bottom-20 right-4 z-40 w-14 h-14 bg-gradient-to-r from-orange-500 to-amber-500 text-white rounded-full shadow-2xl shadow-orange-500/40 flex items-center justify-center transition-all hover:scale-110 active:scale-95 sm:hidden ${showFloatingAdd ? 'sm:flex' : 'sm:hidden'}`}
+        >
+          <Plus size={26} strokeWidth={2.5} />
+        </button>
 
         {/* Pagination */}
         <div className="sticky bottom-0 z-30 p-2.5 sm:p-4 border-t border-gray-100 bg-white flex justify-between items-center shrink-0 rounded-b-3xl shadow-[0_-8px_20px_-5px_rgba(0,0,0,0.08)]">
