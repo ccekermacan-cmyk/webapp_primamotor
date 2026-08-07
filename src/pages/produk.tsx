@@ -572,9 +572,8 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
       {/* Header Halaman - akan hilang saat scroll ke bawah */}
       <div 
         className={`flex flex-col sm:flex-row sm:justify-between sm:items-end gap-3 sm:gap-0 mb-6 sm:mb-8 shrink-0 transition-all duration-300 ${
-          showHeader ? 'opacity-100 max-h-40' : 'opacity-0 max-h-0 pointer-events-none mb-0'
+          showHeader ? '' : 'hidden'
         }`}
-        style={{ overflow: 'hidden' }}
       >
         <div>
           <h2 className="text-2xl sm:text-3xl font-extrabold text-gray-800 tracking-tight">Manajemen Produk</h2>

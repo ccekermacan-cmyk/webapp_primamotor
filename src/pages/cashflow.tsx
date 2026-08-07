@@ -1023,8 +1023,8 @@
           <div
             className={`flex flex-col md:flex-row md:justify-between md:items-end gap-4 mb-8 shrink-0 transition-all duration-300 ${
               showHeader
-                ? 'opacity-100 max-h-40'
-                : 'opacity-0 max-h-0 pointer-events-none mb-0 overflow-hidden'
+                ? ''
+                : 'hidden'
             }`}
           >
             <div>
@@ -1084,7 +1084,7 @@
           {/* ============================================================ */}
           <div
             className={`flex p-1.5 bg-slate-200/60 rounded-2xl mb-6 w-full sm:w-fit shrink-0 transition-all duration-300 ${
-              showTabs ? 'opacity-100 max-h-20' : 'opacity-0 max-h-0 pointer-events-none mb-0 overflow-hidden'
+              showTabs ? '' : 'hidden'
             }`}
           >
             <button
