@@ -571,15 +571,15 @@ export default function PeoplePage() {
                   {activeTab === 'user' ? (
                     <>
                       <th className="py-4 px-4 sm:py-5 sm:px-6">Nama / Username</th>
-                      <th className="py-4 px-4 sm:py-5 sm:px-6">Level</th>
-                      <th className="py-4 px-4 sm:py-5 sm:px-6">Status Akun</th>
+                      <th className="py-4 px-4 sm:py-5 sm:px-6 hidden sm:table-cell">Level</th>
+                      <th className="py-4 px-4 sm:py-5 sm:px-6 hidden sm:table-cell">Status Akun</th>
                       <th className="py-4 px-4 sm:py-5 sm:px-6 text-center">Action</th>
                     </>
                   ) : (
                     <>
                       <th className="py-4 px-4 sm:py-5 sm:px-6">People</th>
-                      <th className="py-4 px-4 sm:py-5 sm:px-6">Status Type</th>
-                      <th className="py-4 px-4 sm:py-5 sm:px-6">Reference ID</th>
+                      <th className="py-4 px-4 sm:py-5 sm:px-6 hidden sm:table-cell">Status Type</th>
+                      <th className="py-4 px-4 sm:py-5 sm:px-6 hidden sm:table-cell">Reference ID</th>
                       <th className="py-4 px-4 sm:py-5 sm:px-6 text-center">Action</th>
                     </>
                   )}
@@ -609,13 +609,13 @@ export default function PeoplePage() {
                             </div>
                           </div>
                         </td>
-                        <td className="py-4 px-6 whitespace-nowrap">
+                        <td className="py-4 px-6 whitespace-nowrap hidden sm:table-cell">
                           <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider bg-indigo-50/70 text-indigo-700 border border-indigo-100">
                             <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
                             {user.level === 1 ? 'Admin' : user.level === 10 ? 'Mekanik' : 'Karyawan'}
                           </span>
                         </td>
-                        <td className="py-4 px-6 whitespace-nowrap">
+                        <td className="py-4 px-6 whitespace-nowrap hidden sm:table-cell">
                           <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider border ${
                             user.status?.toLowerCase() === 'active' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-rose-50 text-rose-700 border-rose-100'
                           }`}>
@@ -655,7 +655,7 @@ export default function PeoplePage() {
                             </div>
                           </div>
                         </td>
-                        <td className="py-4 px-6 whitespace-nowrap">
+                        <td className="py-4 px-6 whitespace-nowrap hidden sm:table-cell">
                           <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider border ${
                             isCustomer ? 'bg-cyan-50/60 text-cyan-700 border-cyan-100' : 'bg-amber-50/60 text-amber-700 border-amber-100'
                           }`}>
@@ -663,7 +663,7 @@ export default function PeoplePage() {
                             {p.jenis || 'Customer'}
                           </span>
                         </td>
-                        <td className="py-4 px-6 whitespace-nowrap">
+                        <td className="py-4 px-6 whitespace-nowrap hidden sm:table-cell">
                           <span className="font-mono font-bold text-xs bg-slate-100 text-slate-500 px-2.5 py-1 rounded-lg">
                             #{p.id_lama || 'N/A'}
                           </span>
@@ -1502,7 +1502,8 @@ export default function PeoplePage() {
           </div>
         </div>
       )}
-      {/* Floating Add Button (mobile only) */}
+      {/* Floating Add Button (mobile only, karyawan only for level 1) */}
+      {(activeTab !== 'user' || isAdmin) && (
       <button
         onClick={() => { 
           if (activeTab === 'user') {
@@ -1515,10 +1516,11 @@ export default function PeoplePage() {
             setIsModalOpen(true);
           }
         }}
-        className="sm:hidden fixed bottom-6 right-6 z-50 w-14 h-14 bg-cyan-600 text-white rounded-full shadow-2xl shadow-cyan-500/40 flex items-center justify-center transition-all hover:scale-110 active:scale-95"
+        className="sm:hidden fixed bottom-20 right-4 z-50 w-14 h-14 bg-cyan-600 text-white rounded-full shadow-2xl shadow-cyan-500/40 flex items-center justify-center transition-all hover:scale-110 active:scale-95"
       >
         <Plus size={26} strokeWidth={2.5} />
       </button>
+      )}
     </div>
   );
 }
