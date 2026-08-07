@@ -246,7 +246,7 @@ export default function Produk() {
     const calc = () => {
       const w = window.innerWidth;
       const cols = w < 640 ? 2 : w < 768 ? 3 : w < 1024 ? 4 : w < 1280 ? 5 : 6;
-      setPerPage(cols * 4);
+      setPerPage(cols * 6);
     };
     calc();
     window.addEventListener('resize', calc);
