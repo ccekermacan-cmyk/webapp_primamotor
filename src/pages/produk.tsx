@@ -625,6 +625,12 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
                   onChange={(e) => setSearchInput(e.target.value)}
                 />
               </div>
+              <button
+                onClick={() => setShowMobileFilters(!showMobileFilters)}
+                className={`sm:hidden p-3 rounded-xl border transition-all ${showMobileFilters ? 'bg-orange-500 text-white border-orange-500' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'}`}
+              >
+                <Filter size={18} />
+              </button>
             </div>
 
             {/* Baris 2: Filter Desktop (khusus layar >= sm) dan Tombol Filter Mobile */}
@@ -718,15 +724,6 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
                 </div>
               </div>
 
-              {/* Tombol filter mobile */}
-              <button
-                type="button"
-                onClick={() => setShowMobileFilters(!showMobileFilters)}
-                className="sm:hidden flex items-center justify-center gap-2 w-full py-3 bg-white border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 transition shadow-sm"
-              >
-                <Filter size={18} />
-                {showMobileFilters ? 'Sembunyikan Filter' : 'Tampilkan Filter'}
-              </button>
             </div>
 
             {/* Filter mobile (tampil jika tombol ditekan) */}
