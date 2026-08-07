@@ -830,7 +830,7 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
             </div>
           ) : 
             viewMode === 'grid' ? (
-              <div className="grid grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-3 lg:gap-5">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 sm:gap-3">
                 {sortedProducts.map((prod) => (
                   <div 
                     key={prod.id} 
@@ -852,7 +852,7 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
                       )}
                     </div>
 
-                    <div className="p-2 sm:p-4 flex flex-col flex-1">
+                    <div className="p-1.5 sm:p-2 xl:p-3 flex flex-col flex-1">
                       {/* ID + Unit */}
                       <div className="flex justify-between items-start gap-2 mb-2">
                         <span className="text-[10px] font-mono text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded">{formatIdLamaDisplay(prod.id_lama)}</span>
@@ -860,7 +860,7 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
                       </div>
                       
                       {/* Nama */}
-                      <h3 className="font-bold text-gray-800 text-sm leading-snug group-hover:text-orange-600 line-clamp-2 mb-3 flex-1">
+                      <h3 className="font-bold text-gray-800 text-xs sm:text-sm leading-snug group-hover:text-orange-600 line-clamp-2 mb-2 flex-1">
                         {`${prod.kategori} ${prod.merk} ${prod.jenis} ${prod.varian} ${prod.keterangan || ''} ${prod.tipe || ''}`.trim()}
                       </h3>
                       
