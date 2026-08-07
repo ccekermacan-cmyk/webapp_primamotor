@@ -1477,7 +1477,7 @@
           </div>
 
           {/* PAGINASI */}
-          <div className="sticky bottom-0 z-30 p-4 md:p-6 border-t border-slate-100 bg-white flex justify-between items-center shrink-0 rounded-b-3xl shadow-[0_-10px_15px_-3px_rgba(0,0,0,0.05)] md:shadow-none">
+          <div className="sticky bottom-0 z-30 p-3 sm:p-4 md:p-6 border-t border-slate-100 bg-white flex justify-between items-center shrink-0 rounded-b-3xl shadow-[0_-8px_20px_-5px_rgba(0,0,0,0.08)]">
             <p className="text-xs font-black text-slate-400 uppercase tracking-widest bg-slate-100 px-4 py-2 rounded-xl">
               Hal. {page} / {totalPages || 1}
             </p>

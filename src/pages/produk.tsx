@@ -1018,11 +1018,11 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
         )}
 
         {/* Pagination */}
-        <div className="p-4 border-t border-gray-100 bg-white flex justify-between items-center shrink-0">
-          <p className="text-sm text-gray-500 font-medium">Halaman <span className="font-bold">{page}</span> dari <span className="font-bold">{totalPages || 1}</span></p>
-          <div className="flex gap-2">
-            <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1 || loading} className="p-2 rounded-xl border hover:bg-gray-50 disabled:opacity-50"><ChevronLeft size={20} /></button>
-            <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages || totalPages === 0 || loading} className="p-2 rounded-xl border hover:bg-gray-50 disabled:opacity-50"><ChevronRight size={20} /></button>
+        <div className="sticky bottom-0 z-30 p-2.5 sm:p-4 border-t border-gray-100 bg-white flex justify-between items-center shrink-0 rounded-b-3xl shadow-[0_-8px_20px_-5px_rgba(0,0,0,0.08)]">
+          <p className="text-[11px] sm:text-sm text-gray-500 font-medium">Hal <span className="font-bold">{page}</span>/<span className="font-bold">{totalPages || 1}</span></p>
+          <div className="flex gap-1.5">
+            <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1 || loading} className="p-1.5 sm:p-2 rounded-lg border hover:bg-gray-50 disabled:opacity-50"><ChevronLeft size={18} /></button>
+            <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages || totalPages === 0 || loading} className="p-1.5 sm:p-2 rounded-lg border hover:bg-gray-50 disabled:opacity-50"><ChevronRight size={18} /></button>
           </div>
         </div>
       </div>
