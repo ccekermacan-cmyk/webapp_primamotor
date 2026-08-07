@@ -571,7 +571,7 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
     <div className={`h-full flex flex-col transition-all duration-300 ${showHeader ? 'p-4 sm:p-6 lg:p-8 pt-16 md:pt-8' : 'px-4 pb-4 pt-16 md:pt-0'}`}>
       {/* Header Halaman - akan hilang saat scroll ke bawah */}
       <div 
-        className={`flex flex-col sm:flex-row sm:justify-between sm:items-end gap-3 sm:gap-0 mb-6 sm:mb-8 shrink-0 transition-all duration-300 ${
+        className={`flex flex-col sm:flex-row sm:justify-between sm:items-end gap-2 sm:gap-0 mb-3 sm:mb-8 shrink-0 transition-all duration-300 ${
           showHeader ? '' : 'hidden'
         }`}
       >
@@ -595,7 +595,7 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
       <div className="bg-white rounded-3xl shadow-xl shadow-gray-200/50 border border-gray-100 flex-1 flex flex-col overflow-hidden relative">
         
         {/* Search Bar */}
-        <div className="p-6 border-b border-gray-100 bg-gray-50/50 shrink-0">
+        <div className="p-3 sm:p-6 border-b border-gray-100 bg-gray-50/50 shrink-0">
           <div className="flex flex-col gap-3">
             {/* Baris 1: Tombol Grid/List + Input Pencarian (selalu 1 baris di semua device) */}
             <div className="flex items-center gap-2">
