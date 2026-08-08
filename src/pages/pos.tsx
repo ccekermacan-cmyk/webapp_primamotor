@@ -1720,6 +1720,11 @@ export default function MenuPage() {
               await pb.collection('produk').update(prodId, { stok_3: qtyAkhir }, { $autoCancel: false });
             } catch (e) { console.warn('Fallback stock update failed:', e); }
           }
+        } else {
+          // Unchanged item after edit revert: restore stock without notifying Laravel
+          try {
+            await pb.collection('produk').update(prodId, { stok_3: qtyAkhir }, { $autoCancel: false });
+          } catch (e) { console.warn('Restore stock for unchanged item failed:', e); }
         }
       }
 
