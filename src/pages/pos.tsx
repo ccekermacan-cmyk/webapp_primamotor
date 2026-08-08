@@ -1686,13 +1686,26 @@ export default function MenuPage() {
         const logQty = Math.max(1, Number(item.qty || 1));
         const qtyAwal = runningStock[prodId] ?? 0;
 
-        // Smart edit: unchanged items don't trigger stock change
-        const wasUnchanged = isEditing && oldItemMap[prodId] &&
-          oldItemMap[prodId].qty === logQty &&
-          oldItemMap[prodId].boolean === booleanValue;
-
-        const qtyAkhir = wasUnchanged ? qtyAwal : (booleanValue === 'in' ? qtyAwal + logQty : Math.max(0, qtyAwal - logQty));
-        if (prodId && !wasUnchanged) runningStock[prodId] = qtyAkhir;
+        // Smart edit: net stock delta (preflight is pre-revert = post-original value)
+        let qtyAkhir: number;
+        const oldItem = isEditing ? oldItemMap[prodId] : null;
+        if (oldItem) {
+          if (oldItem.qty === logQty && oldItem.boolean === booleanValue) {
+            // Unchanged: restore to preflight (stock was reverted by delete, must restore)
+            qtyAkhir = preflightStocks[prodId] ?? qtyAwal;
+          } else {
+            // Changed: preflight is post-original. Remove old effect, apply new.
+            const afterRevert = oldItem.boolean === 'in'
+              ? (preflightStocks[prodId] ?? 0) - oldItem.qty
+              : (preflightStocks[prodId] ?? 0) + oldItem.qty;
+            qtyAkhir = booleanValue === 'in' ? afterRevert + logQty : Math.max(0, afterRevert - logQty);
+          }
+        } else {
+          qtyAkhir = booleanValue === 'in' ? qtyAwal + logQty : Math.max(0, qtyAwal - logQty);
+        }
+        if (prodId && (!oldItem || oldItem.qty !== logQty || oldItem.boolean !== booleanValue)) {
+          runningStock[prodId] = qtyAkhir;
+        }
 
         const logRecord = await pb.collection('log_stock').create({
           id_lama: '',
@@ -1713,18 +1726,15 @@ export default function MenuPage() {
           stok_akhir: qtyAkhir,
         });
         createdRecords.push({ type: 'log_stock', id: logRecord.id });
-        if (!wasUnchanged) {
+        const needsNotify = !oldItem || oldItem.qty !== logQty || oldItem.boolean !== booleanValue;
+        if (needsNotify) {
           const stockApiOk = await notifyLaravelApi('log_stock', 'created', logRecord.id);
           if (!stockApiOk) {
-            try {
-              await pb.collection('produk').update(prodId, { stok_3: qtyAkhir }, { $autoCancel: false });
-            } catch (e) { console.warn('Fallback stock update failed:', e); }
+            try { await pb.collection('produk').update(prodId, { stok_3: qtyAkhir }, { $autoCancel: false }); } catch {}
           }
         } else {
-          // Unchanged item after edit revert: restore stock without notifying Laravel
-          try {
-            await pb.collection('produk').update(prodId, { stok_3: qtyAkhir }, { $autoCancel: false });
-          } catch (e) { console.warn('Restore stock for unchanged item failed:', e); }
+          // Unchanged: restore stock silently (reverted by delete, need restore)
+          try { await pb.collection('produk').update(prodId, { stok_3: qtyAkhir }, { $autoCancel: false }); } catch {}
         }
       }
 
