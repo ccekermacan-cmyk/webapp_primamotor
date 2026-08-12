@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { pb, notifyLaravelApi } from '../lib/pocketbase';
 import Modal from '../components/modal';
-import { Package, Search, Trash2, Edit, Copy, ChevronLeft, ChevronRight, X, Filter, LayoutGrid, List, ArrowUp, ArrowDown, ImagePlus, ExternalLink, Plus, AlertTriangle } from 'lucide-react';
+import { Package, Search, Trash2, Edit, Copy, ChevronLeft, ChevronRight, X, Filter, LayoutGrid, List, ArrowUp, ArrowDown, ImagePlus, ExternalLink, Plus, AlertTriangle, Check } from 'lucide-react';
 interface Produk {
   [key: string]: any; 
   id: string;
@@ -66,6 +66,7 @@ export default function Produk() {
   const [modalType, setModalType] = useState<'detail' | 'form' | 'delete' | 'copy' | null>(null);
   const [deletePass, setDeletePass] = useState('');
   const [deleteError, setDeleteError] = useState('');
+  const [isCopied, setIsCopied] = useState(false);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [selectedProduct, setSelectedProduct] = useState<Produk | null>(null);
   const [formData, setFormData] = useState<Partial<Produk>>({});
@@ -1074,7 +1075,22 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
                   {`${selectedProduct.kategori} ${selectedProduct.merk} ${selectedProduct.jenis} ${selectedProduct.varian} ${selectedProduct.keterangan || ''} ${selectedProduct.tipe || ''}`.trim()}
                 </h3>
               </div>
-              <span className="px-2 py-1 bg-orange-100 text-orange-600 text-[10px] font-black rounded-lg shrink-0">{selectedProduct.unit || '-'}</span>
+              <div className="flex flex-col items-end gap-1 shrink-0">
+                <span className="px-2 py-1 bg-orange-100 text-orange-600 text-[10px] font-black rounded-lg">{selectedProduct.unit || '-'}</span>
+                <button 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const fullName = `${selectedProduct.kategori} ${selectedProduct.merk} ${selectedProduct.jenis} ${selectedProduct.varian} ${selectedProduct.keterangan || ''} ${selectedProduct.tipe || ''}`.trim();
+                    navigator.clipboard.writeText(fullName);
+                    setIsCopied(true);
+                    setTimeout(() => setIsCopied(false), 2000);
+                  }}
+                  className="p-1.5 mt-1 bg-white text-orange-500 hover:text-orange-700 hover:bg-orange-100 border border-orange-200 rounded-lg transition-colors shadow-sm"
+                  title="Salin Nama Produk"
+                >
+                  {isCopied ? <Check size={14} className="text-green-600" /> : <Copy size={14} />}
+                </button>
+              </div>
             </div>
 
             <div className="flex items-center gap-3 mt-2">
