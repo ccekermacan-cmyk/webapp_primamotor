@@ -1726,14 +1726,9 @@ export default function MenuPage() {
           stok_akhir: qtyAkhir,
         });
         createdRecords.push({ type: 'log_stock', id: logRecord.id });
-        const needsNotify = !oldItem || oldItem.qty !== logQty || oldItem.boolean !== booleanValue;
-        if (needsNotify) {
-          const stockApiOk = await notifyLaravelApi('log_stock', 'created', logRecord.id);
-          if (!stockApiOk) {
-            try { await pb.collection('produk').update(prodId, { stok_3: qtyAkhir }, { $autoCancel: false }); } catch {}
-          }
-        } else {
-          // Unchanged: restore stock silently (reverted by delete, need restore)
+        // SELALU panggil webhook backend karena penghapusan Menu sebelumnya sudah me-revert stok dan laporan (omset/laba)
+        const stockApiOk = await notifyLaravelApi('log_stock', 'created', logRecord.id);
+        if (!stockApiOk) {
           try { await pb.collection('produk').update(prodId, { stok_3: qtyAkhir }, { $autoCancel: false }); } catch {}
         }
       }
