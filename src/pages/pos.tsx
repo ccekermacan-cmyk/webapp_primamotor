@@ -1566,13 +1566,16 @@ export default function MenuPage() {
 
       let menuRecordId = isEditing ? editSession.menuId : '';
       let oldMenuData: any = null;
+      let oldCashflows: any[] = [];
+      let oldOngkos: any[] = [];
+      let oldLogs: any[] = [];
 
       if (isEditing) {
-        // 1. Cadangkan info status lunas/belum nota lama sebelum dibersihkan
         oldMenuData = await pb.collection('menu').getOne(editSession.menuId).catch(() => null);
-
-        // 2. Eksekusi Delete dan revert stok fisik, cashflow, serta panggil API Webhook
-        await deleteTransactionWithRevert(editSession.menuId);
+        
+        oldLogs = await pb.collection('log_stock').getFullList({ filter: `ref_baru = "${editSession.menuId}"` }).catch(() => []);
+        oldCashflows = await pb.collection('cashflow').getFullList({ filter: `ref_baru = "${editSession.menuId}"` }).catch(() => []);
+        oldOngkos = await pb.collection('ongkos').getFullList({ filter: `ref_baru = "${editSession.menuId}"` }).catch(() => []);
       }
 
       // Hitung akumulasi parameter keuangan pembayaran kasir
@@ -1649,12 +1652,7 @@ export default function MenuPage() {
 
       // Simpan entitas Menu utama ke Database
       if (isEditing) {
-        // Tambahkan ID ke FormData, lalu create dengan ID yang sama
-        menuFormData.append('id', menuRecordId);
-        const menuRecord = await pb.collection('menu').create(menuFormData);
-        menuRecordId = menuRecord.id;
-        createdRecords.push({ type: 'menu', id: menuRecordId });
-        await notifyLaravelApi('menu', 'created', menuRecordId);
+        await pb.collection('menu').update(menuRecordId, menuFormData);
       } else {
         const menuRecord = await pb.collection('menu').create(menuFormData);
         menuRecordId = menuRecord.id;
@@ -1741,6 +1739,17 @@ export default function MenuPage() {
           personRecordId = personRecord.id;
         } catch (e) {
           console.warn("Person tidak ditemukan:", formBayar.personIdLama);
+        }
+      }
+
+      if (isEditing) {
+        for (const cf of oldCashflows) {
+           await notifyLaravelApi('cashflow', 'deleted', cf.id);
+           await pb.collection('cashflow').delete(cf.id).catch(() => null);
+        }
+        for (const ong of oldOngkos) {
+           await notifyLaravelApi('ongkos', 'deleted', ong.id);
+           await pb.collection('ongkos').delete(ong.id).catch(() => null);
         }
       }
 
@@ -1837,6 +1846,10 @@ export default function MenuPage() {
         jenis: selectedMenu,
         mechanics: mechanicsForPrint
       });
+
+      if (isEditing) {
+        await notifyLaravelApi('menu', 'updated', menuRecordId);
+      }
 
       setDialog({ show: true, title: 'SUKSES', message: isEditing ? "Perubahan transaksi berhasil diperbarui!" : "Transaksi berhasil disimpan!", type: 'alert' });
       
