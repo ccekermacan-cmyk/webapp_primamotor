@@ -1380,14 +1380,7 @@
                       const isTransfer = (tx.jenis || '').toLowerCase() === 'transfer';
                       const iconColor = isTransfer ? 'bg-indigo-50 text-indigo-600' : (isMasuk ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600');
                       const textColor = isTransfer ? 'text-indigo-600' : (isMasuk ? 'text-emerald-600' : 'text-rose-600');
-                      // Running balance
-                      if (idx === 0) items[0]._runningBalance = (Number(tx.saldo_akhir) ?? Number(tx.saldo_awal) ?? 0);
-                      else {
-                        const prev = items[idx-1] as any;
-                        const prevBal = prev._runningBalance ?? 0;
-                        const change = isMasuk ? Number(tx.nominal) : -Number(tx.nominal);
-                        (tx as any)._runningBalance = prevBal + change;
-                      }
+                      // Menghapus manual calculation _runningBalance karena sudah ditangani database
                       return (
                         <div
                           key={tx.id}
@@ -1461,9 +1454,9 @@
                                 <span className="ml-2 text-indigo-400 font-bold uppercase">TRANSFER</span>
                               )}
                             </span>
-                            {(tx as any)._runningBalance !== undefined && (
-                              <span className={`text-[9px] font-bold ${(tx as any)._runningBalance < 0 ? 'text-rose-500' : 'text-emerald-600'}`}>
-                                Saldo: {formatRupiah((tx as any)._runningBalance)}
+                            {(tx.saldo_akhir !== undefined && tx.saldo_akhir !== null) && (
+                              <span className={`text-[9px] font-bold ${Number(tx.saldo_akhir) < 0 ? 'text-rose-500' : 'text-emerald-600'}`}>
+                                Saldo Akhir: {formatRupiah(Number(tx.saldo_akhir))}
                               </span>
                             )}
                           </div>
