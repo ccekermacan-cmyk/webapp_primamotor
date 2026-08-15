@@ -365,13 +365,13 @@ export default function ReportPage() {
     }),
     pb.collection('ongkos').getFullList({
       filter: pb.filter('date >= {:start} && date < {:end}', { start, end }),
-      fields: 'ongkos',
+      fields: 'ongkos,ref_baru',
       $autoCancel: false,
       batch: 500,
     }),
     pb.collection('cashflow').getFullList({
       filter: rangeFilter,
-      fields: 'jenis,nominal,acc1,acc2,mutasi',
+      fields: 'jenis,nominal,acc1,acc2,mutasi,ref_baru',
       $autoCancel: false,
       batch: 500,
     }),
@@ -403,6 +403,8 @@ export default function ReportPage() {
 
   logStockItems.forEach(item => {
     if ((item.boolean || '').toLowerCase() !== 'out') return;
+    if (item.ref_baru && !menuMap.hasOwnProperty(item.ref_baru)) return; // Skip orphaned items from deleted menus
+
     const menuJenis = menuMap[item.ref_baru] || '';
     if (menuJenis.includes('pembelian') || menuJenis.includes('rusak') || menuJenis.includes('opname')) return;
 
@@ -427,7 +429,10 @@ export default function ReportPage() {
     }
   });
 
-  const omsetServis = ongkosAll.reduce((sum, item) => sum + (item.ongkos || 0), 0);
+  const omsetServis = ongkosAll.reduce((sum, item) => {
+    if (item.ref_baru && !menuMap.hasOwnProperty(item.ref_baru)) return sum;
+    return sum + (item.ongkos || 0);
+  }, 0);
 
   let operasionalToko = 0;
 let pengeluaranLain = 0;
@@ -436,6 +441,8 @@ let cashKasir = 0;
 let totalCashflowKeluarNonPembelian = 0;
 
 cashflowItems.forEach(cf => {
+  if (cf.ref_baru && !menuMap.hasOwnProperty(cf.ref_baru)) return; // Skip orphaned items
+
   const jenis = (cf.jenis || '').toLowerCase();
   const nominal = cf.nominal || 0;
   const mutasi = (cf.mutasi || '').toLowerCase();
