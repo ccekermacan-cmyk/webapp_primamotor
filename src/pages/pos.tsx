@@ -1751,6 +1751,10 @@ export default function MenuPage() {
            await notifyLaravelApi('ongkos', 'deleted', ong.id);
            await pb.collection('ongkos').delete(ong.id).catch(() => null);
         }
+        for (const log of oldLogs) {
+           await notifyLaravelApi('log_stock', 'deleted', log.id);
+           await pb.collection('log_stock').delete(log.id).catch(() => null);
+        }
       }
 
       // Simpan pemetaan pemisahan multi cashflow aliran dana masuk/keluar
