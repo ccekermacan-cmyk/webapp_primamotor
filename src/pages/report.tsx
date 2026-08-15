@@ -105,7 +105,7 @@ export default function ReportPage() {
   const [detailCache, setDetailCache] = useState<Record<string, { menu: any[]; logStock: any[]; cashflow: any[]; ongkos: any[] }>>({});
 
   // Filter untuk tab Menu
-  const [menuFilterJenis, setMenuFilterJenis] = useState<string>('semua');
+  const [menuFilterJenis, setMenuFilterJenis] = useState<string[]>(['semua']);
   const [logStockFilterRefJenis, setLogStockFilterRefJenis] = useState<string>('semua');
   const [cashflowFilterMutasi, setCashflowFilterMutasi] = useState<string>('semua');
   const [cashflowFilterAccount, setCashflowFilterAccount] = useState<string>('semua');
@@ -1156,7 +1156,7 @@ cashflowItems.forEach(cf => {
                 // ============================
                 // TAB MENU
                 // ============================
-                let filteredMenu = reportDetailData?.menu.filter(m => menuFilterJenis === 'semua' || m.jenis === menuFilterJenis) || [];
+                let filteredMenu = reportDetailData?.menu.filter(m => menuFilterJenis.length === 0 || menuFilterJenis.includes('semua') || (m.jenis && menuFilterJenis.includes(m.jenis))) || [];
                 filteredMenu = filteredMenu.filter(m => menuFilterStatus === 'semua' || m.status === menuFilterStatus);
 
                 if (detailSearchTerm.trim() !== '') {
@@ -1188,13 +1188,37 @@ cashflowItems.forEach(cf => {
                 const sumDibayar = filteredMenu.reduce((acc, m) => acc + (m.dibayar || 0), 0);
                 const sumAdmin = filteredMenu.reduce((acc, m) => acc + (m.admin || 0), 0);
                 const sumCashback = filteredMenu.reduce((acc, m) => acc + (m.cashback || 0), 0);
-                const sumBelum = sumTotal - sumDibayar;
+                
+                // Pisahkan Piutang (Penjualan/Servis) dan Hutang (Pembelian)
+                const totalPiutang = filteredMenu
+                  .filter(m => m.status === 'belum' && m.jenis?.toLowerCase() !== 'pembelian')
+                  .reduce((acc, m) => acc + ((m.total || 0) - (m.dibayar || 0)), 0);
+                
+                const totalHutang = filteredMenu
+                  .filter(m => m.status === 'belum' && m.jenis?.toLowerCase() === 'pembelian')
+                  .reduce((acc, m) => acc + ((m.total || 0) - (m.dibayar || 0)), 0);
 
                 return (
                   <div>
                     <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
-                      <div className="flex flex-wrap gap-2">
-                        <select className="p-2 border border-slate-200 rounded-xl text-sm font-bold bg-white" value={menuFilterJenis} onChange={(e) => setMenuFilterJenis(e.target.value)}>
+                      <div className="flex flex-wrap gap-2 items-start">
+                        <select 
+                          multiple
+                          size={3}
+                          className="p-2 border border-slate-200 rounded-xl text-sm font-bold bg-white custom-scrollbar h-auto max-h-32" 
+                          value={menuFilterJenis} 
+                          onChange={(e) => {
+                            const selected = Array.from(e.target.selectedOptions, option => option.value);
+                            // If they select "semua", unselect others, or vice versa (optional UX tweak)
+                            if (selected.includes('semua') && !menuFilterJenis.includes('semua')) {
+                              setMenuFilterJenis(['semua']);
+                            } else if (selected.length > 1 && selected.includes('semua')) {
+                              setMenuFilterJenis(selected.filter(v => v !== 'semua'));
+                            } else {
+                              setMenuFilterJenis(selected);
+                            }
+                          }}
+                        >
                           <option value="semua">Semua Jenis Menu</option>
                           {[...new Set(reportDetailData?.menu.map(m => m.jenis) || [])].map(j => <option key={String(j)} value={String(j)}>{j}</option>)}
                         </select>
@@ -1292,26 +1316,18 @@ cashflowItems.forEach(cf => {
                           <p className="text-sm font-black text-emerald-600 mt-0.5">{formatRp(sumDibayar)}</p>
                         </div>
                       )}
-                      {sumBelum > 0 && (
+                      {totalPiutang > 0 && (
                         <div className="bg-amber-50 p-3 rounded-xl border border-amber-200">
-                          <p className="text-[10px] font-black text-amber-500 uppercase">Kurang / Piutang</p>
-                          <p className="text-sm font-black text-amber-600 mt-0.5">{formatRp(sumBelum)}</p>
+                          <p className="text-[10px] font-black text-amber-500 uppercase">Piutang (Penjualan)</p>
+                          <p className="text-sm font-black text-amber-600 mt-0.5">{formatRp(totalPiutang)}</p>
                         </div>
                       )}
-                      {/* Card Hutang: khusus pembelian */}
-                      {(() => {
-                        const hutangData = filteredMenu.filter(m => m.jenis?.toLowerCase() === 'pembelian' && m.status === 'belum');
-                        const totalHutang = hutangData.reduce((acc, m) => acc + ((m.total || 0) - (m.dibayar || 0)), 0);
-                        if (totalHutang > 0) {
-                          return (
-                            <div className="bg-purple-50 p-3 rounded-xl border border-purple-200">
-                              <p className="text-[10px] font-black text-purple-500 uppercase">Hutang Pembelian</p>
-                              <p className="text-sm font-black text-purple-600 mt-0.5">{formatRp(totalHutang)}</p>
-                            </div>
-                          );
-                        }
-                        return null;
-                      })()}
+                      {totalHutang > 0 && (
+                        <div className="bg-purple-50 p-3 rounded-xl border border-purple-200">
+                          <p className="text-[10px] font-black text-purple-500 uppercase">Hutang Pembelian</p>
+                          <p className="text-sm font-black text-purple-600 mt-0.5">{formatRp(totalHutang)}</p>
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
