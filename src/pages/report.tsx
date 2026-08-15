@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { pb } from '../lib/pocketbase';
 import Modal from '../components/modal'; // PENTING: Jangan dihapus agar Alert UI berjalan
 import { 
-  Search, Calendar, ChevronLeft, ChevronRight, Download, 
+  Search, Calendar, ChevronLeft, ChevronRight, ChevronDown, Download, 
   TrendingUp, TrendingDown, DollarSign, Wallet, FileText, 
   Filter, RefreshCw, BarChart3, Lightbulb, Coffee, Wrench, Store, X,
   Plus, Trash2, AlertTriangle, Info
@@ -106,7 +106,9 @@ export default function ReportPage() {
 
   // Filter untuk tab Menu
   const [menuFilterJenis, setMenuFilterJenis] = useState<string[]>(['semua']);
+  const [isMenuDropdownOpen, setIsMenuDropdownOpen] = useState(false);
   const [logStockFilterRefJenis, setLogStockFilterRefJenis] = useState<string>('semua');
+  const [logStockFilterBoolean, setLogStockFilterBoolean] = useState<string>('semua');
   const [cashflowFilterMutasi, setCashflowFilterMutasi] = useState<string>('semua');
   const [cashflowFilterAccount, setCashflowFilterAccount] = useState<string>('semua');
   const [cashflowFilterJenis, setCashflowFilterJenis] = useState<string>('semua');
@@ -1209,26 +1211,50 @@ cashflowItems.forEach(cf => {
                   <div>
                     <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
                       <div className="flex flex-wrap gap-2 items-start">
-                        <select 
-                          multiple
-                          size={3}
-                          className="p-2 border border-slate-200 rounded-xl text-sm font-bold bg-white custom-scrollbar h-auto max-h-32" 
-                          value={menuFilterJenis} 
-                          onChange={(e) => {
-                            const selected = Array.from(e.target.selectedOptions, option => option.value);
-                            // If they select "semua", unselect others, or vice versa (optional UX tweak)
-                            if (selected.includes('semua') && !menuFilterJenis.includes('semua')) {
-                              setMenuFilterJenis(['semua']);
-                            } else if (selected.length > 1 && selected.includes('semua')) {
-                              setMenuFilterJenis(selected.filter(v => v !== 'semua'));
-                            } else {
-                              setMenuFilterJenis(selected);
-                            }
-                          }}
-                        >
-                          <option value="semua">Semua Jenis Menu</option>
-                          {[...new Set(reportDetailData?.menu.map(m => m.jenis) || [])].map(j => <option key={String(j)} value={String(j)}>{j}</option>)}
-                        </select>
+                        <div className="relative">
+                          <button
+                            type="button"
+                            onClick={() => setIsMenuDropdownOpen(!isMenuDropdownOpen)}
+                            className="p-2 border border-slate-200 rounded-xl text-sm font-bold bg-white flex items-center justify-between min-w-[150px]"
+                          >
+                            <span>{menuFilterJenis.includes('semua') ? 'Semua Jenis Menu' : `${menuFilterJenis.length} Jenis Dipilih`}</span>
+                            <ChevronDown size={16} className={`ml-2 transition-transform ${isMenuDropdownOpen ? 'rotate-180' : ''}`} />
+                          </button>
+                          {isMenuDropdownOpen && (
+                            <div className="absolute top-full left-0 mt-1 min-w-full bg-white border border-slate-200 rounded-xl shadow-lg z-10 p-2 flex flex-col gap-1 whitespace-nowrap">
+                              <label className="flex items-center gap-2 text-sm font-bold cursor-pointer hover:bg-slate-50 p-1.5 rounded">
+                                <input
+                                  type="checkbox"
+                                  checked={menuFilterJenis.includes('semua')}
+                                  onChange={() => setMenuFilterJenis(['semua'])}
+                                  className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                                />
+                                Semua Jenis
+                              </label>
+                              <div className="h-px bg-slate-100 my-1"></div>
+                              {[...new Set(reportDetailData?.menu.map(m => m.jenis) || [])].map(j => (
+                                <label key={String(j)} className="flex items-center gap-2 text-sm font-medium cursor-pointer hover:bg-slate-50 p-1.5 rounded">
+                                  <input
+                                    type="checkbox"
+                                    checked={menuFilterJenis.includes(String(j)) && !menuFilterJenis.includes('semua')}
+                                    onChange={(e) => {
+                                      let newSelected = [...menuFilterJenis].filter(v => v !== 'semua');
+                                      if (e.target.checked) {
+                                        newSelected.push(String(j));
+                                      } else {
+                                        newSelected = newSelected.filter(v => v !== String(j));
+                                      }
+                                      if (newSelected.length === 0) newSelected = ['semua'];
+                                      setMenuFilterJenis(newSelected);
+                                    }}
+                                    className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                                  />
+                                  {j}
+                                </label>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                         <select className="p-2 border border-slate-200 rounded-xl text-sm font-bold bg-white" value={menuFilterStatus} onChange={(e) => setMenuFilterStatus(e.target.value)}>
                           <option value="semua">Semua Status</option>
                           <option value="lunas">Lunas</option>
@@ -1342,7 +1368,11 @@ cashflowItems.forEach(cf => {
                 // ============================
                 // TAB LOG STOCK
                 // ============================
-                let filteredLogStock = reportDetailData?.logStock.filter(l => logStockFilterRefJenis === 'semua' || l.ref_baru === logStockFilterRefJenis) || [];
+                let filteredLogStock = reportDetailData?.logStock.filter(l => {
+                  const matchRef = logStockFilterRefJenis === 'semua' || l.ref_baru === logStockFilterRefJenis;
+                  const matchBool = logStockFilterBoolean === 'semua' || (l.boolean || '').toLowerCase() === logStockFilterBoolean.toLowerCase();
+                  return matchRef && matchBool;
+                }) || [];
 
                 if (detailSearchTerm.trim() !== '') {
                   const term = detailSearchTerm.toLowerCase();
@@ -1382,10 +1412,6 @@ cashflowItems.forEach(cf => {
                   .filter(l => (l.boolean || '').toLowerCase() === 'out')
                   .reduce((acc, l) => acc + ((l.price_1 || 0) * (l.qty || 0)), 0);
 
-                const sumPembelian = filteredLogStock
-                  .filter(l => (l.boolean || '').toLowerCase() === 'in')
-                  .reduce((acc, l) => acc + ((l.price_1 || 0) * (l.qty || 0)), 0);
-
                 const sumLaba = filteredLogStock.reduce((acc, l) => {
                   // Hanya hitung jika mutasi OUT
                   if ((l.boolean || '').toLowerCase() !== 'out') return acc;
@@ -1405,6 +1431,11 @@ cashflowItems.forEach(cf => {
                         <select className="p-2 border border-slate-200 rounded-xl text-sm font-bold bg-white" value={logStockFilterRefJenis} onChange={(e) => setLogStockFilterRefJenis(e.target.value)}>
                           <option value="semua">Semua Referensi (Nota)</option>
                           {[...new Set(reportDetailData?.logStock.map(l => l.ref_baru) || [])].map(r => <option key={String(r)} value={String(r)}>{r}</option>)}
+                        </select>
+                        <select className="p-2 border border-slate-200 rounded-xl text-sm font-bold bg-white" value={logStockFilterBoolean} onChange={(e) => setLogStockFilterBoolean(e.target.value)}>
+                          <option value="semua">Semua Mutasi</option>
+                          <option value="in">Masuk (In)</option>
+                          <option value="out">Keluar (Out)</option>
                         </select>
                       </div>
                       <div className="flex flex-1 sm:flex-none w-full sm:w-auto items-center gap-2 justify-end">
@@ -1509,12 +1540,6 @@ cashflowItems.forEach(cf => {
                         <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
                           <p className="text-[10px] font-black text-slate-500 uppercase">Estimasi Penjualan</p>
                           <p className="text-sm font-black text-slate-800 mt-0.5">{formatRp(sumPenjualan)}</p>
-                        </div>
-                      )}
-                      {sumPembelian > 0 && (
-                        <div className="bg-rose-50 p-3 rounded-xl border border-rose-200">
-                          <p className="text-[10px] font-black text-rose-500 uppercase">Total Pembelian</p>
-                          <p className="text-sm font-black text-rose-600 mt-0.5">{formatRp(sumPembelian)}</p>
                         </div>
                       )}
                       {sumLaba > 0 && (
