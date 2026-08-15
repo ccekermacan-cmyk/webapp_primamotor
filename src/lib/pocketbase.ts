@@ -40,7 +40,7 @@ let laravelApiDown = false;
 let laravelApiLastCheck = 0;
 const LARAVEL_RETRY_MS = 5000;
 
-export async function notifyLaravelApi(collection: string, event: 'created' | 'updated' | 'deleted', id: string): Promise<boolean> {
+export async function notifyLaravelApi(collection: string, event: 'created' | 'updated' | 'deleted', id: string, oldData?: any): Promise<boolean> {
   if (!id) return false;
   if (laravelApiDown && Date.now() - laravelApiLastCheck < LARAVEL_RETRY_MS) {
     return false;
@@ -48,7 +48,14 @@ export async function notifyLaravelApi(collection: string, event: 'created' | 'u
   try {
     const apiUrl = getLaravelApiUrl();
     const targetUrl = `${apiUrl}/webhook/${collection}/${event}/${id}`;
-    const response = await fetch(targetUrl, { method: 'POST' });
+    
+    const fetchOptions: RequestInit = { method: 'POST' };
+    if (oldData) {
+      fetchOptions.headers = { 'Content-Type': 'application/json' };
+      fetchOptions.body = JSON.stringify({ old_data: oldData });
+    }
+
+    const response = await fetch(targetUrl, fetchOptions);
     if (!response.ok) {
       laravelApiDown = true;
       laravelApiLastCheck = Date.now();

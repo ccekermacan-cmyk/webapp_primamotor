@@ -814,7 +814,7 @@ export default function MenuPage() {
         }
       }
 
-      await notifyLaravelApi('menu', isEditMode ? 'updated' : 'created', menuId);
+      await notifyLaravelApi('menu', isEditMode ? 'updated' : 'created', menuId, isEditMode ? gajiEditSession : undefined);
 
       showAlert('Berhasil 🎉', `Slip Gaji Karyawan (${gajiItemList.length} Penerima) berhasil ${isEditMode ? 'diperbarui' : 'disimpan'}!`);
       setIsGajiFormOpen(false);
@@ -1848,7 +1848,7 @@ export default function MenuPage() {
       });
 
       if (isEditing) {
-        await notifyLaravelApi('menu', 'updated', menuRecordId);
+        await notifyLaravelApi('menu', 'updated', menuRecordId, editSession);
       }
 
       setDialog({ show: true, title: 'SUKSES', message: isEditing ? "Perubahan transaksi berhasil diperbarui!" : "Transaksi berhasil disimpan!", type: 'alert' });
@@ -2061,8 +2061,7 @@ export default function MenuPage() {
   const deleteTransactionWithRevert = async (menuId: string) => {
     if (!menuId) return;
 
-    // 1. Panggil Webhook Laravel API 'deleted' untuk 'menu' agar Laravel Observers (MenuObserver@deleting) ter-trigger
-    await notifyLaravelApi('menu', 'deleted', menuId);
+    const deletedOk = await notifyLaravelApi('menu', 'deleted', menuId);
 
     try {
       // 2. Fetch seluruh log_stock terkait transaksi ini
@@ -2071,11 +2070,8 @@ export default function MenuPage() {
         $autoCancel: false
       }).catch(() => []);
 
-      // ponytail: log_stock cascade delete&revert handled by MenuObserver@deleting via notifyLaravelApi('menu','deleted') above.
-      // Manual revert here is safety net only — runs if Laravel cascade didn't fire (records still exist in PB).
-      // Individual notifyLaravelApi('log_stock','deleted') REMOVED to prevent double revert.
       for (const log of logStockList) {
-        if (log.item_baru && log.qty) {
+        if (!deletedOk && log.item_baru && log.qty) {
           try {
             const prod = await pb.collection('produk').getOne(log.item_baru, { $autoCancel: false });
             if (prod) {
@@ -2099,8 +2095,7 @@ export default function MenuPage() {
       }).catch(() => []);
 
       for (const cf of cashflowList) {
-        // Manual revert saldo akun (fallback jika Laravel cascade tidak jalan)
-        if (cf.account_1 && cf.nominal) {
+        if (!deletedOk && cf.account_1 && cf.nominal) {
           try {
             const acc = await pb.collection('dropdown').getOne(cf.account_1, { $autoCancel: false });
             const currentBal = Number(acc.number_1) || 0;

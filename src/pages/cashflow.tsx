@@ -905,7 +905,7 @@
 
         if (isEditMode && selectedTx) {
           const updated = await pb.collection('cashflow').update(selectedTx.id, formDataObj);
-          const editOk = await notifyLaravelApi('cashflow', 'updated', selectedTx.id);
+          const editOk = await notifyLaravelApi('cashflow', 'updated', selectedTx.id, selectedTx);
           if (!editOk) {
             try {
               const oldNom = Number(selectedTx.nominal || 0);
@@ -981,8 +981,9 @@
       if (!selectedTx) return;
       setIsProcessing(true);
       try {
+        const deletedOk = await notifyLaravelApi('cashflow', 'deleted', selectedTx.id);
         // Revert account balance manually (fallback)
-        if (selectedTx.account_1 && selectedTx.nominal) {
+        if (!deletedOk && selectedTx.account_1 && selectedTx.nominal) {
           try {
             const isOut = String(selectedTx.mutasi).toLowerCase() === 'out';
             const acc = await pb.collection('dropdown').getOne(selectedTx.account_1,{$autoCancel:false});
@@ -997,7 +998,6 @@
           } catch {}
         }
         await pb.collection('cashflow').delete(selectedTx.id);
-        await notifyLaravelApi('cashflow', 'deleted', selectedTx.id);
         setModalType(null);
         fetchCashflow();
       } catch (error) {
