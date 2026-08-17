@@ -345,189 +345,34 @@ export default function ReportPage() {
   };
 
   // --- LOGIKA CENTRALIZED UNTUK GENERATE & KALKULASI LAPORAN ---
-  const calculateReportData = async (targetDateStr: string) => {
-  const { start, end } = toUtcRange(targetDateStr);
-  const rangeFilter = pb.filter('created_at >= {:start} && created_at < {:end}', { start, end });
-
-  // Jalankan 4 query independen secara paralel
-  const [allProducts, menuItems, logStockItems, ongkosAll, cashflowItems] = await Promise.all([
-    pb.collection('produk').getFullList({ fields: 'id,kategori', $autoCancel: false, batch: 500 }),
-    pb.collection('menu').getFullList({
-      filter: rangeFilter,
-      fields: 'id, jenis, status, total, dibayar',
-      $autoCancel: false,
-      batch: 500,
-    }),
-    pb.collection('log_stock').getFullList({
-      filter: rangeFilter,
-      expand: 'ref_baru,item_baru',
-      fields: 'id,boolean,qty,price_1,price_2,ref_baru,item_baru,expand',
-      $autoCancel: false,
-      batch: 500,
-    }),
-    pb.collection('ongkos').getFullList({
-      filter: pb.filter('date >= {:start} && date < {:end}', { start, end }),
-      fields: 'ongkos,ref_baru',
-      $autoCancel: false,
-      batch: 500,
-    }),
-    pb.collection('cashflow').getFullList({
-      filter: rangeFilter,
-      fields: 'jenis,nominal,acc1,acc2,mutasi,ref_baru',
-      $autoCancel: false,
-      batch: 500,
-    }),
-  ]);
-
-  const productMap: Record<string, string> = {};
-  allProducts.forEach(p => { productMap[p.id] = (p.kategori || '').toLowerCase(); });
-
-  const menuMap: Record<string, string> = {};
-  let totalPiutang = 0;
-  let totalHutang = 0;
-  menuItems.forEach(m => {
-    const jenis = (m.jenis || '').toLowerCase();
-    menuMap[m.id] = jenis;
-    if ((m.status || '').toLowerCase() === 'belum') {
-      const s = (m.total || 0) - (m.dibayar || 0);
-      if (s > 0) {
-        if (jenis.includes('penjualan') || jenis.includes('service') || jenis.includes('servis')) totalPiutang += s;
-        else if (jenis.includes('pembelian')) totalHutang += s;
-      }
-    }
-  });
-
-  let totalOmsetPenjualan = 0;
-  let totalOmsetMinuman = 0;
-  let totalLabaPenjualan = 0;
-  let totalLabaServis = 0;
-  let totalLabaMinuman = 0;
-
-  logStockItems.forEach(item => {
-    if ((item.boolean || '').toLowerCase() !== 'out') return;
-    if (item.ref_baru && !menuMap.hasOwnProperty(item.ref_baru)) return; // Skip orphaned items from deleted menus
-
-    const menuJenis = menuMap[item.ref_baru] || '';
-    if (menuJenis.includes('pembelian') || menuJenis.includes('rusak') || menuJenis.includes('opname')) return;
-
-    const kategori = (item.expand?.item_baru?.kategori || '').toLowerCase();
-    const qty = item.qty || 0;
-    const nilaiJual = (item.price_1 || 0) * qty;
-    const nilaiModal = item.price_2 || 0;
-    const laba = nilaiJual - nilaiModal;
-
-    const isMinuman = (kategori === 'minuman' || menuJenis.includes('minuman'));
-    const isService = (menuJenis.includes('service') || menuJenis.includes('servis'));
-
-    if (isMinuman) {
-      totalOmsetMinuman += nilaiJual;
-      totalLabaMinuman += laba;
-    } else if (isService) {
-      totalOmsetPenjualan += nilaiJual;
-      totalLabaServis += laba;
-    } else {
-      totalOmsetPenjualan += nilaiJual;
-      totalLabaPenjualan += laba;
-    }
-  });
-
-  const omsetServis = ongkosAll.reduce((sum, item) => {
-    if (item.ref_baru && !menuMap.hasOwnProperty(item.ref_baru)) return sum;
-    return sum + (item.ongkos || 0);
-  }, 0);
-
-  let operasionalToko = 0;
-let pengeluaranLain = 0;
-let pemasukanLain = 0;
-let cashKasir = 0;
-let totalCashflowKeluarNonPembelian = 0;
-
-cashflowItems.forEach(cf => {
-  if (cf.ref_baru && !menuMap.hasOwnProperty(cf.ref_baru)) return; // Skip orphaned items
-
-  const jenis = (cf.jenis || '').toLowerCase();
-  const nominal = cf.nominal || 0;
-  const mutasi = (cf.mutasi || '').toLowerCase();
-
-  // 🔁 Hitung total cashflow keluar yang BUKAN pembelian
-  if (mutasi === 'out' && !jenis.includes('pembelian') && !jenis.includes('transfer')) {
-    totalCashflowKeluarNonPembelian += nominal;
-  }
-
-  // Tetap hitung pemasukan lain (misal dari jenis 'pemasukan')
-  if (jenis.includes('pemasukan')) {
-    pemasukanLain += nominal;
-  }
-
-  const acc1 = (cf.acc1 || '').toLowerCase();
-  const acc2 = (cf.acc2 || '').toLowerCase();
-
-  if (acc1.includes('kasir') || acc1.includes('cash')) {
-    if (mutasi === 'in' || mutasi === 'masuk') cashKasir += nominal;
-    else if (mutasi === 'out' || mutasi === 'keluar') cashKasir -= nominal;
-  } else if (acc2.includes('kasir') || acc2.includes('cash')) {
-    if (mutasi === 'out' || mutasi === 'keluar') cashKasir += nominal;
-  }
-});
-
-  // 🔁 Override: total pengeluaran (Keluar) diambil dari total cashflow keluar non-pembelian
-  operasionalToko = totalCashflowKeluarNonPembelian;
-  pengeluaranLain = 0;
-
-  return {
-    omset_toko: totalOmsetPenjualan,
-    omset_servis: omsetServis,
-    omset_minuman: totalOmsetMinuman,
-    laba_penjualan: totalLabaPenjualan,
-    laba_service: totalLabaServis,      // ← perbaiki nama field
-    laba_minuman: totalLabaMinuman,
-    operasional_toko: operasionalToko,
-    pengeluaran_lain: pengeluaranLain,
-    pemasukan_lain: pemasukanLain,
-    hutang: totalHutang,
-    piutang: totalPiutang,
-    kasir_toko: cashKasir,
-  };
-};
+  // --- LOGIKA CENTRALIZED UNTUK GENERATE & KALKULASI LAPORAN TELAH DIPINDAHKAN KE LARAVEL ---
 
   const handleGenerateReport = async (dateStr?: string, forceReplace: boolean = false) => {
     if (generating) return;
     setGenerating(true);
     try {
       const targetDateStr = dateStr || getLocalToday();
-      const lookup = toReportCreatedAt(targetDateStr);
 
-      const existing = await pb.collection('report').getFirstListItem(`created_at = "${lookup}"`).catch(() => null);
+      // Kita akan panggil Laravel endpoint untuk me-recalculate report ini
+      const { getLaravelApiUrl } = await import('../lib/pocketbase');
+      const apiUrl = getLaravelApiUrl() + '/api/reports/recalculate';
+      
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date: targetDateStr })
+      });
 
-      if (existing && !forceReplace) {
-        confirmAction(
-          'Laporan Sudah Ada', 
-          `Laporan untuk tanggal ${targetDateStr} sudah ada. Hapus & buat ulang?`, 
-          () => handleGenerateReport(targetDateStr, true)
-        );
-        setGenerating(false);
-        return;
+      if (!response.ok) {
+        throw new Error('Laravel API returned status ' + response.status);
       }
 
-      if (existing && forceReplace) {
-        await pb.collection('report').delete(existing.id);
-      }
-
-      const reportData = await calculateReportData(targetDateStr);
-
-      const newReport = {
-        ...reportData,
-        text: `Laporan otomatis ${targetDateStr}`,
-        created_at: lookup,
-      };
-
-      await pb.collection('report').create(newReport);
       await fetchReports();
       setShowGenerateModal(false);
-      showAlert('Sukses', 'Laporan berhasil di-generate!');
+      showAlert('Sukses', 'Laporan berhasil direkalkulasi otomatis dari server!');
     } catch (error) {
       console.error(error);
-      showAlert('Gagal', 'Gagal generate laporan: ' + (error as any)?.message);
+      showAlert('Gagal', 'Gagal generate laporan melalui server: ' + (error as any)?.message);
     } finally {
       setGenerating(false);
     }
