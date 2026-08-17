@@ -2,8 +2,19 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 
+import fs from 'fs';
+
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [
+    react(), 
+    tailwindcss(),
+    {
+      name: 'version-generator',
+      writeBundle() {
+        fs.writeFileSync('dist/version.json', JSON.stringify({ version: Date.now() }));
+      }
+    }
+  ],
   build: {
     chunkSizeWarningLimit: 1000,
     rollupOptions: {

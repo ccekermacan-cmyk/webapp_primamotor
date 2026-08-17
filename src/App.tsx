@@ -1,4 +1,4 @@
-import React, { useState, lazy, Suspense } from 'react';
+import React, { useState, lazy, Suspense, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { pb } from './lib/pocketbase';
 import Layout from './components/layout';
@@ -15,6 +15,34 @@ const ReportPage = lazy(() => import('./pages/report'));
 
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(pb.authStore.isValid);
+
+  // Auto-reload jika ada versi baru di server (SPA staleness fix)
+  useEffect(() => {
+    let currentVersion = '';
+    
+    fetch('/version.json')
+      .then(r => r.json())
+      .then(data => { currentVersion = data.version; })
+      .catch(() => {});
+
+    const checkVersion = async () => {
+      if (document.visibilityState === 'visible') {
+        try {
+          const res = await fetch(`/version.json?t=${Date.now()}`);
+          const data = await res.json();
+          if (currentVersion && data.version && currentVersion !== data.version) {
+            console.log('Versi baru terdeteksi! Memuat ulang aplikasi...');
+            window.location.reload();
+          }
+        } catch (err) {
+          // Abaikan error jika offline
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', checkVersion);
+    return () => document.removeEventListener('visibilitychange', checkVersion);
+  }, []);
 
   const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
     if (!isAuthenticated) return <Navigate to="/login" replace />;
