@@ -1323,16 +1323,20 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
                   const matchVarian = isMatch(p.varian, sp.varian);
                   const matchKet = isMatch(p.keterangan, sp.keterangan);
                   const matchTipe = isMatch(p.tipe, sp.tipe);
+                  const matchMerk = isMatch(p.merk, sp.merk);
                   
                   const hasStrongMatch = matchJenis || matchVarian || matchKet || matchTipe;
-                  const isValid = matchKategori && hasStrongMatch;
+                  const isFallbackMatch = matchKategori && matchMerk;
+                  
+                  // Valid jika cocok field utama, ATAU (sebagai cadangan) cocok kategori dan merk
+                  const isValid = (matchKategori && hasStrongMatch) || isFallbackMatch;
 
                   // matchTipe gives a huge bonus so it's sorted to the top
-                  const score = (matchTipe ? 20 : 0) + (matchJenis ? 5 : 0) + (matchVarian ? 4 : 0) + (matchKet ? 3 : 0);
+                  const score = (matchTipe ? 20 : 0) + (matchJenis ? 5 : 0) + (matchVarian ? 4 : 0) + (matchKet ? 3 : 0) + (isFallbackMatch && !hasStrongMatch ? 1 : 0);
                   
                   return { prod: p, isValid, score };
                 })
-                .filter(p => p.isValid) // Muncul jika kategori sama DAN (jenis/varian/ket mirip)
+                .filter(p => p.isValid) // Muncul jika kategori sama DAN (jenis/varian/ket/tipe mirip) ATAU (kategori & merk mirip)
                 .sort((a, b) => b.score - a.score)
                 .slice(0, 5)
                 .map(p => p.prod);
