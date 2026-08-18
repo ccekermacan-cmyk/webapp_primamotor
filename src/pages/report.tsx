@@ -355,7 +355,7 @@ export default function ReportPage() {
 
       // Kita akan panggil Laravel endpoint untuk me-recalculate report ini
       const { getLaravelApiUrl } = await import('../lib/pocketbase');
-      const apiUrl = getLaravelApiUrl() + '/api/reports/recalculate';
+      const apiUrl = getLaravelApiUrl() + '/reports/recalculate';
       
       const response = await fetch(apiUrl, {
         method: 'POST',
