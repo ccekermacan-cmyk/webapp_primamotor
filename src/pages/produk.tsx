@@ -1309,16 +1309,18 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
                 .map(p => {
                   let score = 0;
                   const sp = selectedProduct;
-                  // Bobot skor pencocokan
-                  if (p.jenis && p.jenis === sp.jenis) score += 4;
-                  if (p.kategori && p.kategori === sp.kategori) score += 3;
-                  if (p.merk && p.merk === sp.merk) score += 3;
-                  if (p.tipe && p.tipe === sp.tipe) score += 2;
-                  if (p.varian && p.varian === sp.varian) score += 2;
-                  if (p.keterangan && p.keterangan === sp.keterangan) score += 1;
+                  // Bobot skor pencocokan difokuskan pada tipe, varian, dan keterangan
+                  if (p.tipe && sp.tipe && p.tipe.toLowerCase() === sp.tipe.toLowerCase()) score += 10;
+                  if (p.varian && sp.varian && p.varian.toLowerCase() === sp.varian.toLowerCase()) score += 8;
+                  if (p.keterangan && sp.keterangan && (p.keterangan.toLowerCase().includes(sp.keterangan.toLowerCase()) || sp.keterangan.toLowerCase().includes(p.keterangan.toLowerCase()))) score += 6;
+                  
+                  if (p.jenis && p.jenis === sp.jenis) score += 3;
+                  if (p.merk && p.merk === sp.merk) score += 2;
+                  if (p.kategori && p.kategori === sp.kategori) score += 1;
+                  
                   return { prod: p, score };
                 })
-                .filter(p => p.score > 0)
+                .filter(p => p.score >= 5) // Threshold minimum agar tidak sembarang produk muncul
                 .sort((a, b) => b.score - a.score)
                 .slice(0, 4)
                 .map(p => p.prod);
