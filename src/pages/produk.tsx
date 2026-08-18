@@ -1302,7 +1302,51 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
               </div>
             )}
 
-            <button onClick={() => setModalType(null)} className="w-full bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold py-3 rounded-xl">Tutup</button>
+            {/* Produk Terkait */}
+            {(() => {
+              const relatedProducts = products
+                .filter(p => p.id !== selectedProduct.id && (p.kategori === selectedProduct.kategori || p.merk === selectedProduct.merk))
+                .slice(0, 4);
+
+              if (relatedProducts.length === 0) return null;
+
+              return (
+                <div className="mt-8">
+                  <h4 className="font-bold text-slate-700 text-sm mb-4">Produk Terkait</h4>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    {relatedProducts.map(prod => (
+                      <div 
+                        key={prod.id} 
+                        onClick={() => handleOpenDetail(prod)}
+                        className="group flex flex-col bg-white border border-slate-100 rounded-[1.25rem] p-2.5 hover:border-orange-200 hover:shadow-md hover:bg-orange-50/50 transition-all cursor-pointer"
+                      >
+                        <div className="w-full aspect-square bg-slate-50/80 rounded-xl overflow-hidden mb-2.5 relative border border-slate-100/50">
+                          {prod.file && prod.file.length > 0 ? (
+                            <img src={pb.files.getUrl(prod, prod.file[0])} alt="" className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"/>
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-slate-300">
+                              <Package size={24} />
+                            </div>
+                          )}
+                          {prod.stok_3 <= 0 && (
+                            <span className="absolute top-2 left-2 px-1.5 py-0.5 bg-rose-500 text-white text-[9px] font-black rounded-md shadow-sm">HABIS</span>
+                          )}
+                        </div>
+                        <p className="text-xs font-black text-slate-700 leading-snug line-clamp-2 mb-1.5 flex-1 group-hover:text-orange-600 transition-colors px-1">
+                          {`${prod.kategori} ${prod.merk} ${prod.jenis} ${prod.varian} ${prod.keterangan || ''} ${prod.tipe || ''}`.trim()}
+                        </p>
+                        <div className="flex items-center gap-1.5 text-[10px] font-bold mt-auto bg-slate-50 rounded-lg px-2 py-1.5 border border-slate-100">
+                          <Package size={12} className={prod.stok_3 > 0 ? "text-emerald-500" : "text-rose-400"} />
+                          <span className={prod.stok_3 > 0 ? "text-emerald-600" : "text-rose-500"}>Stok: {prod.stok_3 ?? 0}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+
+            <button onClick={() => setModalType(null)} className="w-full bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold py-3 rounded-[1.25rem] transition-colors mt-4">Tutup</button>
           </div>
         )}
       </Modal>
