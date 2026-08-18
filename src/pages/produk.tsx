@@ -74,6 +74,7 @@ export default function Produk() {
   // State untuk file gambar produk
   const [productFiles, setProductFiles] = useState<(File | { isOld: boolean; name: string; url: string })[]>([]);
   const [productPreviewUrls, setProductPreviewUrls] = useState<string[]>([]);
+  const [relatedProductsList, setRelatedProductsList] = useState<Produk[]>([]);
 
   const [kategoriSearch, setKategoriSearch] = useState('');
   const [isKategoriDropdownOpen, setIsKategoriDropdownOpen] = useState(false);
@@ -314,6 +315,97 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
   }
 };
 
+const fetchRelatedProducts = async (sp: Produk) => {
+  try {
+    setRelatedProductsList([]); // Clear previous
+    let records: Produk[] = [];
+    
+    // Optimasi: Jika punya kategori, ambil produk dengan kategori yang sama (atau memuat string serupa)
+    // Jika tidak, ambil full list. getFullList PocketBase sangat cepat untuk < 10k data
+    if (sp.kategori) {
+      records = await pb.collection('produk').getFullList<Produk>({
+        filter: pb.filter('kategori ~ {:kat}', { kat: sp.kategori }),
+        $autoCancel: false,
+      });
+    } else {
+      records = await pb.collection('produk').getFullList<Produk>({ $autoCancel: false });
+    }
+
+    const levenshteinDistance = (a: string, b: string) => {
+      if (a.length === 0) return b.length;
+      if (b.length === 0) return a.length;
+      const matrix = [];
+      for (let i = 0; i <= b.length; i++) matrix[i] = [i];
+      for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
+      for (let i = 1; i <= b.length; i++) {
+        for (let j = 1; j <= a.length; j++) {
+          if (b.charAt(i - 1) === a.charAt(j - 1)) {
+            matrix[i][j] = matrix[i - 1][j - 1];
+          } else {
+            matrix[i][j] = Math.min(matrix[i - 1][j - 1] + 1, Math.min(matrix[i][j - 1] + 1, matrix[i - 1][j] + 1));
+          }
+        }
+      }
+      return matrix[b.length][a.length];
+    };
+
+    const checkMatch = (str1?: string, str2?: string) => {
+      if (!str1 || !str2) return { match: false, exact: false };
+      const s1 = str1.toString().toLowerCase().trim();
+      const s2 = str2.toString().toLowerCase().trim();
+      if (s1 === '' || s2 === '') return { match: false, exact: false };
+      
+      const norm1 = s1.replace(/[^a-z0-9]/g, '').replace(/x/g, '');
+      const norm2 = s2.replace(/[^a-z0-9]/g, '').replace(/x/g, '');
+      if (norm1 !== '' && norm2 !== '' && (norm1.includes(norm2) || norm2.includes(norm1))) {
+        return { match: true, exact: true };
+      }
+      
+      const words1 = s1.split(/[\s,.\/-]+/).filter(w => w.length > 2);
+      const words2 = s2.split(/[\s,.\/-]+/).filter(w => w.length > 2);
+      
+      for (const w1 of words1) {
+        for (const w2 of words2) {
+          const maxTypos = Math.max(w1.length, w2.length) >= 5 ? 2 : 1;
+          if (levenshteinDistance(w1, w2) <= maxTypos) {
+            return { match: true, exact: false };
+          }
+        }
+      }
+      return { match: false, exact: false };
+    };
+
+    const related = records
+      .filter(p => p.id !== sp.id)
+      .map(p => {
+        const matchKategori = sp.kategori ? checkMatch(p.kategori, sp.kategori).match : true;
+        const resJenis = checkMatch(p.jenis, sp.jenis);
+        const resVarian = checkMatch(p.varian, sp.varian);
+        const resKet = checkMatch(p.keterangan, sp.keterangan);
+        const resTipe = checkMatch(p.tipe, sp.tipe);
+        const resMerk = checkMatch(p.merk, sp.merk);
+        
+        const hasStrongMatch = resJenis.match || resVarian.match || resKet.match || resTipe.match;
+        const isFallbackMatch = matchKategori && resMerk.match;
+        
+        const isValid = (matchKategori && hasStrongMatch) || isFallbackMatch;
+
+        const exactBonus = (resTipe.exact ? 5 : 0) + (resJenis.exact ? 2 : 0) + (resVarian.exact ? 2 : 0) + (resKet.exact ? 2 : 0);
+        const score = (resTipe.match ? 20 : 0) + (resJenis.match ? 5 : 0) + (resVarian.match ? 4 : 0) + (resKet.match ? 3 : 0) + exactBonus + (isFallbackMatch && !hasStrongMatch ? 1 : 0);
+        
+        return { prod: p, isValid, score };
+      })
+      .filter(p => p.isValid)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5)
+      .map(p => p.prod);
+
+    setRelatedProductsList(related);
+  } catch (e) {
+    console.error("Gagal memuat produk terkait:", e);
+  }
+};
+
   // ==========================================
   // HANDLERS
   // ==========================================
@@ -322,6 +414,7 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
     setCurrentImageIndex(0); // reset slideshow ke gambar pertama
     setLogPage(1);
     fetchLogHistory(prod.id, 1);
+    fetchRelatedProducts(prod);
     setModalType('detail');
   };
 
@@ -1303,88 +1396,11 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
             )}
 
             {/* Produk Terkait */}
-            {(() => {
-              const relatedProducts = products
-                .filter(p => p.id !== selectedProduct.id)
-                .map(p => {
-                  const sp = selectedProduct;
-                  
-                  const levenshteinDistance = (a: string, b: string) => {
-                    if (a.length === 0) return b.length;
-                    if (b.length === 0) return a.length;
-                    const matrix = [];
-                    for (let i = 0; i <= b.length; i++) matrix[i] = [i];
-                    for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
-                    for (let i = 1; i <= b.length; i++) {
-                      for (let j = 1; j <= a.length; j++) {
-                        if (b.charAt(i - 1) === a.charAt(j - 1)) {
-                          matrix[i][j] = matrix[i - 1][j - 1];
-                        } else {
-                          matrix[i][j] = Math.min(matrix[i - 1][j - 1] + 1, Math.min(matrix[i][j - 1] + 1, matrix[i - 1][j] + 1));
-                        }
-                      }
-                    }
-                    return matrix[b.length][a.length];
-                  };
-
-                  const checkMatch = (str1?: string, str2?: string) => {
-                    if (!str1 || !str2) return { match: false, exact: false };
-                    const s1 = str1.toString().toLowerCase().trim();
-                    const s2 = str2.toString().toLowerCase().trim();
-                    if (s1 === '' || s2 === '') return { match: false, exact: false };
-                    
-                    const norm1 = s1.replace(/[^a-z0-9]/g, '').replace(/x/g, '');
-                    const norm2 = s2.replace(/[^a-z0-9]/g, '').replace(/x/g, '');
-                    if (norm1 !== '' && norm2 !== '' && (norm1.includes(norm2) || norm2.includes(norm1))) {
-                      return { match: true, exact: true };
-                    }
-                    
-                    const words1 = s1.split(/[\s,.\/-]+/).filter(w => w.length > 2);
-                    const words2 = s2.split(/[\s,.\/-]+/).filter(w => w.length > 2);
-                    
-                    for (const w1 of words1) {
-                      for (const w2 of words2) {
-                        const maxTypos = Math.max(w1.length, w2.length) >= 5 ? 2 : 1;
-                        if (levenshteinDistance(w1, w2) <= maxTypos) {
-                          return { match: true, exact: false };
-                        }
-                      }
-                    }
-                    return { match: false, exact: false };
-                  };
-
-                  const matchKategori = sp.kategori ? checkMatch(p.kategori, sp.kategori).match : true;
-                  const resJenis = checkMatch(p.jenis, sp.jenis);
-                  const resVarian = checkMatch(p.varian, sp.varian);
-                  const resKet = checkMatch(p.keterangan, sp.keterangan);
-                  const resTipe = checkMatch(p.tipe, sp.tipe);
-                  const resMerk = checkMatch(p.merk, sp.merk);
-                  
-                  const hasStrongMatch = resJenis.match || resVarian.match || resKet.match || resTipe.match;
-                  const isFallbackMatch = matchKategori && resMerk.match;
-                  
-                  // Valid jika cocok field utama, ATAU (sebagai cadangan) cocok kategori dan merk
-                  const isValid = (matchKategori && hasStrongMatch) || isFallbackMatch;
-
-                  // Priority for exact matches over fuzzy matches
-                  const exactBonus = (resTipe.exact ? 5 : 0) + (resJenis.exact ? 2 : 0) + (resVarian.exact ? 2 : 0) + (resKet.exact ? 2 : 0);
-                  
-                  const score = (resTipe.match ? 20 : 0) + (resJenis.match ? 5 : 0) + (resVarian.match ? 4 : 0) + (resKet.match ? 3 : 0) + exactBonus + (isFallbackMatch && !hasStrongMatch ? 1 : 0);
-                  
-                  return { prod: p, isValid, score };
-                })
-                .filter(p => p.isValid) // Muncul jika kategori sama DAN (jenis/varian/ket/tipe mirip) ATAU (kategori & merk mirip)
-                .sort((a, b) => b.score - a.score)
-                .slice(0, 5)
-                .map(p => p.prod);
-
-              if (relatedProducts.length === 0) return null;
-
-              return (
+            {relatedProductsList.length > 0 && (
                 <div className="mt-8">
                   <h4 className="font-bold text-slate-700 text-sm mb-4">Produk Serupa / Terkait</h4>
                   <div className="flex flex-col gap-2">
-                    {relatedProducts.map(prod => (
+                    {relatedProductsList.map(prod => (
                       <div 
                         key={prod.id} 
                         onClick={() => handleOpenDetail(prod)}
@@ -1421,8 +1437,7 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
                     ))}
                   </div>
                 </div>
-              );
-            })()}
+            )}
 
             <button onClick={() => setModalType(null)} className="w-full bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold py-3 rounded-[1.25rem] transition-colors mt-4">Tutup</button>
           </div>
