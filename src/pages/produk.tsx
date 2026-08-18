@@ -1309,30 +1309,67 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
                 .map(p => {
                   const sp = selectedProduct;
                   
-                  const isMatch = (str1?: string, str2?: string) => {
-                    if (!str1 || !str2) return false;
-                    const normalize = (s: string) => s.toString().toLowerCase().replace(/[^a-z0-9]/g, '').replace(/x/g, '');
-                    const s1 = normalize(str1);
-                    const s2 = normalize(str2);
-                    if (s1 === '' || s2 === '') return false;
-                    return s1.includes(s2) || s2.includes(s1);
+                  const levenshteinDistance = (a: string, b: string) => {
+                    if (a.length === 0) return b.length;
+                    if (b.length === 0) return a.length;
+                    const matrix = [];
+                    for (let i = 0; i <= b.length; i++) matrix[i] = [i];
+                    for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
+                    for (let i = 1; i <= b.length; i++) {
+                      for (let j = 1; j <= a.length; j++) {
+                        if (b.charAt(i - 1) === a.charAt(j - 1)) {
+                          matrix[i][j] = matrix[i - 1][j - 1];
+                        } else {
+                          matrix[i][j] = Math.min(matrix[i - 1][j - 1] + 1, Math.min(matrix[i][j - 1] + 1, matrix[i - 1][j] + 1));
+                        }
+                      }
+                    }
+                    return matrix[b.length][a.length];
                   };
 
-                  const matchKategori = sp.kategori ? isMatch(p.kategori, sp.kategori) : true;
-                  const matchJenis = isMatch(p.jenis, sp.jenis);
-                  const matchVarian = isMatch(p.varian, sp.varian);
-                  const matchKet = isMatch(p.keterangan, sp.keterangan);
-                  const matchTipe = isMatch(p.tipe, sp.tipe);
-                  const matchMerk = isMatch(p.merk, sp.merk);
+                  const checkMatch = (str1?: string, str2?: string) => {
+                    if (!str1 || !str2) return { match: false, exact: false };
+                    const s1 = str1.toString().toLowerCase().trim();
+                    const s2 = str2.toString().toLowerCase().trim();
+                    if (s1 === '' || s2 === '') return { match: false, exact: false };
+                    
+                    const norm1 = s1.replace(/[^a-z0-9]/g, '').replace(/x/g, '');
+                    const norm2 = s2.replace(/[^a-z0-9]/g, '').replace(/x/g, '');
+                    if (norm1 !== '' && norm2 !== '' && (norm1.includes(norm2) || norm2.includes(norm1))) {
+                      return { match: true, exact: true };
+                    }
+                    
+                    const words1 = s1.split(/[\s,.\/-]+/).filter(w => w.length > 2);
+                    const words2 = s2.split(/[\s,.\/-]+/).filter(w => w.length > 2);
+                    
+                    for (const w1 of words1) {
+                      for (const w2 of words2) {
+                        const maxTypos = Math.max(w1.length, w2.length) >= 5 ? 2 : 1;
+                        if (levenshteinDistance(w1, w2) <= maxTypos) {
+                          return { match: true, exact: false };
+                        }
+                      }
+                    }
+                    return { match: false, exact: false };
+                  };
+
+                  const matchKategori = sp.kategori ? checkMatch(p.kategori, sp.kategori).match : true;
+                  const resJenis = checkMatch(p.jenis, sp.jenis);
+                  const resVarian = checkMatch(p.varian, sp.varian);
+                  const resKet = checkMatch(p.keterangan, sp.keterangan);
+                  const resTipe = checkMatch(p.tipe, sp.tipe);
+                  const resMerk = checkMatch(p.merk, sp.merk);
                   
-                  const hasStrongMatch = matchJenis || matchVarian || matchKet || matchTipe;
-                  const isFallbackMatch = matchKategori && matchMerk;
+                  const hasStrongMatch = resJenis.match || resVarian.match || resKet.match || resTipe.match;
+                  const isFallbackMatch = matchKategori && resMerk.match;
                   
                   // Valid jika cocok field utama, ATAU (sebagai cadangan) cocok kategori dan merk
                   const isValid = (matchKategori && hasStrongMatch) || isFallbackMatch;
 
-                  // matchTipe gives a huge bonus so it's sorted to the top
-                  const score = (matchTipe ? 20 : 0) + (matchJenis ? 5 : 0) + (matchVarian ? 4 : 0) + (matchKet ? 3 : 0) + (isFallbackMatch && !hasStrongMatch ? 1 : 0);
+                  // Priority for exact matches over fuzzy matches
+                  const exactBonus = (resTipe.exact ? 5 : 0) + (resJenis.exact ? 2 : 0) + (resVarian.exact ? 2 : 0) + (resKet.exact ? 2 : 0);
+                  
+                  const score = (resTipe.match ? 20 : 0) + (resJenis.match ? 5 : 0) + (resVarian.match ? 4 : 0) + (resKet.match ? 3 : 0) + exactBonus + (isFallbackMatch && !hasStrongMatch ? 1 : 0);
                   
                   return { prod: p, isValid, score };
                 })
