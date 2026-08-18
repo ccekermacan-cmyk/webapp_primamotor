@@ -1308,6 +1308,21 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
                 .filter(p => p.id !== selectedProduct.id)
                 .map(p => {
                   const sp = selectedProduct;
+                  
+                  const isMatch = (str1?: string, str2?: string) => {
+                    if (!str1 || !str2) return false;
+                    const s1 = str1.toString().trim().toLowerCase();
+                    const s2 = str2.toString().trim().toLowerCase();
+                    if (s1 === '' || s2 === '') return false;
+                    return s1.includes(s2) || s2.includes(s1);
+                  };
+
+                  const matchTipe = isMatch(p.tipe, sp.tipe);
+                  const matchVarian = isMatch(p.varian, sp.varian);
+                  const matchKet = isMatch(p.keterangan, sp.keterangan);
+                  
+                  const hasStrongMatch = matchTipe || matchVarian || matchKet;
+
                   let matchCount = 0;
                   let totalFields = 0;
                   const fields = ['kategori', 'merk', 'jenis', 'tipe', 'varian', 'keterangan'];
@@ -1324,10 +1339,12 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
                   }
                   
                   const similarity = totalFields > 0 ? matchCount / totalFields : 0;
-                  return { prod: p, similarity };
+                  const score = (similarity * 10) + (matchTipe ? 5 : 0) + (matchVarian ? 4 : 0) + (matchKet ? 3 : 0);
+                  
+                  return { prod: p, similarity, hasStrongMatch, score };
                 })
-                .filter(p => p.similarity >= 0.70) // Threshold minimum 70% kemiripan
-                .sort((a, b) => b.similarity - a.similarity)
+                .filter(p => p.hasStrongMatch || p.similarity >= 0.70) // Muncul jika tipe/varian/ket mirip ATAU 70% mirip
+                .sort((a, b) => b.score - a.score)
                 .slice(0, 4)
                 .map(p => p.prod);
               if (relatedProducts.length === 0) return null;
