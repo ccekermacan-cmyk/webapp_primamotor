@@ -1307,21 +1307,27 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
               const relatedProducts = products
                 .filter(p => p.id !== selectedProduct.id)
                 .map(p => {
-                  let score = 0;
                   const sp = selectedProduct;
-                  // Bobot skor pencocokan difokuskan pada tipe, varian, dan keterangan
-                  if (p.tipe && sp.tipe && p.tipe.toLowerCase() === sp.tipe.toLowerCase()) score += 10;
-                  if (p.varian && sp.varian && p.varian.toLowerCase() === sp.varian.toLowerCase()) score += 8;
-                  if (p.keterangan && sp.keterangan && (p.keterangan.toLowerCase().includes(sp.keterangan.toLowerCase()) || sp.keterangan.toLowerCase().includes(p.keterangan.toLowerCase()))) score += 6;
+                  let matchCount = 0;
+                  let totalFields = 0;
+                  const fields = ['kategori', 'merk', 'jenis', 'tipe', 'varian', 'keterangan'];
                   
-                  if (p.jenis && p.jenis === sp.jenis) score += 3;
-                  if (p.merk && p.merk === sp.merk) score += 2;
-                  if (p.kategori && p.kategori === sp.kategori) score += 1;
+                  for (const f of fields) {
+                    const spVal = sp[f]?.toString().trim().toLowerCase();
+                    if (spVal) {
+                      totalFields++;
+                      const pVal = p[f]?.toString().trim().toLowerCase();
+                      if (pVal && (pVal.includes(spVal) || spVal.includes(pVal))) {
+                        matchCount++;
+                      }
+                    }
+                  }
                   
-                  return { prod: p, score };
+                  const similarity = totalFields > 0 ? matchCount / totalFields : 0;
+                  return { prod: p, similarity };
                 })
-                .filter(p => p.score >= 5) // Threshold minimum agar tidak sembarang produk muncul
-                .sort((a, b) => b.score - a.score)
+                .filter(p => p.similarity >= 0.70) // Threshold minimum 70% kemiripan
+                .sort((a, b) => b.similarity - a.similarity)
                 .slice(0, 4)
                 .map(p => p.prod);
               if (relatedProducts.length === 0) return null;
