@@ -1305,9 +1305,23 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
             {/* Produk Terkait */}
             {(() => {
               const relatedProducts = products
-                .filter(p => p.id !== selectedProduct.id && (p.kategori === selectedProduct.kategori || p.merk === selectedProduct.merk))
-                .slice(0, 4);
-
+                .filter(p => p.id !== selectedProduct.id)
+                .map(p => {
+                  let score = 0;
+                  const sp = selectedProduct;
+                  // Bobot skor pencocokan
+                  if (p.jenis && p.jenis === sp.jenis) score += 4;
+                  if (p.kategori && p.kategori === sp.kategori) score += 3;
+                  if (p.merk && p.merk === sp.merk) score += 3;
+                  if (p.tipe && p.tipe === sp.tipe) score += 2;
+                  if (p.varian && p.varian === sp.varian) score += 2;
+                  if (p.keterangan && p.keterangan === sp.keterangan) score += 1;
+                  return { prod: p, score };
+                })
+                .filter(p => p.score > 0)
+                .sort((a, b) => b.score - a.score)
+                .slice(0, 4)
+                .map(p => p.prod);
               if (relatedProducts.length === 0) return null;
 
               return (
