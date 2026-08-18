@@ -1311,7 +1311,7 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
                   
                   const isMatch = (str1?: string, str2?: string) => {
                     if (!str1 || !str2) return false;
-                    const normalize = (s: string) => s.toString().toLowerCase().replace(/[^a-z0-9]/g, '');
+                    const normalize = (s: string) => s.toString().toLowerCase().replace(/[^a-z0-9]/g, '').replace(/x/g, '');
                     const s1 = normalize(str1);
                     const s2 = normalize(str2);
                     if (s1 === '' || s2 === '') return false;
