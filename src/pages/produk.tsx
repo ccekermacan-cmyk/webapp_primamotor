@@ -1322,11 +1322,13 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
                   const matchJenis = isMatch(p.jenis, sp.jenis);
                   const matchVarian = isMatch(p.varian, sp.varian);
                   const matchKet = isMatch(p.keterangan, sp.keterangan);
+                  const matchTipe = isMatch(p.tipe, sp.tipe);
                   
-                  const hasStrongMatch = matchJenis || matchVarian || matchKet;
+                  const hasStrongMatch = matchJenis || matchVarian || matchKet || matchTipe;
                   const isValid = matchKategori && hasStrongMatch;
 
-                  const score = (matchJenis ? 5 : 0) + (matchVarian ? 4 : 0) + (matchKet ? 3 : 0);
+                  // matchTipe gives a huge bonus so it's sorted to the top
+                  const score = (matchTipe ? 20 : 0) + (matchJenis ? 5 : 0) + (matchVarian ? 4 : 0) + (matchKet ? 3 : 0);
                   
                   return { prod: p, isValid, score };
                 })
