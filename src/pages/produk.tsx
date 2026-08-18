@@ -1317,66 +1317,61 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
                     return s1.includes(s2) || s2.includes(s1);
                   };
 
-                  const matchTipe = isMatch(p.tipe, sp.tipe);
+                  const matchKategori = sp.kategori ? isMatch(p.kategori, sp.kategori) : true;
+                  const matchJenis = isMatch(p.jenis, sp.jenis);
                   const matchVarian = isMatch(p.varian, sp.varian);
                   const matchKet = isMatch(p.keterangan, sp.keterangan);
                   
-                  const hasStrongMatch = matchTipe || matchVarian || matchKet;
+                  const hasStrongMatch = matchJenis || matchVarian || matchKet;
+                  const isValid = matchKategori && hasStrongMatch;
 
-                  let matchCount = 0;
-                  let totalFields = 0;
-                  const fields = ['kategori', 'merk', 'jenis', 'tipe', 'varian', 'keterangan'];
+                  const score = (matchJenis ? 5 : 0) + (matchVarian ? 4 : 0) + (matchKet ? 3 : 0);
                   
-                  for (const f of fields) {
-                    const spVal = sp[f]?.toString().trim().toLowerCase();
-                    if (spVal) {
-                      totalFields++;
-                      const pVal = p[f]?.toString().trim().toLowerCase();
-                      if (pVal && (pVal.includes(spVal) || spVal.includes(pVal))) {
-                        matchCount++;
-                      }
-                    }
-                  }
-                  
-                  const similarity = totalFields > 0 ? matchCount / totalFields : 0;
-                  const score = (similarity * 10) + (matchTipe ? 5 : 0) + (matchVarian ? 4 : 0) + (matchKet ? 3 : 0);
-                  
-                  return { prod: p, similarity, hasStrongMatch, score };
+                  return { prod: p, isValid, score };
                 })
-                .filter(p => p.hasStrongMatch || p.similarity >= 0.70) // Muncul jika tipe/varian/ket mirip ATAU 70% mirip
+                .filter(p => p.isValid) // Muncul jika kategori sama DAN (jenis/varian/ket mirip)
                 .sort((a, b) => b.score - a.score)
-                .slice(0, 4)
+                .slice(0, 5)
                 .map(p => p.prod);
+
               if (relatedProducts.length === 0) return null;
 
               return (
                 <div className="mt-8">
-                  <h4 className="font-bold text-slate-700 text-sm mb-4">Produk Terkait</h4>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <h4 className="font-bold text-slate-700 text-sm mb-4">Produk Serupa / Terkait</h4>
+                  <div className="flex flex-col gap-2">
                     {relatedProducts.map(prod => (
                       <div 
                         key={prod.id} 
                         onClick={() => handleOpenDetail(prod)}
-                        className="group flex flex-col bg-white border border-slate-100 rounded-[1.25rem] p-2.5 hover:border-orange-200 hover:shadow-md hover:bg-orange-50/50 transition-all cursor-pointer"
+                        className="group flex items-center gap-3 bg-white border border-slate-100 rounded-2xl p-2 hover:border-orange-200 hover:shadow-md hover:bg-orange-50/50 transition-all cursor-pointer"
                       >
-                        <div className="w-full aspect-square bg-slate-50/80 rounded-xl overflow-hidden mb-2.5 relative border border-slate-100/50">
+                        <div className="w-12 h-12 shrink-0 bg-slate-50/80 rounded-xl overflow-hidden relative border border-slate-100/50">
                           {prod.file && prod.file.length > 0 ? (
                             <img src={pb.files.getUrl(prod, prod.file[0])} alt="" className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"/>
                           ) : (
                             <div className="w-full h-full flex items-center justify-center text-slate-300">
-                              <Package size={24} />
+                              <Package size={20} />
                             </div>
                           )}
-                          {prod.stok_3 <= 0 && (
-                            <span className="absolute top-2 left-2 px-1.5 py-0.5 bg-rose-500 text-white text-[9px] font-black rounded-md shadow-sm">HABIS</span>
-                          )}
                         </div>
-                        <p className="text-xs font-black text-slate-700 leading-snug line-clamp-2 mb-1.5 flex-1 group-hover:text-orange-600 transition-colors px-1">
-                          {`${prod.kategori} ${prod.merk} ${prod.jenis} ${prod.varian} ${prod.keterangan || ''} ${prod.tipe || ''}`.trim()}
-                        </p>
-                        <div className="flex items-center gap-1.5 text-[10px] font-bold mt-auto bg-slate-50 rounded-lg px-2 py-1.5 border border-slate-100">
-                          <Package size={12} className={prod.stok_3 > 0 ? "text-emerald-500" : "text-rose-400"} />
-                          <span className={prod.stok_3 > 0 ? "text-emerald-600" : "text-rose-500"}>Stok: {prod.stok_3 ?? 0}</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-black text-slate-700 leading-snug truncate group-hover:text-orange-600 transition-colors">
+                            {`${prod.kategori} ${prod.merk} ${prod.jenis} ${prod.varian} ${prod.keterangan || ''} ${prod.tipe || ''}`.trim()}
+                          </p>
+                          <div className="flex items-center gap-1.5 text-[10px] font-bold mt-1">
+                            <span className="px-2 py-0.5 bg-slate-100 text-slate-500 rounded-md">ID: {formatIdLamaDisplay(prod.id_lama)}</span>
+                            {prod.stok_3 <= 0 ? (
+                              <span className="px-2 py-0.5 bg-rose-100 text-rose-600 rounded-md">HABIS</span>
+                            ) : (
+                              <span className="px-2 py-0.5 bg-emerald-50 text-emerald-600 border border-emerald-100 rounded-md flex items-center gap-1">
+                                <Package size={10} /> Stok: {prod.stok_3 ?? 0}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="shrink-0 pl-2 pr-1">
+                          <ChevronRight size={18} className="text-slate-300 group-hover:text-orange-500 transition-colors" />
                         </div>
                       </div>
                     ))}
