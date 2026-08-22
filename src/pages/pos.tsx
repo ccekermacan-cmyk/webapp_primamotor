@@ -769,17 +769,24 @@ export default function MenuPage() {
 
         // Cari user ID untuk update saldo bon
         const foundUser = allUsers.find(u => u.username === item.person || u.name === item.person || u.id === item.person);
+        
+        // Cari dropdown person ID untuk relasi tabel bon
+        let personDropdownId = '';
+        if (foundUser) {
+          const foundPerson = allPersons.find(p => p.id_lama === foundUser.username || p.text_1 === foundUser.name || p.id === item.person);
+          if (foundPerson) personDropdownId = foundPerson.id;
+        }
 
         // Auto-buat record bon jika ada bon_dibayar > 0 (Pelunasan Bon)
         if (item.bon_dibayar && item.bon_dibayar > 0) {
           try {
             await pb.collection('bon').create({
               persontext: item.person,
+              person: personDropdownId,
               jenis: 'in', // Pelunasan = in (mengurangi saldo bon)
               nominal: item.bon_dibayar,
-              nominal_bon: item.bon_dibayar,
               note: `Potongan Bon via Slip Gaji Periode ${gajiHeader.date}`,
-              ref: menuId,
+              ref_gaji: menuId,
               operator: operatorName || pb.authStore.model?.username || 'System'
             });
 
@@ -798,11 +805,11 @@ export default function MenuPage() {
           try {
             await pb.collection('bon').create({
               persontext: item.person,
+              person: personDropdownId,
               jenis: 'out', // Ambil bon baru = out (menambah saldo bon)
               nominal: item.bon_diambil,
-              nominal_bon: item.bon_diambil,
               note: `Pinjaman Bon Baru via Slip Gaji Periode ${gajiHeader.date}`,
-              ref: menuId,
+              ref_gaji: menuId,
               operator: operatorName || pb.authStore.model?.username || 'System'
             });
 
