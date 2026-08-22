@@ -107,7 +107,6 @@ export default function ReportPage() {
   // Filter untuk tab Menu
   const [menuFilterJenis, setMenuFilterJenis] = useState<string[]>(['semua']);
   const [isMenuDropdownOpen, setIsMenuDropdownOpen] = useState(false);
-  const [logStockFilterRefJenis, setLogStockFilterRefJenis] = useState<string>('semua');
   const [logStockFilterBoolean, setLogStockFilterBoolean] = useState<string>('semua');
   const [cashflowFilterMutasi, setCashflowFilterMutasi] = useState<string>('semua');
   const [cashflowFilterAccount, setCashflowFilterAccount] = useState<string>('semua');
@@ -1235,10 +1234,7 @@ export default function ReportPage() {
                   });
                 }
 
-                const availableRefJenis = [...new Set(baseLog.filter(l => logStockFilterBoolean === 'semua' || (l.boolean || '').toLowerCase() === logStockFilterBoolean.toLowerCase()).map(l => l.ref_baru))].filter(Boolean);
-
                 let filteredLogStock = baseLog.filter(l => logStockFilterBoolean === 'semua' || (l.boolean || '').toLowerCase() === logStockFilterBoolean.toLowerCase());
-                filteredLogStock = filteredLogStock.filter(l => logStockFilterRefJenis === 'semua' || l.ref_baru === logStockFilterRefJenis);
 
                 filteredLogStock.sort((a, b) => {
                   let valA = a[logStockSort.key]; let valB = b[logStockSort.key];
@@ -1277,10 +1273,6 @@ export default function ReportPage() {
                   <div>
                     <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
                       <div className="flex flex-wrap gap-2">
-                        <select className="p-2 border border-slate-200 rounded-xl text-sm font-bold bg-white" value={logStockFilterRefJenis} onChange={(e) => setLogStockFilterRefJenis(e.target.value)}>
-                          <option value="semua">Semua Referensi (Nota)</option>
-                          {availableRefJenis.map(r => <option key={String(r)} value={String(r)}>{r}</option>)}
-                        </select>
                         <select className="p-2 border border-slate-200 rounded-xl text-sm font-bold bg-white" value={logStockFilterBoolean} onChange={(e) => setLogStockFilterBoolean(e.target.value)}>
                           <option value="semua">Semua Mutasi</option>
                           <option value="in">Masuk (In)</option>
