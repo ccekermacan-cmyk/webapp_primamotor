@@ -282,27 +282,15 @@ export default function MenuPage() {
 
     setIsFetchingEmployeeData(true);
     try {
-      // 1. Fetch Sisa Bon Karyawan dari collection 'bon' (aman tanpa error 400 filter)
+      // 1. Fetch Sisa Bon Karyawan dari collection 'user' berdasarkan field 'number'
       let activeBon = 0;
+      let matchedUserId = '';
       try {
-        const userBonList = await pb.collection('bon').getFullList({
-          filter: `persontext = "${personVal}"`,
-          $autoCancel: false
-        });
-        
-        let totalIn = 0; // pinjam / ambil bon
-        let totalOut = 0; // bayar / pelunasan bon
-        userBonList.forEach((b: any) => {
-          const uStr = String(b.user || b.persontext || b.person || '');
-          const noteStr = String(b.note || '');
-          if (uStr === personVal || noteStr.includes(personVal)) {
-            const j = (b.jenis || '').toLowerCase();
-            const nom = Number(b.nominal || b.nominal_bon || 0);
-            if (j === 'in' || j === 'pinjam' || j === 'ambil') totalIn += nom;
-            else if (j === 'out' || j === 'bayar' || j === 'lunas') totalOut += nom;
-          }
-        });
-        activeBon = Math.max(0, totalIn - totalOut);
+        const foundUser = allUsers.find(u => u.username === personVal || u.name === personVal || u.id === personVal);
+        if (foundUser) {
+           activeBon = Number(foundUser.number) || 0;
+           matchedUserId = foundUser.id;
+        }
       } catch (bonErr) {
         console.warn("Notice: Fetching bon items fallback:", bonErr);
       }
@@ -779,18 +767,27 @@ export default function MenuPage() {
 
         await pb.collection('gaji').create(formData);
 
+        // Cari user ID untuk update saldo bon
+        const foundUser = allUsers.find(u => u.username === item.person || u.name === item.person || u.id === item.person);
+
         // Auto-buat record bon jika ada bon_dibayar > 0 (Pelunasan Bon)
         if (item.bon_dibayar && item.bon_dibayar > 0) {
           try {
             await pb.collection('bon').create({
               persontext: item.person,
-              jenis: 'out',
+              jenis: 'in', // Pelunasan = in (mengurangi saldo bon)
               nominal: item.bon_dibayar,
               nominal_bon: item.bon_dibayar,
               note: `Potongan Bon via Slip Gaji Periode ${gajiHeader.date}`,
               ref: menuId,
               operator: operatorName || pb.authStore.model?.username || 'System'
             });
+
+            if (foundUser) {
+              const uRec = await pb.collection('user').getOne(foundUser.id, { $autoCancel: false });
+              const newBon = Math.max(0, (Number(uRec.number) || 0) - item.bon_dibayar);
+              await pb.collection('user').update(foundUser.id, { number: newBon }, { $autoCancel: false });
+            }
           } catch (bonErr) {
             console.error("Error auto-creating bon payment record:", bonErr);
           }
@@ -801,13 +798,19 @@ export default function MenuPage() {
           try {
             await pb.collection('bon').create({
               persontext: item.person,
-              jenis: 'in',
+              jenis: 'out', // Ambil bon baru = out (menambah saldo bon)
               nominal: item.bon_diambil,
               nominal_bon: item.bon_diambil,
               note: `Pinjaman Bon Baru via Slip Gaji Periode ${gajiHeader.date}`,
               ref: menuId,
               operator: operatorName || pb.authStore.model?.username || 'System'
             });
+
+            if (foundUser) {
+              const uRec = await pb.collection('user').getOne(foundUser.id, { $autoCancel: false });
+              const newBon = (Number(uRec.number) || 0) + item.bon_diambil;
+              await pb.collection('user').update(foundUser.id, { number: newBon }, { $autoCancel: false });
+            }
           } catch (bonErr) {
             console.error("Error auto-creating new bon loan record:", bonErr);
           }
@@ -5212,6 +5215,9 @@ export default function MenuPage() {
                               <div>
                                 <label className="text-[10px] font-black text-slate-600 uppercase block mb-1">Ambil Bon (Rp)</label>
                                 <input type="number" value={gajiItemSubData.bon_diambil || ''} onChange={e => setGajiItemSubData({...gajiItemSubData, bon_diambil: Number(e.target.value)})} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-rose-600 focus:bg-white focus:ring-2 focus:ring-rose-500 outline-none" placeholder="0" />
+                                <span className="text-[9px] font-bold text-slate-500 block mt-1">
+                                  Total Bon (Saat Ini): Rp {employeeActiveBon.toLocaleString('id-ID')}
+                                </span>
                               </div>
                             </div>
                           </div>
