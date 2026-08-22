@@ -142,8 +142,8 @@ export default function ReportPage() {
     if (!localDateStr) return { start: '', end: '' };
     const [y, m, d] = localDateStr.split('-').map(Number);
     return {
-      start: new Date(y, m - 1, d, 0, 0, 0).toISOString(),
-      end: new Date(y, m - 1, d + 1, 0, 0, 0).toISOString(),
+      start: new Date(y, m - 1, d, 0, 0, 0).toISOString().replace('T', ' '),
+      end: new Date(y, m - 1, d + 1, 0, 0, 0).toISOString().replace('T', ' '),
     };
   };
 
