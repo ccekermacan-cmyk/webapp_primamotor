@@ -1010,12 +1010,10 @@ export default function ReportPage() {
                 // ============================
                 // TAB MENU
                 // ============================
-                let filteredMenu = reportDetailData?.menu.filter(m => menuFilterJenis.length === 0 || menuFilterJenis.includes('semua') || (m.jenis && menuFilterJenis.includes(m.jenis))) || [];
-                filteredMenu = filteredMenu.filter(m => menuFilterStatus === 'semua' || m.status === menuFilterStatus);
-
+                let baseMenu = reportDetailData?.menu || [];
                 if (detailSearchTerm.trim() !== '') {
                   const term = detailSearchTerm.toLowerCase();
-                  filteredMenu = filteredMenu.filter(m => 
+                  baseMenu = baseMenu.filter(m => 
                     (m.id && m.id.toLowerCase().includes(term)) ||
                     (m.operator && m.operator.toLowerCase().includes(term)) ||
                     (m.person && m.person.toLowerCase().includes(term)) ||
@@ -1027,6 +1025,11 @@ export default function ReportPage() {
                     (m.note && m.note.toLowerCase().includes(term))
                   );
                 }
+
+                const availableJenis = [...new Set(baseMenu.filter(m => menuFilterStatus === 'semua' || m.status === menuFilterStatus).map(m => m.jenis))].filter(Boolean);
+
+                let filteredMenu = baseMenu.filter(m => menuFilterStatus === 'semua' || m.status === menuFilterStatus);
+                filteredMenu = filteredMenu.filter(m => menuFilterJenis.length === 0 || menuFilterJenis.includes('semua') || (m.jenis && menuFilterJenis.includes(m.jenis)));
 
                 filteredMenu.sort((a, b) => {
                   let valA = a[menuSort.key]; let valB = b[menuSort.key];
@@ -1077,7 +1080,7 @@ export default function ReportPage() {
                                 Semua Jenis
                               </label>
                               <div className="h-px bg-slate-100 my-1"></div>
-                              {[...new Set(reportDetailData?.menu.map(m => m.jenis) || [])].map(j => (
+                              {availableJenis.map(j => (
                                 <label key={String(j)} className="flex items-center gap-2 text-sm font-medium cursor-pointer hover:bg-slate-50 p-1.5 rounded">
                                   <input
                                     type="checkbox"
@@ -1213,15 +1216,10 @@ export default function ReportPage() {
                 // ============================
                 // TAB LOG STOCK
                 // ============================
-                let filteredLogStock = reportDetailData?.logStock.filter(l => {
-                  const matchRef = logStockFilterRefJenis === 'semua' || l.ref_baru === logStockFilterRefJenis;
-                  const matchBool = logStockFilterBoolean === 'semua' || (l.boolean || '').toLowerCase() === logStockFilterBoolean.toLowerCase();
-                  return matchRef && matchBool;
-                }) || [];
-
+                let baseLog = reportDetailData?.logStock || [];
                 if (detailSearchTerm.trim() !== '') {
                   const term = detailSearchTerm.toLowerCase();
-                  filteredLogStock = filteredLogStock.filter(l => {
+                  baseLog = baseLog.filter(l => {
                     const produkExpanded = l.expand?.item_baru;
                     const produkName = produkExpanded ? `${produkExpanded.kategori || ''} ${produkExpanded.merk || ''} ${produkExpanded.jenis || ''}`.trim() : l.item_baru;
                     return (
@@ -1229,12 +1227,18 @@ export default function ReportPage() {
                       (l.operator && l.operator.toLowerCase().includes(term)) ||
                       (l.item && l.item.toLowerCase().includes(term)) ||
                       (produkName && produkName.toLowerCase().includes(term)) ||
+                      (l.ref && l.ref.toLowerCase().includes(term)) ||
                       (l.ref_baru && l.ref_baru.toLowerCase().includes(term)) ||
-                      (l.note && l.note.toLowerCase().includes(term)) ||
-                      (l.text && l.text.toLowerCase().includes(term))
+                      (l.person && l.person.toLowerCase().includes(term)) ||
+                      (l.note && l.note.toLowerCase().includes(term))
                     );
                   });
                 }
+
+                const availableRefJenis = [...new Set(baseLog.filter(l => logStockFilterBoolean === 'semua' || (l.boolean || '').toLowerCase() === logStockFilterBoolean.toLowerCase()).map(l => l.ref_baru))].filter(Boolean);
+
+                let filteredLogStock = baseLog.filter(l => logStockFilterBoolean === 'semua' || (l.boolean || '').toLowerCase() === logStockFilterBoolean.toLowerCase());
+                filteredLogStock = filteredLogStock.filter(l => logStockFilterRefJenis === 'semua' || l.ref_baru === logStockFilterRefJenis);
 
                 filteredLogStock.sort((a, b) => {
                   let valA = a[logStockSort.key]; let valB = b[logStockSort.key];
@@ -1275,7 +1279,7 @@ export default function ReportPage() {
                       <div className="flex flex-wrap gap-2">
                         <select className="p-2 border border-slate-200 rounded-xl text-sm font-bold bg-white" value={logStockFilterRefJenis} onChange={(e) => setLogStockFilterRefJenis(e.target.value)}>
                           <option value="semua">Semua Referensi (Nota)</option>
-                          {[...new Set(reportDetailData?.logStock.map(l => l.ref_baru) || [])].map(r => <option key={String(r)} value={String(r)}>{r}</option>)}
+                          {availableRefJenis.map(r => <option key={String(r)} value={String(r)}>{r}</option>)}
                         </select>
                         <select className="p-2 border border-slate-200 rounded-xl text-sm font-bold bg-white" value={logStockFilterBoolean} onChange={(e) => setLogStockFilterBoolean(e.target.value)}>
                           <option value="semua">Semua Mutasi</option>
@@ -1400,28 +1404,36 @@ export default function ReportPage() {
                 // ============================
                 // TAB CASHFLOW
                 // ============================
-                let filteredCashflow = reportDetailData?.cashflow.filter(c => {
+                let baseCash = reportDetailData?.cashflow || [];
+                if (detailSearchTerm.trim() !== '') {
+                  const term = detailSearchTerm.toLowerCase();
+                  baseCash = baseCash.filter(c => 
+                    (c.id && c.id.toLowerCase().includes(term)) ||
+                    (c.operator && c.operator.toLowerCase().includes(term)) ||
+                    (c.person && c.person.toLowerCase().includes(term)) ||
+                    (c.persontext && c.persontext.toLowerCase().includes(term)) ||
+                    (c.jenis && c.jenis.toLowerCase().includes(term)) ||
+                    (c.mutasi && c.mutasi.toLowerCase().includes(term)) ||
+                    (c.acc1 && c.acc1.toLowerCase().includes(term)) ||
+                    (c.acc2 && c.acc2.toLowerCase().includes(term)) ||
+                    (c.account_1 && c.account_1.toLowerCase().includes(term)) ||
+                    (c.account_2 && c.account_2.toLowerCase().includes(term)) ||
+                    (c.ref && c.ref.toLowerCase().includes(term)) ||
+                    (c.ref_baru && c.ref_baru.toLowerCase().includes(term)) ||
+                    (c.note && c.note.toLowerCase().includes(term))
+                  );
+                }
+
+                const availableCashflowAkun = [...new Set([...baseCash.filter(c => (cashflowFilterJenis === 'semua' || c.jenis === cashflowFilterJenis) && (cashflowFilterMutasi === 'semua' || c.mutasi === cashflowFilterMutasi)).map(c => c.acc1), ...baseCash.filter(c => (cashflowFilterJenis === 'semua' || c.jenis === cashflowFilterJenis) && (cashflowFilterMutasi === 'semua' || c.mutasi === cashflowFilterMutasi)).map(c => c.acc2)])].filter(Boolean);
+                const availableCashflowJenis = [...new Set(baseCash.filter(c => (cashflowFilterAccount === 'semua' || c.acc1 === cashflowFilterAccount || c.acc2 === cashflowFilterAccount) && (cashflowFilterMutasi === 'semua' || c.mutasi === cashflowFilterMutasi)).map(c => c.jenis))].filter(Boolean);
+
+                let filteredCashflow = baseCash.filter(c => {
                   let match = true;
                   if (cashflowFilterMutasi !== 'semua') match = match && c.mutasi === cashflowFilterMutasi;
                   if (cashflowFilterAccount !== 'semua') match = match && (c.acc1 === cashflowFilterAccount || c.acc2 === cashflowFilterAccount);
                   if (cashflowFilterJenis !== 'semua') match = match && c.jenis === cashflowFilterJenis;
                   return match;
-                }) || [];
-
-                if (detailSearchTerm.trim() !== '') {
-                  const term = detailSearchTerm.toLowerCase();
-                  filteredCashflow = filteredCashflow.filter(c => 
-                    (c.id && c.id.toLowerCase().includes(term)) ||
-                    (c.operator && c.operator.toLowerCase().includes(term)) ||
-                    (c.persontext && c.persontext.toLowerCase().includes(term)) ||
-                    (c.person && c.person.toLowerCase().includes(term)) ||
-                    (c.jenis && c.jenis.toLowerCase().includes(term)) ||
-                    (c.acc1 && c.acc1.toLowerCase().includes(term)) ||
-                    (c.acc2 && c.acc2.toLowerCase().includes(term)) ||
-                    (c.ref_baru && c.ref_baru.toLowerCase().includes(term)) ||
-                    (c.note && c.note.toLowerCase().includes(term))
-                  );
-                }
+                });
 
                 filteredCashflow.sort((a, b) => {
                   let valA = a[cashflowSort.key]; let valB = b[cashflowSort.key];
@@ -1447,11 +1459,11 @@ export default function ReportPage() {
                         </select>
                         <select className="p-2 border border-slate-200 rounded-xl text-sm font-bold bg-white" value={cashflowFilterAccount} onChange={(e) => setCashflowFilterAccount(e.target.value)}>
                           <option value="semua">Semua Akun</option>
-                          {[...new Set([...(reportDetailData?.cashflow.map(c => c.acc1) || []), ...(reportDetailData?.cashflow.map(c => c.acc2) || [])].filter(Boolean))].map(a => <option key={String(a)} value={String(a)}>{a}</option>)}
+                          {availableCashflowAkun.map(a => <option key={String(a)} value={String(a)}>{a}</option>)}
                         </select>
                         <select className="p-2 border border-slate-200 rounded-xl text-sm font-bold bg-white" value={cashflowFilterJenis} onChange={(e) => setCashflowFilterJenis(e.target.value)}>
                           <option value="semua">Semua Jenis Kas</option>
-                          {[...new Set(reportDetailData?.cashflow.map(c => c.jenis) || [])].map(j => <option key={String(j)} value={String(j)}>{j}</option>)}
+                          {availableCashflowJenis.map(j => <option key={String(j)} value={String(j)}>{j}</option>)}
                         </select>
                       </div>
                       <div className="relative w-full sm:w-64 shrink-0">
