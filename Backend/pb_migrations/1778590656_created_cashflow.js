@@ -1,0 +1,198 @@
+/// <reference path="../pb_data/types.d.ts" />
+migrate((app) => {
+  const collection = new Collection({
+    "createRule": "",
+    "deleteRule": "",
+    "fields": [
+      {
+        "autogeneratePattern": "[a-z0-9]{15}",
+        "help": "",
+        "hidden": false,
+        "id": "text3208210256",
+        "max": 15,
+        "min": 15,
+        "name": "id",
+        "pattern": "^[a-z0-9]+$",
+        "presentable": false,
+        "primaryKey": true,
+        "required": true,
+        "system": true,
+        "type": "text"
+      },
+      {
+        "autogeneratePattern": "",
+        "help": "",
+        "hidden": false,
+        "id": "text2020044438",
+        "max": 0,
+        "min": 0,
+        "name": "id_lama",
+        "pattern": "",
+        "presentable": false,
+        "primaryKey": false,
+        "required": false,
+        "system": false,
+        "type": "text"
+      },
+      {
+        "autogeneratePattern": "",
+        "help": "",
+        "hidden": false,
+        "id": "text342834851",
+        "max": 0,
+        "min": 0,
+        "name": "ref",
+        "pattern": "",
+        "presentable": false,
+        "primaryKey": false,
+        "required": false,
+        "system": false,
+        "type": "text"
+      },
+      {
+        "autogeneratePattern": "",
+        "help": "",
+        "hidden": false,
+        "id": "text3618023297",
+        "max": 0,
+        "min": 0,
+        "name": "operator",
+        "pattern": "",
+        "presentable": false,
+        "primaryKey": false,
+        "required": false,
+        "system": false,
+        "type": "text"
+      },
+      {
+        "help": "",
+        "hidden": false,
+        "id": "date2341372968",
+        "max": "",
+        "min": "",
+        "name": "created_at",
+        "presentable": false,
+        "required": false,
+        "system": false,
+        "type": "date"
+      },
+      {
+        "autogeneratePattern": "",
+        "help": "",
+        "hidden": false,
+        "id": "text639797634",
+        "max": 0,
+        "min": 0,
+        "name": "jenis",
+        "pattern": "",
+        "presentable": false,
+        "primaryKey": false,
+        "required": false,
+        "system": false,
+        "type": "text"
+      },
+      {
+        "autogeneratePattern": "",
+        "help": "",
+        "hidden": false,
+        "id": "text2846799757",
+        "max": 0,
+        "min": 0,
+        "name": "mutasi",
+        "pattern": "",
+        "presentable": false,
+        "primaryKey": false,
+        "required": false,
+        "system": false,
+        "type": "text"
+      },
+      {
+        "autogeneratePattern": "",
+        "help": "",
+        "hidden": false,
+        "id": "text1699193668",
+        "max": 0,
+        "min": 0,
+        "name": "account_1",
+        "pattern": "",
+        "presentable": false,
+        "primaryKey": false,
+        "required": false,
+        "system": false,
+        "type": "text"
+      },
+      {
+        "autogeneratePattern": "",
+        "help": "",
+        "hidden": false,
+        "id": "text4233032446",
+        "max": 0,
+        "min": 0,
+        "name": "account_2",
+        "pattern": "",
+        "presentable": false,
+        "primaryKey": false,
+        "required": false,
+        "system": false,
+        "type": "text"
+      },
+      {
+        "autogeneratePattern": "",
+        "help": "",
+        "hidden": false,
+        "id": "text886886774",
+        "max": 0,
+        "min": 0,
+        "name": "person",
+        "pattern": "",
+        "presentable": false,
+        "primaryKey": false,
+        "required": false,
+        "system": false,
+        "type": "text"
+      },
+      {
+        "help": "",
+        "hidden": false,
+        "id": "number3797995395",
+        "max": null,
+        "min": null,
+        "name": "nominal",
+        "onlyInt": false,
+        "presentable": false,
+        "required": false,
+        "system": false,
+        "type": "number"
+      },
+      {
+        "autogeneratePattern": "",
+        "help": "",
+        "hidden": false,
+        "id": "text3485334036",
+        "max": 0,
+        "min": 0,
+        "name": "note",
+        "pattern": "",
+        "presentable": false,
+        "primaryKey": false,
+        "required": false,
+        "system": false,
+        "type": "text"
+      }
+    ],
+    "id": "pbc_28913142",
+    "indexes": [],
+    "listRule": "",
+    "name": "cashflow",
+    "system": false,
+    "type": "base",
+    "updateRule": "",
+    "viewRule": ""
+  });
+
+  return app.save(collection);
+}, (app) => {
+  const collection = app.findCollectionByNameOrId("pbc_28913142");
+
+  return app.delete(collection);
+})

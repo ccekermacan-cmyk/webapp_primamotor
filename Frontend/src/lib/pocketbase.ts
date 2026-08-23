@@ -1,0 +1,76 @@
+import PocketBase from 'pocketbase';
+
+// Mengambil URL dari .env (jika tidak ada, gunakan localhost sebagai fallback)
+const pbUrl = import.meta.env.VITE_PB_URL || 'http://127.0.0.1:8090';
+
+export const pb = new PocketBase(pbUrl);
+
+// Fungsi untuk mengambil file dengan autentikasi
+export async function fetchFileAsBlobUrl(record: any, filename: string): Promise<string> {
+    const url = pb.files.getUrl(record, filename);
+    const token = pb.authStore.token;
+    
+    if (!token) return url; // fallback jika belum login
+
+    const response = await fetch(url, {
+        headers: { 
+            'Authorization': token
+        }
+    });
+    
+    if (!response.ok) throw new Error(`Gagal mengambil file: ${response.status}`);
+    
+    const blob = await response.blob();
+    return URL.createObjectURL(blob);
+}
+
+export const getLaravelApiUrl = () => {
+  if (import.meta.env.VITE_LARAVEL_API_URL) {
+    return import.meta.env.VITE_LARAVEL_API_URL;
+  }
+  if (typeof window !== 'undefined' && window.location.hostname.includes('primamotorgladag')) {
+    return 'https://api.primamotorgladag.my.id/api';
+  }
+  return 'http://127.0.0.1:8000/api';
+};
+
+export const LARAVEL_API_URL = getLaravelApiUrl();
+
+let laravelApiDown = false;
+let laravelApiLastCheck = 0;
+const LARAVEL_RETRY_MS = 5000;
+
+export async function notifyLaravelApi(collection: string, event: 'created' | 'updated' | 'deleted', id: string, oldData?: any): Promise<boolean> {
+  if (!id) return false;
+  if (laravelApiDown && Date.now() - laravelApiLastCheck < LARAVEL_RETRY_MS) {
+    return false;
+  }
+  try {
+    const apiUrl = getLaravelApiUrl();
+    const targetUrl = `${apiUrl}/webhook/${collection}/${event}/${id}`;
+    
+    const fetchOptions: RequestInit = { method: 'POST' };
+    if (oldData) {
+      fetchOptions.headers = { 'Content-Type': 'application/json' };
+      fetchOptions.body = JSON.stringify({ old_data: oldData });
+    }
+
+    const response = await fetch(targetUrl, fetchOptions);
+    if (!response.ok) {
+      laravelApiDown = true;
+      laravelApiLastCheck = Date.now();
+      console.warn(`[Laravel API] ${collection}/${event}/${id} → HTTP ${response.status} — circuit OPEN, fallback active for ${LARAVEL_RETRY_MS/1000}s`);
+      return false;
+    }
+    if (laravelApiDown) {
+      console.warn(`[Laravel API] circuit CLOSED — API recovered`);
+    }
+    laravelApiDown = false;
+    return true;
+  } catch (err) {
+    laravelApiDown = true;
+    laravelApiLastCheck = Date.now();
+    console.warn(`[Laravel API] Unreachable — circuit OPEN, fallback active for ${LARAVEL_RETRY_MS/1000}s`, err);
+    return false;
+  }
+}

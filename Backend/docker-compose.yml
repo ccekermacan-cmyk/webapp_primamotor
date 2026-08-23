@@ -1,0 +1,36 @@
+name: prima-motor-pos
+services:
+  pocketbase:
+    image: nxtgencat/pocketbase:latest
+    container_name: pb-prima-motor
+    restart: unless-stopped
+    ports:
+      - "8090:8090"
+    volumes:
+      - ./pb_data:/pocketbase/pb_data
+      - ./pb_hooks:/pocketbase/pb_hooks
+      - ./pb_migrations:/pocketbase/pb_migrations
+    networks:
+      - prima-network
+
+  laravel-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: laravel-prima-motor
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/var/www/html
+      - ./pb_data:/var/www/html/pb_data
+      - ./storage:/var/www/html/storage
+    environment:
+      - DB_CONNECTION=sqlite
+      - DB_DATABASE=/var/www/html/pb_data/data.db
+    networks:
+      - prima-network
+
+networks:
+  prima-network:
+    driver: bridge

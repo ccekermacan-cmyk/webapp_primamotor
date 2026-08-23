@@ -1,0 +1,1716 @@
+import { useState, useEffect, useMemo } from 'react';
+import { pb } from '../lib/pocketbase';
+import Modal from '../components/modal'; // PENTING: Jangan dihapus agar Alert UI berjalan
+import { 
+  Search, Calendar, ChevronLeft, ChevronRight, ChevronDown, Download, 
+  TrendingUp, TrendingDown, DollarSign, Wallet, FileText, 
+  Filter, RefreshCw, BarChart3, Lightbulb, Coffee, Wrench, Store, X,
+  Plus, Trash2, AlertTriangle, Info
+} from 'lucide-react';
+import { 
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Line
+} from 'recharts';
+
+// --- INTERFACE DATA REPORT ---
+interface ReportRecord {
+  id: string;
+  text: string;
+  created_at: string;
+  omset_toko: number;
+  omset_servis: number;
+  omset_minuman: number;
+  laba_penjualan: number;
+  laba_service: number;     // 🆕 FIELD BARU
+  laba_minuman: number;    // 🆕 FIELD BARU
+  operasional_toko: number;
+  pengeluaran_lain: number;
+  kasir_toko: number;
+  pemasukan_lain: number;
+  piutang: number;   
+  hutang: number;    
+}
+
+export default function ReportPage() {
+  // --- STATES ---
+  const [reports, setReports] = useState<ReportRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState('');
+
+  const [selectedMetrics, setSelectedMetrics] = useState({
+    Omset: true,
+    Pengeluaran: true,
+    Laba: false,
+    Piutang: true,
+    Hutang: true,
+  });
+  
+  // Pagination
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const perPage = 31;
+
+  // Filter & Search
+  const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [dateRange, setDateRange] = useState({ start: '', end: '' });
+  
+  const [showGenerateModal, setShowGenerateModal] = useState(false);
+  const [generateDate, setGenerateDate] = useState('');
+  const [generating, setGenerating] = useState(false);
+  const [todayReportExists, setTodayReportExists] = useState(false);
+
+  // === SISTEM ALERT TERPUSAT ===
+  const [dialog, setDialog] = useState<{show: boolean, title: string, message: string, type: 'alert' | 'confirm', onConfirm?: () => void}>({
+    show: false, title: '', message: '', type: 'alert'
+  });
+
+  const showAlert = (title: string, message: string) => {
+    setDialog({ show: true, title, message, type: 'alert' });
+  };
+
+  const confirmAction = (title: string, message: string, onConfirm: () => void) => {
+    setDialog({ 
+      show: true, title, message, type: 'confirm', 
+      onConfirm: () => { 
+        setDialog(prev => ({ ...prev, show: false }));
+        onConfirm(); 
+      } 
+    });
+  };
+
+  const [userLevel, setUserLevel] = useState<string>(() => localStorage.getItem('user_level') || '');
+
+  // --- FORMATTER HELPER ---
+  const formatRp = (num: number | undefined) => {
+    const val = num ?? 0;
+    return `Rp ${val.toLocaleString('id-ID')}`;
+  };
+
+  const formatDate = (dateStr: string) => {
+    if (!dateStr) return '-';
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Ags', 'Sep', 'Okt', 'Nov', 'Des'];
+    return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`;
+  };
+
+  const [detailModal, setDetailModal] = useState<{ type: string; title: string; items: { label: string; value: number }[] } | null>(null);
+
+  // State untuk detail report
+  const [selectedReport, setSelectedReport] = useState<ReportRecord | null>(null);
+  const [reportDetailData, setReportDetailData] = useState<{ menu: any[]; logStock: any[]; cashflow: any[]; ongkos: any[] } | null>(null);
+  const [reportDetailLoading, setReportDetailLoading] = useState(false);
+  const [activeDetailTab, setActiveDetailTab] = useState<'overview' | 'menu' | 'logstock' | 'cashflow' | 'ongkos'>('overview');
+  // Cache detail per report ID agar tidak fetch ulang saat tab ganti
+  const [detailCache, setDetailCache] = useState<Record<string, { menu: any[]; logStock: any[]; cashflow: any[]; ongkos: any[] }>>({});
+
+  // Filter untuk tab Menu
+  const [menuFilterJenis, setMenuFilterJenis] = useState<string[]>(['semua']);
+  const [isMenuDropdownOpen, setIsMenuDropdownOpen] = useState(false);
+  const [logStockFilterBoolean, setLogStockFilterBoolean] = useState<string>('semua');
+  const [cashflowFilterMutasi, setCashflowFilterMutasi] = useState<string>('semua');
+  const [cashflowFilterAccount, setCashflowFilterAccount] = useState<string>('semua');
+  const [cashflowFilterJenis, setCashflowFilterJenis] = useState<string>('semua');
+  const [menuFilterStatus, setMenuFilterStatus] = useState<string>('semua');
+  
+  const [menuSort, setMenuSort] = useState({ key: 'created_at', dir: 'desc' });
+  const [logStockSort, setLogStockSort] = useState({ key: 'created_at', dir: 'desc' });
+  const [cashflowSort, setCashflowSort] = useState({ key: 'created_at', dir: 'desc' });
+  
+  const [detailSearchTerm, setDetailSearchTerm] = useState('');
+
+  // Fungsi helper memproses sort klik
+  const handleSort = (tab: string, key: string) => {
+    if (tab === 'menu') setMenuSort(p => ({ key, dir: p.key === key && p.dir === 'asc' ? 'desc' : 'asc' }));
+    else if (tab === 'logstock') setLogStockSort(p => ({ key, dir: p.key === key && p.dir === 'asc' ? 'desc' : 'asc' }));
+    else if (tab === 'cashflow') setCashflowSort(p => ({ key, dir: p.key === key && p.dir === 'asc' ? 'desc' : 'asc' }));
+  };
+
+  const renderSortHeader = (tab: string, key: string, label: string, align: string = 'left') => {
+    const isSorted = tab === 'menu' ? menuSort.key === key : tab === 'logstock' ? logStockSort.key === key : cashflowSort.key === key;
+    const dir = tab === 'menu' ? menuSort.dir : tab === 'logstock' ? logStockSort.dir : cashflowSort.dir;
+    return (
+      <th onClick={() => handleSort(tab, key)} className={`p-3 text-${align} font-black text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-200 select-none transition-colors`}>
+        {label} <span className="ml-1 inline-block w-2 text-slate-400">{isSorted ? (dir === 'asc' ? '↑' : '↓') : '↕'}</span>
+      </th>
+    );
+  };
+
+  // Helper: konversi tanggal lokal ke rentang UTC untuk filter data (menu, log_stock, dll)
+  const toUtcRange = (localDateStr: string) => {
+    if (!localDateStr) return { start: '', end: '' };
+    const [y, m, d] = localDateStr.split('-').map(Number);
+    return {
+      start: new Date(y, m - 1, d, 0, 0, 0).toISOString().replace('T', ' '),
+      end: new Date(y, m - 1, d + 1, 0, 0, 0).toISOString().replace('T', ' '),
+    };
+  };
+
+  // Helper: timestamp UTC tetap untuk created_at report (timezone-independent)
+  const toReportCreatedAt = (localDateStr: string) => {
+    const [y, m, d] = localDateStr.split('-').map(Number);
+    return new Date(Date.UTC(y, m - 1, d)).toISOString();
+  };
+
+  // Helper: dapatkan "YYYY-MM-DD" lokal hari ini
+  const getLocalToday = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  };
+
+  // --- FETCH DATA ---
+  const fetchReports = async () => {
+    setLoading(true);
+    try {
+      let conditions: string[] = [];
+      let params: any = {};
+
+      if (debouncedSearch) { 
+        conditions.push(`(text ~ {:search} || id ~ {:search})`); 
+        params.search = debouncedSearch; 
+      }
+      
+      // Filter Tanggal
+      if (dateRange.start && dateRange.end) {
+        const r1 = toUtcRange(dateRange.start);
+        const r2 = toUtcRange(dateRange.end);
+        conditions.push(`created_at >= {:start} && created_at < {:end}`);
+        params.start = r1.start;
+        params.end = r2.end;
+      } else if (dateRange.start) {
+        const r = toUtcRange(dateRange.start);
+        conditions.push(`created_at >= {:start} && created_at < {:end}`);
+        params.start = r.start;
+        params.end = r.end;
+      } else if (dateRange.end) {
+        const r = toUtcRange(dateRange.end);
+        conditions.push(`created_at < {:end}`);
+        params.end = r.end;
+      }
+
+      const filterStr = conditions.length > 0 ? pb.filter(conditions.join(' && '), params) : '';
+
+      const res = await pb.collection('report').getList<ReportRecord>(page, perPage, {
+        sort: '-created_at',
+        filter: filterStr,
+        $autoCancel: false
+      });
+
+      setReports(res.items);
+      setTotalPages(res.totalPages);
+      setFetchError('');
+    } catch (error: any) {
+      console.error("Gagal:", error);
+      setFetchError('Gagal memuat laporan: ' + (error.message || 'Koneksi gagal'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    const timer = setTimeout(() => { setDebouncedSearch(searchTerm); setPage(1); }, 500);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
+  useEffect(() => {
+    fetchReports();
+  }, [page, debouncedSearch, dateRange]);
+
+  const handleResetFilter = () => {
+    setSearchTerm('');
+    setDateRange({ start: '', end: '' });
+    setPage(1);
+  };
+
+  useEffect(() => {
+    const checkTodayReport = async () => {
+      const todayStr = getLocalToday();
+      const lookup = toReportCreatedAt(todayStr);
+      try {
+        const res = await pb.collection('report').getFirstListItem(`created_at = "${lookup}"`);
+        setTodayReportExists(!!res);
+      } catch (e) {
+        setTodayReportExists(false);
+      }
+    };
+    checkTodayReport();
+  }, [reports]);
+
+  // --- SUMMARY & ANALYTICS CALCULATIONS ---
+  const { summary, chartData, kesimpulan } = useMemo(() => {
+    let totalOmsetToko = 0, totalOmsetServis = 0, totalOmsetMinum = 0;
+    let totalLaba = 0, totalPengeluaran = 0, totalPemasukanLain = 0;
+
+    const reversedReports = [...reports].reverse();
+    const chartData = reversedReports.map(r => {
+      const tanggal = formatDate(r.created_at).split(' ')[0];
+      return {
+        tanggal,
+        Omset: r.omset_toko + r.omset_servis + r.omset_minuman,
+        Pengeluaran: r.operasional_toko + r.pengeluaran_lain,
+        Laba: r.laba_penjualan + (r.laba_servis || 0) + (r.laba_minuman || 0), // 🟢 DIPERBAIKI
+        Piutang: r.piutang || 0,
+        Hutang: r.hutang || 0,
+      };
+    });
+
+    reports.forEach(r => {
+      totalOmsetToko += r.omset_toko;
+      totalOmsetServis += r.omset_servis;
+      totalOmsetMinum += r.omset_minuman;
+      totalLaba += r.laba_penjualan + (r.laba_servis || 0) + (r.laba_minuman || 0); // 🟢 DIPERBAIKI
+      totalPengeluaran += (r.operasional_toko + r.pengeluaran_lain);
+      totalPemasukanLain += r.pemasukan_lain;
+    });
+
+    const totalOmset = totalOmsetToko + totalOmsetServis + totalOmsetMinum;
+    const labaBersih = (totalLaba + totalPemasukanLain) - totalPengeluaran;
+
+    let insight = "Belum ada data cukup untuk dianalisa.";
+    if (reports.length > 0) {
+      const statusLaba = labaBersih > 0 ? "positif (menguntungkan)" : "negatif (merugi)";
+      const penyumbangTerbesar = 
+        Math.max(totalOmsetToko, totalOmsetServis, totalOmsetMinum) === totalOmsetToko ? 'Penjualan Toko' :
+        Math.max(totalOmsetToko, totalOmsetServis, totalOmsetMinum) === totalOmsetServis ? 'Jasa Servis' : 'Penjualan Minuman';
+
+      insight = `Berdasarkan data periode ini, performa bisnis menunjukkan tren ${statusLaba} dengan estimasi laba bersih mencapai Rp ${labaBersih.toLocaleString('id-ID')}. Mayoritas porsi pendapatan didominasi oleh sektor ${penyumbangTerbesar}. ${totalPengeluaran > totalLaba ? 'Perhatian: Total pengeluaran saat ini lebih tinggi dari laba penjualan kotor.' : 'Pengeluaran operasional masih dalam batas aman di bawah laba kotor.'}`;
+    }
+
+    return { 
+      summary: { totalOmset, totalLaba, totalPengeluaran, labaBersih, totalOmsetToko, totalOmsetServis, totalOmsetMinum },
+      chartData,
+      kesimpulan: insight
+    };
+  }, [reports]);
+
+  const [addingReport, setAddingReport] = useState(false);
+
+  const handleAddReport = async () => {
+    if (addingReport) return;
+    setAddingReport(true);
+    try {
+      const todayStr = getLocalToday();
+      const reportCreatedAt = toReportCreatedAt(todayStr);
+
+      const existing = await pb.collection('report').getFirstListItem(`created_at = "${reportCreatedAt}"`).catch(() => null);
+      if (existing) {
+        showAlert('Informasi', 'Laporan untuk hari ini sudah ada!');
+        setAddingReport(false);
+        return;
+      }
+
+      const yesterdayObj = new Date();
+      yesterdayObj.setDate(yesterdayObj.getDate() - 1);
+      const yesterdayStr = getLocalToday();
+      const yesterdayDate = new Date(yesterdayObj);
+      const yY = yesterdayDate.getFullYear();
+      const yM = String(yesterdayDate.getMonth() + 1).padStart(2, '0');
+      const yD = String(yesterdayDate.getDate()).padStart(2, '0');
+      const yesterdayFormatted = `${yY}-${yM}-${yD}`;
+      const yesterdayLookup = toReportCreatedAt(yesterdayFormatted);
+
+      const lastReport = await pb.collection('report').getFirstListItem(`created_at = "${yesterdayLookup}"`).catch(() => null);
+      const kasirKemarin = lastReport?.kasir_toko ?? 0;
+      const piutangKemarin = lastReport?.piutang ?? 0;
+      const hutangKemarin = lastReport?.hutang ?? 0;
+
+      const today = new Date();
+      const newReport = {
+        text: `Laporan harian ${today.toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })}`,
+        omset_toko: 0,
+        omset_servis: 0,
+        omset_minuman: 0,
+        laba_penjualan: 0,
+        laba_servis: 0,
+        laba_minuman: 0,    
+        operasional_toko: 0,
+        pengeluaran_lain: 0,
+        kasir_toko: kasirKemarin,
+        pemasukan_lain: 0,
+        piutang: piutangKemarin,
+        hutang: hutangKemarin,
+        created_at: reportCreatedAt,
+      };
+
+      await pb.collection('report').create(newReport);
+      await fetchReports();
+      showAlert('Sukses', 'Laporan hari ini berhasil dibuat!');
+    } catch (error) {
+      console.error(error);
+      showAlert('Error', 'Gagal membuat laporan: ' + (error as any)?.message || '');
+    } finally {
+      setAddingReport(false);
+    }
+  };
+
+  // --- LOGIKA CENTRALIZED UNTUK GENERATE & KALKULASI LAPORAN ---
+  // --- LOGIKA CENTRALIZED UNTUK GENERATE & KALKULASI LAPORAN TELAH DIPINDAHKAN KE LARAVEL ---
+
+  const handleGenerateReport = async (dateStr?: string, forceReplace: boolean = false) => {
+    if (generating) return;
+    setGenerating(true);
+    try {
+      const targetDateStr = dateStr || getLocalToday();
+
+      // Kita akan panggil Laravel endpoint untuk me-recalculate report ini
+      const { getLaravelApiUrl } = await import('../lib/pocketbase');
+      const apiUrl = getLaravelApiUrl() + '/reports/recalculate';
+      
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date: targetDateStr })
+      });
+
+      if (!response.ok) {
+        throw new Error('Laravel API returned status ' + response.status);
+      }
+
+      await fetchReports();
+      setShowGenerateModal(false);
+      showAlert('Sukses', 'Laporan berhasil direkalkulasi otomatis dari server!');
+    } catch (error) {
+      console.error(error);
+      showAlert('Gagal', 'Gagal generate laporan melalui server: ' + (error as any)?.message);
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const handleDeleteReport = (report: ReportRecord) => {
+    if (!report) return;
+    
+    // Gunakan confirmAction agar menggunakan Modal kustom kita (bukan window.confirm bawaan browser)
+    confirmAction(
+      'Hapus Laporan',
+      `Yakin ingin menghapus laporan tanggal ${formatDate(report.created_at)} secara permanen?`,
+      async () => {
+        try {
+          await pb.collection('report').delete(report.id);
+          setSelectedReport(null);
+          setReportDetailData(null);
+          await fetchReports();
+          showAlert('Sukses', 'Laporan berhasil dihapus!');
+        } catch (error) {
+          console.error(error);
+          showAlert('Error', 'Gagal menghapus laporan: ' + (error as any)?.message);
+        }
+      }
+    );
+  };
+
+  const fetchReportDetails = async (report: ReportRecord) => {
+    if (!report) return;
+    if (detailCache[report.id]) {
+      setReportDetailData(detailCache[report.id]);
+      return;
+    }
+    setReportDetailLoading(true);
+    try {
+      const d = new Date(report.created_at);
+      const localDate = `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
+      const { start, end } = toUtcRange(localDate);
+      const rangeFilter = pb.filter('created_at >= {:start} && created_at < {:end}', { start, end });
+
+      const [menuItems, logStockItems, cashflowItems, ongkosItems] = await Promise.all([
+        pb.collection('menu').getFullList({ filter: rangeFilter, sort: 'created_at', $autoCancel: false, batch: 500 }),
+        pb.collection('log_stock').getFullList({ filter: rangeFilter, sort: 'created_at', expand: 'item_baru', $autoCancel: false, batch: 500 }),
+        pb.collection('cashflow').getFullList({ filter: rangeFilter, sort: 'created_at', $autoCancel: false, batch: 500 }),
+        pb.collection('ongkos').getFullList({ filter: pb.filter('date >= {:start} && date < {:end}', { start, end }), $autoCancel: false, batch: 500 }),
+      ]);
+
+      const data = {
+        menu: menuItems,
+        logStock: logStockItems,
+        cashflow: cashflowItems,
+        ongkos: ongkosItems,
+      };
+      setDetailCache(prev => ({ ...prev, [report.id]: data }));
+      setReportDetailData(data);
+    } catch (error) {
+      console.error('Gagal mengambil detail:', error);
+      setReportDetailData({ menu: [], logStock: [], cashflow: [], ongkos: [] });
+    } finally {
+      setReportDetailLoading(false);
+    }
+  };
+
+  const [fixingPrices, setFixingPrices] = useState(false);
+  
+  const handleFixLogStockPrice = async () => {
+    if (!selectedReport || !reportDetailData) return;
+    setFixingPrices(true);
+    try {
+      const allProducts = await pb.collection('produk').getFullList({ fields: 'id, beli' });
+      const productBeliMap = allProducts.reduce((acc: any, p) => {
+        acc[p.id] = p.beli || 0;
+        return acc;
+      }, {});
+
+      let updateCount = 0;
+      let skipCount = 0;
+
+      for (const log of reportDetailData.logStock) {
+        const rawMutasi = log.mutasi ?? log.boolean ?? '';
+        const mutasiStr = String(rawMutasi).toLowerCase().trim();
+
+        if (mutasiStr !== 'out') {
+          skipCount++;
+          continue;
+        }
+
+        const hargaBeliTerbaru = productBeliMap[log.item_baru] ?? 0;
+        const hargaModalBaru = hargaBeliTerbaru * (log.qty || 0);
+
+        if (log.price_2 !== hargaModalBaru) {
+          await pb.collection('log_stock').update(log.id, { price_2: hargaModalBaru }, { $autoCancel: false });
+          updateCount++;
+        }
+      }
+      showAlert('Sukses', `Penyesuaian selesai! ${updateCount} baris berhasil diperbarui.`);
+      await fetchReportDetails(selectedReport);
+    } catch (error) {
+      console.error('Gagal menyesuaikan harga:', error);
+      showAlert('Error', 'Terjadi kesalahan saat menyesuaikan harga beli.');
+    } finally {
+      setFixingPrices(false);
+    }
+  };
+
+
+  // ==========================================
+  // RENDER UI JSX
+  // ==========================================
+  return (
+    <div className="flex flex-col min-h-screen bg-slate-50 font-sans p-4 sm:p-6 lg:p-8 pt-16 md:pt-8">
+      
+      <div className="max-w-6xl mx-auto w-full flex flex-col flex-1 relative">
+
+        {/* HEADER */}
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
+          <div>
+            <h1 className="text-3xl font-black text-slate-800 tracking-tight flex items-center gap-3">
+              <div className="p-2.5 bg-blue-500 rounded-2xl text-white shadow-lg shadow-blue-200">
+                <BarChart3 size={24} />
+              </div>
+              Analitik Laporan
+            </h1>
+            <p className="text-sm font-bold text-slate-400 mt-2">Overview Mutasi & Performa Bisnis Prima Motor</p>
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            <button
+              onClick={() => setShowGenerateModal(true)}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-2xl font-black text-xs shadow-xl shadow-blue-200 transition-all flex items-center gap-2 active:scale-95"
+            >
+              <BarChart3 size={16} />
+              GENERATE OTOMATIS
+            </button>
+            <button onClick={() => window.print()} className="bg-slate-900 hover:bg-black text-white px-6 py-3 rounded-2xl font-black text-xs shadow-xl shadow-slate-200 transition-all flex items-center gap-2 active:scale-95">
+              <Download size={16} /> UNDUH REPORT
+            </button>
+          </div>
+        </div>
+
+        {/* SEARCH & FILTER */}
+        <div className="bg-white p-2 rounded-[2rem] shadow-sm border border-slate-100 flex flex-col lg:flex-row gap-2 mb-8">
+          <div className="relative flex-1">
+            <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+            <input 
+              type="text" 
+              placeholder="Cari keterangan mutasi..." 
+              className="w-full pl-12 pr-4 py-4 bg-transparent font-bold text-sm text-slate-700 outline-none"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
+          <div className="w-full lg:w-[1px] h-[1px] lg:h-auto bg-slate-100" />
+          <div className="flex flex-col sm:flex-row gap-2 flex-1 p-2">
+            <div className="flex-1 flex items-center bg-slate-50 rounded-2xl px-4 border border-transparent focus-within:border-blue-200 focus-within:bg-white transition-all">
+              <Calendar size={16} className="text-blue-400 mr-2" />
+              <input 
+                type="date" 
+                className="w-full py-3 bg-transparent font-bold text-xs text-slate-600 outline-none"
+                value={dateRange.start}
+                onChange={(e) => setDateRange({...dateRange, start: e.target.value})}
+              />
+            </div>
+            <div className="flex items-center justify-center text-slate-300 font-bold hidden sm:block mt-3">-</div>
+            <div className="flex-1 flex items-center bg-slate-50 rounded-2xl px-4 border border-transparent focus-within:border-blue-200 focus-within:bg-white transition-all">
+              <Calendar size={16} className="text-rose-400 mr-2" />
+              <input 
+                type="date" 
+                className="w-full py-3 bg-transparent font-bold text-xs text-slate-600 outline-none"
+                value={dateRange.end}
+                onChange={(e) => setDateRange({...dateRange, end: e.target.value})}
+              />
+            </div>
+            <button onClick={handleResetFilter} className="bg-slate-100 text-slate-500 hover:bg-slate-200 font-black text-xs px-6 py-3 rounded-2xl flex items-center justify-center gap-2 transition-colors">
+              <RefreshCw size={14} /> RESET
+            </button>
+          </div>
+        </div>
+
+        {/* WIDGETS + KESIMPULAN */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+          <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
+            
+            <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm flex items-center gap-4 group hover:border-emerald-200 transition-colors">
+              <div className="w-12 h-12 shrink-0 bg-emerald-50 text-emerald-500 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform"><TrendingUp size={22} strokeWidth={2.5} /></div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-0.5">Total Omset Kotor</p>
+                <p className="text-xl font-black text-slate-800 truncate">{formatRp(summary.totalOmset)}</p>
+              </div>
+            </div>
+
+            <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm flex items-center gap-4 group hover:border-emerald-200 transition-colors">
+              <div className="w-12 h-12 shrink-0 bg-emerald-50 text-emerald-500 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform"><DollarSign size={22} strokeWidth={2.5} /></div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-0.5">Laba Penjualan</p>
+                <p className="text-xl font-black text-slate-800 truncate">{formatRp(summary.totalLaba)}</p>
+              </div>
+            </div>
+
+            <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm flex items-center gap-4 group hover:border-rose-200 transition-colors">
+              <div className="w-12 h-12 shrink-0 bg-rose-50 text-rose-500 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform"><TrendingDown size={22} strokeWidth={2.5} /></div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-0.5">Total Pengeluaran</p>
+                <p className="text-xl font-black text-slate-800 truncate">{formatRp(summary.totalPengeluaran)}</p>
+              </div>
+            </div>
+
+            <div className="bg-gradient-to-br from-indigo-900 to-slate-900 p-5 rounded-3xl shadow-lg shadow-indigo-900/20 flex items-center gap-4 text-white transform hover:-translate-y-1 transition-transform">
+              <div className="w-12 h-12 shrink-0 bg-white/10 rounded-2xl border border-white/20 flex items-center justify-center"><Wallet size={22} strokeWidth={2.5} className="text-emerald-400"/></div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-black uppercase tracking-widest text-indigo-200 mb-0.5">Estimasi Laba Bersih</p>
+                <p className={`text-xl font-black truncate ${summary.labaBersih < 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                  {formatRp(summary.labaBersih)}
+                </p>  
+              </div>
+            </div>
+
+            <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm flex items-center gap-4 group hover:border-amber-200 transition-colors">
+              <div className="w-12 h-12 shrink-0 bg-amber-50 text-amber-500 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform"><Wallet size={22} strokeWidth={2.5} /></div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-0.5">Piutang Penjualan</p>
+                <p className="text-xl font-black text-amber-600 truncate">{formatRp(reports.reduce((sum, r) => sum + (r.piutang || 0), 0))}</p>
+              </div>
+            </div>
+
+            <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm flex items-center gap-4 group hover:border-purple-200 transition-colors">
+              <div className="w-12 h-12 shrink-0 bg-purple-50 text-purple-500 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform"><Wallet size={22} strokeWidth={2.5} /></div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-0.5">Hutang Pembelian</p>
+                <p className="text-xl font-black text-purple-600 truncate">{formatRp(reports.reduce((sum, r) => sum + (r.hutang || 0), 0))}</p>
+              </div>
+            </div>
+
+          </div>
+
+          <div className="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 p-6 sm:p-8 rounded-3xl flex flex-col justify-center shadow-sm h-full">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2.5 bg-amber-100 rounded-xl">
+                <Lightbulb size={24} className="text-amber-600" strokeWidth={2.5} />
+              </div>
+              <h3 className="font-black text-amber-700 uppercase tracking-widest text-xs">Insight Sistem</h3>
+            </div>
+            <p className="text-sm font-bold text-amber-900 leading-relaxed italic opacity-90">
+              "{kesimpulan}"
+            </p>
+          </div>
+        </div>
+
+        {/* GRAFIK PERKEMBANGAN */}
+        {!loading && chartData.length > 0 && (
+          <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 mb-8 h-[300px] flex flex-col">
+            <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-4">Grafik Tren Keuangan</h3>
+            
+            <div className="flex flex-wrap gap-4 mb-4 border-b border-slate-100 pb-3">
+              {Object.keys(selectedMetrics).map(key => {
+                const color = key === 'Omset' ? '#3b82f6' : key === 'Pengeluaran' ? '#f43f5e' : key === 'Laba' ? '#10b981' : key === 'Piutang' ? '#f59e0b' : '#8b5cf6';
+                return (
+                  <label key={key} className="flex items-center gap-2 text-xs font-bold cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={selectedMetrics[key as keyof typeof selectedMetrics]}
+                      onChange={() => setSelectedMetrics(prev => ({ ...prev, [key]: !prev[key] }))}
+                      className="w-4 h-4 rounded border-gray-300 focus:ring-blue-500"
+                      style={{ accentColor: color }}
+                    />
+                    <span style={{ color }}>{key}</span>
+                  </label>
+                );
+              })}
+            </div>
+
+            <div className="flex-1 w-full min-h-0">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="colorOmset" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
+                      <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                    </linearGradient>
+                    <linearGradient id="colorPengeluaran" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#f43f5e" stopOpacity={0.3}/>
+                      <stop offset="95%" stopColor="#f43f5e" stopOpacity={0}/>
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                  <XAxis dataKey="tanggal" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#94a3b8', fontWeight: 'bold' }} dy={10} />
+                  <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#94a3b8', fontWeight: 'bold' }} tickFormatter={(val) => `Rp${val/1000}k`} />
+                  <Tooltip formatter={(value: number) => [`Rp ${value.toLocaleString('id-ID')}`, '']} />
+                  {selectedMetrics.Omset && <Area type="monotone" dataKey="Omset" stroke="#3b82f6" strokeWidth={3} fillOpacity={1} fill="url(#colorOmset)" />}
+                  {selectedMetrics.Pengeluaran && <Area type="monotone" dataKey="Pengeluaran" stroke="#f43f5e" strokeWidth={3} fillOpacity={1} fill="url(#colorPengeluaran)" />}
+                  {selectedMetrics.Laba && <Line type="monotone" dataKey="Laba" stroke="#10b981" strokeWidth={2} dot={false} />}
+                  {selectedMetrics.Piutang && <Line type="monotone" dataKey="Piutang" stroke="#f59e0b" strokeWidth={2} strokeDasharray="5 5" dot={false} />}
+                  {selectedMetrics.Hutang && <Line type="monotone" dataKey="Hutang" stroke="#8b5cf6" strokeWidth={2} strokeDasharray="5 5" dot={false} />}
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
+
+        {/* DAFTAR DATA */}
+        <div className="flex-1 flex flex-col pb-10">
+          <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-4 ml-2">Detail Riwayat Laporan</h3>
+
+          {fetchError && !loading && (
+            <div className="p-4 bg-red-50 border border-red-200 rounded-2xl text-xs font-bold text-red-700 flex items-center gap-2 mb-4">
+              <AlertTriangle size={16} className="text-red-500 shrink-0" />
+              {fetchError}
+              <button onClick={()=>{setFetchError('');fetchReports();}} className="ml-auto px-3 py-1 bg-red-100 hover:bg-red-200 rounded-lg text-[10px] font-black uppercase">Retry</button>
+            </div>
+          )}
+          {loading ? (
+            <div className="py-20 text-center bg-white rounded-3xl border border-slate-100">
+              <div className="w-10 h-10 border-4 border-blue-100 border-t-blue-600 rounded-full animate-spin mx-auto" />
+              <p className="mt-4 text-slate-400 text-xs font-bold uppercase tracking-widest">Sinkronisasi Data...</p>
+            </div>
+          ) : reports.length === 0 ? (
+            <div className="py-20 text-center bg-white rounded-3xl border border-dashed border-slate-300">
+              <Filter size={48} className="mx-auto mb-4 text-slate-300" />
+              <p className="font-bold text-slate-500">Tidak ada data laporan ditemukan untuk filter ini.</p>
+            </div>
+          ) : (
+            <>
+              {/* TAMPILAN TABEL RESPONSIVE (MOBILE & DESKTOP) */}
+              <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden w-full">
+                <div className="overflow-x-auto custom-scrollbar w-full">
+                  <table className="w-full text-left border-collapse min-w-full">
+                    <thead className="bg-slate-50/80 border-b border-slate-100">
+                      <tr>
+                        <th className="p-3 sm:p-4 text-[10px] font-black text-slate-400 uppercase tracking-widest whitespace-nowrap">Tanggal</th>
+                        <th className="hidden md:table-cell p-3 sm:p-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Keterangan</th>
+                        <th className="p-3 sm:p-4 text-[10px] font-black text-emerald-600 uppercase tracking-widest text-right">Omset</th>
+                        <th className="p-3 sm:p-4 text-[10px] font-black text-emerald-600 uppercase tracking-widest text-right">Laba</th>
+                        <th className="hidden sm:table-cell p-3 sm:p-4 text-[10px] font-black text-rose-600 uppercase tracking-widest text-right">Keluar</th>
+                        <th className="hidden lg:table-cell p-3 sm:p-4 text-[10px] font-black text-amber-600 uppercase tracking-widest text-right">Piutang</th>
+                        <th className="hidden lg:table-cell p-3 sm:p-4 text-[10px] font-black text-purple-600 uppercase tracking-widest text-right">Hutang</th>
+                        <th className="p-3 sm:p-4 text-[10px] font-black text-slate-800 uppercase tracking-widest text-right">Kasir Final</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50 text-xs font-semibold text-slate-700">
+                      {reports.map((row) => {
+                        const totalOmsetRow = row.omset_toko + row.omset_servis + row.omset_minuman;
+                        const totalKeluarRow = row.operasional_toko + row.pengeluaran_lain;
+                        const piutangVal = row.piutang || 0;
+                        const hutangVal = row.hutang || 0;
+
+                        const formatNeg = (num: number) => {
+                          const formatted = Math.abs(num).toLocaleString('id-ID');
+                          return num < 0 ? `-Rp ${formatted}` : `Rp ${formatted}`;
+                        };
+
+                        return (
+                          <tr 
+                            key={row.id} 
+                            className="hover:bg-slate-50/50 transition-colors group cursor-pointer" 
+                            onClick={() => {
+                              setSelectedReport(row);
+                              fetchReportDetails(row);
+                              setActiveDetailTab('overview');
+                            }}
+                          >
+                            <td className="p-3 sm:p-4 whitespace-nowrap text-slate-500 font-bold">{formatDate(row.created_at)}</td>
+                            <td className="hidden md:table-cell p-3 sm:p-4 max-w-[200px] truncate" title={row.text}>{row.text || '-'}</td>
+                            <td className="p-3 sm:p-4 text-right">
+                              <span className="bg-emerald-50 text-emerald-700 px-2 sm:px-3 py-1 rounded-lg border border-emerald-100 font-bold text-[11px] sm:text-xs">
+                                {formatRp(totalOmsetRow)}
+                              </span>
+                            </td>
+                            <td className="p-3 sm:p-4 text-right text-emerald-600 font-bold text-[11px] sm:text-xs">
+                              {formatRp((row.laba_penjualan || 0) + (row.laba_service || 0) + (row.laba_minuman || 0))}
+                            </td>
+                            <td className="hidden sm:table-cell p-3 sm:p-4 text-right text-rose-600">{formatRp(totalKeluarRow)}</td>
+                            <td className={`hidden lg:table-cell p-3 sm:p-4 text-right font-black ${piutangVal < 0 ? 'text-rose-600' : 'text-amber-600'}`}>
+                              {formatNeg(piutangVal)}
+                            </td>
+                            <td className={`hidden lg:table-cell p-3 sm:p-4 text-right font-black ${hutangVal < 0 ? 'text-rose-600' : 'text-purple-600'}`}>
+                              {formatNeg(hutangVal)}
+                            </td>
+                            <td className="p-3 sm:p-4 text-right text-slate-900 font-black text-[11px] sm:text-xs">{formatRp(row.kasir_toko)}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* PAGINATION */}
+              <div className="bg-white mt-4 p-4 rounded-3xl border border-slate-100 flex justify-between items-center shrink-0">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-100 px-3 py-1.5 rounded-lg">
+                  Hal. {page} / {totalPages || 1}
+                </p>
+                <div className="flex gap-2">
+                  <button 
+                    onClick={() => setPage(p => Math.max(1, p - 1))} 
+                    disabled={page === 1}
+                    className="w-10 h-10 flex items-center justify-center bg-white border border-slate-200 text-slate-500 rounded-xl hover:bg-blue-50 hover:border-blue-200 hover:text-blue-600 disabled:opacity-30 transition-all shadow-sm"
+                  >
+                    <ChevronLeft size={18} />
+                  </button>
+                  <button 
+                    onClick={() => setPage(p => Math.min(totalPages, p + 1))} 
+                    disabled={page === totalPages || totalPages === 0}
+                    className="w-10 h-10 flex items-center justify-center bg-white border border-slate-200 text-slate-500 rounded-xl hover:bg-blue-50 hover:border-blue-200 hover:text-blue-600 disabled:opacity-30 transition-all shadow-sm"
+                  >
+                    <ChevronRight size={18} />
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* MODAL DETAIL BREAKDOWN */}
+      {detailModal && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setDetailModal(null)}>
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-xl font-black text-slate-800">{detailModal.title}</h3>
+              <button onClick={() => setDetailModal(null)} className="p-2 hover:bg-slate-100 rounded-full">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="space-y-3">
+              {detailModal.items.map((item, idx) => (
+                <div key={idx} className="flex justify-between items-center border-b border-slate-100 pb-2">
+                  <span className="font-bold text-slate-600">{item.label}</span>
+                  <span className="font-black text-slate-900">{formatRp(item.value)}</span>
+                </div>
+              ))}
+              <div className="pt-3 mt-2 border-t-2 border-slate-200 flex justify-between">
+                <span className="font-black text-slate-800">Total</span>
+                <span className="font-black text-indigo-600">{formatRp(detailModal.items.reduce((sum, i) => sum + i.value, 0))}</span>
+              </div>
+            </div>
+            <button onClick={() => setDetailModal(null)} className="mt-6 w-full py-3 bg-slate-100 rounded-xl font-bold text-slate-600">Tutup</button>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL GENERATE LAPORAN */}
+      {showGenerateModal && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setShowGenerateModal(false)}>
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-xl font-black text-slate-800">Generate Laporan Otomatis</h3>
+              <button onClick={() => setShowGenerateModal(false)} className="p-2 hover:bg-slate-100 rounded-full">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="text-xs font-black text-slate-500 uppercase tracking-widest">Tanggal Laporan</label>
+                <input
+                  type="date"
+                  className="w-full mt-1 p-3 bg-slate-50 rounded-xl border border-slate-200 font-bold text-sm outline-none focus:border-blue-400 transition-all"
+                  value={generateDate}
+                  onChange={(e) => setGenerateDate(e.target.value)}
+                />
+                <p className="text-[10px] text-slate-400 mt-1">Kosongkan untuk hari ini</p>
+              </div>
+              <button
+                onClick={() => {
+                  const targetDate = generateDate || undefined;
+                  handleGenerateReport(targetDate);
+                }}
+                disabled={generating}
+                className="w-full py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {generating ? (
+                  <>
+                    <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    GENERATING...
+                  </>
+                ) : (
+                  <>
+                    <BarChart3 size={16} />
+                    GENERATE SEKARANG
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DETAIL REPORT */}
+      {selectedReport && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => { setSelectedReport(null); setReportDetailData(null); }}>
+          <div className="bg-white rounded-3xl max-w-6xl w-full max-h-[90vh] flex flex-col shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-center p-6 border-b border-slate-100 shrink-0">
+              <div className="flex items-center gap-4">
+                <div>
+                  <h3 className="text-xl font-black text-slate-800">Detail Laporan {formatDate(selectedReport.created_at)}</h3>
+                  <p className="text-sm text-slate-500">{selectedReport.text || 'Tidak ada keterangan'}</p>
+                </div>
+                {/* Tombol Refresh / Regenerate */}
+                <button
+                  onClick={() => {
+                    if (selectedReport) {
+                      fetchReportDetails(selectedReport);
+                    }
+                  }}
+                  className="p-2.5 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-xl transition-colors flex items-center gap-2 shadow-sm border border-blue-200"
+                  title="Refresh data detail"
+                >
+                  <RefreshCw size={18} />
+                  <span className="text-[10px] font-black uppercase tracking-wider hidden sm:inline">Refresh</span>
+                </button>
+              </div>
+              <button onClick={() => { setSelectedReport(null); setReportDetailData(null); }} className="p-2 hover:bg-slate-100 rounded-full">
+                <X size={24} />
+              </button>
+            </div>
+
+            {/* Tab Navigation */}
+            <div className="flex flex-wrap gap-1 p-4 border-b border-slate-100 bg-slate-50/50 shrink-0">
+              {['overview', 'menu', 'logstock', 'cashflow', 'ongkos'].map((tab) => (
+                <button
+                  key={tab}
+                  onClick={() => { setActiveDetailTab(tab as any); setDetailSearchTerm(''); }}
+                  className={`px-4 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider transition-all ${
+                    activeDetailTab === tab
+                      ? 'bg-blue-600 text-white shadow-md'
+                      : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+                  }`}
+                >
+                  {tab === 'overview' ? '📊 Overview' : 
+                   tab === 'menu' ? '📋 Menu' : 
+                   tab === 'logstock' ? '📦 Log' : 
+                   tab === 'cashflow' ? '💰 Kas' : '🔧 Ongkos'}
+                </button>
+              ))}
+            </div>
+
+            {/* Tab Content */}
+            <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
+              {reportDetailLoading ? (
+                <div className="flex justify-center py-20">
+                  <div className="w-10 h-10 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
+                </div>
+              ) : activeDetailTab === 'overview' ? (
+                // ============================
+                // TAB OVERVIEW
+                // ============================
+                <div className="space-y-8 animate-in fade-in duration-300">
+                  
+                  {/* SEKSI OMSET */}
+                  <div className="space-y-3">
+                    <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 border-b border-slate-100 pb-2">
+                      <TrendingUp size={14} className="text-blue-500"/> Pendapatan Kotor (Omset)
+                    </h4>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                      <div className="bg-blue-50/50 p-4 rounded-2xl border border-blue-100 shadow-sm">
+                        <p className="text-[11px] font-black text-blue-500 uppercase">Omset Toko</p>
+                        <p className="text-lg md:text-xl font-black text-blue-700 mt-1">{formatRp(selectedReport.omset_toko)}</p>
+                      </div>
+                      <div className="bg-blue-50/50 p-4 rounded-2xl border border-blue-100 shadow-sm">
+                        <p className="text-[11px] font-black text-blue-500 uppercase">Omset Servis (Jasa)</p>
+                        <p className="text-lg md:text-xl font-black text-blue-700 mt-1">
+                          {formatRp(reportDetailData?.ongkos?.reduce((sum, o) => sum + (o.ongkos || 0), 0) ?? selectedReport.omset_servis)}
+                        </p>
+                      </div>
+                      <div className="bg-blue-50/50 p-4 rounded-2xl border border-blue-100 shadow-sm">
+                        <p className="text-[11px] font-black text-blue-500 uppercase">Omset Minuman</p>
+                        <p className="text-lg md:text-xl font-black text-blue-700 mt-1">{formatRp(selectedReport.omset_minuman)}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* SEKSI LABA */}
+                  <div className="space-y-3">
+                    <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 border-b border-slate-100 pb-2">
+                      <DollarSign size={14} className="text-emerald-500"/> Margin Keuntungan Kotor (Laba)
+                    </h4>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                      <div className="bg-emerald-50/50 p-4 rounded-2xl border border-emerald-100 shadow-sm">
+                        <p className="text-[11px] font-black text-emerald-600 uppercase">Laba Penjualan Toko</p>
+                        <p className="text-lg md:text-xl font-black text-emerald-700 mt-1">{formatRp(selectedReport.laba_penjualan)}</p>
+                      </div>
+                      <div className="bg-emerald-50/50 p-4 rounded-2xl border border-emerald-100 shadow-sm">
+                        <p className="text-[11px] font-black text-emerald-600 uppercase">Laba Sparepart Servis</p>
+                        <p className="text-lg md:text-xl font-black text-emerald-700 mt-1">{formatRp(selectedReport.laba_service)}</p>
+                      </div>
+                      <div className="bg-emerald-50/50 p-4 rounded-2xl border border-emerald-100 shadow-sm">
+                        <p className="text-[11px] font-black text-emerald-600 uppercase">Laba Minuman</p>
+                        <p className="text-lg md:text-xl font-black text-emerald-700 mt-1">{formatRp(selectedReport.laba_minuman)}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* SEKSI PENGELUARAN & OPERASIONAL */}
+                  <div className="space-y-3">
+                    <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 border-b border-slate-100 pb-2">
+                      <TrendingDown size={14} className="text-rose-500"/> Operasional & Biaya Lainnya
+                    </h4>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                      <div className="bg-rose-50/50 p-4 rounded-2xl border border-rose-100 shadow-sm">
+                        <p className="text-[11px] font-black text-rose-500 uppercase">Pengeluaran Toko</p>
+                        <p className="text-lg md:text-xl font-black text-rose-700 mt-1">{formatRp(selectedReport.operasional_toko)}</p>
+                      </div>
+                      <div className="bg-rose-50/50 p-4 rounded-2xl border border-rose-100 shadow-sm">
+                        <p className="text-[11px] font-black text-rose-500 uppercase">Pengeluaran Lainnya</p>
+                        <p className="text-lg md:text-xl font-black text-rose-700 mt-1">{formatRp(selectedReport.pengeluaran_lain)}</p>
+                      </div>
+                      <div className="bg-emerald-50/50 p-4 rounded-2xl border border-emerald-100 shadow-sm">
+                        <p className="text-[11px] font-black text-emerald-600 uppercase">Pemasukan Lainnya</p>
+                        <p className="text-lg md:text-xl font-black text-emerald-700 mt-1">+{formatRp(selectedReport.pemasukan_lain)}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* SEKSI KAS & KREDIT */}
+                  <div className="space-y-3">
+                    <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 border-b border-slate-100 pb-2">
+                      <Wallet size={14} className="text-slate-600"/> Arus Kas & Hutang Piutang
+                    </h4>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="bg-slate-100 p-4 rounded-2xl border border-slate-200 shadow-sm">
+                        <p className="text-[11px] font-black text-slate-500 uppercase">Kasir Toko (Fisik/Transfer)</p>
+                        <p className="text-lg md:text-xl font-black text-slate-800 mt-1">{formatRp(selectedReport.kasir_toko)}</p>
+                      </div>
+                      <div className="bg-amber-50 p-4 rounded-2xl border border-amber-200 shadow-sm">
+                        <p className="text-[11px] font-black text-amber-600 uppercase">Piutang (Customer)</p>
+                        <p className="text-lg md:text-xl font-black text-amber-700 mt-1">{formatRp(selectedReport.piutang)}</p>
+                      </div>
+                      <div className="bg-purple-50 p-4 rounded-2xl border border-purple-200 shadow-sm">
+                        <p className="text-[11px] font-black text-purple-600 uppercase">Hutang (Supplier)</p>
+                        <p className="text-lg md:text-xl font-black text-purple-700 mt-1">{formatRp(selectedReport.hutang)}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                </div>
+              ) : activeDetailTab === 'menu' ? (() => {
+                // ============================
+                // TAB MENU
+                // ============================
+                let baseMenu = reportDetailData?.menu || [];
+                if (detailSearchTerm.trim() !== '') {
+                  const term = detailSearchTerm.toLowerCase();
+                  baseMenu = baseMenu.filter(m => 
+                    (m.id && m.id.toLowerCase().includes(term)) ||
+                    (m.operator && m.operator.toLowerCase().includes(term)) ||
+                    (m.person && m.person.toLowerCase().includes(term)) ||
+                    (m.person_baru && m.person_baru.toLowerCase().includes(term)) ||
+                    (m.jenis && m.jenis.toLowerCase().includes(term)) ||
+                    (m.payment && m.payment.toLowerCase().includes(term)) ||
+                    (m.marketplace && m.marketplace.toLowerCase().includes(term)) ||
+                    (m.text && m.text.toLowerCase().includes(term)) ||
+                    (m.note && m.note.toLowerCase().includes(term))
+                  );
+                }
+
+                const availableJenis = [...new Set(baseMenu.filter(m => menuFilterStatus === 'semua' || m.status === menuFilterStatus).map(m => m.jenis))].filter(Boolean);
+
+                let filteredMenu = baseMenu.filter(m => menuFilterStatus === 'semua' || m.status === menuFilterStatus);
+                filteredMenu = filteredMenu.filter(m => menuFilterJenis.length === 0 || menuFilterJenis.includes('semua') || (m.jenis && menuFilterJenis.includes(m.jenis)));
+
+                filteredMenu.sort((a, b) => {
+                  let valA = a[menuSort.key]; let valB = b[menuSort.key];
+                  if (typeof valA === 'string') valA = valA.toLowerCase();
+                  if (typeof valB === 'string') valB = valB.toLowerCase();
+                  if (valA < valB) return menuSort.dir === 'asc' ? -1 : 1;
+                  if (valA > valB) return menuSort.dir === 'asc' ? 1 : -1;
+                  return 0;
+                });
+
+                const sumQty = filteredMenu.reduce((acc, m) => acc + (m.qty || 0), 0);
+                const sumTotal = filteredMenu.reduce((acc, m) => acc + (m.total || 0), 0);
+                const sumDibayar = filteredMenu.reduce((acc, m) => acc + (m.dibayar || 0), 0);
+                const sumAdmin = filteredMenu.reduce((acc, m) => acc + (m.admin || 0), 0);
+                const sumCashback = filteredMenu.reduce((acc, m) => acc + (m.cashback || 0), 0);
+                
+                // Pisahkan Piutang (Penjualan/Servis) dan Hutang (Pembelian)
+                const totalPiutang = filteredMenu
+                  .filter(m => m.status === 'belum' && m.jenis?.toLowerCase() !== 'pembelian')
+                  .reduce((acc, m) => acc + ((m.total || 0) - (m.dibayar || 0)), 0);
+                
+                const totalHutang = filteredMenu
+                  .filter(m => m.status === 'belum' && m.jenis?.toLowerCase() === 'pembelian')
+                  .reduce((acc, m) => acc + ((m.total || 0) - (m.dibayar || 0)), 0);
+
+                return (
+                  <div>
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
+                      <div className="flex flex-wrap gap-2 items-start">
+                        <div className="relative">
+                          <button
+                            type="button"
+                            onClick={() => setIsMenuDropdownOpen(!isMenuDropdownOpen)}
+                            className="p-2 border border-slate-200 rounded-xl text-sm font-bold bg-white flex items-center justify-between min-w-[150px]"
+                          >
+                            <span>{menuFilterJenis.includes('semua') ? 'Semua Jenis Menu' : `${menuFilterJenis.length} Jenis Dipilih`}</span>
+                            <ChevronDown size={16} className={`ml-2 transition-transform ${isMenuDropdownOpen ? 'rotate-180' : ''}`} />
+                          </button>
+                          {isMenuDropdownOpen && (
+                            <div className="absolute top-full left-0 mt-1 min-w-full bg-white border border-slate-200 rounded-xl shadow-lg z-10 p-2 flex flex-col gap-1 whitespace-nowrap">
+                              <label className="flex items-center gap-2 text-sm font-bold cursor-pointer hover:bg-slate-50 p-1.5 rounded">
+                                <input
+                                  type="checkbox"
+                                  checked={menuFilterJenis.includes('semua')}
+                                  onChange={() => setMenuFilterJenis(['semua'])}
+                                  className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                                />
+                                Semua Jenis
+                              </label>
+                              <div className="h-px bg-slate-100 my-1"></div>
+                              {availableJenis.map(j => (
+                                <label key={String(j)} className="flex items-center gap-2 text-sm font-medium cursor-pointer hover:bg-slate-50 p-1.5 rounded">
+                                  <input
+                                    type="checkbox"
+                                    checked={menuFilterJenis.includes(String(j)) && !menuFilterJenis.includes('semua')}
+                                    onChange={(e) => {
+                                      let newSelected = [...menuFilterJenis].filter(v => v !== 'semua');
+                                      if (e.target.checked) {
+                                        newSelected.push(String(j));
+                                      } else {
+                                        newSelected = newSelected.filter(v => v !== String(j));
+                                      }
+                                      if (newSelected.length === 0) newSelected = ['semua'];
+                                      setMenuFilterJenis(newSelected);
+                                    }}
+                                    className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                                  />
+                                  {j}
+                                </label>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        <select className="p-2 border border-slate-200 rounded-xl text-sm font-bold bg-white" value={menuFilterStatus} onChange={(e) => setMenuFilterStatus(e.target.value)}>
+                          <option value="semua">Semua Status</option>
+                          <option value="lunas">Lunas</option>
+                          <option value="belum">Belum Lunas</option>
+                        </select>
+                      </div>
+                      <div className="relative w-full sm:w-64 shrink-0">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                        <input type="text" placeholder="Cari di Menu..." value={detailSearchTerm} onChange={e => setDetailSearchTerm(e.target.value)} className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-500/20 transition-all shadow-sm" />
+                      </div>
+                    </div>
+                    <div className="overflow-x-auto overflow-y-auto max-h-[50vh] custom-scrollbar rounded-xl border border-slate-200 shadow-sm relative">
+                      <table className="w-full text-xs border-collapse whitespace-nowrap">
+                        <thead className="bg-slate-100 sticky top-0 z-10">
+                          <tr className="border-b border-slate-200">
+                            {renderSortHeader('menu', 'id', 'ID Ref')}
+                            {renderSortHeader('menu', 'created_at', 'Waktu')}
+                            {renderSortHeader('menu', 'operator', 'Operator')}
+                            {renderSortHeader('menu', 'person', 'Pihak/Orang')}
+                            {renderSortHeader('menu', 'jenis', 'Jenis')}
+                            {renderSortHeader('menu', 'payment', 'Metode')}
+                            {renderSortHeader('menu', 'status', 'Status')}
+                            {renderSortHeader('menu', 'qty', 'Qty', 'right')}
+                            {renderSortHeader('menu', 'marketplace', 'Marketplace')}
+                            {renderSortHeader('menu', 'admin', 'Admin', 'right')}
+                            {renderSortHeader('menu', 'cashback', 'Cashback', 'right')}
+                            {renderSortHeader('menu', 'total', 'Total Invoice', 'right')}
+                            {renderSortHeader('menu', 'dibayar', 'Terbayar', 'right')}
+                            {renderSortHeader('menu', 'note', 'Catatan')}
+                          </tr>
+                        </thead>
+                        <tbody className="bg-white">
+                          {reportDetailData === null ? (
+                            <tr><td colSpan={14} className="p-4 text-center text-slate-400">Memuat data...</td></tr>
+                          ) : filteredMenu.length === 0 ? (
+                            <tr><td colSpan={14} className="p-4 text-center text-slate-400">Tidak ada data menu.</td></tr>
+                          ) : (
+                            filteredMenu.map((m, idx) => (
+                              <tr key={idx} 
+                                  onClick={() => { setLogStockFilterRefJenis(m.id); setActiveDetailTab('logstock'); }}
+                                  className="border-b border-slate-100 hover:bg-blue-50 cursor-pointer text-slate-600 font-medium transition-colors"
+                                  title="Klik untuk melihat rincian barang/servis di Log Stock"
+                              >
+                                <td className="p-3 font-mono text-[10px] text-blue-500">{m.id.slice(-6)}</td>
+                                <td className="p-3 font-mono text-[10px]">{new Date(m.created_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}</td>
+                                <td className="p-3 font-bold">{m.operator || '-'}</td>
+                                <td className="p-3 text-blue-600">{m.person || m.person_baru || 'Umum'}</td>
+                                <td className="p-3 font-black text-slate-700">{m.jenis}</td>
+                                <td className="p-3">{m.payment || '-'}</td>
+                                <td className="p-3"><span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase ${m.status === 'belum' ? 'bg-rose-100 text-rose-600' : 'bg-emerald-100 text-emerald-600'}`}>{m.status}</span></td>
+                                <td className="p-3 text-right font-bold">{m.qty || 0}</td>
+                                <td className="p-3">{m.marketplace || '-'}</td>
+                                <td className="p-3 text-right text-rose-500">{formatRp(m.admin)}</td>
+                                <td className="p-3 text-right text-emerald-500">{formatRp(m.cashback)}</td>
+                                <td className="p-3 text-right font-black text-slate-800">{formatRp(m.total)}</td>
+                                <td className="p-3 text-right font-black text-emerald-600">{formatRp(m.dibayar)}</td>
+                                <td className="p-3 text-[10px] max-w-[150px] truncate" title={m.text || m.note}>{m.text || m.note || '-'}</td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div className="mt-4 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                      {filteredMenu.length > 0 && (
+                        <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
+                          <p className="text-[10px] font-black text-slate-400 uppercase">Jml Transaksi</p>
+                          <p className="text-sm font-black text-slate-800 mt-0.5">{filteredMenu.length} Nota</p>
+                        </div>
+                      )}
+                      {sumQty > 0 && (
+                        <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
+                          <p className="text-[10px] font-black text-slate-400 uppercase">Total Qty</p>
+                          <p className="text-sm font-black text-slate-800 mt-0.5">{sumQty} Item</p>
+                        </div>
+                      )}
+                      {sumAdmin > 0 && (
+                        <div className="bg-rose-50 p-3 rounded-xl border border-rose-200">
+                          <p className="text-[10px] font-black text-rose-500 uppercase">Total Admin MP</p>
+                          <p className="text-sm font-black text-rose-600 mt-0.5">{formatRp(sumAdmin)}</p>
+                        </div>
+                      )}
+                      {sumTotal > 0 && (
+                        <div className="bg-blue-50 p-3 rounded-xl border border-blue-200">
+                          <p className="text-[10px] font-black text-blue-500 uppercase">Total Transaksi</p>
+                          <p className="text-sm font-black text-blue-600 mt-0.5">{formatRp(sumTotal)}</p>
+                        </div>
+                      )}
+                      {sumDibayar > 0 && (
+                        <div className="bg-emerald-50 p-3 rounded-xl border border-emerald-200">
+                          <p className="text-[10px] font-black text-emerald-500 uppercase">Telah Dibayar</p>
+                          <p className="text-sm font-black text-emerald-600 mt-0.5">{formatRp(sumDibayar)}</p>
+                        </div>
+                      )}
+                      {totalPiutang > 0 && (
+                        <div className="bg-amber-50 p-3 rounded-xl border border-amber-200">
+                          <p className="text-[10px] font-black text-amber-500 uppercase">Piutang (Penjualan)</p>
+                          <p className="text-sm font-black text-amber-600 mt-0.5">{formatRp(totalPiutang)}</p>
+                        </div>
+                      )}
+                      {totalHutang > 0 && (
+                        <div className="bg-purple-50 p-3 rounded-xl border border-purple-200">
+                          <p className="text-[10px] font-black text-purple-500 uppercase">Hutang Pembelian</p>
+                          <p className="text-sm font-black text-purple-600 mt-0.5">{formatRp(totalHutang)}</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })() : activeDetailTab === 'logstock' ? (() => {
+                // ============================
+                // TAB LOG STOCK
+                // ============================
+                let baseLog = reportDetailData?.logStock || [];
+                if (detailSearchTerm.trim() !== '') {
+                  const term = detailSearchTerm.toLowerCase();
+                  baseLog = baseLog.filter(l => {
+                    const produkExpanded = l.expand?.item_baru;
+                    const produkName = produkExpanded ? `${produkExpanded.kategori || ''} ${produkExpanded.merk || ''} ${produkExpanded.jenis || ''}`.trim() : l.item_baru;
+                    return (
+                      (l.id && l.id.toLowerCase().includes(term)) ||
+                      (l.operator && l.operator.toLowerCase().includes(term)) ||
+                      (l.item && l.item.toLowerCase().includes(term)) ||
+                      (produkName && produkName.toLowerCase().includes(term)) ||
+                      (l.ref && l.ref.toLowerCase().includes(term)) ||
+                      (l.ref_baru && l.ref_baru.toLowerCase().includes(term)) ||
+                      (l.person && l.person.toLowerCase().includes(term)) ||
+                      (l.note && l.note.toLowerCase().includes(term))
+                    );
+                  });
+                }
+
+                let filteredLogStock = baseLog.filter(l => logStockFilterBoolean === 'semua' || (l.boolean || '').toLowerCase() === logStockFilterBoolean.toLowerCase());
+
+                filteredLogStock.sort((a, b) => {
+                  let valA = a[logStockSort.key]; let valB = b[logStockSort.key];
+                  if (typeof valA === 'string') valA = valA.toLowerCase();
+                  if (typeof valB === 'string') valB = valB.toLowerCase();
+                  if (valA < valB) return logStockSort.dir === 'asc' ? -1 : 1;
+                  if (valA > valB) return logStockSort.dir === 'asc' ? 1 : -1;
+                  return 0;
+                });
+
+                const sumQtyIn = filteredLogStock
+                  .filter(l => (l.boolean || '').toLowerCase() === 'in')
+                  .reduce((acc, l) => acc + (l.qty || 0), 0);
+
+                const sumQtyOut = filteredLogStock
+                  .filter(l => (l.boolean || '').toLowerCase() === 'out')
+                  .reduce((acc, l) => acc + (l.qty || 0), 0);
+
+                const sumPenjualan = filteredLogStock
+                  .filter(l => (l.boolean || '').toLowerCase() === 'out')
+                  .reduce((acc, l) => acc + ((l.price_1 || 0) * (l.qty || 0)), 0);
+
+                const sumLaba = filteredLogStock.reduce((acc, l) => {
+                  // Hanya hitung jika mutasi OUT
+                  if ((l.boolean || '').toLowerCase() !== 'out') return acc;
+                    
+                  // Pengecualian untuk jenis Pembelian, Rusak, atau Opname
+                  const notaTerkait = reportDetailData?.menu.find(m => m.id === l.ref_baru);
+                  const notaJenis = (notaTerkait?.jenis || '').toLowerCase();
+                  if (notaJenis.includes('pembelian') || notaJenis.includes('rusak') || notaJenis.includes('opname')) return acc;
+                    
+                  return acc + (((l.price_1 || 0) * (l.qty || 0)) - (l.price_2 || 0));
+                }, 0);
+
+                return (
+                  <div>
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
+                      <div className="flex flex-wrap gap-2">
+                        <select className="p-2 border border-slate-200 rounded-xl text-sm font-bold bg-white" value={logStockFilterBoolean} onChange={(e) => setLogStockFilterBoolean(e.target.value)}>
+                          <option value="semua">Semua Mutasi</option>
+                          <option value="in">Masuk (In)</option>
+                          <option value="out">Keluar (Out)</option>
+                        </select>
+                      </div>
+                      <div className="flex flex-1 sm:flex-none w-full sm:w-auto items-center gap-2 justify-end">
+                        {userLevel === '1' && (
+                          <button
+                            onClick={handleFixLogStockPrice}
+                            disabled={fixingPrices}
+                            className="px-4 py-2 bg-rose-50 border border-rose-200 text-rose-600 rounded-xl font-bold text-xs hover:bg-rose-100 transition-colors flex items-center gap-2 disabled:opacity-50 shrink-0"
+                          >
+                            {fixingPrices ? 'Menyinkronkan...' : 'Sesuaikan Harga Beli Hari Ini'}
+                          </button>
+                        )}
+                        <div className="relative w-full sm:w-64 shrink-0">
+                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                          <input type="text" placeholder="Cari di Log Stock..." value={detailSearchTerm} onChange={e => setDetailSearchTerm(e.target.value)} className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-500/20 transition-all shadow-sm" />
+                        </div>
+                      </div>
+                    </div>
+                    <div className="overflow-x-auto overflow-y-auto max-h-[50vh] custom-scrollbar rounded-xl border border-slate-200 shadow-sm relative">
+                      <table className="w-full text-xs border-collapse whitespace-nowrap">
+                        <thead className="bg-slate-100 sticky top-0 z-10">
+                          <tr className="border-b border-slate-200">
+                            {renderSortHeader('logstock', 'created_at', 'Waktu')}
+                            {renderSortHeader('logstock', 'operator', 'Operator')}
+                            {renderSortHeader('logstock', 'boolean', 'In/Out', 'center')}
+                            {renderSortHeader('logstock', 'item', 'ID Lama')}
+                            {renderSortHeader('logstock', 'item_baru', 'Nama Barang')}
+                            {renderSortHeader('logstock', 'qty', 'Qty', 'right')}
+                            {renderSortHeader('logstock', 'price_1', 'Harga Satuan', 'right')}
+                            <th className="p-3 text-right font-black text-slate-500 uppercase">Subtotal Jual</th>
+                            <th className="p-3 text-right font-black text-slate-500 uppercase">Subtotal Modal</th>
+                            <th className="p-3 text-right font-black text-emerald-600 uppercase">Laba Kotor</th>
+                            {renderSortHeader('logstock', 'ref_baru', 'Ref Nota')}
+                            {renderSortHeader('logstock', 'note', 'Catatan')}
+                          </tr>
+                        </thead>
+                        <tbody className="bg-white">
+                          {reportDetailData === null ? (
+                            <tr><td colSpan={12} className="p-4 text-center text-slate-400">Memuat data...</td></tr>
+                          ) : filteredLogStock.length === 0 ? (
+                            <tr><td colSpan={12} className="p-4 text-center text-slate-400">Tidak ada data log stock.</td></tr>
+                          ) : (
+                              filteredLogStock.map((l, idx) => {
+                                const subJual = (l.price_1 || 0) * (l.qty || 0);
+                                const subModal = (l.price_2 || 0);
+                                
+                                // Cek jenis dari nota terkait
+                                const notaTerkait = reportDetailData?.menu.find(m => m.id === l.ref_baru);
+                                const notaJenis = (notaTerkait?.jenis || '').toLowerCase();
+                                const isExcluded = notaJenis.includes('pembelian') || notaJenis.includes('rusak') || notaJenis.includes('opname');
+                                const isOut = (l.boolean || '').toLowerCase() === 'out';
+                                
+                                // Jika mutasi bukan OUT atau termasuk jenis yang dikecualikan, Laba = 0
+                                const labaItem = (isOut && !isExcluded) ? (subJual - subModal) : 0;
+
+                                const produkExpanded = l.expand?.item_baru;
+                              const produkName = produkExpanded ? `${produkExpanded.kategori || ''} ${produkExpanded.merk || ''} ${produkExpanded.jenis || ''}`.trim() : l.item_baru;
+
+                              return (
+                                <tr key={idx} className="border-b border-slate-100 hover:bg-slate-50 text-slate-600 font-medium">
+                                  <td className="p-3 font-mono text-[10px]">{new Date(l.created_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}</td>
+                                  <td className="p-3 font-bold">{l.operator || '-'}</td>
+                                  <td className="p-3 text-center">
+                                    <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider ${l.boolean === 'in' ? 'bg-blue-100 text-blue-600' : 'bg-orange-100 text-orange-600'}`}>{l.boolean}</span>
+                                  </td>
+                                  <td className="p-3 font-mono text-[10px]">{l.item || '-'}</td>
+                                  <td className="p-3 font-black text-slate-800 max-w-[200px] truncate" title={produkName}>{produkName}</td>
+                                  <td className="p-3 text-right font-bold">{l.qty}</td>
+                                  <td className="p-3 text-right">{formatRp(l.price_1)}</td>
+                                  <td className="p-3 text-right font-bold">{formatRp(subJual)}</td>
+                                  <td className="p-3 text-right text-rose-500">{formatRp(subModal)}</td>
+                                  <td className="p-3 text-right font-black text-emerald-600">{formatRp(labaItem)}</td>
+                                  <td className="p-3 font-mono text-[10px] text-blue-500">{l.ref_baru || '-'}</td>
+                                  <td className="p-3 text-[10px] max-w-[150px] truncate" title={l.note}>{l.note || '-'}</td>
+                                </tr>
+                              );
+                            })
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div className="mt-4 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                      {filteredLogStock.length > 0 && (
+                        <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
+                          <p className="text-[10px] font-black text-slate-400 uppercase">Jml Pergerakan</p>
+                          <p className="text-sm font-black text-slate-800 mt-0.5">{filteredLogStock.length} Baris</p>
+                        </div>
+                      )}
+                      {sumQtyIn > 0 && (
+                        <div className="bg-blue-50 p-3 rounded-xl border border-blue-200">
+                          <p className="text-[10px] font-black text-blue-500 uppercase">Total Qty In</p>
+                          <p className="text-sm font-black text-blue-600 mt-0.5">{sumQtyIn} Item</p>
+                        </div>
+                      )}
+                      {sumQtyOut > 0 && (
+                        <div className="bg-orange-50 p-3 rounded-xl border border-orange-200">
+                          <p className="text-[10px] font-black text-orange-500 uppercase">Total Qty Out</p>
+                          <p className="text-sm font-black text-orange-600 mt-0.5">{sumQtyOut} Item</p>
+                        </div>
+                      )}
+                      {sumPenjualan > 0 && (
+                        <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
+                          <p className="text-[10px] font-black text-slate-500 uppercase">Estimasi Penjualan</p>
+                          <p className="text-sm font-black text-slate-800 mt-0.5">{formatRp(sumPenjualan)}</p>
+                        </div>
+                      )}
+                      {sumLaba > 0 && (
+                        <div className="bg-emerald-50 p-3 rounded-xl border border-emerald-200">
+                          <p className="text-[10px] font-black text-emerald-500 uppercase">Laba Kotor Est.</p>
+                          <p className="text-sm font-black text-emerald-600 mt-0.5">{formatRp(sumLaba)}</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })() : activeDetailTab === 'cashflow' ? (() => {
+                // ============================
+                // TAB CASHFLOW
+                // ============================
+                let baseCash = reportDetailData?.cashflow || [];
+                if (detailSearchTerm.trim() !== '') {
+                  const term = detailSearchTerm.toLowerCase();
+                  baseCash = baseCash.filter(c => 
+                    (c.id && c.id.toLowerCase().includes(term)) ||
+                    (c.operator && c.operator.toLowerCase().includes(term)) ||
+                    (c.person && c.person.toLowerCase().includes(term)) ||
+                    (c.persontext && c.persontext.toLowerCase().includes(term)) ||
+                    (c.jenis && c.jenis.toLowerCase().includes(term)) ||
+                    (c.mutasi && c.mutasi.toLowerCase().includes(term)) ||
+                    (c.acc1 && c.acc1.toLowerCase().includes(term)) ||
+                    (c.acc2 && c.acc2.toLowerCase().includes(term)) ||
+                    (c.account_1 && c.account_1.toLowerCase().includes(term)) ||
+                    (c.account_2 && c.account_2.toLowerCase().includes(term)) ||
+                    (c.ref && c.ref.toLowerCase().includes(term)) ||
+                    (c.ref_baru && c.ref_baru.toLowerCase().includes(term)) ||
+                    (c.note && c.note.toLowerCase().includes(term))
+                  );
+                }
+
+                const availableCashflowAkun = [...new Set([...baseCash.filter(c => (cashflowFilterJenis === 'semua' || c.jenis === cashflowFilterJenis) && (cashflowFilterMutasi === 'semua' || c.mutasi === cashflowFilterMutasi)).map(c => c.acc1), ...baseCash.filter(c => (cashflowFilterJenis === 'semua' || c.jenis === cashflowFilterJenis) && (cashflowFilterMutasi === 'semua' || c.mutasi === cashflowFilterMutasi)).map(c => c.acc2)])].filter(Boolean);
+                const availableCashflowJenis = [...new Set(baseCash.filter(c => (cashflowFilterAccount === 'semua' || c.acc1 === cashflowFilterAccount || c.acc2 === cashflowFilterAccount) && (cashflowFilterMutasi === 'semua' || c.mutasi === cashflowFilterMutasi)).map(c => c.jenis))].filter(Boolean);
+
+                let filteredCashflow = baseCash.filter(c => {
+                  let match = true;
+                  if (cashflowFilterMutasi !== 'semua') match = match && c.mutasi === cashflowFilterMutasi;
+                  if (cashflowFilterAccount !== 'semua') match = match && (c.acc1 === cashflowFilterAccount || c.acc2 === cashflowFilterAccount);
+                  if (cashflowFilterJenis !== 'semua') match = match && c.jenis === cashflowFilterJenis;
+                  return match;
+                });
+
+                filteredCashflow.sort((a, b) => {
+                  let valA = a[cashflowSort.key]; let valB = b[cashflowSort.key];
+                  if (typeof valA === 'string') valA = valA.toLowerCase();
+                  if (typeof valB === 'string') valB = valB.toLowerCase();
+                  if (valA < valB) return cashflowSort.dir === 'asc' ? -1 : 1;
+                  if (valA > valB) return cashflowSort.dir === 'asc' ? 1 : -1;
+                  return 0;
+                });
+
+                const sumMasuk = filteredCashflow.filter(c => c.mutasi === 'in' || c.mutasi === 'Masuk').reduce((acc, c) => acc + (c.nominal || 0), 0);
+                const sumKeluar = filteredCashflow.filter(c => c.mutasi === 'out' || c.mutasi === 'Keluar').reduce((acc, c) => acc + (c.nominal || 0), 0);
+                const nett = sumMasuk - sumKeluar;
+
+                return (
+                  <div>
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
+                      <div className="flex flex-wrap gap-2">
+                        <select className="p-2 border border-slate-200 rounded-xl text-sm font-bold bg-white" value={cashflowFilterMutasi} onChange={(e) => setCashflowFilterMutasi(e.target.value)}>
+                          <option value="semua">Semua Mutasi</option>
+                          <option value="in">Masuk (In)</option>
+                          <option value="out">Keluar (Out)</option>
+                        </select>
+                        <select className="p-2 border border-slate-200 rounded-xl text-sm font-bold bg-white" value={cashflowFilterAccount} onChange={(e) => setCashflowFilterAccount(e.target.value)}>
+                          <option value="semua">Semua Akun</option>
+                          {availableCashflowAkun.map(a => <option key={String(a)} value={String(a)}>{a}</option>)}
+                        </select>
+                        <select className="p-2 border border-slate-200 rounded-xl text-sm font-bold bg-white" value={cashflowFilterJenis} onChange={(e) => setCashflowFilterJenis(e.target.value)}>
+                          <option value="semua">Semua Jenis Kas</option>
+                          {availableCashflowJenis.map(j => <option key={String(j)} value={String(j)}>{j}</option>)}
+                        </select>
+                      </div>
+                      <div className="relative w-full sm:w-64 shrink-0">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                        <input type="text" placeholder="Cari di Cashflow..." value={detailSearchTerm} onChange={e => setDetailSearchTerm(e.target.value)} className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-500/20 transition-all shadow-sm" />
+                      </div>
+                    </div>
+                    <div className="overflow-x-auto overflow-y-auto max-h-[50vh] custom-scrollbar rounded-xl border border-slate-200 shadow-sm relative">
+                      <table className="w-full text-xs border-collapse whitespace-nowrap">
+                        <thead className="bg-slate-100 sticky top-0 z-10">
+                          <tr className="border-b border-slate-200">
+                            {renderSortHeader('cashflow', 'created_at', 'Waktu')}
+                            {renderSortHeader('cashflow', 'operator', 'Operator')}
+                            {renderSortHeader('cashflow', 'persontext', 'Pihak / Note')}
+                            {renderSortHeader('cashflow', 'jenis', 'Jenis')}
+                            {renderSortHeader('cashflow', 'mutasi', 'Mutasi', 'center')}
+                            {renderSortHeader('cashflow', 'acc1', 'Akun Sumber')}
+                            {renderSortHeader('cashflow', 'acc2', 'Akun Tujuan')}
+                            {renderSortHeader('cashflow', 'nominal', 'Nominal', 'right')}
+                            {renderSortHeader('cashflow', 'ref_baru', 'Ref Nota')}
+                            {renderSortHeader('cashflow', 'note', 'Catatan Tambahan')}
+                          </tr>
+                        </thead>
+                        <tbody className="bg-white">
+                          {reportDetailData === null ? (
+                            <tr><td colSpan={10} className="p-4 text-center text-slate-400">Memuat data...</td></tr>
+                          ) : filteredCashflow.length === 0 ? (
+                            <tr><td colSpan={10} className="p-4 text-center text-slate-400">Tidak ada data cashflow.</td></tr>
+                          ) : (
+                            filteredCashflow.map((c, idx) => {
+                              const isIn = c.mutasi === 'in' || c.mutasi === 'Masuk';
+                              return (
+                                <tr key={idx} className="border-b border-slate-100 hover:bg-slate-50 text-slate-600 font-medium">
+                                  <td className="p-3 font-mono text-[10px]">{new Date(c.created_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}</td>
+                                  <td className="p-3 font-bold">{c.operator || '-'}</td>
+                                  <td className="p-3 text-blue-600">{c.persontext || c.person || '-'}</td>
+                                  <td className="p-3 font-black text-slate-700">{c.jenis}</td>
+                                  <td className="p-3 text-center">
+                                    <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider ${isIn ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>{c.mutasi}</span>
+                                  </td>
+                                  <td className="p-3 font-bold">{c.acc1 || c.account_1 || '-'}</td>
+                                  <td className="p-3 font-bold">{c.acc2 || c.account_2 || '-'}</td>
+                                  <td className={`p-3 text-right font-black ${isIn ? 'text-emerald-600' : 'text-rose-600'}`}>{isIn ? '+' : '-'}{formatRp(c.nominal)}</td>
+                                  <td className="p-3 font-mono text-[10px] text-blue-500">{c.ref_baru || '-'}</td>
+                                  <td className="p-3 text-[10px] max-w-[150px] truncate" title={c.note}>{c.note || '-'}</td>
+                                </tr>
+                              );
+                            })
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3">
+                      {filteredCashflow.length > 0 && (
+                        <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                          <p className="text-[10px] font-black text-slate-400 uppercase">Total Jurnal Kas</p>
+                          <p className="text-base font-black text-slate-800 mt-0.5">{filteredCashflow.length} Aktivitas</p>
+                        </div>
+                      )}
+                      {sumMasuk > 0 && (
+                        <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-200">
+                          <p className="text-[10px] font-black text-emerald-500 uppercase">Total Kas Masuk</p>
+                          <p className="text-base font-black text-emerald-600 mt-0.5">+{formatRp(sumMasuk)}</p>
+                        </div>
+                      )}
+                      {sumKeluar > 0 && (
+                        <div className="bg-rose-50 p-4 rounded-xl border border-rose-200">
+                          <p className="text-[10px] font-black text-rose-500 uppercase">Total Kas Keluar</p>
+                          <p className="text-base font-black text-rose-600 mt-0.5">-{formatRp(sumKeluar)}</p>
+                        </div>
+                      )}
+                      {nett !== 0 && (
+                        <div className={`p-4 rounded-xl border ${nett >= 0 ? 'bg-blue-50 border-blue-200' : 'bg-orange-50 border-orange-200'}`}>
+                          <p className={`text-[10px] font-black uppercase ${nett >= 0 ? 'text-blue-500' : 'text-orange-500'}`}>Nett / Selisih Kas</p>
+                          <p className={`text-base font-black mt-0.5 ${nett >= 0 ? 'text-blue-600' : 'text-orange-600'}`}>{formatRp(nett)}</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })() : activeDetailTab === 'ongkos' ? (() => {
+                // ============================
+                // TAB ONGKOS
+                // ============================
+                let filteredOngkos = reportDetailData?.ongkos || [];
+
+                if (detailSearchTerm.trim() !== '') {
+                  const term = detailSearchTerm.toLowerCase();
+                  filteredOngkos = filteredOngkos.filter((o: any) =>
+                    (o.id && o.id.toLowerCase().includes(term)) ||
+                    (o.id_lama && o.id_lama.toLowerCase().includes(term)) ||
+                    (o.person && o.person.toLowerCase().includes(term)) ||
+                    (o.operator && o.operator.toLowerCase().includes(term)) ||
+                    (o.ref && o.ref.toLowerCase().includes(term)) ||
+                    (o.ref_baru && o.ref_baru.toLowerCase().includes(term))
+                  );
+                }
+
+                const totalOngkos = filteredOngkos.reduce((acc: number, o: any) => acc + (o.ongkos || 0), 0);
+
+                // Rekap per mekanik
+                const rekapPerMekanik: Record<string, number> = {};
+                filteredOngkos.forEach((o: any) => {
+                  const nama = o.person || 'Tidak diketahui';
+                  rekapPerMekanik[nama] = (rekapPerMekanik[nama] || 0) + (o.ongkos || 0);
+                });
+
+                return (
+                  <div>
+                    {/* Search */}
+                    <div className="flex justify-between items-center gap-3 mb-4">
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                        {filteredOngkos.length} Data Ongkos
+                      </p>
+                      <div className="relative w-full sm:w-64 shrink-0">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                        <input
+                          type="text"
+                          placeholder="Cari di Ongkos..."
+                          value={detailSearchTerm}
+                          onChange={e => setDetailSearchTerm(e.target.value)}
+                          className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-500/20 transition-all shadow-sm"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Tabel */}
+                    <div className="overflow-x-auto overflow-y-auto max-h-[40vh] custom-scrollbar rounded-xl border border-slate-200 shadow-sm relative">
+                      <table className="w-full text-xs border-collapse whitespace-nowrap">
+                        <thead className="bg-slate-100 sticky top-0 z-10">
+                          <tr className="border-b border-slate-200">
+                            <th className="p-3 text-left font-black text-slate-500 uppercase tracking-wider">ID Lama</th>
+                            <th className="p-3 text-left font-black text-slate-500 uppercase tracking-wider">Mekanik</th>
+                            <th className="p-3 text-left font-black text-slate-500 uppercase tracking-wider">Operator</th>
+                            <th className="p-3 text-left font-black text-slate-500 uppercase tracking-wider">Ref</th>
+                            <th className="p-3 text-left font-black text-slate-500 uppercase tracking-wider">Ref Nota</th>
+                            <th className="p-3 text-left font-black text-slate-500 uppercase tracking-wider">Tanggal</th>
+                            <th className="p-3 text-right font-black text-emerald-600 uppercase tracking-wider">Ongkos</th>
+                          </tr>
+                        </thead>
+                        <tbody className="bg-white">
+                          {reportDetailData === null ? (
+                            <tr><td colSpan={7} className="p-4 text-center text-slate-400">Memuat data...</td></tr>
+                          ) : filteredOngkos.length === 0 ? (
+                            <tr><td colSpan={7} className="p-4 text-center text-slate-400">Tidak ada data ongkos.</td></tr>
+                          ) : (
+                            filteredOngkos.map((o: any, idx: number) => (
+                              <tr key={o.id || idx} className="border-b border-slate-100 hover:bg-slate-50 text-slate-600 font-medium transition-colors">
+                                <td className="p-3 font-mono text-[10px] text-slate-400">{o.id_lama || '-'}</td>
+                                <td className="p-3 font-black text-slate-800">{o.person || '-'}</td>
+                                <td className="p-3 font-bold">{o.operator || '-'}</td>
+                                <td className="p-3 font-mono text-[10px] text-blue-500">{o.ref || '-'}</td>
+                                <td className="p-3 font-mono text-[10px] text-blue-500">{o.ref_baru || '-'}</td>
+                                <td className="p-3 font-mono text-[10px]">
+                                  {o.date ? o.date.split(' ')[0].split('T')[0] : '-'}
+                                </td>
+                                <td className="p-3 text-right font-black text-emerald-600">{formatRp(o.ongkos)}</td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Summary */}
+                    <div className="mt-4 grid grid-cols-2 md:grid-cols-3 gap-3">
+                      {filteredOngkos.length > 0 && (
+                        <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
+                          <p className="text-[10px] font-black text-slate-400 uppercase">Jml Transaksi</p>
+                          <p className="text-sm font-black text-slate-800 mt-0.5">{filteredOngkos.length} Entri</p>
+                        </div>
+                      )}
+                      {totalOngkos > 0 && (
+                        <div className="bg-emerald-50 p-3 rounded-xl border border-emerald-200 md:col-span-2">
+                          <p className="text-[10px] font-black text-emerald-500 uppercase">Total Ongkos</p>
+                          <p className="text-sm font-black text-emerald-600 mt-0.5">{formatRp(totalOngkos)}</p>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Rekap per mekanik */}
+                    {Object.keys(rekapPerMekanik).length > 0 && (
+                      <div className="mt-4">
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Rekap per Mekanik</p>
+                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                          {Object.entries(rekapPerMekanik).map(([nama, total]) => (
+                            <div key={nama} className="bg-white border border-slate-200 p-3 rounded-xl shadow-sm flex flex-col gap-1">
+                              <span className="text-[10px] font-black text-slate-500 uppercase truncate" title={nama}>{nama}</span>
+                              <span className="text-sm font-black text-emerald-600">{formatRp(total)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })() : null}
+            </div>
+
+            {/* Footer Modal */}
+            <div className="p-4 border-t border-slate-100 bg-white rounded-b-3xl shrink-0 flex gap-3">
+              {/* Tombol Hapus - hanya untuk level 1-5 */}
+              {['1', '2', '3', '4', '5'].includes(userLevel) && (
+                <button
+                  onClick={() => handleDeleteReport(selectedReport)}
+                  className="flex-1 py-3 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl font-black text-xs uppercase tracking-widest transition-colors border border-rose-200 flex items-center justify-center gap-2"
+                >
+                  <Trash2 size={16} />
+                  HAPUS LAPORAN
+                </button>
+              )}
+              {/* Tombol Tutup - jika ada tombol hapus, fleksibel 1, jika tidak, full width */}
+              <button
+                onClick={() => { setSelectedReport(null); setReportDetailData(null); }}
+                className={`${['1', '2', '3', '4', '5'].includes(userLevel) ? 'flex-1' : 'w-full'} py-3 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-black text-xs uppercase tracking-widest transition-colors`}
+              >
+                TUTUP
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DIALOG BOX POPUP ALERT / CONFIRMATION */} 
+      <Modal isOpen={dialog.show} onClose={() => setDialog(prev => ({ ...prev, show: false }))} title={dialog.title}> 
+        {/* Tentukan warna tema berdasarkan type dialog */}
+        {(() => {
+          const isAlert = dialog.type === 'alert';
+          const themeColor = isAlert ? 'rose' : 'blue';
+          
+          return (
+            <div className="text-center p-6"> 
+              <div className={`w-20 h-20 rounded-[2rem] flex items-center justify-center mx-auto mb-6 bg-${themeColor}-50 text-${themeColor}-500 shadow-inner border border-${themeColor}-100 rotate-3`}> 
+                {isAlert ? <AlertTriangle size={40} className="animate-pulse"/> : <Info size={40} />} 
+              </div> 
+              <p className="font-black text-slate-700 text-base leading-relaxed mb-8">{dialog.message}</p> 
+              <div className="flex gap-4"> 
+                {dialog.type === 'confirm' && (
+                  <button onClick={() => setDialog(prev => ({ ...prev, show: false }))} className="flex-1 py-4 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-2xl font-black text-xs tracking-widest transition-colors">
+                    BATALKAN
+                  </button>
+                )} 
+                <button 
+                  onClick={dialog.onConfirm || (() => setDialog(prev => ({ ...prev, show: false })))} 
+                  className={`flex-[2] py-4 text-white rounded-2xl font-black text-xs shadow-xl bg-${themeColor}-500 shadow-${themeColor}-500/40 hover:bg-${themeColor}-600 active:scale-95 transition-all tracking-widest`}
+                >
+                  {dialog.type === 'confirm' ? 'YA, LANJUTKAN PROSES' : 'MENGERTI'}
+                </button> 
+              </div> 
+            </div> 
+          );
+        })()}
+      </Modal>
+
+    </div>
+  );
+
+}
