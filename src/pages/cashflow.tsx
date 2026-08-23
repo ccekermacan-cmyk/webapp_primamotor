@@ -2949,8 +2949,12 @@
                       {bonHistoryData.map(b => (
                         <tr key={b.id} className="hover:bg-slate-50 transition-colors">
                           <td className="p-3 pl-4 text-slate-700 whitespace-nowrap">
-                            {formatToLocalDate(b.created_at || b.created).split(' ')[0]} <br/>
-                            <span className="text-[10px] text-slate-400">{formatToLocalDate(b.created_at || b.created).split(' ')[1]}</span>
+                            <div className="flex-1 min-w-0 pr-4">
+                              <p className="text-xs font-bold text-slate-800 flex justify-between">
+                                {formatLocalDateTime(b.created_at || b.created).split(' ')[0]} <br/>
+                                <span className="text-[10px] text-slate-400">{formatLocalDateTime(b.created_at || b.created).split(' ')[1]}</span>
+                              </p>
+                            </div>
                           </td>
                           <td className="p-3">
                             <span className={`px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-widest ${
