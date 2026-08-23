@@ -151,6 +151,107 @@
     // TAMBAHAN: State untuk System Alert/Confirm Modal
     const [systemAlert, setSystemAlert] = useState({ show: false, title: '', message: '', type: 'alert' as 'alert'|'confirm', onConfirm: () => {} });
 
+    // BON HISTORY MODAL STATES
+    const [bonHistoryModalOpen, setBonHistoryModalOpen] = useState(false);
+    const [bonHistoryUser, setBonHistoryUser] = useState<DropdownItem | null>(null);
+    const [bonHistoryData, setBonHistoryData] = useState<any[]>([]);
+    const [loadingBonHistory, setLoadingBonHistory] = useState(false);
+
+    const openBonHistory = async (wallet: DropdownItem) => {
+      setBonHistoryUser(wallet);
+      setBonHistoryModalOpen(true);
+      setLoadingBonHistory(true);
+      try {
+        const username = wallet.id_lama || ''; // username
+        const name = wallet.text_1 || '';
+        // Cari ID dropdown yang sesuai dengan user ini agar aman filter di bon.person
+        const dropdownPerson = await pb.collection('dropdown').getFullList({
+          filter: `kategori ~ "person" && (id_lama = "${username}" || text_1 = "${name}")`,
+          $autoCancel: false
+        });
+        const dId = dropdownPerson.length > 0 ? dropdownPerson[0].id : '';
+
+        // Filter bon yang memiliki username, nama, atau ID dropdown yang cocok
+        const records = await pb.collection('bon').getFullList({
+          filter: `persontext = "${username}" || persontext = "${name}" ${dId ? `|| person = "${dId}"` : ''}`,
+          sort: '-created_at',
+          $autoCancel: false,
+          expand: 'ref_gaji'
+        });
+        setBonHistoryData(records);
+      } catch (err) {
+        console.error("Gagal load bon history", err);
+      } finally {
+        setLoadingBonHistory(false);
+      }
+    };
+
+    const handleDeleteBon = async (bonId: string) => {
+      const bRec = bonHistoryData.find(b => b.id === bonId);
+      if (!bRec) return;
+
+      setSystemAlert({
+        show: true,
+        title: 'Hapus Riwayat Bon?',
+        message: 'Aksi ini akan mengembalikan (revert) saldo bon karyawan sesuai dengan nominal riwayat ini. Apakah Anda yakin?',
+        type: 'confirm',
+        onConfirm: async () => {
+          setSystemAlert(prev => ({ ...prev, show: false }));
+          setIsProcessing(true);
+          try {
+            // 1. Revert user.number
+            const nominal = Number(bRec.nominal) || 0;
+            const jenis = (bRec.jenis || '').toLowerCase(); // in = kurang saldo, out = tambah saldo
+            // Jika bon 'in' dihapus, saldo bertambah lagi. Jika bon 'out' dihapus, saldo berkurang lagi.
+            const change = jenis === 'in' ? nominal : (jenis === 'out' ? -nominal : 0);
+            
+            if (bonHistoryUser && change !== 0) {
+              const uRec = await pb.collection('user').getOne(bonHistoryUser.id, { $autoCancel: false });
+              const newNumber = Math.max(0, (Number(uRec.number) || 0) + change);
+              await pb.collection('user').update(bonHistoryUser.id, { number: newNumber }, { $autoCancel: false });
+              // Update local wallet view
+              bonHistoryUser.number_1 = newNumber;
+            }
+
+            // 2. Revert gaji jika ada
+            if (bRec.ref_gaji) {
+              // Cari detail gaji yang terkait dengan perangkum gaji ini untuk karyawan yang sama
+              const gajiRecords = await pb.collection('gaji').getFullList({
+                filter: `(ref = "${bRec.ref_gaji}" || ref_baru = "${bRec.ref_gaji}")`,
+                $autoCancel: false
+              });
+              // Temukan milik user ini
+              const username = bonHistoryUser?.id_lama;
+              const gRec = gajiRecords.find(g => String(g.person) === String(username));
+              if (gRec) {
+                const updateData: any = {};
+                if (jenis === 'in' && Number(gRec.bon_dibayar) > 0) updateData.bon_dibayar = 0;
+                if (jenis === 'out' && Number(gRec.bon_diambil) > 0) updateData.bon_diambil = 0;
+                if (Object.keys(updateData).length > 0) {
+                  await pb.collection('gaji').update(gRec.id, updateData, { $autoCancel: false });
+                }
+              }
+            }
+
+            // 3. Delete bon record
+            await pb.collection('bon').delete(bonId);
+            showAlert("Berhasil", "Riwayat Bon dihapus dan saldo di-revert.");
+            
+            // Reload history
+            if (bonHistoryUser) {
+              openBonHistory(bonHistoryUser);
+              fetchWallets(); // refresh tab view
+            }
+          } catch (e) {
+            console.error(e);
+            showAlert("Gagal", "Gagal menghapus riwayat bon.");
+          } finally {
+            setIsProcessing(false);
+          }
+        }
+      });
+    };
+
     const isEditMode = !!(selectedTx && selectedTx.id);
 
     // --- STATE & LOGIKA KHUSUS TAMBAH BON ---
@@ -188,7 +289,7 @@
       // Validasi
       if (!formDataBon.person) return showAlert("Validasi Gagal", "Pihak (Person) wajib dipilih!");
       if (!formDataBon.nominal || formDataBon.nominal <= 0) return showAlert("Validasi Gagal", "Nominal harus diisi!");
-      if (formDataBon.catatCashflow && !formDataBon.account_1) return showAlert("Validasi Gagal", "Akun asal wajib dipilih!");
+      if (formDataBon.catatCashflow && !formDataBon.akun_asal) return showAlert("Validasi Gagal", "Akun asal wajib dipilih!");
       if (!formDataBon.note || formDataBon.note.trim() === '') return showAlert("Validasi Gagal", "Catatan wajib diisi!");
 
       setIsProcessing(true);
@@ -249,7 +350,7 @@
         bonData.append("operator", operatorName);               // JSON: operator
         
         if (formDataBon.catatCashflow) {
-          bonData.append("akun_asal", formDataBon.account_1);
+          bonData.append("akun_asal", formDataBon.akun_asal);
           bonData.append("ref_cashflow", refCashflowId);
         }
 
@@ -265,8 +366,8 @@
         setFormDataBon({
           catatCashflow: false, 
           created_at: formatToLocalDatetimeInput(new Date().toISOString()),
-          account_1: '', person: '', persontext: '', nominal: 0, note: ''
-        });
+          akun_asal: '', person: '', persontext: '', nominal: 0, note: '', jenis: 'out'
+        } as any);
         fetchCashflow();
       } catch (error: any) {
         showAlert("Gagal Simpan", error.message);
@@ -389,18 +490,36 @@
         }
         cashflowCond += `)`;
 
-        // 2. Kondisi untuk Person (Customer, Supplier, Karyawan)
-        // Operator ~ (LIKE) di PocketBase otomatis bersifat case-insensitive
-        let personCond = `(kategori ~ "person" && (jenis ~ "customer" || jenis ~ "supplier" || (jenis ~ "user" && enum_4 ~ "${userLevel}")))`;
+        // 2. Kondisi untuk Person (Customer, Supplier)
+        // Karyawan akan diambil langsung dari koleksi 'user'
+        let personCond = `(kategori ~ "person" && (jenis ~ "customer" || jenis ~ "supplier"))`;
 
         // Gabungkan kedua kondisi
         let filterCondition = `${cashflowCond} || ${personCond}`;
 
-        const records = await pb.collection('dropdown').getFullList<DropdownItem>({
-          filter: filterCondition,
-          $autoCancel: false
-        });
-        setWallets(records);
+        const [records, userRecordsRaw] = await Promise.all([
+          pb.collection('dropdown').getFullList<DropdownItem>({
+            filter: filterCondition,
+            $autoCancel: false
+          }),
+          pb.collection('user').getFullList({
+            filter: `number > 0`,
+            $autoCancel: false
+          })
+        ]);
+
+        const userAsDropdown = userRecordsRaw.map(u => ({
+          id: u.id,
+          id_lama: u.username || u.id,
+          text_1: u.name || u.username,
+          kategori: 'Person',
+          jenis: 'User',
+          number_1: Number(u.number) || 0,
+          link_image: u.avatar || '',
+          enum_4: u.level || ''
+        } as unknown as DropdownItem));
+
+        setWallets([...records, ...userAsDropdown]);
       } catch (error) {
         console.error("Gagal memuat dompet:", error);
       } finally {
@@ -434,14 +553,8 @@
             (w.kategori || '').toLowerCase().includes('person') && 
             (w.jenis || '').toLowerCase().includes('supplier')
           );
-        } else if (activeAccountTab === 'karyawan') {
-          // Bon Karyawan
-          targetItems = wallets.filter(w => 
-            (w.kategori || '').toLowerCase().includes('person') && 
-            (w.jenis || '').toLowerCase().includes('user')
-          );
         } else {
-          showAlert('Info', 'Fitur hitung ulang hanya untuk tab Piutang, Hutang, dan Bon Karyawan.');
+          showAlert('Info', 'Fitur hitung ulang hanya untuk tab Piutang dan Hutang.');
           setCalculating(false);
           return;
         }
@@ -462,32 +575,20 @@
             $autoCancel: false,
             batch: 500,
           });
-        } else if (activeAccountTab === 'karyawan') {
-          allBon = await pb.collection('bon').getFullList({
-            fields: 'persontext,jenis,nominal_bon',
-            $autoCancel: false,
-            batch: 500,
-          });
         }
-
+        
         // Group by person untuk perhitungan cepat
         const menuByPerson: Record<string, number> = {};
         allMenu.forEach(m => {
           const p = m.person || '';
           menuByPerson[p] = (menuByPerson[p] || 0) + ((m.total || 0) - (m.dibayar || 0));
         });
-        const bonByPerson: Record<string, number> = {};
-        allBon.forEach(b => {
-          const p = b.persontext || '';
-          const v = (b.jenis || '').toLowerCase() === 'in' ? (b.nominal_bon || 0) : -(b.nominal_bon || 0);
-          bonByPerson[p] = (bonByPerson[p] || 0) + v;
-        });
 
         let updateCount = 0;
         for (const item of targetItems) {
           const personId = (item as any).id_lama;
           if (!personId) continue;
-          const totalBalance = menuByPerson[personId] || bonByPerson[personId] || 0;
+          const totalBalance = menuByPerson[personId] || 0;
 
           await pb.collection('dropdown').update(item.id, {
             number_1: totalBalance,
@@ -1540,8 +1641,8 @@
               ))}
             </div>
             
-            {/* Tombol Hitung Ulang - hanya tampil jika bukan tab kas */}
-            {activeAccountTab !== 'kas' && (
+            {/* Tombol Hitung Ulang - hanya tampil jika tab piutang atau hutang */}
+            {(activeAccountTab === 'customer' || activeAccountTab === 'supplier') && (
               <button
                 onClick={calculateBalances}
                 disabled={calculating}
@@ -2811,6 +2912,93 @@
             })()}
           </Modal>
 
+          {/* MODAL RIWAYAT BON KARYAWAN */}
+          <Modal
+            isOpen={bonHistoryModalOpen}
+            onClose={() => setBonHistoryModalOpen(false)}
+            title={`Riwayat Bon: ${bonHistoryUser?.text_1 || ''}`}
+            maxWidth="max-w-4xl"
+          >
+            <div className="p-4 bg-slate-50 flex flex-col max-h-[80vh] overflow-hidden rounded-b-2xl">
+              <div className="mb-4 bg-purple-100 border border-purple-200 text-purple-800 p-4 rounded-xl flex justify-between items-center shrink-0">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-widest text-purple-600 mb-1">Total Saldo Bon Saat Ini</p>
+                  <p className="text-3xl font-black">{formatRupiah(bonHistoryUser?.number_1 || 0)}</p>
+                </div>
+              </div>
+              
+              <div className="flex-1 overflow-y-auto custom-scrollbar bg-white rounded-xl border border-slate-200">
+                {loadingBonHistory ? (
+                  <div className="flex justify-center p-10"><div className="w-8 h-8 border-4 border-purple-200 border-t-purple-600 rounded-full animate-spin"></div></div>
+                ) : bonHistoryData.length === 0 ? (
+                  <div className="text-center py-10 text-slate-400 font-bold">Belum ada riwayat bon.</div>
+                ) : (
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-50 sticky top-0 border-b border-slate-200 text-slate-500 font-black uppercase tracking-wider z-10">
+                      <tr>
+                        <th className="p-3 pl-4">Waktu</th>
+                        <th className="p-3">Jenis</th>
+                        <th className="p-3">Nominal</th>
+                        <th className="p-3">Keterangan</th>
+                        {userLevel === '1' && <th className="p-3 pr-4 text-right">Aksi</th>}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {bonHistoryData.map(b => (
+                        <tr key={b.id} className="hover:bg-slate-50 transition-colors">
+                          <td className="p-3 pl-4 text-slate-700 whitespace-nowrap">
+                            {formatToLocalDate(b.created_at || b.created).split(' ')[0]} <br/>
+                            <span className="text-[10px] text-slate-400">{formatToLocalDate(b.created_at || b.created).split(' ')[1]}</span>
+                          </td>
+                          <td className="p-3">
+                            <span className={`px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-widest ${
+                              (b.jenis||'').toLowerCase() === 'in' ? 'bg-blue-100 text-blue-700' : 'bg-rose-100 text-rose-700'
+                            }`}>
+                              {(b.jenis||'').toLowerCase() === 'in' ? 'BAYAR BON' : 'AMBIL BON'}
+                            </span>
+                          </td>
+                          <td className="p-3 font-bold text-slate-800 whitespace-nowrap">
+                            Rp {Number(b.nominal || 0).toLocaleString('id-ID')}
+                          </td>
+                          <td className="p-3 text-slate-600 max-w-[200px] truncate" title={b.note}>
+                            {b.note}
+                            {b.ref_gaji && <span className="ml-2 px-1.5 py-0.5 bg-slate-200 text-slate-500 rounded text-[9px] font-bold">Via Gaji</span>}
+                          </td>
+                          {userLevel === '1' && (
+                            <td className="p-3 pr-4 text-right whitespace-nowrap flex justify-end space-x-2">
+                              {/* Aksi Hapus */}
+                              <button onClick={() => handleDeleteBon(b.id)} className="w-7 h-7 bg-rose-50 text-rose-500 hover:bg-rose-500 hover:text-white rounded-lg flex items-center justify-center transition-colors" title="Hapus Riwayat">
+                                <Trash2 size={14} />
+                              </button>
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+          </Modal>
+
+          {/* SYSTEM ALERT / CONFIRM MODAL */}
+          <Modal isOpen={systemAlert.show} onClose={() => {}} title={systemAlert.title} maxWidth="max-w-md">
+            <div className="p-6 bg-white text-center rounded-b-2xl">
+              <div className="w-16 h-16 bg-amber-100 text-amber-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                <AlertTriangle size={32} />
+              </div>
+              <p className="text-sm font-bold text-slate-600 mb-6 leading-relaxed">{systemAlert.message}</p>
+              <div className="flex gap-3">
+                <button onClick={() => setSystemAlert(prev => ({...prev, show: false}))} className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-black text-xs uppercase tracking-widest transition-colors">
+                  Batal
+                </button>
+                <button onClick={systemAlert.onConfirm} className="flex-1 py-3 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-black text-xs uppercase tracking-widest transition-colors shadow-lg shadow-amber-500/30">
+                  Ya, Lanjutkan
+                </button>
+              </div>
+            </div>
+          </Modal>
+
         </div>
         
         {/* TOMBOL-TOMBOL FLOATING MOBILE */}
@@ -2823,7 +3011,7 @@
                 setFormDataBon({
                   catatCashflow: false,
                   created_at: formatToLocalDatetimeInput(new Date().toISOString()),
-                  account_1: '', person: '', persontext: '', nominal: 0, note: ''
+                  akun_asal: '', person: '', persontext: '', nominal: 0, note: '', jenis: 'out'
                 });
                 setFiles([]);
                 setModalType('formBon' as any);
