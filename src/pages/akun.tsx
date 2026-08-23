@@ -46,6 +46,8 @@ interface Gaji {
       qty: number;
     }
   };
+  qty?: number;
+  total?: number;
 }
 
 export default function AkunPage() {
@@ -334,7 +336,7 @@ export default function AkunPage() {
   };
 
   const getSalaryDetails = (gaji: Gaji) => {
-    const qty = gaji.expand?.ref?.qty || 0;
+    const qty = Number(gaji.qty) || gaji.expand?.ref?.qty || 1;
     const pokok = gaji.pokok || 0;
     const tunjangan = gaji.tunjangan || 0;
 
@@ -367,7 +369,7 @@ export default function AkunPage() {
     };
     const total3 = Object.values(t3).reduce((sum, val) => sum + val, 0);
 
-    const grandTotal = total1 - total2 - total3;
+    const grandTotal = Number(gaji.total) || (total1 - total2 - total3);
 
     return { t1, total1, t2, total2, t3, total3, grandTotal };
   };
@@ -561,6 +563,7 @@ export default function AkunPage() {
               salaryList.map((item) => {
                 const { grandTotal } = getSalaryDetails(item);
                 const periode = new Date(item.created_at).toLocaleDateString('id-ID', { month: 'long', year: 'numeric' });
+                const personName = userData?.name || userData?.username || 'Karyawan';
 
                 return (
                   <div 
@@ -573,8 +576,8 @@ export default function AkunPage() {
                         <Calendar size={18} className="sm:w-5 sm:h-5" />
                       </div>
                       <div>
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{periode}</p>
-                        <p className="font-bold text-slate-800 text-sm">Slip Gaji Bulanan</p>
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{personName}</p>
+                        <p className="font-bold text-slate-800 text-sm">Gaji Periode {periode}</p>
                       </div>
                     </div>
                     <div className="flex items-center justify-between sm:justify-end gap-4 sm:gap-6">
