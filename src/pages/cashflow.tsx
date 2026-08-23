@@ -503,7 +503,7 @@
             $autoCancel: false
           }),
           pb.collection('user').getFullList({
-            filter: `number > 0`,
+            filter: userLevel === '1' ? `number > 0` : `number > 0 && id = "${currentUser?.id}"`,
             $autoCancel: false
           })
         ]);
@@ -1149,7 +1149,7 @@
                     setFormDataBon({
                       catatCashflow: false,
                       created_at: formatToLocalDatetimeInput(new Date().toISOString()),
-                      account_1: '', person: '', persontext: '', nominal: 0, note: ''
+                      akun_asal: '', person: '', persontext: '', nominal: 0, note: '', jenis: 'out'
                     });
                     setFiles([]);
                     setModalType('formBon' as any);
