@@ -1751,6 +1751,8 @@
                             onClick={() => {
                               if (activeAccountTab === 'customer' || activeAccountTab === 'supplier') {
                                 navigate(`/?person=${wallet.id_lama}&status=belum`);
+                              } else if (activeAccountTab === 'karyawan') {
+                                openBonHistory(wallet);
                               } else {
                                 setFilterPerson(null);
                                 setFilterAccounts([wallet.id]);
