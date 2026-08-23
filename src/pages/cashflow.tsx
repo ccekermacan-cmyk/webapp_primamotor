@@ -6,7 +6,7 @@
     Wallet, Search, Trash2, Edit, ChevronLeft, ChevronRight, ChevronUp,
     ArrowDownRight, ArrowUpRight, Calendar, User,
     ExternalLink, Layers, X, DollarSign, ImagePlus, Save, FileText,
-    ArrowRight, Filter, Plus, ChevronDown, AlertCircle, RefreshCw
+    ArrowRight, Filter, Plus, ChevronDown, AlertCircle, RefreshCw, AlertTriangle
   } from 'lucide-react';
 
   interface Cashflow {
