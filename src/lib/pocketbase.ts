@@ -29,7 +29,7 @@ export const getLaravelApiUrl = () => {
     return import.meta.env.VITE_LARAVEL_API_URL;
   }
   if (typeof window !== 'undefined' && window.location.hostname.includes('primamotorgladag')) {
-    return 'https://backend.primamotorgladag.my.id/api';
+    return 'https://api.primamotorgladag.my.id/api';
   }
   return 'http://127.0.0.1:8000/api';
 };

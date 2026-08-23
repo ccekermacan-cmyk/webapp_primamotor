@@ -329,14 +329,7 @@
           const createdCf = await pb.collection('cashflow').create(cfData);
           refCashflowId = createdCf.id;
           const bonCfOk = await notifyLaravelApi('cashflow', 'created', createdCf.id);
-          if (!bonCfOk && formDataBon.akun_asal) {
-            try {
-              const acc = await pb.collection('dropdown').getOne(formDataBon.akun_asal, {$autoCancel:false});
-              await pb.collection('dropdown').update(formDataBon.akun_asal, {
-                number_1: (Number(acc.number_1)||0) - Number(formDataBon.nominal)
-              }, {$autoCancel:false});
-            } catch(e) { console.warn('Fallback bon cashflow failed:', e); }
-          }
+          if (!bonCfOk) console.warn('Laravel cashflow notify failed in bon creation');
         }
 
         // 2. TULIS KE BON (Sesuai JSON)
@@ -358,18 +351,7 @@
 
         const createdBon = await pb.collection('bon').create(bonData);
         const bonOk = await notifyLaravelApi('bon', 'created', createdBon.id);
-        if (!bonOk) {
-          console.warn('Laravel bon notify failed, BonObserver not triggered');
-          // Fallback manual update
-          try {
-            const userToUpdate = await pb.collection('user').getOne(formDataBon.person, { $autoCancel: false });
-            await pb.collection('user').update(formDataBon.person, {
-              number: (Number(userToUpdate.number) || 0) + Number(formDataBon.nominal)
-            }, { $autoCancel: false });
-          } catch (e) {
-            console.error('Fallback update user number failed:', e);
-          }
-        }
+        if (!bonOk) console.warn('Laravel bon notify failed, BonObserver not triggered');
 
         showAlert("Sukses", "Data Bon berhasil disimpan!");
         setModalType(null);
@@ -1018,44 +1000,11 @@
         if (isEditMode && selectedTx) {
           const updated = await pb.collection('cashflow').update(selectedTx.id, formDataObj);
           const editOk = await notifyLaravelApi('cashflow', 'updated', selectedTx.id, selectedTx);
-          if (!editOk) {
-            try {
-              const oldNom = Number(selectedTx.nominal || 0);
-              const newNom = Number(formData.nominal || 0);
-              const oldSaldo = Number(selectedTx.saldo_akhir || 0);
-              const mut = (selectedTx.mutasi || '').toLowerCase() === 'in' ? 'in' : 'out';
-              const oldSaldoAwal = mut === 'in' ? oldSaldo - oldNom : oldSaldo + oldNom;
-              const corrected = mut === 'in' ? oldSaldoAwal + newNom : oldSaldoAwal - newNom;
-              if (formData.account_1) await pb.collection('dropdown').update(formData.account_1, {number_1:corrected},{$autoCancel:false}).catch(()=>{});
-              // Transfer: also fix destination account
-              if (formData.jenis?.toLowerCase() === 'transfer' && formData.account_2 && selectedTx.account_2) {
-                try {
-                  const oldAcc2Bal = Number(selectedTx.saldo_akhir || 0);
-                  const oldAcc2Awal = oldAcc2Bal - oldNom;
-                  const acc2 = await pb.collection('dropdown').getOne(formData.account_2,{$autoCancel:false});
-                  await pb.collection('dropdown').update(formData.account_2,{number_1: (Number(acc2.number_1)||0) - oldNom + newNom},{$autoCancel:false}).catch(()=>{});
-                } catch{}
-              }
-            } catch{ /* best effort */ }
-          }
+          if (!editOk) console.warn('Laravel cashflow notify failed for update');
         } else {
           const created = await pb.collection('cashflow').create(formDataObj);
           const cfOk = await notifyLaravelApi('cashflow', 'created', created.id);
-          if (!cfOk && formData.account_1) {
-            try {
-              const mut = (formData.mutasi||'').toLowerCase()==='masuk'?'in':'out';
-              const nom = Number(formData.nominal||0);
-              const acc = await pb.collection('dropdown').getOne(formData.account_1,{$autoCancel:false});
-              const newBal = mut==='in' ? (Number(acc.number_1)||0)+nom : (Number(acc.number_1)||0)-nom;
-              await pb.collection('dropdown').update(formData.account_1,{number_1:newBal},{$autoCancel:false});
-              // Transfer: destination account gets the money
-              if (formData.jenis?.toLowerCase() === 'transfer' && formData.account_2) {
-                const acc2 = await pb.collection('dropdown').getOne(formData.account_2,{$autoCancel:false});
-                const newBal2 = mut==='in' ? (Number(acc2.number_1)||0)-nom : (Number(acc2.number_1)||0)+nom;
-                await pb.collection('dropdown').update(formData.account_2,{number_1:newBal2},{$autoCancel:false});
-              }
-            } catch(e) { console.warn('Fallback cashflow create failed:', e); }
-          }
+          if (!cfOk) console.warn('Laravel cashflow notify failed for creation');
         }
         
         setModalType(null);

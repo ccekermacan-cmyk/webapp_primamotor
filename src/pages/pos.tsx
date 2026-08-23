@@ -1736,9 +1736,7 @@ export default function MenuPage() {
         createdRecords.push({ type: 'log_stock', id: logRecord.id });
         // SELALU panggil webhook backend karena penghapusan Menu sebelumnya sudah me-revert stok dan laporan (omset/laba)
         const stockApiOk = await notifyLaravelApi('log_stock', 'created', logRecord.id);
-        if (!stockApiOk) {
-          try { await pb.collection('produk').update(prodId, { stok_3: qtyAkhir }, { $autoCancel: false }); } catch {}
-        }
+        if (!stockApiOk) console.warn('Laravel log_stock notify failed');
       }
 
             // Cari person record ID berdasarkan personIdLama (jika ada)
@@ -1797,11 +1795,7 @@ export default function MenuPage() {
           });
           createdRecords.push({ type: 'cashflow', id: cfRecord.id });
           const cfApiOk = await notifyLaravelApi('cashflow', 'created', cfRecord.id);
-          if (!cfApiOk) {
-            try {
-              await pb.collection('dropdown').update(cf.accountId, { number_1: saldoAkhir }, { $autoCancel: false });
-            } catch (e) { console.warn('Fallback cashflow account update failed:', e); }
-          }
+          if (!cfApiOk) console.warn('Laravel cashflow notify failed');
         }
       }
 
