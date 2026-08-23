@@ -358,7 +358,18 @@
 
         const createdBon = await pb.collection('bon').create(bonData);
         const bonOk = await notifyLaravelApi('bon', 'created', createdBon.id);
-        if (!bonOk) console.warn('Laravel bon notify failed, BonObserver not triggered');
+        if (!bonOk) {
+          console.warn('Laravel bon notify failed, BonObserver not triggered');
+          // Fallback manual update
+          try {
+            const userToUpdate = await pb.collection('user').getOne(formDataBon.person, { $autoCancel: false });
+            await pb.collection('user').update(formDataBon.person, {
+              number: (Number(userToUpdate.number) || 0) + Number(formDataBon.nominal)
+            }, { $autoCancel: false });
+          } catch (e) {
+            console.error('Fallback update user number failed:', e);
+          }
+        }
 
         showAlert("Sukses", "Data Bon berhasil disimpan!");
         setModalType(null);
