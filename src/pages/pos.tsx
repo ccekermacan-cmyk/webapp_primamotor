@@ -2079,20 +2079,7 @@ export default function MenuPage() {
       }).catch(() => []);
 
       for (const log of logStockList) {
-        if (!deletedOk && log.item_baru && log.qty) {
-          try {
-            const prod = await pb.collection('produk').getOne(log.item_baru, { $autoCancel: false });
-            if (prod) {
-              const currentStok = Number(prod.stok_3) || 0;
-              const logQty = Number(log.qty) || 0;
-              const isOut = String(log.boolean).toLowerCase() === 'out';
-              const newStok = isOut ? (currentStok + logQty) : Math.max(0, currentStok - logQty);
-              await pb.collection('produk').update(prod.id, { stok_3: newStok }, { $autoCancel: false });
-            }
-          } catch (prodErr) {
-            console.warn("Notice: Revert stok produk fallback:", prodErr);
-          }
-        }
+        if (!deletedOk) console.warn('Laravel menu delete notify failed, deleting log_stock in PB only');
         await pb.collection('log_stock').delete(log.id).catch(() => null);
       }
 
@@ -2103,15 +2090,7 @@ export default function MenuPage() {
       }).catch(() => []);
 
       for (const cf of cashflowList) {
-        if (!deletedOk && cf.account_1 && cf.nominal) {
-          try {
-            const acc = await pb.collection('dropdown').getOne(cf.account_1, { $autoCancel: false });
-            const currentBal = Number(acc.number_1) || 0;
-            const isOut = String(cf.mutasi).toLowerCase() === 'out';
-            const newBal = isOut ? (currentBal + cf.nominal) : Math.max(0, currentBal - cf.nominal);
-            await pb.collection('dropdown').update(cf.account_1, { number_1: newBal }, { $autoCancel: false });
-          } catch (e) { console.warn('Revert saldo akun fallback:', e); }
-        }
+        if (!deletedOk) console.warn('Laravel menu delete notify failed, deleting cashflow in PB only');
         await pb.collection('cashflow').delete(cf.id).catch(() => null);
       }
 
@@ -2145,16 +2124,7 @@ export default function MenuPage() {
 
       for (const b of bonList) {
         const bonOk = await notifyLaravelApi('bon', 'deleted', b.id);
-        // Fallback: revert employee/user bon balance if Laravel didn't fire
-        if (!bonOk && b.user) {
-          try {
-            const u = await pb.collection('user').getOne(b.user, { $autoCancel: false });
-            const bJenis = String(b.jenis || '').toLowerCase();
-            const bNom = Number(b.nominal_bon || b.nominal || 0);
-            const newNum = bJenis === 'in' ? Math.max(0, (Number(u.number)||0) - bNom) : (Number(u.number)||0) + bNom;
-            await pb.collection('user').update(b.user, { number: newNum }, { $autoCancel: false });
-          } catch(e) { console.warn('Fallback bon balance revert failed:', e); }
-        }
+        if (!bonOk) console.warn('Laravel bon delete notify failed, record deleted from PB only');
         await pb.collection('bon').delete(b.id).catch(() => null);
       }
     } catch (err) {
