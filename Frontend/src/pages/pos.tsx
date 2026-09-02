@@ -1717,7 +1717,7 @@ export default function MenuPage() {
 
         const logRecord = await pb.collection('log_stock').create({
           id_lama: '',
-          created_at: timestamp,
+          created_at: new Date().toISOString(),
           operator: operatorName || pb.authStore.model?.username || 'Kasir',
           item: item.id_lama || item.id || '',
           qty: logQty,
@@ -1777,7 +1777,7 @@ export default function MenuPage() {
 
           const cfRecord = await pb.collection('cashflow').create({
             id_lama: '',
-            created_at: timestamp,
+            created_at: new Date().toISOString(),
             operator: operatorName,
             nominal: cf.nominal,
             jenis: selectedMenu,
@@ -1811,7 +1811,7 @@ export default function MenuPage() {
               const res = await pb.collection('ongkos').create(
                 {
                   id_lama: '',
-                  date: timestamp,
+                  date: new Date().toISOString(),
                   person: mek.idLama,
                   ongkos: mek.ongkos,
                   operator: operatorName,

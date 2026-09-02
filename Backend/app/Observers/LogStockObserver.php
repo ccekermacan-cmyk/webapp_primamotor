@@ -241,7 +241,7 @@ class LogStockObserver
                 ->orderBy('created_at', 'desc')
                 ->first();
 
-            $beliPrice = $remaining && ($deletedAt > (string) $remaining->created_at) ? (float) $remaining->price_1 : 0;
+            $beliPrice = $remaining ? (float) $remaining->price_1 : 0;
             DB::table('produk')->where('id', $produkId)->update(['beli' => $beliPrice]);
         }
 
