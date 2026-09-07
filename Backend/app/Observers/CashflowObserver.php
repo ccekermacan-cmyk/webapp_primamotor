@@ -72,6 +72,18 @@ class CashflowObserver
         return $rep;
     }
 
+    // Report diatribusikan ke tanggal menu induk (ref_baru), bukan tanggal entry record
+    private function getReportDate(string $refBaru, string $fallbackCreated): string
+    {
+        if ($refBaru) {
+            $menu = Menu::find($refBaru);
+            if ($menu && $menu->created_at) {
+                return substr((string) $menu->created_at, 0, 10);
+            }
+        }
+        return $fallbackCreated ? substr($fallbackCreated, 0, 10) : '';
+    }
+
     public function created(Cashflow $cashflow): void
     {
         $this->syncMenuDibayar((string)$cashflow->ref_baru);
@@ -83,7 +95,7 @@ class CashflowObserver
         $acc2 = $this->getRelId($cashflow->account_2);
         $refBaru = $this->getRelId($cashflow->ref_baru);
         $createdAt = (string) $cashflow->created_at;
-        $tanggal = $createdAt ? substr($createdAt, 0, 10) : '';
+        $tanggal = $this->getReportDate($refBaru, $createdAt);
         $cfPerson = $this->getRelId($cashflow->person);
         $cfNote = (string) $cashflow->note;
         $cfOperator = (string) $cashflow->operator;
@@ -124,14 +136,13 @@ class CashflowObserver
             if ($menuRec && strtolower((string) $menuRec->status) === 'belum') {
                 Bon::create([
                     'created_at' => $createdAt,
-                    'customer' => $cfPerson,
+                    'person' => $cfPerson,
                     'nominal' => $nominal,
                     'akun_asal' => $acc1,
                     'operator' => $cfOperator,
                     'jenis' => 'out',
                     'note' => $cfNote,
                     'ref_cashflow' => $cashflow->id,
-                    'ref_menu' => $refBaru,
                 ]);
             }
         }
@@ -143,7 +154,6 @@ class CashflowObserver
                 'akun_asal' => $acc1,
                 'nominal' => $nominal,
                 'jenis' => 'in',
-                'user' => $acc2,
                 'ref_cashflow' => $cashflow->id,
                 'person' => $cfPerson,
                 'note' => $cfNote,
@@ -209,7 +219,7 @@ class CashflowObserver
         $oldAcc2 = $this->getRelId($cashflow->getOriginal('account_2'));
         $oldRef = $this->getRelId($cashflow->getOriginal('ref_baru'));
         $oldCreated = (string) ($cashflow->getOriginal('created_at') ?? '');
-        $oldTanggal = $oldCreated ? substr($oldCreated, 0, 10) : '';
+        $oldTanggal = $this->getReportDate($oldRef, $oldCreated);
 
         $newNominal = (float) $cashflow->nominal;
         $newMutasi = strtolower((string) $cashflow->mutasi);
@@ -218,7 +228,7 @@ class CashflowObserver
         $newAcc2 = $this->getRelId($cashflow->account_2);
         $newRef = $this->getRelId($cashflow->ref_baru);
         $newCreated = (string) $cashflow->created_at;
-        $newTanggal = $newCreated ? substr($newCreated, 0, 10) : '';
+        $newTanggal = $this->getReportDate($newRef, $newCreated);
         $newPerson = $this->getRelId($cashflow->person);
         $newNote = (string) $cashflow->note;
         $newOperator = (string) $cashflow->operator;
@@ -256,7 +266,7 @@ class CashflowObserver
         // 3. Delete old linked bons
         $allBon = Bon::where('ref_cashflow', $cashflow->id)->get();
         foreach ($allBon as $bon) {
-            $bUser = (string) $bon->user;
+            $bUser = (string) (($bon->getAttributes()["user"]) ?? "");
             $bNom = (float) $bon->nominal;
             if (strtolower((string) $bon->jenis) === 'in' && $bUser) {
                 DB::table('user')->where('id', $bUser)->decrement('number', $bNom);
@@ -270,14 +280,13 @@ class CashflowObserver
             if ($mNew && strtolower((string) $mNew->status) === 'belum') {
                 Bon::create([
                     'created_at' => $newCreated,
-                    'customer' => $newPerson,
+                    'person' => $newPerson,
                     'nominal' => $newNominal,
                     'akun_asal' => $newAcc1,
                     'operator' => $newOperator,
                     'jenis' => 'out',
                     'note' => $newNote,
                     'ref_cashflow' => $cashflow->id,
-                    'ref_menu' => $newRef,
                 ]);
             }
         }
@@ -288,7 +297,6 @@ class CashflowObserver
                 'akun_asal' => $newAcc1,
                 'nominal' => $newNominal,
                 'jenis' => 'in',
-                'user' => $newAcc2,
                 'ref_cashflow' => $cashflow->id,
                 'person' => $newPerson,
                 'note' => $newNote,
@@ -393,7 +401,7 @@ class CashflowObserver
         $acc1 = $this->getRelId($cashflow->account_1);
         $acc2 = $this->getRelId($cashflow->account_2);
         $createdAt = (string) $cashflow->created_at;
-        $tanggal = $createdAt ? substr($createdAt, 0, 10) : '';
+        $tanggal = $this->getReportDate($this->getRelId($cashflow->ref_baru), $createdAt);
 
         $cashkasirId = $this->getCashkasirId();
 
@@ -414,7 +422,7 @@ class CashflowObserver
         // 2. Delete linked bon
         $bonList = Bon::where('ref_cashflow', $cashflow->id)->get();
         foreach ($bonList as $bon) {
-            $bUser = (string) $bon->user;
+            $bUser = (string) (($bon->getAttributes()["user"]) ?? "");
             $bNom = (float) $bon->nominal;
             if (strtolower((string) $bon->jenis) === 'in' && $bUser) {
                 DB::table('user')->where('id', $bUser)->decrement('number', $bNom);
@@ -445,6 +453,24 @@ class CashflowObserver
                     } elseif ($dDK < 0) {
                         DB::table('report')->where('id', $rep->id)->increment('kasir_toko', abs($dDK));
                     }
+                }
+            }
+        }
+
+        // 4. Restore piutang/hutang menu (simetri dengan created step 4)
+        $refBaru = $this->getRelId($cashflow->ref_baru);
+        if ($refBaru && $tanggal) {
+            $mRec = Menu::find($refBaru);
+            if ($mRec) {
+                $mj = strtolower((string) $mRec->jenis);
+                $ms = strtolower((string) $mRec->status);
+                $isPS = (str_contains($mj, 'penjualan') || str_contains($mj, 'servis') || str_contains($mj, 'service'));
+                $restoreRep = $this->getOrCreateReport($tanggal);
+                if ($restoreRep && $isPS && $ms === 'belum') {
+                    DB::table('report')->where('id', $restoreRep->id)->increment('piutang', $nominal);
+                }
+                if ($restoreRep && str_contains($mj, 'pembelian') && $ms === 'belum') {
+                    DB::table('report')->where('id', $restoreRep->id)->increment('hutang', $nominal);
                 }
             }
         }

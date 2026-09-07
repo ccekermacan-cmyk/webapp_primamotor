@@ -2,7 +2,6 @@
 
 namespace App\Observers;
 
-use App\Models\Bon;
 use App\Models\Cashflow;
 use App\Models\LogStock;
 use App\Models\Menu;
@@ -48,21 +47,6 @@ class MenuObserver
                 if ($isPenjServis) { DB::table('report')->where('id', $rep->id)->increment('piutang', $total); }
             }
         }
-
-        // Bon hanya untuk penjualan/servis dengan sisa > 0
-        if ($isPenjServis && $status === 'belum') {
-            $sisa = $total - $dibayar;
-            if ($sisa > 0) {
-                Bon::create([
-                    'ref_menu' => $menuId,
-                    'created_date' => $tanggal,
-                    'customer' => $personId,
-                    'nominal' => $sisa,
-                    'jenis' => 'in',
-                    'status' => 'belum',
-                ]);
-            }
-        }
     }
 
     public function updated(Menu $menu): void
@@ -105,35 +89,6 @@ class MenuObserver
                 if ($newIsPenjServis) { DB::table('report')->where('id', $nrep->id)->increment('piutang', $newTotal); }
             }
         }
-
-        // 3. Update bon
-        $bonList = Bon::where('ref_menu', $menuId)->get();
-        $newSisa = $newTotal - $newDibayar;
-
-        if ($newIsPenjServis) {
-            if ($newStatus !== 'belum' || $newSisa <= 0) {
-                foreach ($bonList as $bItem) {
-                    $bItem->delete();
-                }
-            } elseif ($bonList->count() > 0) {
-                $bonUp = $bonList->first();
-                $needSave = false;
-                if ((float) $bonUp->nominal !== $newSisa) { $bonUp->nominal = $newSisa; $needSave = true; }
-                if ((string) $bonUp->customer !== $newPerson) { $bonUp->customer = $newPerson; $needSave = true; }
-                if ((string) $bonUp->jenis !== 'in') { $bonUp->jenis = 'in'; $needSave = true; }
-                if ((string) $bonUp->created_date !== $newTanggal) { $bonUp->created_date = $newTanggal; $needSave = true; }
-                if ($needSave) { $bonUp->save(); }
-            } else {
-                Bon::create([
-                    'ref_menu' => $menuId,
-                    'created_date' => $newTanggal,
-                    'customer' => $newPerson,
-                    'nominal' => $newSisa,
-                    'jenis' => 'in',
-                    'status' => 'belum',
-                ]);
-            }
-        }
     }
 
     public function deleting(Menu $menu): void
@@ -166,8 +121,5 @@ class MenuObserver
                 if ($isPenjServis) { DB::table('report')->where('id', $rep->id)->decrement('piutang', $total); }
             }
         }
-
-        // 3. Hapus bon terkait menu
-        Bon::where('ref_menu', $menuId)->get()->each->delete();
     }
 }

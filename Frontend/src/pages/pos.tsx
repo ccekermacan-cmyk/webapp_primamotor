@@ -1,7 +1,7 @@
 import { useNavigate, useLocation } from 'react-router-dom'; // Ini yang menyebabkan error ReferenceError
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useReactToPrint } from 'react-to-print';
-import { pb, notifyLaravelApi } from '../lib/pocketbase';
+import { pb, notifyLaravelApi, getLaravelApiUrl } from '../lib/pocketbase';
 import Modal from '../components/modal';
 import { createPortal } from 'react-dom';
 import { 
@@ -1661,13 +1661,40 @@ export default function MenuPage() {
       }
 
       // Simpan entitas Menu utama ke Database
-      if (isEditing) {
-        await pb.collection('menu').update(menuRecordId, menuFormData);
-      } else {
+      // MODE BARU: menu dibuat lebih dulu agar children punya ref_baru
+      if (!isEditing) {
         const menuRecord = await pb.collection('menu').create(menuFormData);
         menuRecordId = menuRecord.id;
         createdRecords.push({ type: 'menu', id: menuRecordId });
         await notifyLaravelApi('menu', 'created', menuRecordId);
+      }
+
+      // ========== MODE EDIT: hapus children lama terlebih dahulu (webhook dulu agar observer revert) ==========
+      const pickFields = (obj: any, keys: string[]) => {
+        const out: Record<string, any> = {};
+        keys.forEach(k => { if (obj[k] !== undefined) out[k] = obj[k]; });
+        return out;
+      };
+      let backupChildren: { collection: string; data: Record<string, any> }[] = [];
+      if (isEditing) {
+        backupChildren = [
+          ...oldLogs.map(l => ({ collection: 'log_stock', data: pickFields(l, ['id', 'id_lama', 'created_at', 'operator', 'item', 'qty', 'item_baru', 'price_1', 'price_2', 'number_1', 'number_2', 'boolean', 'ref', 'ref_baru', 'normal', 'qty_awal', 'qty_akhir', 'stok_awal', 'stok_akhir']) })),
+          ...oldCashflows.map(c => ({ collection: 'cashflow', data: pickFields(c, ['id', 'id_lama', 'created_at', 'operator', 'nominal', 'jenis', 'mutasi', 'account_1', 'account_2', 'note', 'ref', 'ref_baru', 'person', 'persontext', 'acc1', 'acc2', 'saldo_awal', 'saldo_akhir']) })),
+          ...oldOngkos.map(o => ({ collection: 'ongkos', data: pickFields(o, ['id', 'id_lama', 'date', 'person', 'ongkos', 'operator', 'ref', 'ref_baru']) })),
+        ];
+
+        for (const cf of oldCashflows) {
+          await notifyLaravelApi('cashflow', 'deleted', cf.id);
+          await pb.collection('cashflow').delete(cf.id).catch(() => null);
+        }
+        for (const ong of oldOngkos) {
+          await notifyLaravelApi('ongkos', 'deleted', ong.id);
+          await pb.collection('ongkos').delete(ong.id).catch(() => null);
+        }
+        for (const log of oldLogs) {
+          await notifyLaravelApi('log_stock', 'deleted', log.id);
+          await pb.collection('log_stock').delete(log.id).catch(() => null);
+        }
       }
 
       // ========== PENYIMPANAN LOG STOCK (ITEM BARU) ==========
@@ -1747,21 +1774,6 @@ export default function MenuPage() {
           personRecordId = personRecord.id;
         } catch (e) {
           console.warn("Person tidak ditemukan:", formBayar.personIdLama);
-        }
-      }
-
-      if (isEditing) {
-        for (const cf of oldCashflows) {
-           await notifyLaravelApi('cashflow', 'deleted', cf.id);
-           await pb.collection('cashflow').delete(cf.id).catch(() => null);
-        }
-        for (const ong of oldOngkos) {
-           await notifyLaravelApi('ongkos', 'deleted', ong.id);
-           await pb.collection('ongkos').delete(ong.id).catch(() => null);
-        }
-        for (const log of oldLogs) {
-           await notifyLaravelApi('log_stock', 'deleted', log.id);
-           await pb.collection('log_stock').delete(log.id).catch(() => null);
         }
       }
 
@@ -1855,8 +1867,10 @@ export default function MenuPage() {
         mechanics: mechanicsForPrint
       });
 
+      // MODE EDIT: update menu terakhir (setelah semua children baru tersimpan)
       if (isEditing) {
-        await notifyLaravelApi('menu', 'updated', menuRecordId, editSession);
+        await pb.collection('menu').update(menuRecordId, menuFormData);
+        await notifyLaravelApi('menu', 'updated', menuRecordId, oldMenuData ?? undefined);
       }
 
       setDialog({ show: true, title: 'SUKSES', message: isEditing ? "Perubahan transaksi berhasil diperbarui!" : "Transaksi berhasil disimpan!", type: 'alert' });
@@ -1893,6 +1907,18 @@ export default function MenuPage() {
             await pb.collection(r.type).delete(r.id, { $autoCancel: false });
             await notifyLaravelApi(r.type, 'deleted', r.id);
           } catch {}
+        }
+      }
+      // MODE EDIT: pulihkan children lama yang sudah terhapus (id sama, efek observer diterapkan ulang via webhook)
+      if (isEditing && backupChildren.length > 0) {
+        setProcessingMsg('Memulihkan data lama...');
+        for (const bc of backupChildren) {
+          try {
+            const restored = await pb.collection(bc.collection).create(bc.data, { $autoCancel: false });
+            await notifyLaravelApi(bc.collection, 'created', restored.id);
+          } catch (restoreErr) {
+            console.warn('Gagal memulihkan record lama:', bc.collection, restoreErr);
+          }
         }
       }
       setDialog({ show: true, title: 'Sinkronisasi Gagal', message: "Gagal menyimpan data entri: " + (err.message || err), type: 'alert' });
@@ -2069,6 +2095,16 @@ export default function MenuPage() {
   const deleteTransactionWithRevert = async (menuId: string) => {
     if (!menuId) return;
 
+    // Ambil tanggal transaksi sebelum dihapus (untuk recalc report final)
+    let menuDateStr = '';
+    try {
+      const menuRec = await pb.collection('menu').getOne(menuId, { $autoCancel: false });
+      if (menuRec?.created_at) {
+        const d = new Date(menuRec.created_at.replace(' ', 'T'));
+        menuDateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      }
+    } catch {}
+
     const deletedOk = await notifyLaravelApi('menu', 'deleted', menuId);
 
     try {
@@ -2133,6 +2169,19 @@ export default function MenuPage() {
 
     // 6. Hapus entitas menu utama di PocketBase
     await pb.collection('menu').delete(menuId).catch(e => console.warn('Menu delete failed (may already be deleted by Laravel):', e.message));
+
+    // 7. Recalculate report tanggal transaksi setelah menu terhapus (agar piutang/hutang nol)
+    if (menuDateStr) {
+      try {
+        await fetch(`${getLaravelApiUrl()}/reports/recalculate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ date: menuDateStr })
+        });
+      } catch (recalcErr) {
+        console.warn('Gagal recalculate report setelah hapus transaksi:', recalcErr);
+      }
+    }
   };
 
   const handleDeleteHistory = async (menuItem: HistoryMenu) => {

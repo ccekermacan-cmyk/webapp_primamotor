@@ -48,6 +48,8 @@ class ReportService
                 }
             }
 
+            $menuIds = array_keys($menuMap);
+
             // --- 2. Ambil Data LogStock (untuk omset penjualan/minuman dan laba) ---
             // Kita pakai "with('produk')" tetapi karena struktur PocketBase itu `expand`,
             // kita mungkin harus melakukan JOIN manual jika relasi eloquent tidak ada.
@@ -55,7 +57,12 @@ class ReportService
             // Let's assume Produk map can be loaded if LogStock relations are not set correctly.
             $allProduk = Produk::all()->keyBy('id');
             
-            $logStocks = LogStock::whereBetween('created_at', [$start, $end])->get();
+            $logStocks = LogStock::where(function ($q) use ($start, $end, $menuIds) {
+                $q->whereBetween('created_at', [$start, $end]);
+                if (!empty($menuIds)) {
+                    $q->orWhereIn('ref_baru', $menuIds);
+                }
+            })->get();
             
             $totalOmsetPenjualan = 0;
             $totalOmsetMinuman = 0;
@@ -99,7 +106,12 @@ class ReportService
             }
 
             // --- 3. Ambil Data Ongkos (untuk omset servis) ---
-            $ongkosList = Ongkos::whereBetween('date', [$start, $end])->get();
+            $ongkosList = Ongkos::where(function ($q) use ($start, $end, $menuIds) {
+                $q->whereBetween('date', [$start, $end]);
+                if (!empty($menuIds)) {
+                    $q->orWhereIn('ref_baru', $menuIds);
+                }
+            })->get();
             $omsetServis = 0;
             foreach ($ongkosList as $item) {
                 if ($item->ref_baru && !isset($menuMap[$item->ref_baru])) continue;
@@ -107,7 +119,12 @@ class ReportService
             }
 
             // --- 4. Ambil Data Cashflow (untuk kasir, operasional, pemasukan/pengeluaran lain) ---
-            $cashflows = Cashflow::whereBetween('created_at', [$start, $end])->get();
+            $cashflows = Cashflow::where(function ($q) use ($start, $end, $menuIds) {
+                $q->whereBetween('created_at', [$start, $end]);
+                if (!empty($menuIds)) {
+                    $q->orWhereIn('ref_baru', $menuIds);
+                }
+            })->get();
             
             $pemasukanLain = 0;
             $cashKasir = 0;

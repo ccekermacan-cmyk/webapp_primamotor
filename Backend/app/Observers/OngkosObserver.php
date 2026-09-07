@@ -2,6 +2,7 @@
 
 namespace App\Observers;
 
+use App\Models\Menu;
 use App\Models\Ongkos;
 use App\Models\Report;
 use Illuminate\Support\Facades\DB;
@@ -10,6 +11,14 @@ class OngkosObserver
 {
     private function getDateString(Ongkos $ongkos): string
     {
+        // Report diatribusikan ke tanggal menu induk (ref_baru)
+        $ref = (string) $ongkos->ref_baru;
+        if ($ref) {
+            $menu = Menu::find($ref);
+            if ($menu && $menu->created_at) {
+                return substr((string) $menu->created_at, 0, 10);
+            }
+        }
         if ($ongkos->created_at) {
             return substr((string) $ongkos->created_at, 0, 10);
         }
@@ -53,8 +62,18 @@ class OngkosObserver
     public function updated(Ongkos $ongkos): void
     {
         $oldVal = (float) ($ongkos->getOriginal('ongkos') ?? 0);
-        $oldCreated = $ongkos->getOriginal('created_at') ?? $ongkos->getOriginal('date');
-        $oldTanggal = $oldCreated ? substr((string) $oldCreated, 0, 10) : '';
+        $oldRef = (string) ($ongkos->getOriginal('ref_baru') ?? '');
+        $oldCreated = (string) ($ongkos->getOriginal('created_at') ?? $ongkos->getOriginal('date') ?? '');
+        $oldTanggal = '';
+        if ($oldRef) {
+            $om = Menu::find($oldRef);
+            if ($om && $om->created_at) {
+                $oldTanggal = substr((string) $om->created_at, 0, 10);
+            }
+        }
+        if (!$oldTanggal) {
+            $oldTanggal = $oldCreated ? substr($oldCreated, 0, 10) : '';
+        }
 
         $newVal = (float) $ongkos->ongkos;
         $newTanggal = $this->getDateString($ongkos);

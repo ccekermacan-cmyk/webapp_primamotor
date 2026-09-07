@@ -25,6 +25,18 @@ class LogStockObserver
         return $rep;
     }
 
+    // Report diatribusikan ke tanggal menu induk (ref_baru), bukan tanggal entry record
+    private function getReportDate(string $refBaru, string $fallbackCreated): string
+    {
+        if ($refBaru) {
+            $menu = Menu::find($refBaru);
+            if ($menu && $menu->created_at) {
+                return substr((string) $menu->created_at, 0, 10);
+            }
+        }
+        return $fallbackCreated ? substr($fallbackCreated, 0, 10) : '';
+    }
+
     private function updateReportForStockOut(string $tanggal, string $refBaruId, string $produkId, float $price1, float $price2, int $qty, bool $isRevert = false): void
     {
         if (!$tanggal) return;
@@ -116,7 +128,7 @@ class LogStockObserver
         }
 
         if ($boolVal === 'out') {
-            $tanggal = substr((string) $logStock->created_at, 0, 10);
+            $tanggal = $this->getReportDate((string) $logStock->ref_baru, (string) $logStock->created_at);
             $this->updateReportForStockOut(
                 $tanggal,
                 (string) $logStock->ref_baru,
@@ -184,7 +196,7 @@ class LogStockObserver
         }
 
         // Revert report old effect
-        $oldTanggal = $oldCreated ? substr($oldCreated, 0, 10) : '';
+        $oldTanggal = $this->getReportDate($oldRef ?: '', $oldCreated);
         if ($oldTanggal && $oldBool === 'out') {
             $this->updateReportForStockOut(
                 $oldTanggal,
@@ -198,7 +210,7 @@ class LogStockObserver
         }
 
         // Apply report new effect
-        $newTanggal = $newCreated ? substr($newCreated, 0, 10) : '';
+        $newTanggal = $this->getReportDate((string) $logStock->ref_baru, $newCreated);
         if ($newTanggal && $newBool === 'out') {
             $this->updateReportForStockOut(
                 $newTanggal,
@@ -246,7 +258,7 @@ class LogStockObserver
         }
 
         if ($boolVal === 'out') {
-            $tanggal = $deletedAt ? substr($deletedAt, 0, 10) : '';
+            $tanggal = $this->getReportDate((string) $logStock->ref_baru, $deletedAt);
             if ($tanggal) {
                 $this->updateReportForStockOut(
                     $tanggal,
