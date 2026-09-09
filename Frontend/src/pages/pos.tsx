@@ -457,6 +457,8 @@ export default function MenuPage() {
   const receiptRef = useRef<HTMLDivElement>(null);
   const detailPrintRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  // Guard anti double-submit (lebih kuat dari state karena tidak ter-reset oleh watchdog)
+  const submitLockRef = useRef(false);
 
   const handleReactPrintFn = useReactToPrint({
     contentRef: receiptRef,
@@ -1552,6 +1554,8 @@ export default function MenuPage() {
 
   // --- 6. MULTI-COLLECTION STORING TO POCKETBASE ---
   const executeStoringData = async () => {
+    if (submitLockRef.current) return; // anti double-submit (tombol disabled + watchdog tidak bisa menembus ini)
+    submitLockRef.current = true;
     setIsProcessing(true);
     setProcessingMsg('Menyimpan...');
     // Watchdog: auto-recover jika proses >60 detik (stall/macet)
@@ -1563,6 +1567,16 @@ export default function MenuPage() {
     }, 60000);
     try {
       const isEditing = editSession?.isEditing && editSession?.menuId;
+      let menuUpdatedInPb = false;
+
+      // Notifikasi wajib sukses: kegagalan sinkron Laravel = kegagalan transaksi (agar tidak ada drift stok/saldo).
+      // Backend menjamin idempotensi via webhook_marks, jadi retry/rollback aman.
+      const mustNotify = async (collection: string, event: 'created' | 'updated' | 'deleted', id: string, oldData?: any) => {
+        const ok = await notifyLaravelApi(collection, event, id, oldData);
+        if (!ok) {
+          throw new Error(`Sinkronisasi backend gagal (${collection}/${event}). Koneksi ke server backend bermasalah.`);
+        }
+      };
       
       // Browser otomatis mengubah string lokal (YYYY-MM-DDTHH:mm) menjadi format UTC (Z) yang diterima PB
       const timestamp = formBayar.createdAt
@@ -1666,7 +1680,7 @@ export default function MenuPage() {
         const menuRecord = await pb.collection('menu').create(menuFormData);
         menuRecordId = menuRecord.id;
         createdRecords.push({ type: 'menu', id: menuRecordId });
-        await notifyLaravelApi('menu', 'created', menuRecordId);
+        await mustNotify('menu', 'created', menuRecordId);
       }
 
       // ========== MODE EDIT: hapus children lama terlebih dahulu (webhook dulu agar observer revert) ==========
@@ -1684,15 +1698,15 @@ export default function MenuPage() {
         ];
 
         for (const cf of oldCashflows) {
-          await notifyLaravelApi('cashflow', 'deleted', cf.id);
+          await mustNotify('cashflow', 'deleted', cf.id);
           await pb.collection('cashflow').delete(cf.id).catch(() => null);
         }
         for (const ong of oldOngkos) {
-          await notifyLaravelApi('ongkos', 'deleted', ong.id);
+          await mustNotify('ongkos', 'deleted', ong.id);
           await pb.collection('ongkos').delete(ong.id).catch(() => null);
         }
         for (const log of oldLogs) {
-          await notifyLaravelApi('log_stock', 'deleted', log.id);
+          await mustNotify('log_stock', 'deleted', log.id);
           await pb.collection('log_stock').delete(log.id).catch(() => null);
         }
       }
@@ -1762,8 +1776,7 @@ export default function MenuPage() {
         });
         createdRecords.push({ type: 'log_stock', id: logRecord.id });
         // SELALU panggil webhook backend karena penghapusan Menu sebelumnya sudah me-revert stok dan laporan (omset/laba)
-        const stockApiOk = await notifyLaravelApi('log_stock', 'created', logRecord.id);
-        if (!stockApiOk) console.warn('Laravel log_stock notify failed');
+        await mustNotify('log_stock', 'created', logRecord.id);
       }
 
             // Cari person record ID berdasarkan personIdLama (jika ada)
@@ -1806,8 +1819,7 @@ export default function MenuPage() {
             saldo_akhir: saldoAkhir,
           });
           createdRecords.push({ type: 'cashflow', id: cfRecord.id });
-          const cfApiOk = await notifyLaravelApi('cashflow', 'created', cfRecord.id);
-          if (!cfApiOk) console.warn('Laravel cashflow notify failed');
+          await mustNotify('cashflow', 'created', cfRecord.id);
         }
       }
 
@@ -1833,7 +1845,7 @@ export default function MenuPage() {
                 { '$autoCancel': false }
               );
               createdRecords.push({ type: 'ongkos', id: res.id });
-              await notifyLaravelApi('ongkos', 'created', res.id);
+              await mustNotify('ongkos', 'created', res.id);
               return res;
             });
             // Jalankan semua promise secara paralel
@@ -1869,8 +1881,11 @@ export default function MenuPage() {
 
       // MODE EDIT: update menu terakhir (setelah semua children baru tersimpan)
       if (isEditing) {
+        // Ambil snapshot terbaru karena trigger Laravel (CashflowObserver) mungkin telah mengubah field dibayar/status!
+        const freshOldMenu = await pb.collection('menu').getOne(menuRecordId, { $autoCancel: false }).catch(() => oldMenuData);
         await pb.collection('menu').update(menuRecordId, menuFormData);
-        await notifyLaravelApi('menu', 'updated', menuRecordId, oldMenuData ?? undefined);
+        menuUpdatedInPb = true;
+        await mustNotify('menu', 'updated', menuRecordId, freshOldMenu ?? undefined);
       }
 
       setDialog({ show: true, title: 'SUKSES', message: isEditing ? "Perubahan transaksi berhasil diperbarui!" : "Transaksi berhasil disimpan!", type: 'alert' });
@@ -1899,31 +1914,73 @@ export default function MenuPage() {
 
     } catch (err: any) {
       console.error(err);
-      // Rollback: hapus record yang sudah terlanjur dibuat
+      // ===== ROLLBACK =====
+      // Webhook deleted di-notify DULU (record masih ada) agar observer bisa revert efeknya.
+      // Backend guard: jika 'created' tidak pernah ter-apply, revert otomatis dilewati.
       if (createdRecords.length > 0) {
         setProcessingMsg('Rollback perubahan...');
-        for (const r of createdRecords.reverse()) {
-          try {
-            await pb.collection(r.type).delete(r.id, { $autoCancel: false });
-            await notifyLaravelApi(r.type, 'deleted', r.id);
-          } catch {}
+        for (const r of [...createdRecords].reverse()) {
+          try { await notifyLaravelApi(r.type as any, 'deleted', r.id); } catch {}
+          try { await pb.collection(r.type).delete(r.id, { $autoCancel: false }); } catch {}
         }
       }
-      // MODE EDIT: pulihkan children lama yang sudah terhapus (id sama, efek observer diterapkan ulang via webhook)
+      // MODE EDIT: pulihkan children lama yang sudah terhapus.
+      // - Baris masih ada (notify gagal di tengah hapus): cukup re-notify created (idempoten, mark tidak ada → efek di-apply ulang).
+      // - Baris sudah terhapus: buat ulang dengan id BARU (agar mark lama tidak memblokir apply efek).
       if (isEditing && backupChildren.length > 0) {
         setProcessingMsg('Memulihkan data lama...');
         for (const bc of backupChildren) {
           try {
-            const restored = await pb.collection(bc.collection).create(bc.data, { $autoCancel: false });
-            await notifyLaravelApi(bc.collection, 'created', restored.id);
+            const { id: oldId, ...restData } = bc.data;
+            let restoredId = '';
+            try {
+              await pb.collection(bc.collection).getOne(oldId, { $autoCancel: false });
+              restoredId = oldId;
+              await notifyLaravelApi(bc.collection as any, 'created', oldId);
+            } catch {
+              const restored = await pb.collection(bc.collection).create(restData, { $autoCancel: false });
+              restoredId = restored.id;
+              await notifyLaravelApi(bc.collection as any, 'created', restored.id);
+            }
+            console.warn('Pulih record lama:', bc.collection, restoredId);
           } catch (restoreErr) {
             console.warn('Gagal memulihkan record lama:', bc.collection, restoreErr);
           }
         }
       }
+      // MODE EDIT: pulihkan menu ke nilai lama jika sudah ter-update (bukan FormData agar bisa kirim old_data JSON)
+      if (isEditing && menuUpdatedInPb && oldMenuData) {
+        try {
+          const stripSystem = (obj: any) => {
+            const out: Record<string, any> = {};
+            Object.entries(obj).forEach(([k, v]) => {
+              if (['collectionId', 'collectionName', 'expand', 'id', 'created', 'updated'].includes(k)) return;
+              out[k] = v;
+            });
+            return out;
+          };
+          const newMenuValues = stripSystem(Object.fromEntries(menuFormData.entries()));
+          const oldMenuFields = stripSystem(oldMenuData);
+          await pb.collection('menu').update(menuRecordId, oldMenuFields);
+          await notifyLaravelApi('menu', 'updated', menuRecordId, newMenuValues);
+        } catch (menuRestoreErr) {
+          console.warn('Gagal memulihkan menu ke nilai lama:', menuRestoreErr);
+        }
+      }
+      // Recalc report tanggal transaksi agar nilai laporan selaras dengan state akhir (best-effort)
+      try {
+        await fetch(`${getLaravelApiUrl()}/reports/recalculate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ date: (formBayar.createdAt || '').split('T')[0] })
+        });
+      } catch (recalcErr) {
+        console.warn('Gagal recalculate report setelah rollback:', recalcErr);
+      }
       setDialog({ show: true, title: 'Sinkronisasi Gagal', message: "Gagal menyimpan data entri: " + (err.message || err), type: 'alert' });
     } finally {
       clearTimeout(watchdog);
+      submitLockRef.current = false;
       setIsProcessing(false);
       setProcessingMsg('');
     }
@@ -2106,6 +2163,10 @@ export default function MenuPage() {
     } catch {}
 
     const deletedOk = await notifyLaravelApi('menu', 'deleted', menuId);
+    if (!deletedOk) {
+      // Jangan hapus children dari PB tanpa revert stok/saldo — itu membuat inkonsistensi permanen.
+      throw new Error('Server backend tidak dapat dijangkau. Transaksi belum dihapus. Coba lagi.');
+    }
 
     try {
       // 2. Fetch seluruh log_stock terkait transaksi ini
