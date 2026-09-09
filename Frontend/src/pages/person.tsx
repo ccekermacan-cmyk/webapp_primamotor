@@ -1250,7 +1250,7 @@ export default function PeoplePage() {
                           <div className="bg-gradient-to-br from-rose-500 to-orange-500 p-4 rounded-2xl text-white shadow-lg shadow-rose-500/30 relative overflow-hidden flex flex-col justify-center min-h-[5rem]">
                             <div className="absolute -right-4 -bottom-4 w-16 h-16 bg-white/20 rounded-full blur-xl pointer-events-none"></div>
                             <p className="text-[10px] font-black uppercase tracking-widest text-rose-100 mb-0.5 relative z-10">
-                              Belum Dibayar (Sisa)
+                              {String(selectedUserForDetail.jenis).toLowerCase() === 'customer' ? 'Total Piutang' : 'Total Hutang'} Berjalan
                             </p>
                             <p className="text-xl md:text-2xl font-black tracking-tight relative z-10">
                               Rp {historySummary.totalSisa.toLocaleString('id-ID')}
@@ -1440,6 +1440,18 @@ export default function PeoplePage() {
                   )}
                   {activeDetailTab === 'Bon' && (
                     <div className="space-y-3 animate-in fade-in duration-300">
+                      
+                      {/* 🟢 SUMMARY CARD BON KARYAWAN */}
+                      <div className="bg-gradient-to-br from-rose-500 to-orange-500 p-4 rounded-2xl text-white shadow-lg shadow-rose-500/30 relative overflow-hidden flex flex-col justify-center min-h-[5rem] mb-4">
+                        <div className="absolute -right-4 -bottom-4 w-16 h-16 bg-white/20 rounded-full blur-xl pointer-events-none"></div>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-rose-100 mb-0.5 relative z-10">
+                          Total Sisa Bon Berjalan
+                        </p>
+                        <p className="text-xl md:text-2xl font-black tracking-tight relative z-10">
+                          Rp {(selectedUserForDetail.number || 0).toLocaleString('id-ID')}
+                        </p>
+                      </div>
+
                       {dummyBonList.length === 0 ? (
                         <div className="py-12 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-200">
                           <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Belum ada riwayat bon karyawan</p>
@@ -1452,11 +1464,11 @@ export default function PeoplePage() {
                                 <Calendar size={13} /> {bon.created_at}
                               </span>
                               <span className="text-xs font-black text-purple-600 bg-purple-50 px-2.5 py-1 rounded-lg border border-purple-100">
-                                Cicilan: Rp {bon.cicilan?.toLocaleString('id-ID')}
+                                Nominal: Rp {bon.cicilan?.toLocaleString('id-ID')}
                               </span>
                             </div>
                             <div className="flex justify-between items-center mt-2.5 text-[11px]">
-                              <span className="font-bold text-slate-500">Sisa Bon: <strong className="text-rose-600">Rp {bon.sisa?.toLocaleString('id-ID')}</strong></span>
+                              <span className="font-bold text-slate-500">Mutasi/Ket: <strong className="text-slate-700">{bon.note || 'Transaksi Bon'}</strong></span>
                               <span className="font-bold text-slate-400">Opr: <strong className="text-slate-700">{bon.operator}</strong></span>
                             </div>
                           </div>
