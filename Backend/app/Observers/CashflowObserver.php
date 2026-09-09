@@ -130,25 +130,20 @@ class CashflowObserver
             });
         }
 
-        // 2. Bon piutang: hanya jika menu.status = "belum"
-        if ($refBaru && $mutasi === 'in') {
-            $menuRec = Menu::find($refBaru);
-            if ($menuRec && strtolower((string) $menuRec->status) === 'belum') {
-                Bon::create([
-                    'created_at' => $createdAt,
-                    'person' => $cfPerson,
-                    'nominal' => $nominal,
-                    'akun_asal' => $acc1,
-                    'operator' => $cfOperator,
-                    'jenis' => 'out',
-                    'note' => $cfNote,
-                    'ref_cashflow' => $cashflow->id,
-                ]);
-            }
-        }
-
-        // 3. Bon karyawan
+        // 2. Bon karyawan
         if (!$refBaru && $jenis === 'bonkaryawan' && $mutasi === 'out' && $acc1) {
+            $userId = null;
+            if ($cfPerson) {
+                $dp = Dropdown::find($cfPerson);
+                if ($dp) {
+                    $uName = strtolower(trim((string) $dp->text_1));
+                    $userRec = User::whereRaw('LOWER(TRIM(name)) = ?', [$uName])
+                                   ->orWhereRaw('LOWER(TRIM(username)) = ?', [$uName])
+                                   ->first();
+                    if ($userRec) $userId = $userRec->id;
+                }
+            }
+
             Bon::create([
                 'created_at' => $createdAt,
                 'akun_asal' => $acc1,
@@ -156,16 +151,17 @@ class CashflowObserver
                 'jenis' => 'in',
                 'ref_cashflow' => $cashflow->id,
                 'person' => $cfPerson,
+                'user' => $userId,
                 'note' => $cfNote,
                 'operator' => $cfOperator,
             ]);
 
-            if ($acc2) {
-                DB::table('user')->where('id', $acc2)->increment('number', $nominal);
+            if ($userId) {
+                DB::table('user')->where('id', $userId)->increment('number', $nominal);
             }
         }
 
-        // 4. Update report (Atomic)
+        // 3. Update report (Atomic)
         if ($tanggal) {
             $rep = $this->getOrCreateReport($tanggal);
             if ($rep) {
@@ -177,20 +173,6 @@ class CashflowObserver
                 }
                 if ($mutasi === 'out' && $jenis === 'operasional') {
                     DB::table('report')->where('id', $rep->id)->increment('operasional_toko', $nominal);
-                }
-                if ($refBaru) {
-                    $mRep = Menu::find($refBaru);
-                    if ($mRep) {
-                        $mj = strtolower((string) $mRep->jenis);
-                        $ms = strtolower((string) $mRep->status);
-                        $isPS = (str_contains($mj, 'penjualan') || str_contains($mj, 'servis') || str_contains($mj, 'service'));
-                        if ($isPS && $ms === 'belum') {
-                            DB::table('report')->where('id', $rep->id)->decrement('piutang', $nominal);
-                        }
-                        if (str_contains($mj, 'pembelian') && $ms === 'belum') {
-                            DB::table('report')->where('id', $rep->id)->decrement('hutang', $nominal);
-                        }
-                    }
                 }
                 if ($cashkasirId) {
                     $dk = 0;
@@ -275,23 +257,19 @@ class CashflowObserver
         }
 
         // 4. Create new linked bon
-        if ($newRef && $newMutasi === 'in') {
-            $mNew = Menu::find($newRef);
-            if ($mNew && strtolower((string) $mNew->status) === 'belum') {
-                Bon::create([
-                    'created_at' => $newCreated,
-                    'person' => $newPerson,
-                    'nominal' => $newNominal,
-                    'akun_asal' => $newAcc1,
-                    'operator' => $newOperator,
-                    'jenis' => 'out',
-                    'note' => $newNote,
-                    'ref_cashflow' => $cashflow->id,
-                ]);
-            }
-        }
-
         if (!$newRef && $newJenis === 'bonkaryawan' && $newMutasi === 'out' && $newAcc1) {
+            $newUserId = null;
+            if ($newPerson) {
+                $dp = Dropdown::find($newPerson);
+                if ($dp) {
+                    $uName = strtolower(trim((string) $dp->text_1));
+                    $userRec = User::whereRaw('LOWER(TRIM(name)) = ?', [$uName])
+                                   ->orWhereRaw('LOWER(TRIM(username)) = ?', [$uName])
+                                   ->first();
+                    if ($userRec) $newUserId = $userRec->id;
+                }
+            }
+
             Bon::create([
                 'created_at' => $newCreated,
                 'akun_asal' => $newAcc1,
@@ -299,12 +277,13 @@ class CashflowObserver
                 'jenis' => 'in',
                 'ref_cashflow' => $cashflow->id,
                 'person' => $newPerson,
+                'user' => $newUserId,
                 'note' => $newNote,
                 'operator' => $newOperator,
             ]);
 
-            if ($newAcc2) {
-                DB::table('user')->where('id', $newAcc2)->increment('number', $newNominal);
+            if ($newUserId) {
+                DB::table('user')->where('id', $newUserId)->increment('number', $newNominal);
             }
         }
 
@@ -320,20 +299,6 @@ class CashflowObserver
                 }
                 if ($oldMutasi === 'out' && $oldJenis === 'operasional') {
                     DB::table('report')->where('id', $orep->id)->decrement('operasional_toko', $oldNominal);
-                }
-                if ($oldRef) {
-                    $om = Menu::find($oldRef);
-                    if ($om) {
-                        $omj = strtolower((string) $om->jenis);
-                        $oms = strtolower((string) $om->status);
-                        $omPS = (str_contains($omj, 'penjualan') || str_contains($omj, 'servis') || str_contains($omj, 'service'));
-                        if ($omPS && $oms === 'belum') {
-                            DB::table('report')->where('id', $orep->id)->increment('piutang', $oldNominal);
-                        }
-                        if (str_contains($omj, 'pembelian') && $oms === 'belum') {
-                            DB::table('report')->where('id', $orep->id)->increment('hutang', $oldNominal);
-                        }
-                    }
                 }
                 if ($cashkasirId) {
                     $oDK = 0;
@@ -361,20 +326,6 @@ class CashflowObserver
                 }
                 if ($newMutasi === 'out' && $newJenis === 'operasional') {
                     DB::table('report')->where('id', $nrep->id)->increment('operasional_toko', $newNominal);
-                }
-                if ($newRef) {
-                    $nm = Menu::find($newRef);
-                    if ($nm) {
-                        $nmj = strtolower((string) $nm->jenis);
-                        $nms = strtolower((string) $nm->status);
-                        $nmPS = (str_contains($nmj, 'penjualan') || str_contains($nmj, 'servis') || str_contains($nmj, 'service'));
-                        if ($nmPS && $nms === 'belum') {
-                            DB::table('report')->where('id', $nrep->id)->decrement('piutang', $newNominal);
-                        }
-                        if (str_contains($nmj, 'pembelian') && $nms === 'belum') {
-                            DB::table('report')->where('id', $nrep->id)->decrement('hutang', $newNominal);
-                        }
-                    }
                 }
                 if ($cashkasirId) {
                     $nDK = 0;
@@ -456,23 +407,6 @@ class CashflowObserver
                 }
             }
         }
-
-        // 4. Restore piutang/hutang menu (simetri dengan created step 4)
-        $refBaru = $this->getRelId($cashflow->ref_baru);
-        if ($refBaru && $tanggal) {
-            $mRec = Menu::find($refBaru);
-            if ($mRec) {
-                $mj = strtolower((string) $mRec->jenis);
-                $ms = strtolower((string) $mRec->status);
-                $isPS = (str_contains($mj, 'penjualan') || str_contains($mj, 'servis') || str_contains($mj, 'service'));
-                $restoreRep = $this->getOrCreateReport($tanggal);
-                if ($restoreRep && $isPS && $ms === 'belum') {
-                    DB::table('report')->where('id', $restoreRep->id)->increment('piutang', $nominal);
-                }
-                if ($restoreRep && str_contains($mj, 'pembelian') && $ms === 'belum') {
-                    DB::table('report')->where('id', $restoreRep->id)->increment('hutang', $nominal);
-                }
-            }
-        }
     }
 }
+

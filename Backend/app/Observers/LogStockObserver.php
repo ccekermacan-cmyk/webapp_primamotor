@@ -117,6 +117,10 @@ class LogStockObserver
 
         if ($boolVal === 'in') {
             DB::table('produk')->where('id', $produkId)->increment('stok_3', $qty);
+            $newStok = (float) DB::table('produk')->where('id', $produkId)->value('stok_3') ?? 0;
+            $logStock->stok_awal = $newStok - $qty;
+            $logStock->stok_akhir = $newStok;
+            $logStock->saveQuietly();
             if ($price > 0) {
                 DB::table('produk')->where('id', $produkId)->update(['beli' => $price]);
             }
@@ -125,6 +129,10 @@ class LogStockObserver
                 throw new Exception("[CREATE] Stok produk {$produkId} tidak cukup (sisa: {$stok}, dikurangi: {$qty})");
             }
             DB::table('produk')->where('id', $produkId)->decrement('stok_3', $qty);
+            $newStok = (float) DB::table('produk')->where('id', $produkId)->value('stok_3') ?? 0;
+            $logStock->stok_awal = $newStok + $qty;
+            $logStock->stok_akhir = $newStok;
+            $logStock->saveQuietly();
         }
 
         if ($boolVal === 'out') {
@@ -181,6 +189,16 @@ class LogStockObserver
                 DB::table('produk')->where('id', $produkId)->decrement('stok_3', abs($delta));
             }
         }
+        
+        // Re-sync log_stock boundaries safely from server-side calculated stok_3
+        $newStok = (float) DB::table('produk')->where('id', $produkId)->value('stok_3') ?? 0;
+        if ($newBool === 'in') {
+            $logStock->stok_awal = $newStok - $newQty;
+        } else {
+            $logStock->stok_awal = $newStok + $newQty;
+        }
+        $logStock->stok_akhir = $newStok;
+        $logStock->saveQuietly();
 
         $hargaBerubah = ($newBool === 'in' && $oldPrice1 !== $newPrice1);
         $beralihDariIn = ($oldBool === 'in' && $newBool !== 'in');

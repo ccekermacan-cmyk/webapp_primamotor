@@ -25,6 +25,14 @@ class MenuObserver
         return $rep;
     }
 
+    private function getHutangPiutang(string $status, float $total, float $dibayar): float
+    {
+        if ($status === 'belum') {
+            return max(0, $total - $dibayar);
+        }
+        return 0;
+    }
+
     public function created(Menu $menu): void
     {
         $jenis = strtolower((string) $menu->jenis);
@@ -40,11 +48,12 @@ class MenuObserver
         $isPenjServis = (str_contains($jenis, 'penjualan') || str_contains($jenis, 'servis') || str_contains($jenis, 'service'));
 
         // Report hutang/piutang (Atomic)
-        if ($status === 'belum' && $tanggal && $total != 0 && ($isPembelian || $isPenjServis)) {
+        $hp = $this->getHutangPiutang($status, $total, $dibayar);
+        if ($hp > 0 && $tanggal && ($isPembelian || $isPenjServis)) {
             $rep = $this->getOrCreateReport($tanggal);
             if ($rep) {
-                if ($isPembelian)  { DB::table('report')->where('id', $rep->id)->increment('hutang', $total); }
-                if ($isPenjServis) { DB::table('report')->where('id', $rep->id)->increment('piutang', $total); }
+                if ($isPembelian)  { DB::table('report')->where('id', $rep->id)->increment('hutang', $hp); }
+                if ($isPenjServis) { DB::table('report')->where('id', $rep->id)->increment('piutang', $hp); }
             }
         }
     }
@@ -54,13 +63,14 @@ class MenuObserver
         $oldJenis = strtolower((string) ($menu->getOriginal('jenis') ?? ''));
         $oldStatus = strtolower((string) ($menu->getOriginal('status') ?? ''));
         $oldTotal = (float) ($menu->getOriginal('total') ?? 0);
+        $oldDibayar = (float) ($menu->getOriginal('dibayar') ?? 0);
         $oldCreated = (string) ($menu->getOriginal('created_at') ?? '');
 
         $newJenis = strtolower((string) $menu->jenis);
         $newStatus = strtolower((string) $menu->status);
         $newTotal = (float) $menu->total;
-        $newCreated = (string) $menu->created_at;
         $newDibayar = (float) $menu->dibayar;
+        $newCreated = (string) $menu->created_at;
         $newPerson = (string) $menu->person_baru;
         $menuId = (string) $menu->id;
 
@@ -72,21 +82,24 @@ class MenuObserver
         $newIsPembelian = str_contains($newJenis, 'pembelian');
         $newIsPenjServis = (str_contains($newJenis, 'penjualan') || str_contains($newJenis, 'servis') || str_contains($newJenis, 'service'));
 
+        $oldHp = $this->getHutangPiutang($oldStatus, $oldTotal, $oldDibayar);
+        $newHp = $this->getHutangPiutang($newStatus, $newTotal, $newDibayar);
+
         // 1. Revert report lama (Atomic)
-        if ($oldTanggal && $oldStatus === 'belum' && $oldTotal != 0 && ($oldIsPembelian || $oldIsPenjServis)) {
+        if ($oldTanggal && $oldHp > 0 && ($oldIsPembelian || $oldIsPenjServis)) {
             $orep = $this->getOrCreateReport($oldTanggal);
             if ($orep) {
-                if ($oldIsPembelian)  { DB::table('report')->where('id', $orep->id)->decrement('hutang', $oldTotal); }
-                if ($oldIsPenjServis) { DB::table('report')->where('id', $orep->id)->decrement('piutang', $oldTotal); }
+                if ($oldIsPembelian)  { DB::table('report')->where('id', $orep->id)->decrement('hutang', $oldHp); }
+                if ($oldIsPenjServis) { DB::table('report')->where('id', $orep->id)->decrement('piutang', $oldHp); }
             }
         }
 
         // 2. Apply report baru (Atomic)
-        if ($newTanggal && $newStatus === 'belum' && $newTotal != 0 && ($newIsPembelian || $newIsPenjServis)) {
+        if ($newTanggal && $newHp > 0 && ($newIsPembelian || $newIsPenjServis)) {
             $nrep = $this->getOrCreateReport($newTanggal);
             if ($nrep) {
-                if ($newIsPembelian)  { DB::table('report')->where('id', $nrep->id)->increment('hutang', $newTotal); }
-                if ($newIsPenjServis) { DB::table('report')->where('id', $nrep->id)->increment('piutang', $newTotal); }
+                if ($newIsPembelian)  { DB::table('report')->where('id', $nrep->id)->increment('hutang', $newHp); }
+                if ($newIsPenjServis) { DB::table('report')->where('id', $nrep->id)->increment('piutang', $newHp); }
             }
         }
     }
@@ -97,6 +110,7 @@ class MenuObserver
         $jenis = strtolower((string) $menu->jenis);
         $status = strtolower((string) $menu->status);
         $total = (float) $menu->total;
+        $dibayar = (float) $menu->dibayar;
         $createdAt = (string) $menu->created_at;
         $tanggal = $createdAt ? substr($createdAt, 0, 10) : '';
 
@@ -114,11 +128,12 @@ class MenuObserver
         Cashflow::where('ref_baru', $menuId)->orWhere('ref', $menuId)->get()->each->delete();
 
         // 2. Revert report hutang/piutang (Atomic)
-        if ($status === 'belum' && $tanggal && $total != 0 && ($isPembelian || $isPenjServis)) {
+        $hp = $this->getHutangPiutang($status, $total, $dibayar);
+        if ($hp > 0 && $tanggal && ($isPembelian || $isPenjServis)) {
             $rep = $this->getOrCreateReport($tanggal);
             if ($rep) {
-                if ($isPembelian)  { DB::table('report')->where('id', $rep->id)->decrement('hutang', $total); }
-                if ($isPenjServis) { DB::table('report')->where('id', $rep->id)->decrement('piutang', $total); }
+                if ($isPembelian)  { DB::table('report')->where('id', $rep->id)->decrement('hutang', $hp); }
+                if ($isPenjServis) { DB::table('report')->where('id', $rep->id)->decrement('piutang', $hp); }
             }
         }
     }
