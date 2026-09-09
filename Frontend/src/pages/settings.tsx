@@ -62,6 +62,42 @@ const Field = ({ label, children }: { label: string; children: React.ReactNode }
   </label>
 );
 
+// Helper for Smart Contextual Labels
+const getFieldLabel = (field: string, kategori: string, jenis: string) => {
+  const k = (kategori || '').toLowerCase();
+  const j = (jenis || '').toLowerCase();
+
+  if (field === 'text_1') {
+    if (k === 'cashflow' && j.includes('akun')) return 'Nama Akun / Kas *';
+    if (k === 'cashflow') return 'Nama Transaksi *';
+    if (k === 'person') return 'Nama Pihak (Lengkap) *';
+    if (k === 'persenan') return 'Label Persentase *';
+    if (k === 'user') return 'Nama Jabatan / Level *';
+    return 'Label Utama (Text 1) *';
+  }
+  if (field === 'text_2') {
+    if (k === 'cashflow') return 'Tipe (in / out)';
+    if (k === 'person') return 'Nama Bengkel / Toko';
+    return 'Text 2';
+  }
+  if (field === 'number_1') {
+    if (k === 'cashflow' && j.includes('akun')) return 'Saldo Awal (Rp)';
+    if (k === 'person') return 'Limit / Saldo (Rp)';
+    return 'Number 1';
+  }
+  if (field === 'number_2') {
+    if (k === 'person') return 'Tier / Level Harga (1-5)';
+    if (k === 'persenan') return 'Nilai Persentase (%)';
+    if (k === 'user') return 'ID / Kode Level';
+    return 'Number 2';
+  }
+  if (field === 'enum_1') {
+    if (k === 'cashflow' && j.includes('akun')) return 'Akses User (Enum 1)';
+    return 'Enum 1 (User)';
+  }
+  return field;
+};
+
 // Helper Multi-Select Enum
 const BeautifulEnumList = ({ label, options, selectedValues, gridCols = 'grid-cols-2', onChange }: {
   label: string;
@@ -532,9 +568,11 @@ export default function Settings() {
                             </div>
 
                             <div className="flex items-center gap-1 shrink-0">
-                              {item.number_1 !== 0 && (
+                              {(item.number_1 !== 0 || item.kategori?.toLowerCase() === 'cashflow') && (
                                 <span className="text-[10px] font-mono font-bold bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded-md border border-slate-200">
-                                  {item.number_1}
+                                  {item.kategori?.toLowerCase() === 'cashflow' || item.jenis?.toLowerCase().includes('akun') 
+                                    ? `Rp ${item.number_1?.toLocaleString('id-ID')}` 
+                                    : item.number_1}
                                 </span>
                               )}
                               <button
@@ -551,13 +589,15 @@ export default function Settings() {
                               >
                                 <Pencil size={14} />
                               </button>
-                              <button
-                                onClick={() => { setSelectedItem(item); setModalType('delete'); }}
-                                className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
-                                title="Hapus"
-                              >
-                                <Trash2 size={14} />
-                              </button>
+                              {item.id_lama !== 'umum1' && (
+                                <button
+                                  onClick={() => { setSelectedItem(item); setModalType('delete'); }}
+                                  className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                                  title="Hapus"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              )}
                             </div>
                           </li>
                         ))}
@@ -585,12 +625,16 @@ export default function Settings() {
 
             <div className="grid grid-cols-2 gap-2.5 text-xs">
               <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                <p className="text-[10px] font-black text-slate-400 uppercase">Text 2</p>
+                <p className="text-[10px] font-black text-slate-400 uppercase">{getFieldLabel('text_2', selectedItem.kategori, selectedItem.jenis)}</p>
                 <p className="mt-0.5 font-bold text-slate-700">{selectedItem.text_2 || '-'}</p>
               </div>
               <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                <p className="text-[10px] font-black text-slate-400 uppercase">Number 1</p>
-                <p className="mt-0.5 font-mono font-bold text-slate-700">{selectedItem.number_1 ?? '0'}</p>
+                <p className="text-[10px] font-black text-slate-400 uppercase">{getFieldLabel('number_1', selectedItem.kategori, selectedItem.jenis)}</p>
+                <p className="mt-0.5 font-mono font-bold text-slate-700">
+                  {selectedItem.kategori?.toLowerCase() === 'cashflow' || selectedItem.jenis?.toLowerCase().includes('akun') 
+                    ? `Rp ${selectedItem.number_1?.toLocaleString('id-ID')}` 
+                    : selectedItem.number_1 ?? '0'}
+                </p>
               </div>
 
               {selectedItem.address && (
@@ -632,12 +676,14 @@ export default function Settings() {
               >
                 <Pencil size={14} /> Edit Data
               </button>
-              <button
-                onClick={() => setModalType('delete')}
-                className="py-3 px-4 bg-rose-50 text-rose-600 border border-rose-100 rounded-xl font-bold text-xs uppercase tracking-wider hover:bg-rose-100 transition-colors cursor-pointer"
-              >
-                <Trash2 size={14} />
-              </button>
+              {selectedItem.id_lama !== 'umum1' && (
+                <button
+                  onClick={() => setModalType('delete')}
+                  className="py-3 px-4 bg-rose-50 text-rose-600 border border-rose-100 rounded-xl font-bold text-xs uppercase tracking-wider hover:bg-rose-100 transition-colors cursor-pointer"
+                >
+                  <Trash2 size={14} />
+                </button>
+              )}
               <button 
                 onClick={() => setModalType(null)} 
                 className="flex-1 py-3 bg-slate-800 text-white rounded-xl font-bold text-xs uppercase tracking-wider hover:bg-slate-900 transition-colors cursor-pointer"
@@ -749,7 +795,7 @@ export default function Settings() {
                 </div>
               </div>
 
-              <Field label="Label Utama (text_1) *">
+              <Field label={getFieldLabel('text_1', formData.kategori || '', formData.jenis || '')}>
                 <input 
                   name="text_1" 
                   value={formData.text_1 || ''} 
@@ -761,7 +807,7 @@ export default function Settings() {
               </Field>
 
               <div className="grid grid-cols-2 gap-3">
-                <Field label="Text 2">
+                <Field label={getFieldLabel('text_2', formData.kategori || '', formData.jenis || '')}>
                   <input name="text_2" value={formData.text_2 || ''} onChange={handleInputChange} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold outline-none focus:border-indigo-500" placeholder="Keterangan..." />
                 </Field>
                 <Field label="Text 3">
@@ -788,10 +834,10 @@ export default function Settings() {
           {formTab === 'extra' && (
             <div className="space-y-3 pt-1">
               <div className="grid grid-cols-2 gap-3">
-                <Field label="Number 1">
+                <Field label={getFieldLabel('number_1', formData.kategori || '', formData.jenis || '')}>
                   <input type="number" name="number_1" value={formData.number_1 ?? ''} onChange={handleInputChange} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold outline-none focus:border-indigo-500" placeholder="0" />
                 </Field>
-                <Field label="Number 2">
+                <Field label={getFieldLabel('number_2', formData.kategori || '', formData.jenis || '')}>
                   <input type="number" name="number_2" value={formData.number_2 ?? ''} onChange={handleInputChange} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold outline-none focus:border-indigo-500" placeholder="0" />
                 </Field>
               </div>
@@ -832,7 +878,7 @@ export default function Settings() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <BeautifulEnumList
-                  label="Enum 1 (User)"
+                  label={getFieldLabel('enum_1', formData.kategori || '', formData.jenis || '')}
                   gridCols="grid-cols-2"
                   options={allUsers.map(u => ({ label: u.name || u.username, value: u.name || u.username }))}
                   selectedValues={formData.enum_1 || []}
