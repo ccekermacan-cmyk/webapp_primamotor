@@ -36,41 +36,39 @@ export const getLaravelApiUrl = () => {
 
 export const LARAVEL_API_URL = getLaravelApiUrl();
 
-let laravelApiDown = false;
-let laravelApiLastCheck = 0;
-const LARAVEL_RETRY_MS = 5000;
-
 export async function notifyLaravelApi(collection: string, event: 'created' | 'updated' | 'deleted', id: string, oldData?: any): Promise<boolean> {
   if (!id) return false;
-  if (laravelApiDown && Date.now() - laravelApiLastCheck < LARAVEL_RETRY_MS) {
-    return false;
-  }
-  try {
-    const apiUrl = getLaravelApiUrl();
-    const targetUrl = `${apiUrl}/webhook/${collection}/${event}/${id}`;
-    
-    const fetchOptions: RequestInit = { method: 'POST' };
-    if (oldData) {
-      fetchOptions.headers = { 'Content-Type': 'application/json' };
-      fetchOptions.body = JSON.stringify({ old_data: oldData });
-    }
 
-    const response = await fetch(targetUrl, fetchOptions);
-    if (!response.ok) {
-      laravelApiDown = true;
-      laravelApiLastCheck = Date.now();
-      console.warn(`[Laravel API] ${collection}/${event}/${id} → HTTP ${response.status} — circuit OPEN, fallback active for ${LARAVEL_RETRY_MS/1000}s`);
-      return false;
-    }
-    if (laravelApiDown) {
-      console.warn(`[Laravel API] circuit CLOSED — API recovered`);
-    }
-    laravelApiDown = false;
-    return true;
-  } catch (err) {
-    laravelApiDown = true;
-    laravelApiLastCheck = Date.now();
-    console.warn(`[Laravel API] Unreachable — circuit OPEN, fallback active for ${LARAVEL_RETRY_MS/1000}s`, err);
-    return false;
+  const apiUrl = getLaravelApiUrl();
+  const targetUrl = `${apiUrl}/webhook/${collection}/${event}/${id}`;
+
+  const fetchOptions: RequestInit = { method: 'POST' };
+  if (oldData) {
+    fetchOptions.headers = { 'Content-Type': 'application/json' };
+    fetchOptions.body = JSON.stringify({ old_data: oldData });
   }
+
+  const MAX_ATTEMPTS = 3;
+  let lastError: any = null;
+
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    try {
+      const response = await fetch(targetUrl, fetchOptions);
+      if (response.ok) return true;
+      if (response.status === 404) {
+        // Koleksi tidak dipantau Laravel (mis. gaji) atau record sudah terhapus oleh cascade.
+        // Bukan kegagalan yang perlu di-rollback.
+        return true;
+      }
+      lastError = new Error(`HTTP ${response.status}`);
+    } catch (err) {
+      lastError = err;
+    }
+    if (attempt < MAX_ATTEMPTS - 1) {
+      await new Promise(resolve => setTimeout(resolve, 300 * Math.pow(2, attempt)));
+    }
+  }
+
+  console.warn(`[Laravel API] ${collection}/${event}/${id} gagal setelah ${MAX_ATTEMPTS}x percobaan:`, lastError);
+  return false;
 }

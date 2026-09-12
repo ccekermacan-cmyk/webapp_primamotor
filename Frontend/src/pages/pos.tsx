@@ -1697,9 +1697,12 @@ export default function MenuPage() {
           ...oldOngkos.map(o => ({ collection: 'ongkos', data: pickFields(o, ['id', 'id_lama', 'date', 'person', 'ongkos', 'operator', 'ref', 'ref_baru']) })),
         ];
 
+        const newCfIds = formBayar.cashflowList.map((cf: any) => cf.id).filter(id => id);
         for (const cf of oldCashflows) {
-          await mustNotify('cashflow', 'deleted', cf.id);
-          await pb.collection('cashflow').delete(cf.id).catch(() => null);
+          if (!newCfIds.includes(cf.id)) {
+            await mustNotify('cashflow', 'deleted', cf.id);
+            await pb.collection('cashflow').delete(cf.id).catch(() => null);
+          }
         }
         for (const ong of oldOngkos) {
           await mustNotify('ongkos', 'deleted', ong.id);
@@ -1758,7 +1761,7 @@ export default function MenuPage() {
 
         const logRecord = await pb.collection('log_stock').create({
           id_lama: '',
-          created_at: new Date().toISOString(),
+          created_at: timestamp,
           operator: operatorName || pb.authStore.model?.username || 'Kasir',
           item: item.id_lama || item.id || '',
           qty: logQty,
@@ -1800,9 +1803,8 @@ export default function MenuPage() {
           let saldoAwal = preflightBalances[cf.accountId] ?? 0;
           const saldoAkhir = mutasiValue === 'in' ? (saldoAwal + cf.nominal) : (saldoAwal - cf.nominal);
 
-          const cfRecord = await pb.collection('cashflow').create({
+          const cfData = {
             id_lama: '',
-            created_at: new Date().toISOString(),
             operator: operatorName,
             nominal: cf.nominal,
             jenis: selectedMenu,
@@ -1817,9 +1819,23 @@ export default function MenuPage() {
             acc2: '',
             saldo_awal: saldoAwal,
             saldo_akhir: saldoAkhir,
-          });
-          createdRecords.push({ type: 'cashflow', id: cfRecord.id });
-          await mustNotify('cashflow', 'created', cfRecord.id);
+          };
+
+          if (cf.id) {
+            // Update exist
+            const cfRecord = await pb.collection('cashflow').update(cf.id, cfData);
+            createdRecords.push({ type: 'cashflow', id: cfRecord.id });
+            const oldCfObj = oldCashflows.find(o => o.id === cf.id);
+            await mustNotify('cashflow', 'updated', cfRecord.id, oldCfObj);
+          } else {
+            // Create new
+            const cfRecord = await pb.collection('cashflow').create({
+              ...cfData,
+              created_at: new Date().toISOString()
+            });
+            createdRecords.push({ type: 'cashflow', id: cfRecord.id });
+            await mustNotify('cashflow', 'created', cfRecord.id);
+          }
         }
       }
 
@@ -1835,7 +1851,7 @@ export default function MenuPage() {
               const res = await pb.collection('ongkos').create(
                 {
                   id_lama: '',
-                  date: new Date().toISOString(),
+                  date: timestamp,
                   person: mek.idLama,
                   ongkos: mek.ongkos,
                   operator: operatorName,
@@ -2050,9 +2066,11 @@ export default function MenuPage() {
           const cfNote = existingCashflows.length > 0 ? existingCashflows[0].note : '';
 
           // Muat cashflowList dari database
-          let cashflowList = [];
+          let cashflowList: any[] = [];
           if (existingCashflows.length > 0) {
             cashflowList = existingCashflows.map(cf => ({
+              id: cf.id,
+              created_at: cf.created_at,
               accountId: cf.account_1,
               nominal: cf.nominal
             }));
@@ -3229,7 +3247,7 @@ export default function MenuPage() {
                       type="button"
                       onClick={() => setFormBayar(prev => ({
                         ...prev,
-                        cashflowList: [...prev.cashflowList, { accountId: '', nominal: 0 }]
+                        cashflowList: [...prev.cashflowList, { id: '', created_at: '', accountId: '', nominal: 0 }]
                       }))}
                       className={`text-[10px] font-black bg-white ${activeTheme.text} px-4 py-2 rounded-xl shadow-sm hover:scale-105 active:scale-95 transition-all border border-transparent hover:${activeTheme.border}`}
                     >
@@ -3290,8 +3308,10 @@ export default function MenuPage() {
                           onClick={() => {
                             const kasirAcc = cashflowAccounts.find(a => a.text_1.toLowerCase().includes('kasir') || a.text_1.toLowerCase().includes('cash')) || cashflowAccounts[0];
                             const newList = [...formBayar.cashflowList];
-                            newList[idx].nominal = grandTotal;
-                            if (kasirAcc) {
+                            const sumOther = newList.reduce((acc, curr, i) => i !== idx ? acc + (curr.nominal || 0) : acc, 0);
+                            const remaining = Math.max(0, grandTotal - sumOther);
+                            newList[idx].nominal = remaining;
+                            if (kasirAcc && !newList[idx].accountId) {
                               newList[idx].accountId = kasirAcc.id;
                             }
                             setFormBayar(prev => ({
