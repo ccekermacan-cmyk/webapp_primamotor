@@ -22,9 +22,4 @@ class Bon extends Model
     {
         return $this->belongsTo(Dropdown::class, 'person');
     }
-
-    public function user()
-    {
-        return $this->belongsTo(User::class, 'user');
-    }
 }

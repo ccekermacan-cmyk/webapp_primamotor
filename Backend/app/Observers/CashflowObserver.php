@@ -151,7 +151,6 @@ class CashflowObserver
                 'jenis' => 'in',
                 'ref_cashflow' => $cashflow->id,
                 'person' => $cfPerson,
-                'user' => $userId,
                 'note' => $cfNote,
                 'operator' => $cfOperator,
             ]);
@@ -248,7 +247,20 @@ class CashflowObserver
         // 3. Delete old linked bons
         $allBon = Bon::where('ref_cashflow', $cashflow->id)->get();
         foreach ($allBon as $bon) {
-            $bUser = (string) (($bon->getAttributes()["user"]) ?? "");
+            $bPerson = (string) $bon->person;
+            $bUser = null;
+            if ($bPerson) {
+                $dp = DB::table('dropdown')->where('id', $bPerson)->first();
+                if ($dp) {
+                    $uName = strtolower(trim((string) $dp->text_1));
+                    $userRec = DB::table('user')
+                                 ->whereRaw('LOWER(TRIM(name)) = ?', [$uName])
+                                 ->orWhereRaw('LOWER(TRIM(username)) = ?', [$uName])
+                                 ->first();
+                    if ($userRec) $bUser = $userRec->id;
+                }
+            }
+
             $bNom = (float) $bon->nominal;
             if (strtolower((string) $bon->jenis) === 'in' && $bUser) {
                 DB::table('user')->where('id', $bUser)->decrement('number', $bNom);
@@ -277,7 +289,6 @@ class CashflowObserver
                 'jenis' => 'in',
                 'ref_cashflow' => $cashflow->id,
                 'person' => $newPerson,
-                'user' => $newUserId,
                 'note' => $newNote,
                 'operator' => $newOperator,
             ]);
