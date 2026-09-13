@@ -12,15 +12,20 @@ use Illuminate\Support\Facades\DB;
 
 class CashflowObserver
 {
-    private function syncMenuDibayar(string $menuId): void
+    private function syncMenuDibayar(string $menuId, ?string $excludeCashflowId = null): void
     {
         if (!$menuId) return;
         $menu = \App\Models\Menu::find($menuId);
         if (!$menu) return;
 
-        $totalDibayar = \Illuminate\Support\Facades\DB::table('cashflow')
-            ->where('ref_baru', $menuId)
-            ->sum('nominal');
+        $query = \Illuminate\Support\Facades\DB::table('cashflow')
+            ->where('ref_baru', $menuId);
+
+        if ($excludeCashflowId) {
+            $query->where('id', '!=', $excludeCashflowId);
+        }
+
+        $totalDibayar = $query->sum('nominal');
 
         $total = (float) $menu->total;
         $status = ($totalDibayar >= $total && $total > 0) ? 'lunas' : 'belum';
@@ -86,7 +91,7 @@ class CashflowObserver
 
     public function created(Cashflow $cashflow): void
     {
-        $this->syncMenuDibayar((string)$cashflow->ref_baru);
+        $this->syncMenuDibayar($this->getMenuIdForSync($cashflow));
 
         $nominal = (float) $cashflow->nominal;
         $mutasi = strtolower((string) $cashflow->mutasi);
@@ -188,10 +193,24 @@ class CashflowObserver
         }
     }
 
+    private function getMenuIdForSync(Cashflow $cashflow, bool $original = false): string
+    {
+        $refBaru = $original ? $cashflow->getOriginal('ref_baru') : $cashflow->ref_baru;
+        $refBaru = $this->getRelId($refBaru);
+        if ($refBaru) return $refBaru;
+        
+        $ref = $original ? $cashflow->getOriginal('ref') : $cashflow->ref;
+        return $this->getRelId($ref);
+    }
+
     public function updated(Cashflow $cashflow): void
     {
-        $this->syncMenuDibayar((string)$cashflow->ref_baru);
-        $this->syncMenuDibayar((string)$cashflow->getOriginal('ref_baru'));
+        $this->syncMenuDibayar($this->getMenuIdForSync($cashflow));
+        
+        $origId = $this->getMenuIdForSync($cashflow, true);
+        if ($origId && $origId !== $this->getMenuIdForSync($cashflow)) {
+            $this->syncMenuDibayar($origId);
+        }
 
         $oldNominal = (float) ($cashflow->getOriginal('nominal') ?? 0);
         $oldMutasi = strtolower((string) ($cashflow->getOriginal('mutasi') ?? ''));
@@ -355,7 +374,7 @@ class CashflowObserver
 
     public function deleted(Cashflow $cashflow): void
     {
-        $this->syncMenuDibayar((string)$cashflow->ref_baru);
+        $this->syncMenuDibayar($this->getMenuIdForSync($cashflow), (string)$cashflow->id);
 
         $nominal = (float) $cashflow->nominal;
         $mutasi = strtolower((string) $cashflow->mutasi);

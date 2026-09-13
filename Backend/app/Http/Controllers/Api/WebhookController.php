@@ -61,12 +61,91 @@ class WebhookController extends Controller
         }
     }
 
+    // ===== Idempotensi webhook =====
+    // Tabel marks memastikan event yang sama (retry/response hilang) tidak di-apply dua kali.
+    // 'deleted' hanya di-proses jika 'created' record tsb pernah ter-apply (mark ada),
+    // sehingga rollback tidak me-revert efek yang tidak pernah diterapkan.
+    private function ensureMarksTable(): void
+    {
+        DB::statement('CREATE TABLE IF NOT EXISTS webhook_marks (key TEXT PRIMARY KEY, created_at TEXT)');
+    }
+
+    private function createdMarkKey(string $collection, string $id): string
+    {
+        return strtolower($collection) . ':created:' . $id;
+    }
+
+    private function markKey(string $collection, string $event, string $id, array $payload = []): string
+    {
+        $key = strtolower($collection) . ':' . $event . ':' . $id;
+        if ($event === 'updated') {
+            $key .= ':' . md5(json_encode($payload));
+        }
+        return $key;
+    }
+
+    private function hasMark(string $key): bool
+    {
+        return DB::table('webhook_marks')->where('key', $key)->exists();
+    }
+
+    private function addMark(string $key): void
+    {
+        try {
+            DB::table('webhook_marks')->insertOrIgnore([
+                'key' => $key,
+                'created_at' => now('UTC')->format('Y-m-d H:i:s.u\Z'),
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('webhook mark insert failed: ' . $e->getMessage());
+        }
+    }
+
+    private function removeMark(string $key): void
+    {
+        DB::table('webhook_marks')->where('key', $key)->delete();
+    }
+
+    private function dispatchObserver($model, string $event): void
+    {
+        match (get_class($model)) {
+            Bon::class => match ($event) {
+                'created' => app(BonObserver::class)->created($model),
+                'updated' => app(BonObserver::class)->updated($model),
+                'deleted' => app(BonObserver::class)->deleted($model),
+            },
+            Cashflow::class => match ($event) {
+                'created' => app(CashflowObserver::class)->created($model),
+                'updated' => app(CashflowObserver::class)->updated($model),
+                'deleted' => app(CashflowObserver::class)->deleted($model),
+            },
+            LogStock::class => match ($event) {
+                'created' => app(LogStockObserver::class)->created($model),
+                'updated' => app(LogStockObserver::class)->updated($model),
+                'deleted' => app(LogStockObserver::class)->deleted($model),
+            },
+            Menu::class => match ($event) {
+                'created' => app(MenuObserver::class)->created($model),
+                'updated' => app(MenuObserver::class)->updated($model),
+                'deleted' => app(MenuObserver::class)->deleting($model),
+            },
+            Ongkos::class => match ($event) {
+                'created' => app(OngkosObserver::class)->created($model),
+                'updated' => app(OngkosObserver::class)->updated($model),
+                'deleted' => app(OngkosObserver::class)->deleted($model),
+            },
+        };
+    }
+
     public function handle(Request $request, string $collection, string $event, string $id): JsonResponse
     {
         $model = $this->getModel($collection, $id);
         if (!$model) {
             return response()->json(['message' => 'Model not found or collection unmonitored'], 404);
         }
+
+        $this->ensureMarksTable();
+        $createdKey = $this->createdMarkKey($collection, $id);
 
         if ($request->has('old_data')) {
             $setOriginal = function ($old) {
@@ -75,33 +154,35 @@ class WebhookController extends Controller
             $setOriginal->call($model, $request->input('old_data'));
         }
 
-        DB::transaction(function () use ($model, $event) {
-            if ($event === 'created') {
-                match (get_class($model)) {
-                    Bon::class => app(BonObserver::class)->created($model),
-                    Cashflow::class => app(CashflowObserver::class)->created($model),
-                    LogStock::class => app(LogStockObserver::class)->created($model),
-                    Menu::class => app(MenuObserver::class)->created($model),
-                    Ongkos::class => app(OngkosObserver::class)->created($model),
-                };
-            } elseif ($event === 'updated') {
-                match (get_class($model)) {
-                    Bon::class => app(BonObserver::class)->updated($model),
-                    Cashflow::class => app(CashflowObserver::class)->updated($model),
-                    LogStock::class => app(LogStockObserver::class)->updated($model),
-                    Menu::class => app(MenuObserver::class)->updated($model),
-                    Ongkos::class => app(OngkosObserver::class)->updated($model),
-                };
-            } elseif ($event === 'deleted') {
-                match (get_class($model)) {
-                    Bon::class => app(BonObserver::class)->deleted($model),
-                    Cashflow::class => app(CashflowObserver::class)->deleted($model),
-                    LogStock::class => app(LogStockObserver::class)->deleted($model),
-                    Menu::class => app(MenuObserver::class)->deleting($model),
-                    Ongkos::class => app(OngkosObserver::class)->deleted($model),
-                };
+        $oldData = $request->input('old_data', []);
+
+        if ($event === 'created') {
+            if ($this->hasMark($createdKey)) {
+                return response()->json(['status' => 'skipped', 'reason' => 'already processed']);
             }
-        });
+            DB::transaction(function () use ($model, $createdKey) {
+                $this->dispatchObserver($model, 'created');
+                $this->addMark($createdKey);
+            });
+        } elseif ($event === 'updated') {
+            $key = $this->markKey($collection, 'updated', $id, is_array($oldData) ? $oldData : [$oldData]);
+            if ($this->hasMark($key)) {
+                return response()->json(['status' => 'skipped', 'reason' => 'already processed']);
+            }
+            DB::transaction(function () use ($model, $key) {
+                $this->dispatchObserver($model, 'updated');
+                $this->addMark($key);
+            });
+        } elseif ($event === 'deleted') {
+            $deletedKey = $this->markKey($collection, 'deleted', $id);
+            if ($this->hasMark($deletedKey)) {
+                return response()->json(['status' => 'skipped', 'reason' => 'already deleted']);
+            }
+            DB::transaction(function () use ($model, $deletedKey) {
+                $this->dispatchObserver($model, 'deleted');
+                $this->addMark($deletedKey);
+            });
+        }
 
         // Recalculate report secara sinkron agar nilai laporan selalu konsisten
         $rawCreated = $model->getAttribute('created_at') ?: $model->getAttribute('date');
