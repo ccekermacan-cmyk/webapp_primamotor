@@ -13,6 +13,8 @@ import {
   Package, Eye, Upload
 } from 'lucide-react';
 
+import { PosNavbar } from '../components/pos/PosNavbar';
+
 // --- INTERFACES ---
 interface Produk {
   id: string; id_lama: string; kategori: string; merk: string; jenis: string;
@@ -2393,33 +2395,14 @@ export default function MenuPage() {
       <div className="flex-1 flex flex-col p-3 md:p-6 lg:p-8 pt-20 md:pt-6 overflow-hidden w-full transition-colors duration-500">
          
         {/* Nav Tabs */}
-        <div
-          className={`shrink-0 transition-all duration-300 ${
-            showNavbar ? 'opacity-100 max-h-24 mb-6' : 'opacity-0 max-h-0 mb-0 overflow-hidden'
-          }`}
-        >
-          <div className="flex p-1.5 bg-slate-200/60 rounded-2xl w-full sm:w-fit shadow-sm border border-slate-200/50 overflow-x-auto no-scrollbar">
-            <div className="flex gap-1.5 sm:gap-2 px-1">
-              {menuOptions.filter(m => userLevel !== '10' || m.text_1.toLowerCase() === 'overview').map(m => {
-                const tabTheme = getThemeConfig(m.text_1);
-                const isActive = selectedMenu === m.text_1;
-                return (
-                  <button
-                    key={m.id}
-                    onClick={() => handleMenuChange(m.text_1)}
-                    className={`flex-1 sm:w-40 py-2.5 px-4 text-[10px] md:text-[11px] font-black uppercase tracking-wider rounded-xl transition-all duration-300 whitespace-nowrap flex-shrink-0 ${
-                      isActive
-                        ? `${tabTheme.main} text-white shadow-md shadow-${tabTheme.main.replace('bg-', '')}/30 scale-95`
-                        : `text-slate-500 hover:text-slate-700 hover:bg-white/50`
-                    }`}
-                  >
-                    {m.text_1}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </div>
+        <PosNavbar
+          showNavbar={showNavbar}
+          menuOptions={menuOptions}
+          userLevel={userLevel}
+          selectedMenu={selectedMenu}
+          getThemeConfig={getThemeConfig}
+          handleMenuChange={handleMenuChange}
+        />
 
         {/* Search Bar & Filters - Clean & Consistent */}
         <div className="p-2 sm:p-3 md:p-4 mb-2 sm:mb-3 bg-slate-200/60 rounded-2xl border border-slate-200/50 shadow-sm shrink-0 flex flex-col gap-1 sm:gap-2 md:gap-3">
