@@ -14,6 +14,9 @@ import {
 } from 'lucide-react';
 
 import { PosNavbar } from '../components/pos/PosNavbar';
+import { PosFilterBar } from '../components/pos/PosFilterBar';
+import { MechanicSection } from '../components/pos/MechanicSection';
+import { ReceiptPrintModal } from '../components/pos/ReceiptPrintModal';
 
 // --- INTERFACES ---
 interface Produk {
@@ -2405,288 +2408,33 @@ export default function MenuPage() {
         />
 
         {/* Search Bar & Filters - Clean & Consistent */}
-        <div className="p-2 sm:p-3 md:p-4 mb-2 sm:mb-3 bg-slate-200/60 rounded-2xl border border-slate-200/50 shadow-sm shrink-0 flex flex-col gap-1 sm:gap-2 md:gap-3">
-          
-          {/* BARIS UTAMA: Search + Filter Button + Indikator */}
-          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-            {/* Input Pencarian */}
-            <div className="relative w-full group flex-1 min-w-[180px]">
-              <Search className={`absolute left-4 top-1/2 -translate-y-1/2 transition-colors ${activeTheme.text} opacity-50 group-focus-within:opacity-100`} size={18} />
-              <input 
-                ref={searchInputRef}
-                type="text" 
-                placeholder={`Cari ${selectedMenu}... (F2 / /)`} 
-                className={`w-full pl-10 pr-4 py-2.5 bg-white/90 border-2 border-transparent hover:border-slate-300 rounded-xl focus:bg-white focus:border-transparent focus:ring-4 ${activeTheme.focusRing} outline-none transition-all shadow-sm text-sm font-bold text-slate-700 placeholder-slate-400`}
-                value={searchInput}
-                onChange={(e) => setSearchInput(e.target.value)}
-              />
-            </div>
-
-            {/* Grup Tombol & Indikator (sejajar dengan search) */}
-            <div className="flex items-center gap-2 flex-wrap">
-              {/* Tombol Toggle View (Desktop & Tablet) - hanya jika bukan Overview */}
-              {selectedMenu.toLowerCase() !== 'overview' && (
-                <div className="hidden sm:flex bg-white/80 border border-slate-200 rounded-xl p-1 shadow-sm shrink-0 items-center">
-                  <button onClick={() => setViewMode('list')} className={`p-2 rounded-lg transition-all duration-300 ${viewMode === 'list' ? `${activeTheme.main} text-white shadow-sm` : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'}`}>
-                    <List size={16} />
-                  </button>
-                  <button onClick={() => setViewMode('grid')} className={`p-2 rounded-lg transition-all duration-300 ${viewMode === 'grid' ? `${activeTheme.main} text-white shadow-sm` : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'}`}>
-                    <Grid size={16} />
-                  </button>
-                </div>
-              )}
-
-              {/* Tombol Filter & Indikator (hanya untuk Overview) */}
-              {selectedMenu === 'Overview' && (
-                <>
-                  <button
-                    onClick={() => setShowFilters(!showFilters)}
-                    className="flex items-center gap-1.5 px-3 py-2 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all duration-300 bg-white/90 border border-slate-200 hover:border-slate-300 hover:bg-white shadow-sm"
-                  >
-                    <Filter size={14} />
-                    Filter
-                    {(() => {
-                      const totalActive = (filterStatus !== 'all' ? 1 : 0) + (filterPerson ? 1 : 0) + (selectedMenuFilters.length > 0 ? 1 : 0);
-                      return totalActive > 0 ? (
-                        <span className="ml-1 bg-blue-500 text-white text-[9px] px-1.5 py-0.5 rounded-full min-w-[18px] text-center leading-none">
-                          {totalActive}
-                        </span>
-                      ) : null;
-                    })()}
-                    <ChevronDown
-                      size={14}
-                      className={`transition-transform duration-300 ${showFilters ? 'rotate-180' : ''}`}
-                    />
-                  </button>
-
-                  {/* Indikator Filter Person (muncul jika ada person terpilih) */}
-                  {filterPerson && (
-                    <span className="text-[9px] font-bold text-blue-600 bg-blue-50 px-2.5 py-1 rounded-full border border-blue-200 flex items-center gap-1 shrink-0">
-                      <User size={12} />
-                      {allPersons.find(p => p.id_lama === filterPerson)?.text_1 || filterPerson}
-                      <button
-                        onClick={() => {
-                          setFilterPerson('');
-                          setFilterStatus('all');
-                          const url = new URL(window.location.href);
-                          url.searchParams.delete('person');
-                          url.searchParams.delete('status');
-                          window.history.replaceState({}, '', url.toString());
-                        }}
-                        className="ml-0.5 text-blue-400 hover:text-blue-600"
-                      >
-                        <X size={12} />
-                      </button>
-                    </span>
-                  )}
-                </>
-              )}
-            </div>
-          </div>
-
-          {/* Area Filter (collapsible) - hanya untuk Overview */}
-          {selectedMenu === 'Overview' && (
-            <div
-              className={`overflow-visible transition-all duration-300 ease-in-out ${
-                showFilters ? 'max-h-[800px] opacity-100 mt-1' : 'max-h-0 opacity-0'
-              }`}
-            >
-              <div className="flex flex-wrap items-center gap-2 md:gap-3 p-3 bg-white/80 rounded-xl border border-slate-200/60 shadow-sm">
-          
-                {/* === GRUP FILTER STATUS === */}
-                <div className="flex flex-wrap items-center gap-1 bg-white rounded-lg border border-slate-200 p-1 shadow-sm">
-                  {['all', 'lunas', 'belum'].map(status => (
-                    <button
-                      key={status}
-                      onClick={() => {
-                        setFilterStatus(status);
-                        setPage(1);
-                        const url = new URL(window.location.href);
-                        if (status === 'all') {
-                          url.searchParams.delete('status');
-                        } else {
-                          url.searchParams.set('status', status);
-                        }
-                        if (filterPerson) url.searchParams.set('person', filterPerson);
-                        window.history.replaceState({}, '', url.toString());
-                      }}
-                      className={`px-2.5 py-1 text-[9px] md:text-[10px] font-black uppercase tracking-wider rounded-lg transition-all duration-200 whitespace-nowrap ${
-                        filterStatus === status
-                          ? `${activeTheme.main} text-white shadow-sm scale-95`
-                          : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'
-                      }`}
-                    >
-                      {status === 'all' ? 'Semua' : status}
-                    </button>
-                  ))}
-                </div>
-
-                {/* Pemisah (hanya tampil di desktop) */}
-                <div className="hidden md:block w-px h-6 bg-slate-300/50"></div>
-
-                {/* === GRUP FILTER PERSON === */}
-                <div className="relative" style={{ zIndex: 9999 }}>
-                  <button
-                    ref={personButtonRef}
-                    onClick={() => {
-                      if (!isPersonFilterOpen && personButtonRef.current) {
-                        const rect = personButtonRef.current.getBoundingClientRect();
-                        setDropdownPosition({
-                          top: rect.bottom + window.scrollY,
-                          left: rect.left + window.scrollX,
-                        });
-                      }
-                      setIsPersonFilterOpen(!isPersonFilterOpen);
-                    }}
-                    className={`flex items-center gap-1.5 px-2.5 py-1 text-[9px] md:text-[10px] font-black uppercase tracking-wider rounded-lg transition-all duration-200 bg-white border border-slate-200 hover:border-slate-300 shadow-sm ${
-                      filterPerson ? `${activeTheme.main} text-white border-transparent shadow-md` : 'text-slate-500 hover:text-slate-700'
-                    }`}
-                  >
-                    <User size={13} />
-                    <span className="truncate max-w-[70px] md:max-w-[100px]">
-                      {filterPerson
-                        ? allPersons.find(p => p.id_lama === filterPerson)?.text_1 || 'Person'
-                        : 'Person'}
-                    </span>
-                    {filterPerson && (
-                      <X
-                        size={13}
-                        className="ml-0.5 cursor-pointer hover:text-white/70"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setFilterPerson('');
-                          setFilterStatus('all');
-                          const url = new URL(window.location.href);
-                          url.searchParams.delete('person');
-                          url.searchParams.delete('status');
-                          window.history.replaceState({}, '', url.toString());
-                        }}
-                      />
-                    )}
-                    <ChevronDown
-                      size={13}
-                      className={`transition-transform duration-200 ${isPersonFilterOpen ? 'rotate-180' : ''}`}
-                    />
-                  </button>
-
-                  {/* Dropdown Person (Portal) */}
-                  {isPersonFilterOpen && createPortal(
-                    <>
-                      <div className="fixed inset-0 z-[9998]" onClick={() => setIsPersonFilterOpen(false)} />
-                      <div 
-                        className="fixed z-[9999] w-72 bg-white border border-slate-200 rounded-2xl shadow-2xl p-3 max-h-72 overflow-y-auto custom-scrollbar"
-                        style={{
-                          top: dropdownPosition.top + 8,
-                          left: dropdownPosition.left,
-                        }}
-                      >
-                        <div className="relative">
-                          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                          <input
-                            type="text"
-                            placeholder="Cari customer / supplier..."
-                            className="w-full pl-8 pr-3 py-2 text-xs font-bold bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-400 transition-all"
-                            value={personFilterSearch}
-                            onChange={(e) => setPersonFilterSearch(e.target.value)}
-                            onClick={(e) => e.stopPropagation()}
-                          />
-                        </div>
-                        <div className="mt-2 space-y-1">
-                          {allPersons
-                            .filter(p =>
-                              (p.jenis?.toLowerCase().includes('customer') || p.jenis?.toLowerCase().includes('supplier')) &&
-                              (p.text_1.toLowerCase().includes(personFilterSearch.toLowerCase()) ||
-                                (p.text_2 && p.text_2.toLowerCase().includes(personFilterSearch.toLowerCase())))
-                            )
-                            .map(p => (
-                              <div
-                                key={p.id}
-                                onClick={() => {
-                                  setFilterPerson(p.id_lama);
-                                  setIsPersonFilterOpen(false);
-                                  setPersonFilterSearch('');
-                                  const currentStatus = filterStatus === 'all' ? 'belum' : filterStatus;
-                                  const url = new URL(window.location.href);
-                                  url.searchParams.set('person', p.id_lama);
-                                  url.searchParams.set('status', currentStatus);
-                                  window.history.replaceState({}, '', url.toString());
-                                }}
-                                className={`px-3 py-2.5 rounded-xl cursor-pointer hover:bg-blue-50 text-xs font-bold flex justify-between items-center transition-colors ${
-                                  filterPerson === p.id_lama ? 'bg-blue-100 text-blue-700' : 'text-slate-700'
-                                }`}
-                              >
-                                <span className="truncate">
-                                  {p.text_1} {p.text_2 ? `- ${p.text_2}` : ''}
-                                </span>
-                                <span className="text-[10px] text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
-                                  {p.jenis}
-                                </span>
-                              </div>
-                            ))}
-                          {allPersons.filter(p => p.jenis?.toLowerCase().includes('customer') || p.jenis?.toLowerCase().includes('supplier')).length === 0 && (
-                            <div className="px-3 py-2 text-xs text-slate-500">Tidak ada data</div>
-                          )}
-                        </div>
-                      </div>
-                    </>,
-                    document.body
-                  )}
-                </div>
-
-                {/* Pemisah (hanya tampil di desktop) */}
-                <div className="hidden md:block w-px h-6 bg-slate-300/50"></div>
-
-                {/* === GRUP FILTER JENIS MENU === */}
-                <div className="flex flex-wrap items-center gap-1 bg-white rounded-lg border border-slate-200 p-1 shadow-sm">
-                  <button
-                    onClick={() => {
-                      setSelectedMenuFilters([]);
-                      setPage(1);
-                      const url = new URL(window.location.href);
-                      url.searchParams.delete('jenis');
-                      window.history.replaceState({}, '', url.toString());
-                    }}
-                    className={`px-2.5 py-1 text-[9px] md:text-[10px] font-black uppercase tracking-wider rounded-lg transition-all duration-200 whitespace-nowrap ${
-                      selectedMenuFilters.length === 0
-                        ? `${activeTheme.main} text-white shadow-sm scale-95`
-                        : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'
-                    }`}
-                  >
-                    Semua Jenis
-                  </button>
-                  {menuOptions
-                    .filter(m => m.text_1 !== 'Overview')
-                    .map(menu => (
-                      <button
-                        key={menu.id}
-                        onClick={() => {
-                          const newFilters = selectedMenuFilters.includes(menu.text_1)
-                            ? selectedMenuFilters.filter(j => j !== menu.text_1)
-                            : [...selectedMenuFilters, menu.text_1];
-                          setSelectedMenuFilters(newFilters);
-                          setPage(1);
-                          const url = new URL(window.location.href);
-                          if (newFilters.length > 0) {
-                            url.searchParams.set('jenis', newFilters.join(','));
-                          } else {
-                            url.searchParams.delete('jenis');
-                          }
-                          window.history.replaceState({}, '', url.toString());
-                        }}
-                        className={`px-2.5 py-1 text-[9px] md:text-[10px] font-black uppercase tracking-wider rounded-lg transition-all duration-200 whitespace-nowrap ${
-                          selectedMenuFilters.includes(menu.text_1)
-                            ? `${activeTheme.main} text-white shadow-sm scale-95`
-                            : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'
-                        }`}
-                      >
-                        {menu.text_1}
-                      </button>
-                    ))}
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
+        <PosFilterBar
+          selectedMenu={selectedMenu}
+          activeTheme={activeTheme}
+          searchInputRef={searchInputRef}
+          searchInput={searchInput}
+          setSearchInput={setSearchInput}
+          viewMode={viewMode}
+          setViewMode={setViewMode}
+          showFilters={showFilters}
+          setShowFilters={setShowFilters}
+          filterStatus={filterStatus}
+          setFilterStatus={setFilterStatus}
+          filterPerson={filterPerson}
+          setFilterPerson={setFilterPerson}
+          selectedMenuFilters={selectedMenuFilters}
+          setSelectedMenuFilters={setSelectedMenuFilters}
+          allPersons={allPersons}
+          personButtonRef={personButtonRef}
+          isPersonFilterOpen={isPersonFilterOpen}
+          setIsPersonFilterOpen={setIsPersonFilterOpen}
+          dropdownPosition={dropdownPosition}
+          setDropdownPosition={setDropdownPosition}
+          personFilterSearch={personFilterSearch}
+          setPersonFilterSearch={setPersonFilterSearch}
+          menuOptions={menuOptions}
+          setPage={setPage}
+        />
 
         {/* Content Dynamic - Wrapper */}
         <div ref={scrollContainerRef} className={`flex-1 overflow-y-auto pr-2 custom-scrollbar pb-10 transition-colors duration-500 rounded-3xl`}>
@@ -3527,111 +3275,15 @@ export default function MenuPage() {
                 )}
 
                 {/* 5. Mekanik (Khusus Service) */}
-                {selectedMenu.toLowerCase().includes('service') && (
-                  <div className={`${activeTheme.light} p-5 rounded-3xl border-2 ${activeTheme.border} space-y-4 shadow-sm`}>
-                    <div className="flex justify-between items-center flex-wrap gap-2">
-                      <span className={`text-[11px] md:text-xs font-black ${activeTheme.text} uppercase tracking-wider flex items-center gap-2`}>
-                        <Wrench size={16}/> Alokasi Mekanik & Ongkos
-                      </span>
-                      <div className="flex items-center gap-1.5">
-                        {formBayar.mekanikList.length > 1 && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const count = formBayar.mekanikList.length;
-                              if (count === 0) return;
-                              const totalOngkosEst = grandTotal > 0 ? grandTotal : 0;
-                              const divided = Math.floor(totalOngkosEst / count);
-                              const remainder = totalOngkosEst % count;
-                              const newList = formBayar.mekanikList.map((m, idx) => ({
-                                ...m,
-                                ongkos: idx === 0 ? divided + remainder : divided
-                              }));
-                              setFormBayar(prev => ({ ...prev, mekanikList: newList }));
-                            }}
-                            className={`text-[10px] font-black bg-white ${activeTheme.text} px-3 py-2 rounded-xl shadow-sm hover:scale-105 active:scale-95 transition-all border border-transparent hover:${activeTheme.border} flex items-center gap-1`}
-                            title="Bagi rata ongkos ke semua mekanik"
-                          >
-                            ⚖️ Bagi Rata
-                          </button>
-                        )}
-                        <button
-                          onClick={() => {
-                            setFormBayar(prev => ({
-                              ...prev,
-                              mekanikList: [...prev.mekanikList, { idLama: '', ongkos: 0 }]
-                            }));
-                          }}
-                          className={`text-[10px] font-black bg-white ${activeTheme.text} px-4 py-2 rounded-xl shadow-sm hover:scale-105 active:scale-95 transition-all border border-transparent hover:${activeTheme.border}`}
-                        >
-                          + Tambah Mekanik
-                        </button>
-                      </div>
-                    </div>
-                    
-                    <div className="space-y-2">
-                    {formBayar.mekanikList.map((mek, idx) => (
-                    <div key={idx} className="flex flex-col sm:flex-row gap-2 sm:items-center bg-white p-2.5 rounded-2xl border border-white/50 shadow-sm">
-                      {/* Tombol Hapus Baris Mekanik */}
-                      {formBayar.mekanikList.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setFormBayar(prev => ({
-                              ...prev,
-                              mekanikList: prev.mekanikList.filter((_, i) => i !== idx)
-                            }));
-                          }}
-                          className="p-2 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors self-end sm:self-auto order-1 sm:order-none"
-                          title="Hapus mekanik"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      )}
-                        <select
-                          value={mek.idLama}
-                          onChange={e => {
-                            const selectedMekanik = e.target.value;
-                            const isDuplicate = formBayar.mekanikList.some((m, i) => i !== idx && m.idLama === selectedMekanik);
-                            if (selectedMekanik && isDuplicate) {
-                              setDialog({ show: true, title: 'Mekanik Ganda', message: 'Mekanik sudah dipilih di baris lain!', type: 'alert' });
-                              return;
-                            }
-                            const newList = [...formBayar.mekanikList];
-                            newList[idx].idLama = selectedMekanik;
-                            setFormBayar({ ...formBayar, mekanikList: newList });
-                          }}
-                          className="flex-1 p-3 text-xs md:text-sm font-bold text-slate-700 border-none bg-slate-50 hover:bg-slate-100 rounded-xl outline-none cursor-pointer w-full"
-                        >
-                          <option value="">Pilih Nama Mekanik...</option>
-                          {mechanics.map(m => {
-                            const isDisabled = formBayar.mekanikList.some((mekItem, i) => i !== idx && mekItem.idLama === m.username);
-                            return (
-                              <option key={m.id} value={m.username} disabled={isDisabled}>
-                                {m.name}
-                              </option>
-                            );
-                          })}
-                        </select>
-                        <div className="relative w-full sm:w-auto">
-                          <span className={`absolute left-3 top-1/2 -translate-y-1/2 text-[11px] font-black ${activeTheme.text}`}>Rp</span>
-                          <input
-                            type="number"
-                            placeholder="Ongkos Kerja"
-                            value={mek.ongkos || ''}
-                            onChange={e => {
-                              const newList = [...formBayar.mekanikList];
-                              newList[idx].ongkos = Number(e.target.value);
-                              setFormBayar({ ...formBayar, mekanikList: newList });
-                            }}
-                            className="w-full sm:w-40 pl-9 pr-3 py-3 text-xs md:text-sm font-black text-slate-800 border-none bg-slate-50 hover:bg-slate-100 focus:bg-white rounded-xl outline-none focus:ring-2 focus:ring-slate-200"
-                          />
-                        </div>
-                      </div>
-                    ))}
-                    </div>
-                  </div>
-                )}
+                <MechanicSection
+                  selectedMenu={selectedMenu}
+                  activeTheme={activeTheme}
+                  formBayar={formBayar}
+                  setFormBayar={setFormBayar}
+                  grandTotal={grandTotal}
+                  mechanics={mechanics}
+                  setDialog={setDialog}
+                />
 
                 {/* 6. Catatan */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
@@ -4806,153 +4458,21 @@ export default function MenuPage() {
       {/* ========================================================= */} 
       {/* 3. LAYOUT TEMPLATE NOTA PRINTER THERMAL 58MM */} 
       {/* ========================================================= */} 
-      <Modal isOpen={!!showReceiptPrint} onClose={() => setShowReceiptPrint(null)} title="Print Antrian Kasir"> 
-        {showReceiptPrint && ( 
-          <div className="space-y-6 flex flex-col items-center"> 
-            
-            <div className="bg-slate-100 p-4 w-full rounded-2xl flex justify-center items-center shadow-inner">
-              {/* Box Putih simulasi kertas thermal */}
-              <div ref={receiptRef} className="border-t-[8px] border-b-[8px] border-t-slate-800 border-b-white bg-white w-[280px] text-slate-900 font-mono text-xs shadow-xl rounded-sm" id="thermal-receipt-58mm"> 
-                {/* HEADER TOKO */}
-                <div className="text-center space-y-1.5 border-b-2 border-dashed border-slate-300 pb-4 pt-4 px-3"> 
-                  <h4 className="font-black text-base tracking-wide">PRIMA MOTOR GLADAG</h4> 
-                  <p className="text-[10px] font-bold">Jl. Raya Gladag, Rogojampi</p> 
-                  <p className="text-[10px] font-bold">Banyuwangi - Jawa Timur</p> 
-                  <p className="text-[10px] font-bold mt-1">WA: 081-XXXX-XXXX</p> 
-                </div> 
-
-                {/* INFORMASI NOTA */}
-                <div className="py-3 px-3 border-b-2 border-dashed border-slate-300 text-[10px] space-y-1 font-bold">
-                  <div className="flex justify-between"><span className="text-slate-500">Nota:</span> <span>{showReceiptPrint.id}</span></div>
-                  <div className="flex justify-between"><span className="text-slate-500">Waktu:</span> <span>{formatLocalDateTime(showReceiptPrint.timestamp)}</span></div>
-                  <div className="flex justify-between"><span className="text-slate-500">Cust:</span> <span>{showReceiptPrint.customer}</span></div>
-                  <div className="flex justify-between"><span className="text-slate-500">Kasir:</span> <span>{operatorName}</span></div>
-                  {showReceiptPrint.jenis && <div className="flex justify-between"><span className="text-slate-500">Jenis:</span> <span className="uppercase">{showReceiptPrint.jenis}</span></div>}
-                </div>
-
-                {/* DAFTAR ITEM PRODUK & MEKANIK */}
-                <div className="py-3 px-3 border-b-2 border-dashed border-slate-300 text-[10px] space-y-3">
-                  {/* Item Produk */}
-                  {showReceiptPrint.items?.map((item: any, idx: number) => (
-                    <div key={idx} className="space-y-0.5">
-                      <p className="font-bold uppercase break-words leading-tight">
-                        {getFullLabel(item)}
-                      </p>
-                      <div className="flex justify-between text-slate-600 font-bold">
-                        <span>{item.qty} {item.unit} x {item.priceSelected?.toLocaleString('id-ID')}</span>
-                        <span className="text-slate-900 font-black">
-                          {(item.priceSelected * item.qty)?.toLocaleString('id-ID')}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-
-                  {/* Separator jika ada mekanik */}
-                  {showReceiptPrint.mechanics && showReceiptPrint.mechanics.length > 0 && (
-                    <div className="border-t border-slate-200 my-2 pt-2">
-                      <p className="font-black text-center text-[9px] uppercase tracking-widest text-slate-500 mb-2">- BIAYA SERVIS JASA -</p>
-                    </div>
-                  )}
-
-                  {/* Servis Mekanik */}
-                  {showReceiptPrint.mechanics?.map((m: any, idx: number) => (
-                    <div key={`mech-${idx}`} className="space-y-0.5">
-                      <p className="font-bold uppercase">MEK: {m.name}</p>
-                      <div className="flex justify-between text-slate-600 font-bold">
-                        <span>1 Jasa x {m.ongkos.toLocaleString('id-ID')}</span>
-                        <span className="text-slate-900 font-black">
-                          {m.ongkos.toLocaleString('id-ID')}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                {/* TOTAL DAN PEMBAYARAN */}
-                <div className="py-3 px-3 space-y-1.5 text-[10px] bg-slate-50 border-b-2 border-dashed border-slate-300">
-                  <div className="flex justify-between font-black text-sm text-slate-900">
-                    <span>TOTAL:</span>
-                    <span>Rp {showReceiptPrint.total?.toLocaleString('id-ID')}</span>
-                  </div>
-                  <div className="flex justify-between font-bold text-slate-600">
-                    <span>DIBAYAR:</span>
-                    <span>Rp {showReceiptPrint.cash?.toLocaleString('id-ID')}</span>
-                  </div>
-                  <div className="flex justify-between font-bold text-slate-600">
-                    <span>KEMBALI:</span>
-                    <span>Rp {showReceiptPrint.change?.toLocaleString('id-ID')}</span>
-                  </div>
-                </div>
-
-                {/* FOOTER */}
-                <div className="py-4 text-center space-y-1 bg-white">
-                  <p className="font-black text-[10px]">TERIMA KASIH</p>
-                  <p className="font-bold text-[9px] text-slate-500">Barang yang dibeli tidak dapat ditukar</p>
-                </div>
-              </div>
-            </div>
-
-            {/* TOMBOL CETAK, SHARE & BATAL */}
-            <div className="flex flex-col sm:flex-row w-full gap-3 mt-2"> 
-              <button 
-                onClick={() => {
-                  if (!showReceiptPrint?.id) return;
-                  const items = (showReceiptPrint.items || []).map((i: any) => 
-                    `${getFullLabel(i)} | Qty: ${i.qty} @ ${Number(i.priceSelected).toLocaleString('id-ID')} = ${Number(i.priceSelected * i.qty).toLocaleString('id-ID')}`
-                  ).join('\n');
-                  const text = `*NOTA ${showReceiptPrint.jenis?.toUpperCase() || ''}*\nID: ${showReceiptPrint.id}\n${formatLocalDateTime(showReceiptPrint.timestamp)}\nPelanggan: ${showReceiptPrint.customer}\nTotal: Rp ${Number(showReceiptPrint.total).toLocaleString('id-ID')}\nDibayar: Rp ${Number(showReceiptPrint.cash).toLocaleString('id-ID')}\n\nItems:\n${items}`;
-                  navigator.clipboard.writeText(text).then(() => {
-                    setDialog({ show: true, title: 'Berhasil', message: 'Detail nota disalin ke clipboard!', type: 'alert' });
-                  }).catch(() => alert('Gagal menyalin ke clipboard'));
-                }}
-                className="flex-1 py-4 bg-amber-500 hover:bg-amber-400 text-white rounded-2xl font-black text-xs md:text-sm shadow-lg shadow-amber-500/30 hover:-translate-y-1 active:translate-y-0 transition-all tracking-widest flex justify-center items-center gap-2">
-                <Share2 size={18}/> SHARE
-              </button>
-              <button 
-                onClick={() => {
-                  const receiptElement = document.getElementById('thermal-receipt-58mm');
-                  if (receiptElement) {
-                    printWithRawBT(receiptElement.outerHTML);
-                  } else {
-                    alert("Konten kertas nota gagal di-render oleh DOM.");
-                  }
-                }} 
-                className={`flex-[2] py-4 ${activeTheme.main} text-white rounded-2xl font-black text-xs md:text-sm shadow-xl shadow-${activeTheme.main.replace('bg-','')}/40 hover:-translate-y-1 hover:brightness-110 active:translate-y-0 transition-all tracking-widest flex justify-center items-center gap-2`}>
-                <Printer size={18}/> PRINT
-              </button>
-              <button 
-                onClick={() => {
-                  setShowReceiptPrint(null);
-                  setCart([]);
-                  setIsPaymentFormOpen(false);
-                  setFormBayar({
-                    personIdLama: 'umum1',
-                    payment: 'Tunai',
-                    nominalBayar: 0,
-                    cashflowList: [{ accountId: '', nominal: 0 }],
-                    mekanikList: [{ idLama: '', ongkos: 0 }],
-                    note: '',
-                    noteMenu: '',
-                    tempoDate: '',
-                    marketplace: '',
-                    adminFee: 0,
-                    cashback: 0,
-                    createdAt: getLocalDatetimeInput(),
-                  });
-                  setTimeout(() => searchInputRef.current?.focus(), 100);
-                }} 
-                className="flex-1 py-4 px-4 bg-emerald-600 hover:bg-emerald-500 text-white font-black rounded-2xl text-xs md:text-sm tracking-widest shadow-lg shadow-emerald-500/20 transition-all flex items-center justify-center gap-1.5 active:scale-95"
-              >
-                <Zap size={16} fill="currentColor" /> TRANSAKSI BARU
-              </button>
-              <button onClick={() => setShowReceiptPrint(null)} 
-                      className="flex-1 py-4 px-4 bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-700 font-black rounded-2xl text-xs md:text-sm tracking-widest transition-colors">
-                TUTUP
-              </button>
-            </div> 
-          </div> 
-        )} 
-      </Modal>
+      <ReceiptPrintModal
+        showReceiptPrint={showReceiptPrint}
+        setShowReceiptPrint={setShowReceiptPrint}
+        receiptRef={receiptRef}
+        formatLocalDateTime={formatLocalDateTime}
+        operatorName={operatorName}
+        getFullLabel={getFullLabel}
+        printWithRawBT={printWithRawBT}
+        setDialog={setDialog}
+        activeTheme={activeTheme}
+        setCart={setCart}
+        setIsPaymentFormOpen={setIsPaymentFormOpen}
+        setFormBayar={setFormBayar}
+        getLocalDatetimeInput={getLocalDatetimeInput}
+      />
 
       {/* DIALOG BOX POPUP ALERT / CONFIRMATION */} 
       <Modal isOpen={dialog.show} onClose={() => setDialog(prev => ({ ...prev, show: false }))} title={dialog.title}> 
