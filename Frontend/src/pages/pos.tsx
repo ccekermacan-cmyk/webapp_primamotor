@@ -1056,81 +1056,131 @@ export default function MenuPage() {
       let conditions: string[] = [];
       let params: any = {};
 
-      if (searchTerm) {
-        const terms = searchTerm.trim().split(/\s+/);
-        terms.forEach((t, i) => {
-          params[`t${i}`] = t;
+      if (menuLower === 'overview') {
+        // Cari ID menu dari sub-koleksi (log_stock nama barang & ongkos nama mekanik) jika ada kata kunci pencarian
+        let subCollectionMenuIds: string[] = [];
+        if (searchTerm.trim()) {
+          const cleanTerm = searchTerm.trim();
+          try {
+            const [stockRes, ongkosRes] = await Promise.all([
+              pb.collection('log_stock').getList(1, 100, {
+                filter: pb.filter('item ~ {:term} || item_baru ~ {:term}', { term: cleanTerm }),
+                fields: 'ref_baru',
+                $autoCancel: false
+              }).catch(() => ({ items: [] })),
+              pb.collection('ongkos').getList(1, 100, {
+                filter: pb.filter('person ~ {:term}', { term: cleanTerm }),
+                fields: 'ref_baru',
+                $autoCancel: false
+              }).catch(() => ({ items: [] }))
+            ]);
+            const ids = new Set<string>();
+            (stockRes.items || []).forEach((i: any) => { if (i.ref_baru) ids.add(i.ref_baru); });
+            (ongkosRes.items || []).forEach((i: any) => { if (i.ref_baru) ids.add(i.ref_baru); });
+            subCollectionMenuIds = Array.from(ids);
+          } catch (err) {
+            console.warn("Subcollection lookup error:", err);
+          }
+        }
 
-          if (menuLower === 'overview') {
+        if (searchTerm) {
+          const terms = searchTerm.trim().split(/\s+/);
+          terms.forEach((t, i) => {
+            params[`t${i}`] = t;
+
             const matchedPersonIds: string[] = [];
             allPersons.forEach(p => {
               const text1 = (p.text_1 || '').toLowerCase();
               const text2 = (p.text_2 || '').toLowerCase();
               if (text1.includes(t.toLowerCase()) || text2.includes(t.toLowerCase())) {
                 matchedPersonIds.push(p.id_lama);
+                if (p.id) matchedPersonIds.push(p.id);
               }
             });
-            const personIdConditions = matchedPersonIds.length > 0
-              ? `(${matchedPersonIds.map(id => `person = "${id}"`).join(' || ')})`
+
+            const personIdConds = matchedPersonIds.length > 0
+              ? matchedPersonIds.map(id => `person = "${id}" || person_baru = "${id}"`).join(' || ')
               : '';
-            let mainCond = `(id_lama ~ {:t${i}} || jenis ~ {:t${i}} || person ~ {:t${i}} || text ~ {:t${i}} || payment ~ {:t${i}} || operator ~ {:t${i}})`;
-            if (personIdConditions) {
-              mainCond = `(${mainCond} || ${personIdConditions})`;
-            }
-            conditions.push(mainCond);
-          } else if (menuLower.includes('gaji')) {
-            conditions.push(`(person ~ {:t${i}} || id_lama ~ {:t${i}})`);
-          } else {
-            const numericId = parseInt(t, 10);
-            const isNumeric = !isNaN(numericId) && numericId.toString() === t.replace(/^0+/, '');
-            if (isNumeric) {
-              conditions.push(
-                `(id_lama ~ {:t${i}} || id_lama = {:id${i}} || kategori ~ {:t${i}} || merk ~ {:t${i}} || jenis ~ {:t${i}} || keterangan ~ {:t${i}} || tipe ~ {:t${i}} || varian ~ {:t${i}})`
-              );
-              params[`id${i}`] = numericId.toString();
+
+            const subIdConds = subCollectionMenuIds.length > 0
+              ? subCollectionMenuIds.map(id => `id = "${id}"`).join(' || ')
+              : '';
+
+            let mainCondParts = [
+              `id_lama ~ {:t${i}}`,
+              `jenis ~ {:t${i}}`,
+              `person ~ {:t${i}}`,
+              `person_baru.text_1 ~ {:t${i}}`,
+              `person_baru.text_2 ~ {:t${i}}`,
+              `person_baru.id_lama ~ {:t${i}}`,
+              `text ~ {:t${i}}`,
+              `payment ~ {:t${i}}`,
+              `operator ~ {:t${i}}`,
+              `marketplace ~ {:t${i}}`
+            ];
+            if (personIdConds) mainCondParts.push(personIdConds);
+            if (subIdConds) mainCondParts.push(subIdConds);
+
+            conditions.push(`(${mainCondParts.join(' || ')})`);
+          });
+        }
+      } else {
+        if (searchTerm) {
+          const terms = searchTerm.trim().split(/\s+/);
+          terms.forEach((t, i) => {
+            params[`t${i}`] = t;
+            if (menuLower.includes('gaji')) {
+              conditions.push(`(person ~ {:t${i}} || id_lama ~ {:t${i}})`);
             } else {
-              conditions.push(
-                `(id_lama ~ {:t${i}} || kategori ~ {:t${i}} || merk ~ {:t${i}} || jenis ~ {:t${i}} || keterangan ~ {:t${i}} || tipe ~ {:t${i}} || varian ~ {:t${i}})`
-              );
+              const numericId = parseInt(t, 10);
+              const isNumeric = !isNaN(numericId) && numericId.toString() === t.replace(/^0+/, '');
+              if (isNumeric) {
+                conditions.push(
+                  `(id_lama ~ {:t${i}} || id_lama = {:id${i}} || kategori ~ {:t${i}} || merk ~ {:t${i}} || jenis ~ {:t${i}} || keterangan ~ {:t${i}} || tipe ~ {:t${i}} || varian ~ {:t${i}})`
+                );
+                params[`id${i}`] = numericId.toString();
+              } else {
+                conditions.push(
+                  `(id_lama ~ {:t${i}} || kategori ~ {:t${i}} || merk ~ {:t${i}} || jenis ~ {:t${i}} || keterangan ~ {:t${i}} || tipe ~ {:t${i}} || varian ~ {:t${i}})`
+                );
+              }
             }
-          }
-        });
+          });
+        }
       }
 
       const filterStr = conditions.length > 0 ? pb.filter(conditions.join(' && '), params) : '';
 
       if (menuLower === 'overview') {
-        let overviewFilter = filterStr;
-        
+        let overviewFilterParts: string[] = [];
+
+        if (filterStr) {
+          overviewFilterParts.push(`(${filterStr})`);
+        }
+
         if (userLevel === '10') {
           const currentUsername = pb.authStore.model?.username || localStorage.getItem('user_username') || '';
           const currentName = pb.authStore.model?.name || localStorage.getItem('user_name') || '';
           const mechanicCond = `(note ~ "${currentUsername}" || note ~ "${currentName}" || person ~ "${currentUsername}" || person ~ "${currentName}" || persontext ~ "${currentUsername}" || persontext ~ "${currentName}" || operator ~ "${currentUsername}")`;
-          overviewFilter = `jenis ~ "service" && ${mechanicCond}`;
+          overviewFilterParts.push(`jenis ~ "service"`);
+          overviewFilterParts.push(mechanicCond);
         } else {
-          // Filter status (dari URL atau manual)
           if (filterStatus !== 'all') {
             const statusValue = filterStatus === 'lunas' ? 'lunas' : 'belum';
-            overviewFilter = overviewFilter
-              ? `(${overviewFilter}) && status ~ "${statusValue}"`
-              : `status ~ "${statusValue}"`;
+            overviewFilterParts.push(`status ~ "${statusValue}"`);
           }
-          
-          // Filter person (dari URL)
+
           if (filterPerson) {
-            const personCond = `person = "${filterPerson}"`;
-            overviewFilter = overviewFilter
-              ? `(${overviewFilter}) && (${personCond})`
-              : personCond;
+            overviewFilterParts.push(`(person = "${filterPerson}" || person_baru.id_lama = "${filterPerson}" || person_baru = "${filterPerson}")`);
           }
-          
+
           if (selectedMenuFilters.length > 0) {
-            const jenisConditions = selectedMenuFilters.map(jenis => `jenis ~ "${jenis.toLowerCase()}"`).join(' || ');
-            overviewFilter = overviewFilter
-              ? `(${overviewFilter}) && (${jenisConditions})`
-              : `(${jenisConditions})`;
+            const jenisConditions = selectedMenuFilters.map(jenis => `jenis ~ "${jenis}"`).join(' || ');
+            overviewFilterParts.push(`(${jenisConditions})`);
           }
         }
+
+        const overviewFilter = overviewFilterParts.join(' && ');
         console.log("Overview Filter yang dikirim:", overviewFilter);
         const res = await pb.collection('menu').getList<HistoryMenu>(page, perPage, {
           sort: '-created_at',
@@ -3255,9 +3305,9 @@ export default function MenuPage() {
                     </button>
                   </div>
                   
-                  <div className="space-y-2">
+                  <div className="space-y-2.5">
                   {formBayar.cashflowList.map((cf, idx) => (
-                  <div key={idx} className="flex flex-col sm:flex-row gap-2 sm:items-center bg-white p-2.5 rounded-2xl border border-white/50 shadow-sm">
+                  <div key={idx} className="flex flex-col sm:flex-row gap-2.5 items-stretch sm:items-center bg-white p-3 rounded-2xl border border-white/80 shadow-sm">
                     {/* Tombol Hapus Baris Kas */}
                     {formBayar.cashflowList.length > 1 && (
                       <button
@@ -3268,12 +3318,14 @@ export default function MenuPage() {
                             cashflowList: prev.cashflowList.filter((_, i) => i !== idx)
                           }));
                         }}
-                        className="p-2 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors self-end sm:self-auto order-1 sm:order-none"
+                        className="p-2 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors shrink-0 self-end sm:self-auto"
                         title="Hapus baris pembayaran"
                       >
                         <Trash2 size={16} />
                       </button>
                     )}
+                    {/* Dropdown Akun Kas */}
+                    <div className="flex-1 min-w-0">
                       <select
                         value={cf.accountId}
                         onChange={e => {
@@ -3281,61 +3333,74 @@ export default function MenuPage() {
                           newList[idx].accountId = e.target.value;
                           setFormBayar({ ...formBayar, cashflowList: newList });
                         }}
-                        className="flex-1 p-3 text-xs md:text-sm font-bold text-slate-700 border-none bg-slate-50 hover:bg-slate-100 rounded-xl outline-none cursor-pointer w-full"
+                        className="w-full p-3 text-xs md:text-sm font-bold text-slate-700 border-none bg-slate-50 hover:bg-slate-100 rounded-xl outline-none cursor-pointer"
                       >
                         <option value="">Pilih Akun Bank/Tunai...</option>
                         {cashflowAccounts.map(a => (
                           <option key={a.id} value={a.id}>{a.text_1}</option>
                         ))}
                       </select>
-                      <div className="relative w-full sm:w-auto flex items-center gap-1.5">
-                        <div className="relative flex-1 sm:w-40">
-                          <span className={`absolute left-3 top-1/2 -translate-y-1/2 text-[11px] font-black ${activeTheme.text}`}>Rp</span>
-                          <input
-                            type="number"
-                            placeholder="Nominal Pembayaran"
-                            value={cf.nominal || ''}
-                            onChange={e => {
-                              const newList = [...formBayar.cashflowList];
-                              newList[idx].nominal = Number(e.target.value);
-                              setFormBayar({ ...formBayar, cashflowList: newList });
-                            }}
-                            className="w-full pl-9 pr-3 py-3 text-xs md:text-sm font-black text-slate-800 border-none bg-slate-50 hover:bg-slate-100 focus:bg-white rounded-xl outline-none focus:ring-2 focus:ring-slate-200"
-                          />
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const kasirAcc = cashflowAccounts.find(a => a.text_1.toLowerCase().includes('kasir') || a.text_1.toLowerCase().includes('cash')) || cashflowAccounts[0];
-                            const newList = [...formBayar.cashflowList];
-                            const sumOther = newList.reduce((acc, curr, i) => i !== idx ? acc + (curr.nominal || 0) : acc, 0);
-                            const remaining = Math.max(0, grandTotal - sumOther);
-                            newList[idx].nominal = remaining;
-                            if (kasirAcc && !newList[idx].accountId) {
-                              newList[idx].accountId = kasirAcc.id;
-                            }
-                            setFormBayar(prev => ({
-                              ...prev,
-                              payment: 'Tunai',
-                              nominalBayar: grandTotal,
-                              cashflowList: newList
-                            }));
-                          }}
-                          className="px-3.5 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-black uppercase tracking-wider shrink-0 shadow-md shadow-emerald-600/20 transition-all active:scale-95 flex items-center gap-1.5"
-                          title="Auto Lunas (Isi Uang Pas & Akun Kas Kasir)"
-                        >
-                          <Zap size={15} fill="currentColor" /> Uang Pas (Auto Lunas)
-                        </button>
-                      </div>
                     </div>
+
+                    {/* Input Nominal */}
+                    <div className="relative w-full sm:w-48 shrink-0">
+                      <span className={`absolute left-3 top-1/2 -translate-y-1/2 text-[11px] font-black ${activeTheme.text}`}>Rp</span>
+                      <input
+                        type="number"
+                        placeholder="Nominal"
+                        value={cf.nominal || ''}
+                        onChange={e => {
+                          const newList = [...formBayar.cashflowList];
+                          newList[idx].nominal = Number(e.target.value);
+                          setFormBayar({ ...formBayar, cashflowList: newList });
+                        }}
+                        className="w-full pl-9 pr-3 py-3 text-xs md:text-sm font-black text-slate-800 border-none bg-slate-50 hover:bg-slate-100 focus:bg-white rounded-xl outline-none focus:ring-2 focus:ring-slate-200"
+                      />
+                    </div>
+                  </div>
                   ))}
                   </div>
-                  <div className="flex justify-between items-center pt-4 border-t border-black/5">
+
+                  {/* Total Dibayar & Tombol Uang Pas (Auto Lunas) ditaruh dibawahnya */}
+                  <div className="flex justify-between items-center pt-3 border-t border-black/5">
                     <span className={`text-[11px] md:text-xs font-black ${activeTheme.text} uppercase`}>Total Dibayar:</span>
                     <span className="text-base md:text-lg font-black text-slate-800 bg-white px-4 py-1.5 rounded-xl shadow-sm border border-slate-100">
                       Rp {formBayar.cashflowList.reduce((sum, cf) => sum + (cf.nominal || 0), 0).toLocaleString('id-ID')}
                     </span>
                   </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const kasirAcc = cashflowAccounts.find(a => a.text_1.toLowerCase().includes('kasir') || a.text_1.toLowerCase().includes('cash')) || cashflowAccounts[0];
+                      const newList = [...formBayar.cashflowList];
+                      const sumOther = newList.reduce((acc, curr, i) => i !== 0 ? acc + (curr.nominal || 0) : acc, 0);
+                      const remaining = Math.max(0, grandTotal - sumOther);
+                      if (newList.length > 0) {
+                        newList[0].nominal = remaining;
+                        if (kasirAcc && !newList[0].accountId) {
+                          newList[0].accountId = kasirAcc.id;
+                        }
+                      } else {
+                        newList.push({
+                          id: '',
+                          created_at: '',
+                          accountId: kasirAcc ? kasirAcc.id : '',
+                          nominal: remaining
+                        });
+                      }
+                      setFormBayar(prev => ({
+                        ...prev,
+                        payment: 'Tunai',
+                        nominalBayar: grandTotal,
+                        cashflowList: newList
+                      }));
+                    }}
+                    className="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-black uppercase tracking-wider shadow-md shadow-emerald-600/20 transition-all active:scale-[0.99] flex items-center justify-center gap-2 mt-2"
+                    title="Auto Lunas (Isi Uang Pas & Akun Kas Kasir)"
+                  >
+                    <Zap size={16} fill="currentColor" /> Uang Pas (Auto Lunas)
+                  </button>
                 </div>
 
                 {/* 3. Jatuh Tempo */}
