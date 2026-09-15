@@ -487,6 +487,30 @@ export default function MenuPage() {
         e.preventDefault();
         setIsPaymentFormOpen(true);
       }
+
+      // F9 untuk Auto Lunas (Uang Pas) saat Modal Pembayaran Terbuka
+      if (e.key === 'F9' && isPaymentFormOpen) {
+        e.preventDefault();
+        const kasirAcc = cashflowAccounts.find(a => a.text_1.toLowerCase().includes('kasir') || a.text_1.toLowerCase().includes('cash')) || cashflowAccounts[0];
+        const newList = [...formBayar.cashflowList];
+        const sumOther = newList.reduce((acc, curr, i) => i !== 0 ? acc + (curr.nominal || 0) : acc, 0);
+        const remaining = Math.max(0, grandTotal - sumOther);
+        if (newList.length > 0) {
+          newList[0].nominal = remaining;
+          if (kasirAcc && !newList[0].accountId) {
+            newList[0].accountId = kasirAcc.id;
+          }
+        } else {
+          newList.push({ id: '', created_at: '', accountId: kasirAcc ? kasirAcc.id : '', nominal: remaining });
+        }
+        setFormBayar(prev => ({ ...prev, payment: 'Tunai', nominalBayar: grandTotal, cashflowList: newList }));
+      }
+
+      // Esc untuk tutup Form Pembayaran
+      if (e.key === 'Escape' && isPaymentFormOpen) {
+        e.preventDefault();
+        setIsPaymentFormOpen(false);
+      }
     };
 
     window.addEventListener('keydown', handleKeyDown);
@@ -1959,6 +1983,7 @@ export default function MenuPage() {
       // Reset State Form input kasir kembali bersih
       setShowCheckoutReview(false);
       setCart([]);
+      try { localStorage.removeItem('pos_draft_cart'); } catch { /* ignore */ }
       setMenuFiles([]);
       setEditSession(null);
       setIsCartModalOpen(false);
@@ -3030,6 +3055,43 @@ export default function MenuPage() {
         title="Keranjang Belanja"
       >
         <div className="flex flex-col max-h-[75vh] md:max-h-[85vh] bg-white">
+          {cart.length === 0 && localStorage.getItem('pos_draft_cart') && (() => {
+            try {
+              const draft = JSON.parse(localStorage.getItem('pos_draft_cart') || '{}');
+              if (draft.cart && draft.cart.length > 0) {
+                return (
+                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-2xl flex items-center justify-between gap-2 mb-3">
+                    <div className="flex items-center gap-2">
+                      <Sparkles size={16} className="text-amber-500 shrink-0" />
+                      <span className="text-xs font-bold text-amber-800">Draft transaksi sebelumnya ({draft.cart.length} item) tersimpan.</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCart(draft.cart || []);
+                          if (draft.selectedMenu) setSelectedMenu(draft.selectedMenu);
+                          if (draft.formBayar) setFormBayar(prev => ({ ...prev, ...draft.formBayar }));
+                        }}
+                        className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-black uppercase shadow-sm"
+                      >
+                        Pulihkan
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => localStorage.removeItem('pos_draft_cart')}
+                        className="p-1.5 text-amber-400 hover:text-amber-600 rounded-xl"
+                        title="Abaikan & Hapus Draft"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  </div>
+                );
+              }
+            } catch { /* ignore */ }
+            return null;
+          })()}
           {cart.length === 0 && !selectedMenu.toLowerCase().includes('service') ? (
             <div className="flex flex-col items-center justify-center py-16 text-center space-y-5">
               <div className={`w-28 h-28 ${activeTheme.light} rounded-full flex items-center justify-center shadow-inner border border-white`}>
@@ -3369,6 +3431,35 @@ export default function MenuPage() {
                     </span>
                   </div>
 
+                  {/* Live Status Kembalian / Sisa Piutang Badge */}
+                  {(() => {
+                    const totalDibayarCalc = formBayar.cashflowList.reduce((sum, cf) => sum + (cf.nominal || 0), 0);
+                    const selisih = totalDibayarCalc - grandTotal;
+                    if (selisih > 0) {
+                      return (
+                        <div className="p-3 bg-emerald-50/90 border border-emerald-200 rounded-2xl flex justify-between items-center text-xs font-bold text-emerald-800 shadow-sm animate-in fade-in">
+                          <span className="flex items-center gap-1.5"><Sparkles size={14} className="text-emerald-500"/> Kembalian:</span>
+                          <span className="font-black text-emerald-700 text-sm md:text-base">Rp {selisih.toLocaleString('id-ID')}</span>
+                        </div>
+                      );
+                    } else if (selisih < 0) {
+                      return (
+                        <div className="p-3 bg-rose-50/90 border border-rose-200 rounded-2xl flex justify-between items-center text-xs font-bold text-rose-800 shadow-sm animate-in fade-in">
+                          <span className="flex items-center gap-1.5"><AlertCircle size={14} className="text-rose-500"/> Sisa Kurang (Piutang):</span>
+                          <span className="font-black text-rose-700 text-sm md:text-base">Rp {Math.abs(selisih).toLocaleString('id-ID')}</span>
+                        </div>
+                      );
+                    } else if (totalDibayarCalc > 0) {
+                      return (
+                        <div className="p-2.5 bg-white/80 border border-emerald-200/80 rounded-2xl flex justify-between items-center text-xs font-bold text-slate-700 shadow-sm animate-in fade-in">
+                          <span className="flex items-center gap-1.5 text-slate-500"><CheckCircle2 size={14} className="text-emerald-500"/> Status Pembayaran:</span>
+                          <span className="font-black text-emerald-600 text-xs uppercase tracking-wider bg-emerald-50 px-3 py-1 rounded-xl border border-emerald-100">Pas / Lunas</span>
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
+
                   <button
                     type="button"
                     onClick={() => {
@@ -3455,21 +3546,44 @@ export default function MenuPage() {
                 {/* 5. Mekanik (Khusus Service) */}
                 {selectedMenu.toLowerCase().includes('service') && (
                   <div className={`${activeTheme.light} p-5 rounded-3xl border-2 ${activeTheme.border} space-y-4 shadow-sm`}>
-                    <div className="flex justify-between items-center">
+                    <div className="flex justify-between items-center flex-wrap gap-2">
                       <span className={`text-[11px] md:text-xs font-black ${activeTheme.text} uppercase tracking-wider flex items-center gap-2`}>
                         <Wrench size={16}/> Alokasi Mekanik & Ongkos
                       </span>
-                      <button
-                        onClick={() => {
-                          setFormBayar(prev => ({
-                            ...prev,
-                            mekanikList: [...prev.mekanikList, { idLama: '', ongkos: 0 }]
-                          }));
-                        }}
-                        className={`text-[10px] font-black bg-white ${activeTheme.text} px-4 py-2 rounded-xl shadow-sm hover:scale-105 active:scale-95 transition-all border border-transparent hover:${activeTheme.border}`}
-                      >
-                        + Tambah Mekanik
-                      </button>
+                      <div className="flex items-center gap-1.5">
+                        {formBayar.mekanikList.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const count = formBayar.mekanikList.length;
+                              if (count === 0) return;
+                              const totalOngkosEst = grandTotal > 0 ? grandTotal : 0;
+                              const divided = Math.floor(totalOngkosEst / count);
+                              const remainder = totalOngkosEst % count;
+                              const newList = formBayar.mekanikList.map((m, idx) => ({
+                                ...m,
+                                ongkos: idx === 0 ? divided + remainder : divided
+                              }));
+                              setFormBayar(prev => ({ ...prev, mekanikList: newList }));
+                            }}
+                            className={`text-[10px] font-black bg-white ${activeTheme.text} px-3 py-2 rounded-xl shadow-sm hover:scale-105 active:scale-95 transition-all border border-transparent hover:${activeTheme.border} flex items-center gap-1`}
+                            title="Bagi rata ongkos ke semua mekanik"
+                          >
+                            ⚖️ Bagi Rata
+                          </button>
+                        )}
+                        <button
+                          onClick={() => {
+                            setFormBayar(prev => ({
+                              ...prev,
+                              mekanikList: [...prev.mekanikList, { idLama: '', ongkos: 0 }]
+                            }));
+                          }}
+                          className={`text-[10px] font-black bg-white ${activeTheme.text} px-4 py-2 rounded-xl shadow-sm hover:scale-105 active:scale-95 transition-all border border-transparent hover:${activeTheme.border}`}
+                        >
+                          + Tambah Mekanik
+                        </button>
+                      </div>
                     </div>
                     
                     <div className="space-y-2">
