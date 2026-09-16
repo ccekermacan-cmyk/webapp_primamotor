@@ -30,7 +30,7 @@ interface PosFilterBarProps {
   setPage: (page: number) => void;
 }
 
-export const PosFilterBar: React.FC<PosFilterBarProps> = ({
+export const PosFilterBar: React.FC<PosFilterBarProps> = React.memo(({
   selectedMenu,
   activeTheme,
   searchInputRef,
@@ -410,4 +410,4 @@ export const PosFilterBar: React.FC<PosFilterBarProps> = ({
       )}
     </div>
   );
-};
+});

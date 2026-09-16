@@ -19,7 +19,7 @@ interface MechanicSectionProps {
   setDialog: (dialog: any) => void;
 }
 
-export const MechanicSection: React.FC<MechanicSectionProps> = ({
+export const MechanicSection: React.FC<MechanicSectionProps> = React.memo(({
   selectedMenu,
   activeTheme,
   formBayar,
@@ -136,4 +136,4 @@ export const MechanicSection: React.FC<MechanicSectionProps> = ({
       </div>
     </div>
   );
-};
+});

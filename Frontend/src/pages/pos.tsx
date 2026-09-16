@@ -103,6 +103,14 @@ export default function MenuPage() {
   const [mechanics, setMechanics] = useState<UserKaryawan[]>([]);
 
   const [allPersons, setAllPersons] = useState<DropdownItem[]>([]);
+  const personsMap = useMemo(() => {
+    const map = new Map<string, DropdownItem>();
+    allPersons.forEach(p => {
+      if (p.id_lama) map.set(p.id_lama, p);
+      if (p.id) map.set(p.id, p);
+    });
+    return map;
+  }, [allPersons]);
   
   const [loading, setLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -2594,7 +2602,7 @@ export default function MenuPage() {
                           <div className="relative z-10 mt-4"> 
                             <h4 className="font-black text-slate-800 text-lg uppercase leading-tight mb-2 truncate group-hover:text-blue-600 transition-colors">
                               {(() => {
-                                const person = allPersons && allPersons.find(p => p.id_lama === h.person);
+                                const person = personsMap.get(h.person);
                                 return person ? `${person.text_1} - ${person.text_2 || ''}` : (h.person || 'PELANGGAN UMUM');
                               })()}
                             </h4>

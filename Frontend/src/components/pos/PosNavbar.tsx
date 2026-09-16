@@ -14,7 +14,7 @@ interface PosNavbarProps {
   handleMenuChange: (menuName: string) => void;
 }
 
-export const PosNavbar: React.FC<PosNavbarProps> = ({
+export const PosNavbar: React.FC<PosNavbarProps> = React.memo(({
   showNavbar,
   menuOptions,
   userLevel,
@@ -53,4 +53,4 @@ export const PosNavbar: React.FC<PosNavbarProps> = ({
       </div>
     </div>
   );
-};
+});
