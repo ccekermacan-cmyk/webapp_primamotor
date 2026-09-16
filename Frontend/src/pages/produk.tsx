@@ -197,24 +197,26 @@ export default function Produk() {
     });
   };
 
-  // BLOK 1: Hanya jalan 1x saat aplikasi baru dibuka untuk ambil enumlist Tipe Motor
-  const hasFetchedTipe = useRef(false);
-    useEffect(() => {
-      if (hasFetchedTipe.current) return;
-      hasFetchedTipe.current = true;
-      const fetchTipeOptions = async () => {
-        try {
-          const records = await pb.collection('produk').getFullList({ fields: 'tipe', $autoCancel: false });
-          const allTypes = Array.from(new Set(records.flatMap(r => r.tipe?.split(',').map((s: string) => s.trim()).filter(Boolean))));
-          setExistingTipe(allTypes);
-        } catch (e) {
-          console.error("Gagal memuat tipe motor", e);
-        }
-      };
-      fetchTipeOptions();
-    }, []);
+  const [kategoriOptions, setKategoriOptions] = useState<string[]>([]);
+  const hasFetchedOptions = useRef(false);
+  useEffect(() => {
+    if (hasFetchedOptions.current) return;
+    hasFetchedOptions.current = true;
+    const fetchDropdownOptions = async () => {
+      try {
+        const records = await pb.collection('produk').getFullList({ fields: 'tipe,kategori', $autoCancel: false });
+        const allTypes = Array.from(new Set(records.flatMap(r => r.tipe?.split(',').map((s: string) => s.trim()).filter(Boolean))));
+        const uniqueKategori = Array.from(new Set(records.map(r => r.kategori).filter(Boolean)));
+        setExistingTipe(allTypes);
+        setKategoriOptions(uniqueKategori);
+      } catch (e) {
+        console.error("Gagal memuat opsi tipe/kategori", e);
+      }
+    };
+    fetchDropdownOptions();
+  }, []);
 
-  // BLOK 2: Jalan setiap kali ganti halaman atau ketik pencarian
+  // Jalan setiap kali ganti halaman atau ketik pencarian
   useEffect(() => {
     fetchProducts();
   }, [page, searchTerm, filterKategori, filterStok, sortField, sortOrder]);
@@ -226,22 +228,6 @@ export default function Produk() {
     }, 500);
     return () => clearTimeout(delayDebounceFn);
   }, [searchInput]);
-
-  const [kategoriOptions, setKategoriOptions] = useState<string[]>([]);
-
-  const hasFetchedKategori = useRef(false);
-  useEffect(() => {
-    if (hasFetchedKategori.current) return;
-    hasFetchedKategori.current = true;
-    const fetchKategoriOptions = async () => {
-      try {
-        const records = await pb.collection('produk').getFullList({ fields: 'kategori', $autoCancel: false });
-        const uniqueKategori = Array.from(new Set(records.map(r => r.kategori).filter(Boolean)));
-        setKategoriOptions(uniqueKategori);
-      } catch (e) { console.error(e); }
-    };
-    fetchKategoriOptions();
-  }, []);
 
   // Dynamic perPage based on screen width (3 rows × columns)
   useEffect(() => {

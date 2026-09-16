@@ -128,6 +128,14 @@
     const [files, setFiles] = useState<any[]>([]);
     const [previewUrls, setPreviewUrls] = useState<string[]>([]);
     const [wallets, setWallets] = useState<DropdownItem[]>([]);
+    const walletsMap = useMemo(() => {
+      const map = new Map<string, any>();
+      wallets.forEach(w => {
+        if (w.id) map.set(w.id, w);
+        if (w.id_lama) map.set(w.id_lama, w);
+      });
+      return map;
+    }, [wallets]);
     const [loadingWallets, setLoadingWallets] = useState(false);
     const [activeTab, setActiveTab] = useState<'accounts' | 'history' | 'tempo'>('history');
     
@@ -2222,7 +2230,7 @@
                               </label>
                               {formData.account_1 && (
                                 <span className="text-[9px] font-black text-slate-500 bg-slate-200 px-2 py-0.5 rounded-md shadow-sm">
-                                  Saldo: {formatRupiah((wallets.find(w => w.id === formData.account_1) as any)?.number_1 || 0)}
+                                  Saldo: {formatRupiah(walletsMap.get(formData.account_1)?.number_1 || 0)}
                                 </span>
                               )}
                             </div>
@@ -2241,7 +2249,7 @@
                                 </label>
                                 {formData.account_2 && (
                                   <span className="text-[9px] font-black text-blue-600 bg-blue-200/50 px-2 py-0.5 rounded-md shadow-sm">
-                                    Saldo: {formatRupiah((wallets.find(w => w.id === formData.account_2) as any)?.number_1 || 0)}
+                                    Saldo: {formatRupiah(walletsMap.get(formData.account_2)?.number_1 || 0)}
                                   </span>
                                 )}
                               </div>
