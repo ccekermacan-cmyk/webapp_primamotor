@@ -1128,7 +1128,7 @@ export default function MenuPage() {
             });
 
             const personIdConds = matchedPersonIds.length > 0
-              ? matchedPersonIds.map(id => `person = "${id}" || person_baru = "${id}"`).join(' || ')
+              ? matchedPersonIds.map(id => `person = "${id}"`).join(' || ')
               : '';
 
             const subIdConds = subCollectionMenuIds.length > 0
@@ -1139,9 +1139,6 @@ export default function MenuPage() {
               `id_lama ~ {:t${i}}`,
               `jenis ~ {:t${i}}`,
               `person ~ {:t${i}}`,
-              `person_baru.text_1 ~ {:t${i}}`,
-              `person_baru.text_2 ~ {:t${i}}`,
-              `person_baru.id_lama ~ {:t${i}}`,
               `text ~ {:t${i}}`,
               `payment ~ {:t${i}}`,
               `operator ~ {:t${i}}`,
@@ -1200,7 +1197,15 @@ export default function MenuPage() {
           }
 
           if (filterPerson) {
-            overviewFilterParts.push(`(person = "${filterPerson}" || person_baru.id_lama = "${filterPerson}" || person_baru = "${filterPerson}")`);
+            const matchedP = allPersons.find(p => p.id_lama === filterPerson || p.id === filterPerson);
+            if (matchedP) {
+              const pConds = [`person = "${matchedP.id_lama}"`];
+              if (matchedP.id) pConds.push(`person = "${matchedP.id}"`);
+              if (matchedP.text_1) pConds.push(`person ~ "${matchedP.text_1}"`);
+              overviewFilterParts.push(`(${pConds.join(' || ')})`);
+            } else {
+              overviewFilterParts.push(`person = "${filterPerson}"`);
+            }
           }
 
           if (selectedMenuFilters.length > 0) {

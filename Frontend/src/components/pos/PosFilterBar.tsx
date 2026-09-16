@@ -1,6 +1,6 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { Search, List, Grid, Filter, ChevronDown, User, X } from 'lucide-react';
+import { Search, List, Grid, Filter, ChevronDown, User, X, CheckCircle2, Clock, Layers } from 'lucide-react';
 
 interface PosFilterBarProps {
   selectedMenu: string;
@@ -93,7 +93,11 @@ export const PosFilterBar: React.FC<PosFilterBarProps> = ({
             <>
               <button
                 onClick={() => setShowFilters(!showFilters)}
-                className="flex items-center gap-1.5 px-3 py-2 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all duration-300 bg-white/90 border border-slate-200 hover:border-slate-300 hover:bg-white shadow-sm"
+                className={`flex items-center gap-1.5 px-3 py-2 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all duration-300 shadow-sm border ${
+                  showFilters
+                    ? 'bg-slate-800 text-white border-slate-800'
+                    : 'bg-white/90 border-slate-200 hover:border-slate-300 hover:bg-white text-slate-700'
+                }`}
               >
                 <Filter size={14} />
                 Filter
@@ -110,6 +114,31 @@ export const PosFilterBar: React.FC<PosFilterBarProps> = ({
                   className={`transition-transform duration-300 ${showFilters ? 'rotate-180' : ''}`}
                 />
               </button>
+
+              {/* Indikator Active Status Pill */}
+              {filterStatus !== 'all' && (
+                <span className={`text-[9px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full border flex items-center gap-1 shrink-0 shadow-sm transition-all ${
+                  filterStatus === 'lunas' 
+                    ? 'text-emerald-700 bg-emerald-100/90 border-emerald-300' 
+                    : 'text-rose-700 bg-rose-100/90 border-rose-300'
+                }`}>
+                  {filterStatus === 'lunas' ? <CheckCircle2 size={12} /> : <Clock size={12} />}
+                  {filterStatus === 'lunas' ? 'Lunas' : 'Belum Lunas'}
+                  <button
+                    onClick={() => {
+                      setFilterStatus('all');
+                      setPage(1);
+                      const url = new URL(window.location.href);
+                      url.searchParams.delete('status');
+                      if (filterPerson) url.searchParams.set('person', filterPerson);
+                      window.history.replaceState({}, '', url.toString());
+                    }}
+                    className={`ml-0.5 ${filterStatus === 'lunas' ? 'text-emerald-500 hover:text-emerald-800' : 'text-rose-500 hover:text-rose-800'}`}
+                  >
+                    <X size={12} />
+                  </button>
+                </span>
+              )}
 
               {/* Indikator Filter Person */}
               {filterPerson && (
@@ -146,31 +175,72 @@ export const PosFilterBar: React.FC<PosFilterBarProps> = ({
           <div className="flex flex-wrap items-center gap-2 md:gap-3 p-3 bg-white/80 rounded-xl border border-slate-200/60 shadow-sm">
       
             {/* === GRUP FILTER STATUS === */}
-            <div className="flex flex-wrap items-center gap-1 bg-white rounded-lg border border-slate-200 p-1 shadow-sm">
-              {['all', 'lunas', 'belum'].map(status => (
+            <div className="flex items-center gap-1.5">
+              <span className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Status:</span>
+              <div className="flex flex-wrap items-center gap-1 bg-slate-100/90 rounded-xl border border-slate-200/80 p-1 shadow-inner">
+                {/* Button SEMUA */}
                 <button
-                  key={status}
+                  key="all"
                   onClick={() => {
-                    setFilterStatus(status);
+                    setFilterStatus('all');
                     setPage(1);
                     const url = new URL(window.location.href);
-                    if (status === 'all') {
-                      url.searchParams.delete('status');
-                    } else {
-                      url.searchParams.set('status', status);
-                    }
+                    url.searchParams.delete('status');
                     if (filterPerson) url.searchParams.set('person', filterPerson);
                     window.history.replaceState({}, '', url.toString());
                   }}
-                  className={`px-2.5 py-1 text-[9px] md:text-[10px] font-black uppercase tracking-wider rounded-lg transition-all duration-200 whitespace-nowrap ${
-                    filterStatus === status
-                      ? `${activeTheme.main} text-white shadow-sm scale-95`
-                      : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'
+                  className={`flex items-center gap-1 px-3 py-1.5 text-[9px] md:text-[10px] font-black uppercase tracking-wider rounded-lg transition-all duration-200 whitespace-nowrap ${
+                    filterStatus === 'all'
+                      ? 'bg-slate-800 text-white shadow-md border border-slate-700 ring-2 ring-slate-400/30'
+                      : 'text-slate-600 bg-white hover:bg-slate-200/70 border border-slate-200/60'
                   }`}
                 >
-                  {status === 'all' ? 'Semua' : status}
+                  <Layers size={13} />
+                  Semua
                 </button>
-              ))}
+
+                {/* Button LUNAS */}
+                <button
+                  key="lunas"
+                  onClick={() => {
+                    setFilterStatus('lunas');
+                    setPage(1);
+                    const url = new URL(window.location.href);
+                    url.searchParams.set('status', 'lunas');
+                    if (filterPerson) url.searchParams.set('person', filterPerson);
+                    window.history.replaceState({}, '', url.toString());
+                  }}
+                  className={`flex items-center gap-1 px-3 py-1.5 text-[9px] md:text-[10px] font-black uppercase tracking-wider rounded-lg transition-all duration-200 whitespace-nowrap ${
+                    filterStatus === 'lunas'
+                      ? 'bg-emerald-600 text-white shadow-md border border-emerald-500 ring-2 ring-emerald-400/40'
+                      : 'text-emerald-700 bg-emerald-50/80 hover:bg-emerald-100 border border-emerald-200/80'
+                  }`}
+                >
+                  <CheckCircle2 size={13} />
+                  Lunas
+                </button>
+
+                {/* Button BELUM LUNAS */}
+                <button
+                  key="belum"
+                  onClick={() => {
+                    setFilterStatus('belum');
+                    setPage(1);
+                    const url = new URL(window.location.href);
+                    url.searchParams.set('status', 'belum');
+                    if (filterPerson) url.searchParams.set('person', filterPerson);
+                    window.history.replaceState({}, '', url.toString());
+                  }}
+                  className={`flex items-center gap-1 px-3 py-1.5 text-[9px] md:text-[10px] font-black uppercase tracking-wider rounded-lg transition-all duration-200 whitespace-nowrap ${
+                    filterStatus === 'belum'
+                      ? 'bg-rose-600 text-white shadow-md border border-rose-500 ring-2 ring-rose-400/40'
+                      : 'text-rose-700 bg-rose-50/80 hover:bg-rose-100 border border-rose-200/80'
+                  }`}
+                >
+                  <Clock size={13} />
+                  Belum Lunas
+                </button>
+              </div>
             </div>
 
             {/* Pemisah (hanya tampil di desktop) */}
