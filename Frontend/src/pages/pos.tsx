@@ -111,6 +111,15 @@ export default function MenuPage() {
     });
     return map;
   }, [allPersons]);
+
+  const getPersonDisplayText = (personId: string | undefined | null, fallback: string = 'Umum'): string => {
+    if (!personId) return fallback;
+    const p = personsMap.get(personId);
+    if (!p) return personId || fallback;
+    const text1 = p.text_1 || '';
+    const text2 = p.text_2 || '';
+    return text2 ? `${text1} - ${text2}` : (text1 || fallback);
+  };
   
   const [loading, setLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -2248,7 +2257,7 @@ export default function MenuPage() {
     setShowReceiptPrint({
       id: showDetailHistory?.id,
       timestamp: showDetailHistory?.created_at,
-      customer: allPersons.find(p => p.id_lama === showDetailHistory?.person)?.text_1 || 'Umum',
+      customer: getPersonDisplayText(showDetailHistory?.person, 'Umum'),
       items: historyItems.map(h => ({ ...h.expand?.item_baru, qty: h.qty, priceSelected: h.price_1 })),
       total: grandTotalHistory,
       cash: grandTotalHistory,
@@ -2601,10 +2610,7 @@ export default function MenuPage() {
                           
                           <div className="relative z-10 mt-4"> 
                             <h4 className="font-black text-slate-800 text-lg uppercase leading-tight mb-2 truncate group-hover:text-blue-600 transition-colors">
-                              {(() => {
-                                const person = personsMap.get(h.person);
-                                return person ? `${person.text_1} - ${person.text_2 || ''}` : (h.person || 'PELANGGAN UMUM');
-                              })()}
+                              {getPersonDisplayText(h.person, 'PELANGGAN UMUM')}
                             </h4>
                             <div className="flex items-center gap-2 text-[10px] font-bold text-slate-400 bg-slate-50 w-fit px-2 py-1 rounded-md">
                               <span className="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
@@ -3019,7 +3025,7 @@ export default function MenuPage() {
                         className={`w-full p-3 text-xs md:text-sm font-bold text-slate-700 bg-white border-2 ${activeTheme.border} rounded-xl cursor-pointer flex justify-between items-center shadow-sm hover:border-slate-300 transition-colors`}
                       >
                         <span className="truncate">
-                          {personOptions.find(p => p.id_lama === formBayar.personIdLama)?.text_1 || 'Pilih Pelanggan...'}
+                          {getPersonDisplayText(formBayar.personIdLama, 'Pilih Pelanggan...')}
                         </span>
                         {isPersonDropdownOpen ? <ChevronUp size={16} className="text-slate-400" /> : <ChevronDown size={16} className="text-slate-400" />}
                       </div>
@@ -3036,7 +3042,7 @@ export default function MenuPage() {
                               <input 
                                 type="text"
                                 autoFocus
-                                placeholder="Cari nama pelanggan..."
+                                placeholder="Cari nama / HP pelanggan..."
                                 className="w-full bg-transparent border-none outline-none text-xs font-bold text-slate-700 placeholder-slate-400"
                                 value={personSearch}
                                 onChange={e => setPersonSearch(e.target.value)}
@@ -3045,11 +3051,11 @@ export default function MenuPage() {
                             
                             {/* Area List Pelanggan Terfilter */}
                             <div className="max-h-48 overflow-y-auto custom-scrollbar bg-white">
-                              {personOptions.filter(p => p.text_1.toLowerCase().includes(personSearch.toLowerCase()) || p.id_lama.toLowerCase().includes(personSearch.toLowerCase())).length === 0 ? (
+                              {personOptions.filter(p => p.text_1.toLowerCase().includes(personSearch.toLowerCase()) || ((p as any).text_2 && (p as any).text_2.toLowerCase().includes(personSearch.toLowerCase())) || p.id_lama.toLowerCase().includes(personSearch.toLowerCase())).length === 0 ? (
                                 <div className="p-4 text-center text-xs text-slate-400 font-bold">Pelanggan tidak ditemukan</div>
                               ) : (
                                 personOptions
-                                  .filter(p => p.text_1.toLowerCase().includes(personSearch.toLowerCase()) || p.id_lama.toLowerCase().includes(personSearch.toLowerCase()))
+                                  .filter(p => p.text_1.toLowerCase().includes(personSearch.toLowerCase()) || ((p as any).text_2 && (p as any).text_2.toLowerCase().includes(personSearch.toLowerCase())) || p.id_lama.toLowerCase().includes(personSearch.toLowerCase()))
                                   .map(p => (
                                     <div 
                                       key={p.id}
@@ -3060,7 +3066,7 @@ export default function MenuPage() {
                                       }}
                                       className={`p-3 text-xs md:text-sm font-bold cursor-pointer transition-colors border-b border-slate-50 last:border-0 flex flex-col sm:flex-row sm:items-center justify-between gap-1 ${formBayar.personIdLama === p.id_lama ? `${activeTheme.light} ${activeTheme.text}` : 'text-slate-700 hover:bg-slate-50'}`}
                                     >
-                                      <span className="truncate">{p.text_1}</span>
+                                      <span className="truncate">{p.text_1}{(p as any).text_2 ? ` - ${(p as any).text_2}` : ''}</span>
                                       <span className="text-[9px] text-slate-400 font-mono tracking-widest">{p.id_lama}</span>
                                     </div>
                                   ))
@@ -3662,7 +3668,7 @@ export default function MenuPage() {
             <div style={{padding:'8px',borderBottom:'2px dashed #cbd5e1',fontSize:'10px'}}>
               <p style={{margin:'2px 0',display:'flex',justifyContent:'space-between'}}><span style={{color:'#64748b'}}>Nota:</span> <span>{showDetailHistory.ref || showDetailHistory.id}</span></p>
               <p style={{margin:'2px 0',display:'flex',justifyContent:'space-between'}}><span style={{color:'#64748b'}}>Waktu:</span> <span>{formatLocalDateTime(showDetailHistory.created_at)}</span></p>
-              <p style={{margin:'2px 0',display:'flex',justifyContent:'space-between'}}><span style={{color:'#64748b'}}>Cust:</span> <span>{allPersons.find(p => p.id_lama === showDetailHistory.person)?.text_1 || showDetailHistory.person || 'Umum'}</span></p>
+              <p style={{margin:'2px 0',display:'flex',justifyContent:'space-between'}}><span style={{color:'#64748b'}}>Cust:</span> <span>{getPersonDisplayText(showDetailHistory.person, 'Umum')}</span></p>
               <p style={{margin:'2px 0',display:'flex',justifyContent:'space-between'}}><span style={{color:'#64748b'}}>Kasir:</span> <span>{showDetailHistory.operator || operatorName}</span></p>
             </div>
             {historyItems.length > 0 && (
@@ -3981,10 +3987,7 @@ export default function MenuPage() {
 
                       <div className="mt-4 relative z-10">
                         <h4 className="font-black text-white text-3xl md:text-3xl uppercase leading-tight tracking-tight drop-shadow-sm">
-                          {(() => {
-                            const person = allPersons.find(p => p.id_lama === showDetailHistory.person);
-                            return person ? `${person.text_1} - ${person.text_2 || ''}` : (showDetailHistory.person || 'PELANGGAN UMUM');
-                          })()}
+                          {getPersonDisplayText(showDetailHistory.person, 'PELANGGAN UMUM')}
                         </h4>
                         <div className="mt-3 flex flex-col items-center gap-1">
                         <div className="inline-block bg-white/10 backdrop-blur-md border border-white/20 px-5 py-2 rounded-2xl">
@@ -4437,7 +4440,7 @@ export default function MenuPage() {
                         const items = historyItems.map(h => 
                           `${getFullLabel(h.expand?.item_baru)} | Qty: ${h.qty} @ ${Number(h.price_1).toLocaleString('id-ID')} = ${Number(h.price_1 * h.qty).toLocaleString('id-ID')}`
                         ).join('\n');
-                        const text = `*${detail.jenis?.toUpperCase()}*\nID: ${detail.ref || detail.id}\n${formatLocalDateTime(detail.created_at)}\nPelanggan: ${allPersons.find(p => p.id_lama === detail.person)?.text_1 || detail.person || 'Umum'}\nTotal: Rp ${Number(detail.total).toLocaleString('id-ID')}\nDibayar: Rp ${Number(detail.dibayar).toLocaleString('id-ID')}\n\nItems:\n${items}`;
+                        const text = `*${detail.jenis?.toUpperCase()}*\nID: ${detail.ref || detail.id}\n${formatLocalDateTime(detail.created_at)}\nPelanggan: ${getPersonDisplayText(detail.person, 'Umum')}\nTotal: Rp ${Number(detail.total).toLocaleString('id-ID')}\nDibayar: Rp ${Number(detail.dibayar).toLocaleString('id-ID')}\n\nItems:\n${items}`;
                         navigator.clipboard.writeText(text).then(() => {
                           setDialog({ show: true, title: 'Berhasil', message: 'Detail transaksi disalin ke clipboard!', type: 'alert' });
                         }).catch(() => alert('Gagal menyalin ke clipboard'));

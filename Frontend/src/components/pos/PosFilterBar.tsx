@@ -144,7 +144,10 @@ export const PosFilterBar: React.FC<PosFilterBarProps> = React.memo(({
               {filterPerson && (
                 <span className="text-[9px] font-bold text-blue-600 bg-blue-50 px-2.5 py-1 rounded-full border border-blue-200 flex items-center gap-1 shrink-0">
                   <User size={12} />
-                  {allPersons.find(p => p.id_lama === filterPerson)?.text_1 || filterPerson}
+                  {(() => {
+                    const p = allPersons.find(item => item.id_lama === filterPerson || item.id === filterPerson);
+                    return p ? `${p.text_1}${p.text_2 ? ` - ${p.text_2}` : ''}` : filterPerson;
+                  })()}
                   <button
                     onClick={() => {
                       setFilterPerson('');
@@ -267,7 +270,10 @@ export const PosFilterBar: React.FC<PosFilterBarProps> = React.memo(({
                 <User size={13} />
                 <span className="truncate max-w-[70px] md:max-w-[100px]">
                   {filterPerson
-                    ? allPersons.find(p => p.id_lama === filterPerson)?.text_1 || 'Person'
+                    ? (() => {
+                        const p = allPersons.find(item => item.id_lama === filterPerson || item.id === filterPerson);
+                        return p ? `${p.text_1}${p.text_2 ? ` - ${p.text_2}` : ''}` : 'Person';
+                      })()
                     : 'Person'}
                 </span>
                 {filterPerson && (
