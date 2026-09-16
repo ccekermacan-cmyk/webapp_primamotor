@@ -1666,10 +1666,16 @@ export default function MenuPage() {
       setProcessingMsg('');
       setDialog({ show: true, title: 'Timeout', message: 'Proses penyimpanan terlalu lama (>60 detik). Silakan coba lagi atau refresh halaman.', type: 'alert' });
     }, 60000);
-    try {
-      const isEditing = editSession?.isEditing && editSession?.menuId;
-      let menuUpdatedInPb = false;
+    const isEditing = !!(editSession?.isEditing && editSession?.menuId);
+    let menuUpdatedInPb = false;
+    let createdRecords: { type: string; id: string }[] = [];
+    let backupChildren: { collection: string; data: Record<string, any> }[] = [];
+    let oldMenuData: any = null;
+    let oldCashflows: any[] = [];
+    let oldOngkos: any[] = [];
+    let oldLogs: any[] = [];
 
+    try {
       // Notifikasi wajib sukses: kegagalan sinkron Laravel = kegagalan transaksi (agar tidak ada drift stok/saldo).
       // Backend menjamin idempotensi via webhook_marks, jadi retry/rollback aman.
       const mustNotify = async (collection: string, event: 'created' | 'updated' | 'deleted', id: string, oldData?: any) => {
@@ -1690,10 +1696,6 @@ export default function MenuPage() {
       const selectedPersonName = personOptions.find(p => p.id_lama === formBayar.personIdLama)?.text_1 || 'Umum';
 
       let menuRecordId = isEditing ? editSession.menuId : '';
-      let oldMenuData: any = null;
-      let oldCashflows: any[] = [];
-      let oldOngkos: any[] = [];
-      let oldLogs: any[] = [];
 
       if (isEditing) {
         oldMenuData = await pb.collection('menu').getOne(editSession.menuId).catch(() => null);
@@ -1722,9 +1724,6 @@ export default function MenuPage() {
         balances.forEach(b => { preflightBalances[b.id] = b.bal; });
       } catch { /* pre-flight failure is non-fatal, fallbacks handle it */ }
       setProcessingMsg('Menyimpan transaksi...');
-
-      // Track created records for potential rollback
-      const createdRecords: { type: string; id: string }[] = [];
 
       // Logika baru: Untuk pembelian, jika belum ada file → tetap 'belum' meski sudah dibayar penuh
       let statusBaru = totalDibayar >= grandTotal ? 'lunas' : 'belum';
@@ -1810,7 +1809,7 @@ export default function MenuPage() {
           await pb.collection('ongkos').delete(ong.id).catch(() => null);
         }
         for (const log of oldLogs) {
-          await mustNotify('log_stock', 'deleted', log.id);
+          await notifyLaravelApi('log_stock', 'deleted', log.id).catch(() => false);
           await pb.collection('log_stock').delete(log.id).catch(() => null);
         }
       }
