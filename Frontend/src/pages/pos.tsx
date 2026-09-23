@@ -1700,9 +1700,9 @@ export default function MenuPage() {
       if (isEditing) {
         oldMenuData = await pb.collection('menu').getOne(editSession.menuId).catch(() => null);
         
-        oldLogs = await pb.collection('log_stock').getFullList({ filter: `ref_baru = "${editSession.menuId}"` }).catch(() => []);
-        oldCashflows = await pb.collection('cashflow').getFullList({ filter: `ref_baru = "${editSession.menuId}"` }).catch(() => []);
-        oldOngkos = await pb.collection('ongkos').getFullList({ filter: `ref_baru = "${editSession.menuId}"` }).catch(() => []);
+        oldLogs = await pb.collection('log_stock').getFullList({ filter: `ref = "${editSession.menuId}" || ref_baru = "${editSession.menuId}"` }).catch(() => []);
+        oldCashflows = await pb.collection('cashflow').getFullList({ filter: `ref = "${editSession.menuId}" || ref_baru = "${editSession.menuId}"` }).catch(() => []);
+        oldOngkos = await pb.collection('ongkos').getFullList({ filter: `ref = "${editSession.menuId}" || ref_baru = "${editSession.menuId}"` }).catch(() => []);
       }
 
       // Hitung akumulasi parameter keuangan pembayaran kasir
@@ -2137,21 +2137,68 @@ export default function MenuPage() {
       onConfirm: async () => {
         setDialog(prev => ({ ...prev, show: false }));
         try {
-          const logs = await pb.collection('log_stock').getFullList<LogStockDetail>({ filter: `ref_baru = "${menuItem.id}"`, expand: 'item_baru' });
+          const logs = await pb.collection('log_stock').getFullList<LogStockDetail>({ 
+            filter: `ref = "${menuItem.id}" || ref_baru = "${menuItem.id}"`, 
+            expand: 'item_baru',
+            $autoCancel: false 
+          });
           const reloadedCart: CartItem[] = [];
 
           for (const log of logs) {
-            if (log.expand?.item_baru) {
-              const prod = log.expand.item_baru;
+            let prod: any = log.expand?.item_baru;
+
+            if (!prod && log.item_baru) {
+              prod = await pb.collection('produk').getOne(log.item_baru, { $autoCancel: false }).catch(() => null);
+              if (!prod) {
+                prod = await pb.collection('menu').getOne(log.item_baru, { $autoCancel: false }).catch(() => null);
+              }
+            }
+            if (!prod && log.item) {
+              prod = await pb.collection('produk').getFirstListItem(`id_lama = "${log.item}"`, { $autoCancel: false }).catch(() => null);
+            }
+
+            if (prod) {
               reloadedCart.push({ 
                 ...prod, 
                 qty: log.qty, 
                 priceSelected: log.price_1, 
                 manualPrice: log.price_1,      // 🔒 Kunci harga agar tidak berubah oleh tier
                 isTiered: true,                // Tandai sebagai tiered agar UI menampilkan badge
-                basePriceDefault: prod.sell_6 
+                basePriceDefault: prod.sell_6 || prod.sell_1 || log.price_1 
+              });
+            } else {
+              // Fallback jika record produk master tidak ditemukan di DB
+              reloadedCart.push({
+                id: log.item_baru || log.item || log.id,
+                id_lama: log.item || '',
+                kategori: 'Umum',
+                merk: '',
+                jenis: menuItem.jenis || 'produk',
+                varian: '',
+                keterangan: log.item || 'Item Transaksi',
+                tipe: '',
+                unit: 'Pcs',
+                beli: log.price_2 || 0,
+                sell_1: log.price_1 || 0,
+                sell_2: log.price_1 || 0,
+                sell_3: log.price_1 || 0,
+                sell_4: log.price_1 || 0,
+                sell_5: log.price_1 || 0,
+                sell_6: log.price_1 || 0,
+                min_1: 0, min_2: 0, min_3: 0, stok_3: 0,
+                qty: log.qty,
+                priceSelected: log.price_1,
+                manualPrice: log.price_1,
+                isTiered: true,
+                basePriceDefault: log.price_1,
+                activeTierName: 'Harga Nota'
               });
             }
+          }
+
+          if (logs.length > 0 && reloadedCart.length === 0) {
+            setDialog({ show: true, title: 'Gagal Muat Item', message: 'Item transaksi tidak dapat dimuat ke keranjang. Edit dibatalkan.', type: 'alert' });
+            return;
           }
 
           setCart(reloadedCart);
