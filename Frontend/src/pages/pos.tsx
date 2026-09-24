@@ -437,7 +437,7 @@ export default function MenuPage() {
 
   // Edit Session Tracker
   const [editSession, setEditSession] = useState<{ isEditing: boolean, menuId: string, createdAt: string } | null>(null);
-  const [editOldItems, setEditOldItems] = useState<{ item_baru: string; qty: number; boolean: string }[]>([]);
+  const [editOldItems, setEditOldItems] = useState<{ item_baru?: string; item?: string; qty: number; boolean: string }[]>([]);
 
   const [formBayar, setFormBayar] = useState({
       personIdLama: 'umum1',
@@ -1593,10 +1593,8 @@ export default function MenuPage() {
           setCart([]); 
           setEditSession(null);
           setEditOldItems([]);
-      setEditOldItems([]);
-      setExistingMenuFiles([]);
           setMenuFiles([]);
-      setExistingMenuFiles([]);
+          setExistingMenuFiles([]);
           setSelectedMenu(menuName); 
           setPage(1); 
           setDialog(prev => ({ ...prev, show: false }));
@@ -1800,12 +1798,12 @@ export default function MenuPage() {
         const newCfIds = formBayar.cashflowList.map((cf: any) => cf.id).filter(id => id);
         for (const cf of oldCashflows) {
           if (!newCfIds.includes(cf.id)) {
-            await mustNotify('cashflow', 'deleted', cf.id);
+            await notifyLaravelApi('cashflow', 'deleted', cf.id).catch(() => false);
             await pb.collection('cashflow').delete(cf.id).catch(() => null);
           }
         }
         for (const ong of oldOngkos) {
-          await mustNotify('ongkos', 'deleted', ong.id);
+          await notifyLaravelApi('ongkos', 'deleted', ong.id).catch(() => false);
           await pb.collection('ongkos').delete(ong.id).catch(() => null);
         }
         for (const log of oldLogs) {
@@ -1817,7 +1815,10 @@ export default function MenuPage() {
       // ========== PENYIMPANAN LOG STOCK (ITEM BARU) ==========
       const oldItemMap: Record<string, { qty: number; boolean: string }> = {};
       if (isEditing && editOldItems.length > 0) {
-        editOldItems.forEach(o => { oldItemMap[o.item_baru] = o; });
+        editOldItems.forEach(o => {
+          if (o.item_baru) oldItemMap[o.item_baru] = o;
+          if (o.item) oldItemMap[o.item] = o;
+        });
       }
       const runningStock: Record<string, number> = {};
       for (const item of cartWithTierPrice) {
@@ -2012,6 +2013,7 @@ export default function MenuPage() {
       try { localStorage.removeItem('pos_draft_cart'); } catch { /* ignore */ }
       setMenuFiles([]);
       setEditSession(null);
+      setEditOldItems([]);
       setIsCartModalOpen(false);
       setFormBayar({
         personIdLama: 'umum1',
@@ -2274,7 +2276,7 @@ export default function MenuPage() {
           
           // Satu kali panggil set state sudah cukup
           setEditSession({ isEditing: true, menuId: menuItem.id, createdAt: menuItem.created_at });
-          setEditOldItems(logs.map((l: any) => ({ item_baru: l.item_baru, qty: l.qty, boolean: l.boolean })));
+          setEditOldItems(logs.map((l: any) => ({ item_baru: l.item_baru || '', item: l.item || '', qty: l.qty, boolean: l.boolean })));
           setShowDetailHistory(null); // Tutup modal
           window.scrollTo(0, 0);
         } catch (e) { 
@@ -2425,6 +2427,13 @@ export default function MenuPage() {
     try {
       setIsProcessing(true);
       await deleteTransactionWithRevert(menuItem.id);
+      if (editSession?.menuId === menuItem.id) {
+        setEditSession(null);
+        setEditOldItems([]);
+        setCart([]);
+        setMenuFiles([]);
+        setExistingMenuFiles([]);
+      }
       fetchData();
       setShowDetailHistory(null);
       setDialog({ show: true, title: 'Sukses Hapus', message: 'Data transaksi berhasil dihapus. Stok produk dan data kas telah dikembalikan.', type: 'alert' });
@@ -2851,6 +2860,48 @@ export default function MenuPage() {
         title="Keranjang Belanja"
       >
         <div className="flex flex-col max-h-[75vh] md:max-h-[85vh] bg-white">
+          {editSession?.isEditing && (
+            <div className="p-3 bg-blue-50 border border-blue-200 rounded-2xl flex items-center justify-between gap-2 mb-3 shadow-sm">
+              <div className="flex items-center gap-2">
+                <Edit2 size={16} className="text-blue-600 shrink-0" />
+                <span className="text-xs font-bold text-blue-900">
+                  Mode Edit Nota ({editSession.menuId.slice(0, 8)}...)
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  confirmAction(
+                    'Batalkan Edit?',
+                    'Keranjang akan dibersihkan dan kembali ke mode transaksi baru. Lanjutkan?',
+                    () => {
+                      setCart([]);
+                      setEditSession(null);
+                      setEditOldItems([]);
+                      setMenuFiles([]);
+                      setExistingMenuFiles([]);
+                      setFormBayar({
+                        personIdLama: 'umum1',
+                        payment: 'Tunai',
+                        nominalBayar: 0,
+                        mekanikList: [{ idLama: '', ongkos: 0 }],
+                        noteMenu: '',
+                        note: '',
+                        marketplace: '',
+                        adminFee: 0,
+                        cashback: 0,
+                        cashflowList: [{ accountId: '', nominal: 0 }],
+                        createdAt: getLocalDatetimeInput(),
+                      });
+                    }
+                  );
+                }}
+                className="px-3 py-1 bg-red-100 hover:bg-red-200 text-red-700 rounded-xl text-xs font-bold uppercase transition-colors"
+              >
+                Batal Edit
+              </button>
+            </div>
+          )}
           {cart.length === 0 && localStorage.getItem('pos_draft_cart') && (() => {
             try {
               const draft = JSON.parse(localStorage.getItem('pos_draft_cart') || '{}');
