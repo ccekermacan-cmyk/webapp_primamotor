@@ -1523,8 +1523,8 @@ export default function MenuPage() {
           setDialog({ show: true, title: 'Validasi Gagal', message: 'Marketplace wajib diisi untuk pelanggan online.', type: 'alert' });
           return;
         }
-        if (formBayar.adminFee <= 0) {
-          setDialog({ show: true, title: 'Validasi Gagal', message: 'Admin fee wajib diisi (minimal 0).', type: 'alert' });
+        if (formBayar.adminFee < 0) {
+          setDialog({ show: true, title: 'Validasi Gagal', message: 'Admin fee tidak boleh bernilai negatif.', type: 'alert' });
           return;
         }
       }
@@ -1737,7 +1737,7 @@ export default function MenuPage() {
         if (statusBaru === 'lunas' && oldStatus !== 'lunas') {
           dateLunas = new Date().toISOString();
         } else if (statusBaru === 'lunas') {
-          dateLunas = oldMenuData.date_lunas; // Pertahankan track records tgl lunas lama
+          dateLunas = oldMenuData.date_lunas || new Date().toISOString(); // Pertahankan track records tgl lunas lama
         }
       } else if (statusBaru === 'lunas') {
         dateLunas = new Date().toISOString();
@@ -1841,7 +1841,7 @@ export default function MenuPage() {
 
         // Smart edit: net stock delta (preflight is pre-revert = post-original value)
         let qtyAkhir: number;
-        const oldItem = isEditing ? oldItemMap[prodId] : null;
+        const oldItem = isEditing ? (oldItemMap[prodId] || (item.id_lama ? oldItemMap[item.id_lama] : null)) : null;
         if (oldItem) {
           if (oldItem.qty === logQty && oldItem.boolean === booleanValue) {
             // Unchanged: restore to preflight (stock was reverted by delete, must restore)
