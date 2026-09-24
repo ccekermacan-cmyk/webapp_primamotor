@@ -1787,7 +1787,6 @@ export default function MenuPage() {
         keys.forEach(k => { if (obj[k] !== undefined) out[k] = obj[k]; });
         return out;
       };
-      let backupChildren: { collection: string; data: Record<string, any> }[] = [];
       if (isEditing) {
         backupChildren = [
           ...oldLogs.map(l => ({ collection: 'log_stock', data: pickFields(l, ['id', 'id_lama', 'created_at', 'operator', 'item', 'qty', 'item_baru', 'price_1', 'price_2', 'number_1', 'number_2', 'boolean', 'ref', 'ref_baru', 'normal', 'qty_awal', 'qty_akhir', 'stok_awal', 'stok_akhir']) })),
