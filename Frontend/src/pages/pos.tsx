@@ -7,7 +7,7 @@ import { createPortal } from 'react-dom';
 import { 
   Search, ShoppingCart, ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
   Trash2, Plus, Receipt, Layers, Printer, Share2, X,
-  ArrowRight, Calendar, History, Sparkles, DollarSign, Wallet, AlertTriangle, AlertCircle, Info, Wrench, Edit, TrendingUp, TrendingDown, Filter, Zap,
+  ArrowRight, Calendar, History, Sparkles, DollarSign, Wallet, AlertTriangle, AlertCircle, Info, Wrench, Edit, Edit2, TrendingUp, TrendingDown, Filter, Zap,
   // Tambahan ikon baru untuk UI yang diperbarui:
   ListOrdered, List, Grid, Users, CreditCard, ShoppingBag, FileText, EyeOff, ImagePlus, Save, CheckCircle2, Box, User, ExternalLink,
   Package, Eye, Upload
