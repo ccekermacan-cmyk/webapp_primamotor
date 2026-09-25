@@ -438,6 +438,14 @@ export default function MenuPage() {
   // Edit Session Tracker
   const [editSession, setEditSession] = useState<{ isEditing: boolean, menuId: string, createdAt: string } | null>(null);
   const [editOldItems, setEditOldItems] = useState<{ item_baru?: string; item?: string; qty: number; boolean: string }[]>([]);
+  const [quickSettleData, setQuickSettleData] = useState<{
+    show: boolean;
+    menu: HistoryMenu | null;
+    nominal: number;
+    accountId: string;
+    note: string;
+    createdAt: string;
+  } | null>(null);
 
   const [formBayar, setFormBayar] = useState({
       personIdLama: 'umum1',
@@ -2412,6 +2420,113 @@ export default function MenuPage() {
     }
   };
 
+  const openQuickSettle = (menu: HistoryMenu, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const sisa = Math.max(0, (menu.total || 0) - (menu.dibayar || 0));
+    const defaultAcc = cashflowAccounts.length > 0 ? cashflowAccounts[0].id : '';
+    setQuickSettleData({
+      show: true,
+      menu,
+      nominal: sisa,
+      accountId: defaultAcc,
+      note: `Pelunasan Nota ${menu.ref || menu.id}`,
+      createdAt: getLocalDatetimeInput()
+    });
+  };
+
+  const executeQuickSettle = async () => {
+    if (!quickSettleData || !quickSettleData.menu) return;
+    const { menu, nominal, accountId, note, createdAt } = quickSettleData;
+    if (!accountId) {
+      setDialog({ show: true, title: 'Validasi Gagal', message: 'Pilih akun kas penerima pembayaran!', type: 'alert' });
+      return;
+    }
+    if (nominal <= 0) {
+      setDialog({ show: true, title: 'Validasi Gagal', message: 'Nominal pelunasan harus lebih besar dari 0!', type: 'alert' });
+      return;
+    }
+
+    setIsProcessing(true);
+    setProcessingMsg('Menyimpan pelunasan...');
+
+    try {
+      const selectedAccount = cashflowAccounts.find(acc => acc.id === accountId);
+      const accountIdLama = selectedAccount ? selectedAccount.id_lama : '';
+      const mutasiValue = (menu.jenis?.toLowerCase().includes('penjualan') || menu.jenis?.toLowerCase().includes('service')) ? 'in' : 'out';
+      const timestamp = createdAt ? new Date(createdAt).toISOString() : new Date().toISOString();
+
+      let personRecordId = '';
+      if (menu.person && menu.person !== 'umum1') {
+        try {
+          const personRec = await pb.collection('dropdown').getFirstListItem(`id_lama = "${menu.person}"`, { $autoCancel: false });
+          personRecordId = personRec.id;
+        } catch {}
+      }
+
+      // 1. Buat entri cashflow pelunasan
+      const cfRecord = await pb.collection('cashflow').create({
+        id_lama: '',
+        operator: operatorName || pb.authStore.model?.username || 'Kasir',
+        nominal: Number(nominal),
+        jenis: menu.jenis || 'Penjualan',
+        mutasi: mutasiValue,
+        account_1: accountId,
+        account_2: '',
+        note: note || `Pelunasan POS Nota ${menu.id}`,
+        ref_baru: menu.id,
+        person: personRecordId,
+        persontext: menu.person || '',
+        acc1: accountIdLama,
+        acc2: '',
+        created_at: timestamp
+      });
+
+      await notifyLaravelApi('cashflow', 'created', cfRecord.id);
+
+      // 2. Akumulasi total dibayar dan update status menu
+      const currentPaid = Number(menu.dibayar || 0);
+      const grandTotalVal = Number(menu.total || 0);
+      const newPaid = currentPaid + Number(nominal);
+      const newStatus = newPaid >= grandTotalVal ? 'lunas' : 'belum';
+      const dateLunas = newStatus === 'lunas' ? (menu.date_lunas || new Date().toISOString()) : null;
+
+      const updateData = new FormData();
+      updateData.append('dibayar', String(newPaid));
+      updateData.append('status', newStatus);
+      if (dateLunas) updateData.append('date_lunas', dateLunas);
+
+      await pb.collection('menu').update(menu.id, updateData);
+      await notifyLaravelApi('menu', 'updated', menu.id, { dibayar: newPaid, status: newStatus });
+
+      // Recalculate report date
+      try {
+        await fetch(`${getLaravelApiUrl()}/reports/recalculate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ date: (createdAt || '').split('T')[0] })
+        });
+      } catch {}
+
+      setQuickSettleData(null);
+      if (showDetailHistory?.id === menu.id) {
+        setShowDetailHistory(prev => prev ? { ...prev, dibayar: newPaid, status: newStatus as any, date_lunas: dateLunas || prev.date_lunas } : null);
+      }
+      fetchData();
+      setDialog({
+        show: true,
+        title: 'Pelunasan Sukses!',
+        message: `Pembayaran sebesar Rp ${Number(nominal).toLocaleString('id-ID')} berhasil dicatat. Status nota saat ini: ${newStatus.toUpperCase()}`,
+        type: 'alert'
+      });
+    } catch (err: any) {
+      console.error('Quick Settle Error:', err);
+      setDialog({ show: true, title: 'Gagal Pelunasan', message: 'Terjadi kesalahan saat menyimpan pelunasan: ' + (err.message || err), type: 'alert' });
+    } finally {
+      setIsProcessing(false);
+      setProcessingMsg('');
+    }
+  };
+
   const handleDeleteHistory = async (menuItem: HistoryMenu) => {
     if (isDeleting) return; // guard double-call
     setIsDeleting(true);
@@ -2679,9 +2794,18 @@ export default function MenuPage() {
                               {h.status === 'lunas' ? (
                                 <span className="text-xs font-black text-emerald-600">Total: Rp {(h.total || 0).toLocaleString('id-ID')}</span>
                               ) : (
-                                <div className="flex flex-col">
+                                <div className="flex flex-col gap-1">
                                   <span className="text-[10px] font-black text-slate-500 line-through">Rp {(h.total || 0).toLocaleString('id-ID')}</span>
-                                  <span className="text-xs font-black text-rose-600">Terbayar: Rp {(h.dibayar || 0).toLocaleString('id-ID')}</span>
+                                  <span className="text-xs font-black text-rose-600">Sisa: Rp {Math.max(0, (h.total || 0) - (h.dibayar || 0)).toLocaleString('id-ID')}</span>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => openQuickSettle(h, e)}
+                                    className="mt-1 px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-black uppercase tracking-wider shadow-sm flex items-center justify-center gap-1 transition-colors"
+                                    title="Pelunasan Cepat"
+                                  >
+                                    <Wallet size={12} />
+                                    <span>Pelunasan Cepat</span>
+                                  </button>
                                 </div>
                               )}
                             </div>
@@ -4491,6 +4615,19 @@ export default function MenuPage() {
                   );
                 })()}
 
+                {showDetailHistory && showDetailHistory.status !== 'lunas' && !showDetailHistory.jenis?.toLowerCase().includes('gaji') && (
+                  <button
+                    type="button"
+                    onClick={() => openQuickSettle(showDetailHistory)}
+                    disabled={isDeleting}
+                    className="h-14 px-5 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs uppercase tracking-wider shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2 hover:scale-[1.02] active:scale-95 transition-all"
+                    title="Pelunasan Pembayaran Cepat (Tanpa Ubah Keranjang)"
+                  >
+                    <Wallet size={18} />
+                    <span>Pelunasan Cepat</span>
+                  </button>
+                )}
+
                 {['1','2','3','4','5','6','7'].includes(userLevel) && (
                   <button
                     onClick={() => {
@@ -5251,6 +5388,156 @@ export default function MenuPage() {
           );
         })()}
       </Modal>
+
+      {/* ===== MODAL PELUNASAN PEMBAYARAN CEPAT ===== */}
+      {quickSettleData?.show && quickSettleData.menu && (
+        <Modal
+          isOpen={quickSettleData.show}
+          onClose={() => !isProcessing && setQuickSettleData(null)}
+          title="Pelunasan Pembayaran Cepat"
+        >
+          <div className="space-y-5 p-2">
+            {/* Banner Ringkasan Nota */}
+            <div className="bg-gradient-to-br from-slate-900 to-slate-800 text-white p-5 rounded-3xl shadow-lg border border-slate-700 relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500 rounded-full blur-3xl opacity-20 pointer-events-none" />
+              <div className="flex justify-between items-start mb-3">
+                <div>
+                  <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest block">
+                    {quickSettleData.menu.jenis || 'Nota Transaksi'}
+                  </span>
+                  <h4 className="text-lg font-black tracking-tight">
+                    {getPersonDisplayText(quickSettleData.menu.person, 'PELANGGAN UMUM')}
+                  </h4>
+                </div>
+                <span className="text-xs font-mono bg-white/10 px-2.5 py-1 rounded-lg">
+                  {quickSettleData.menu.ref || quickSettleData.menu.id.slice(0, 8)}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-4 border-t border-white/10 pt-3">
+                <div>
+                  <span className="text-[10px] text-slate-400 font-bold block">Total Invoice</span>
+                  <span className="text-sm font-black">
+                    Rp {Number(quickSettleData.menu.total || 0).toLocaleString('id-ID')}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-emerald-400 font-bold block">Telah Dibayar</span>
+                  <span className="text-sm font-black text-emerald-400">
+                    Rp {Number(quickSettleData.menu.dibayar || 0).toLocaleString('id-ID')}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Sisa Piutang / Tagihan Highlight */}
+            <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-2xl flex justify-between items-center">
+              <div>
+                <span className="text-[11px] font-black text-emerald-800 uppercase tracking-wider block">
+                  Sisa Belum Dibayar
+                </span>
+                <p className="text-xl font-black text-emerald-700">
+                  Rp {Math.max(0, (quickSettleData.menu.total || 0) - (quickSettleData.menu.dibayar || 0)).toLocaleString('id-ID')}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setQuickSettleData(prev => prev ? {
+                  ...prev,
+                  nominal: Math.max(0, (prev.menu!.total || 0) - (prev.menu!.dibayar || 0))
+                } : null)}
+                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold uppercase transition-colors"
+              >
+                Lunas Penuh
+              </button>
+            </div>
+
+            {/* Form Input Pelunasan */}
+            <div className="space-y-4">
+              <div>
+                <label className="text-xs font-bold text-slate-700 mb-1.5 block">
+                  Akun Kas Penerima Pembayaran <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={quickSettleData.accountId}
+                  onChange={(e) => setQuickSettleData(prev => prev ? { ...prev, accountId: e.target.value } : null)}
+                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                >
+                  <option value="">-- Pilih Akun Kas --</option>
+                  {cashflowAccounts.map(acc => (
+                    <option key={acc.id} value={acc.id}>
+                      {acc.text_1} {acc.id_lama ? `(${acc.id_lama})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-700 mb-1.5 block">
+                  Nominal Pelunasan (Rp) <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  value={quickSettleData.nominal || ''}
+                  onChange={(e) => setQuickSettleData(prev => prev ? { ...prev, nominal: Number(e.target.value) } : null)}
+                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-black text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  placeholder="Masukkan nominal bayar..."
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-700 mb-1.5 block">
+                  Waktu Pembayaran
+                </label>
+                <input
+                  type="datetime-local"
+                  value={quickSettleData.createdAt}
+                  onChange={(e) => setQuickSettleData(prev => prev ? { ...prev, createdAt: e.target.value } : null)}
+                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-700 mb-1.5 block">
+                  Catatan Pelunasan (Opsional)
+                </label>
+                <input
+                  type="text"
+                  value={quickSettleData.note}
+                  onChange={(e) => setQuickSettleData(prev => prev ? { ...prev, note: e.target.value } : null)}
+                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  placeholder="Contoh: Pelunasan Transfer BCA"
+                />
+              </div>
+            </div>
+
+            {/* Buttons */}
+            <div className="flex gap-3 pt-3">
+              <button
+                type="button"
+                onClick={() => setQuickSettleData(null)}
+                disabled={isProcessing}
+                className="flex-1 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl font-bold text-xs uppercase tracking-wider transition-colors"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={executeQuickSettle}
+                disabled={isProcessing}
+                className="flex-[2] py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-black text-xs uppercase tracking-wider shadow-lg shadow-emerald-600/30 transition-all active:scale-95 flex items-center justify-center gap-2"
+              >
+                {isProcessing ? 'Menyimpan...' : (
+                  <>
+                    <CheckCircle2 size={16} />
+                    <span>Simpan Pelunasan</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
 
     </div> 
   );
