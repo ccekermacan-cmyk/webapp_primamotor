@@ -1810,25 +1810,29 @@ export default function MenuPage() {
             await pb.collection('cashflow').delete(cf.id).catch(() => null);
           }
         }
+
+        // Dynamic Incremental Diff for Ongkos (Service Mechanics)
+        const validMekanik = formBayar.mekanikList.filter((m: any) => m.idLama && m.ongkos > 0);
+        const activeMekanikPersonIds = validMekanik.map((m: any) => m.idLama);
         for (const ong of oldOngkos) {
-          await notifyLaravelApi('ongkos', 'deleted', ong.id).catch(() => false);
-          await pb.collection('ongkos').delete(ong.id).catch(() => null);
-        }
-        for (const log of oldLogs) {
-          await notifyLaravelApi('log_stock', 'deleted', log.id).catch(() => false);
-          await pb.collection('log_stock').delete(log.id).catch(() => null);
+          if (!activeMekanikPersonIds.includes(ong.person)) {
+            await notifyLaravelApi('ongkos', 'deleted', ong.id).catch(() => false);
+            await pb.collection('ongkos').delete(ong.id).catch(() => null);
+          }
         }
       }
 
-      // ========== PENYIMPANAN LOG STOCK (ITEM BARU) ==========
-      const oldItemMap: Record<string, { qty: number; boolean: string }> = {};
-      if (isEditing && editOldItems.length > 0) {
-        editOldItems.forEach(o => {
-          if (o.item_baru) oldItemMap[o.item_baru] = o;
-          if (o.item) oldItemMap[o.item] = o;
+      // ========== INCREMENTAL DIFF PENYIMPANAN LOG STOCK ==========
+      const oldLogMap: Record<string, any> = {};
+      if (isEditing && oldLogs.length > 0) {
+        oldLogs.forEach(l => {
+          if (l.item_baru) oldLogMap[l.item_baru] = l;
+          if (l.item) oldLogMap[l.item] = l;
         });
       }
+      const processedLogIds = new Set<string>();
       const runningStock: Record<string, number> = {};
+
       for (const item of cartWithTierPrice) {
         const booleanValue = (menuLower.includes('penjualan') || menuLower.includes('service')) ? 'out' : 'in';
         
@@ -1847,51 +1851,75 @@ export default function MenuPage() {
         const logQty = Math.max(1, Number(item.qty || 1));
         const qtyAwal = runningStock[prodId] ?? 0;
 
-        // Smart edit: net stock delta (preflight is pre-revert = post-original value)
-        let qtyAkhir: number;
-        const oldItem = isEditing ? (oldItemMap[prodId] || (item.id_lama ? oldItemMap[item.id_lama] : null)) : null;
-        if (oldItem) {
-          if (oldItem.qty === logQty && oldItem.boolean === booleanValue) {
-            // Unchanged: restore to preflight (stock was reverted by delete, must restore)
-            qtyAkhir = preflightStocks[prodId] ?? qtyAwal;
+        const matchedOldLog = isEditing ? (oldLogMap[prodId] || (item.id_lama ? oldLogMap[item.id_lama] : null)) : null;
+
+        if (matchedOldLog) {
+          processedLogIds.add(matchedOldLog.id);
+          const isLogChanged = Number(matchedOldLog.qty) !== logQty || 
+                               Number(matchedOldLog.price_1) !== Number(item.priceSelected || 0) ||
+                               matchedOldLog.boolean !== booleanValue;
+
+          if (!isLogChanged) {
+            // UNCHANGED ITEM: Skip DB update & webhook, retain stock & ID in-place
+            runningStock[prodId] = preflightStocks[prodId] ?? qtyAwal;
           } else {
-            // Changed: preflight is post-original. Remove old effect, apply new.
-            const afterRevert = oldItem.boolean === 'in'
-              ? (preflightStocks[prodId] ?? 0) - oldItem.qty
-              : (preflightStocks[prodId] ?? 0) + oldItem.qty;
-            qtyAkhir = booleanValue === 'in' ? afterRevert + logQty : Math.max(0, afterRevert - logQty);
+            // CHANGED ITEM: Update existing log_stock in-place
+            const afterRevert = matchedOldLog.boolean === 'in'
+              ? (preflightStocks[prodId] ?? 0) - Number(matchedOldLog.qty || 0)
+              : (preflightStocks[prodId] ?? 0) + Number(matchedOldLog.qty || 0);
+            const qtyAkhir = booleanValue === 'in' ? afterRevert + logQty : Math.max(0, afterRevert - logQty);
+            runningStock[prodId] = qtyAkhir;
+
+            const updatedLogRecord = await pb.collection('log_stock').update(matchedOldLog.id, {
+              qty: logQty,
+              price_1: Number(item.priceSelected || 0),
+              price_2: Number(price2Value || 0),
+              normal: Number(normalValue || 0),
+              boolean: booleanValue,
+              stok_awal: preflightStocks[prodId] ?? qtyAwal,
+              stok_akhir: qtyAkhir,
+            });
+            await mustNotify('log_stock', 'updated', matchedOldLog.id, matchedOldLog);
           }
         } else {
-          qtyAkhir = booleanValue === 'in' ? qtyAwal + logQty : Math.max(0, qtyAwal - logQty);
-        }
-        if (prodId && (!oldItem || oldItem.qty !== logQty || oldItem.boolean !== booleanValue)) {
+          // NEW ITEM ADDED TO CART DURING EDIT / NEW TRANSACTION
+          const qtyAkhir = booleanValue === 'in' ? qtyAwal + logQty : Math.max(0, qtyAwal - logQty);
           runningStock[prodId] = qtyAkhir;
-        }
 
-        const logRecord = await pb.collection('log_stock').create({
-          id_lama: '',
-          created_at: timestamp,
-          operator: operatorName || pb.authStore.model?.username || 'Kasir',
-          item: item.id_lama || item.id || '',
-          qty: logQty,
-          item_baru: prodId,
-          price_1: Number(item.priceSelected || 0),
-          price_2: Number(price2Value || 0),
-          number_1: 0,
-          number_2: 0,
-          boolean: booleanValue,
-          ref: menuRecordId || '',
-          ref_baru: menuRecordId || '',
-          normal: Number(normalValue || 0),
-          stok_awal: qtyAwal,
-          stok_akhir: qtyAkhir,
-        });
-        createdRecords.push({ type: 'log_stock', id: logRecord.id });
-        // SELALU panggil webhook backend karena penghapusan Menu sebelumnya sudah me-revert stok dan laporan (omset/laba)
-        await mustNotify('log_stock', 'created', logRecord.id);
+          const logRecord = await pb.collection('log_stock').create({
+            id_lama: '',
+            created_at: timestamp,
+            operator: operatorName || pb.authStore.model?.username || 'Kasir',
+            item: item.id_lama || item.id || '',
+            qty: logQty,
+            item_baru: prodId,
+            price_1: Number(item.priceSelected || 0),
+            price_2: Number(price2Value || 0),
+            number_1: 0,
+            number_2: 0,
+            boolean: booleanValue,
+            ref: menuRecordId || '',
+            ref_baru: menuRecordId || '',
+            normal: Number(normalValue || 0),
+            stok_awal: qtyAwal,
+            stok_akhir: qtyAkhir,
+          });
+          createdRecords.push({ type: 'log_stock', id: logRecord.id });
+          await mustNotify('log_stock', 'created', logRecord.id);
+        }
       }
 
-            // Cari person record ID berdasarkan personIdLama (jika ada)
+      // DELETE REMOVED LOGS (Items that were removed from cart during edit)
+      if (isEditing && oldLogs.length > 0) {
+        for (const log of oldLogs) {
+          if (!processedLogIds.has(log.id)) {
+            await notifyLaravelApi('log_stock', 'deleted', log.id).catch(() => false);
+            await pb.collection('log_stock').delete(log.id).catch(() => null);
+          }
+        }
+      }
+
+      // Cari person record ID berdasarkan personIdLama (jika ada)
       let personRecordId = '';
       if (formBayar.personIdLama && formBayar.personIdLama !== 'umum1') {
         try {
@@ -1950,30 +1978,37 @@ export default function MenuPage() {
 
       // Alokasikan alur pembagian komisi upah ke sub-koleksi ongkos (Khusus Jenis Service)
       if (menuLower.includes('service')) {
-        // Filter mekanik yang valid (ada idLama dan ongkos > 0)
         const mekanikValid = formBayar.mekanikList.filter(m => m.idLama && m.ongkos > 0);
         
         if (mekanikValid.length > 0) {
           try {
-            // Buat array promise dengan $autoCancel: false dan panggil webhook Laravel API
             const ongkosPromises = mekanikValid.map(async (mek) => {
-              const res = await pb.collection('ongkos').create(
-                {
-                  id_lama: '',
-                  date: timestamp,
-                  person: mek.idLama,
-                  ongkos: mek.ongkos,
-                  operator: operatorName,
-                  ref: '',
-                  ref_baru: menuRecordId
-                },
-                { '$autoCancel': false }
-              );
-              createdRecords.push({ type: 'ongkos', id: res.id });
-              await mustNotify('ongkos', 'created', res.id);
-              return res;
+              const existingOng = oldOngkos.find(o => o.person === mek.idLama);
+              if (existingOng) {
+                if (existingOng.ongkos !== mek.ongkos) {
+                  const updatedOng = await pb.collection('ongkos').update(existingOng.id, { ongkos: mek.ongkos }, { '$autoCancel': false });
+                  await mustNotify('ongkos', 'updated', updatedOng.id, existingOng);
+                  return updatedOng;
+                }
+                return existingOng;
+              } else {
+                const res = await pb.collection('ongkos').create(
+                  {
+                    id_lama: '',
+                    date: timestamp,
+                    person: mek.idLama,
+                    ongkos: mek.ongkos,
+                    operator: operatorName,
+                    ref: '',
+                    ref_baru: menuRecordId
+                  },
+                  { '$autoCancel': false }
+                );
+                createdRecords.push({ type: 'ongkos', id: res.id });
+                await mustNotify('ongkos', 'created', res.id);
+                return res;
+              }
             });
-            // Jalankan semua promise secara paralel
             await Promise.all(ongkosPromises);
           } catch (error) {
             console.error('Gagal menyimpan ongkos:', error);
