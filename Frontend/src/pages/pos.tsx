@@ -445,6 +445,7 @@ export default function MenuPage() {
     accountId: string;
     note: string;
     createdAt: string;
+    settleFiles: File[];
   } | null>(null);
 
   const [formBayar, setFormBayar] = useState({
@@ -2430,7 +2431,8 @@ export default function MenuPage() {
       nominal: sisa,
       accountId: defaultAcc,
       note: `Pelunasan Nota ${menu.ref || menu.id}`,
-      createdAt: getLocalDatetimeInput()
+      createdAt: getLocalDatetimeInput(),
+      settleFiles: []
     });
   };
 
@@ -2495,7 +2497,21 @@ export default function MenuPage() {
       updateData.append('status', newStatus);
       if (dateLunas) updateData.append('date_lunas', dateLunas);
 
-      await pb.collection('menu').update(menu.id, updateData);
+      // Pertahankan file lampiran terdahulu agar tidak hilang
+      if (menu.file && Array.isArray(menu.file)) {
+        menu.file.forEach((fName: string) => {
+          updateData.append('file', fName);
+        });
+      }
+
+      // Upload file bukti transfer / pelunasan baru
+      if (quickSettleData.settleFiles && quickSettleData.settleFiles.length > 0) {
+        quickSettleData.settleFiles.forEach((f: File) => {
+          updateData.append('file', f);
+        });
+      }
+
+      const updatedMenuRecord = await pb.collection('menu').update(menu.id, updateData);
       await notifyLaravelApi('menu', 'updated', menu.id, { dibayar: newPaid, status: newStatus });
 
       // Recalculate report date
@@ -2509,7 +2525,13 @@ export default function MenuPage() {
 
       setQuickSettleData(null);
       if (showDetailHistory?.id === menu.id) {
-        setShowDetailHistory(prev => prev ? { ...prev, dibayar: newPaid, status: newStatus as any, date_lunas: dateLunas || prev.date_lunas } : null);
+        setShowDetailHistory(prev => prev ? { 
+          ...prev, 
+          dibayar: newPaid, 
+          status: newStatus as any, 
+          date_lunas: dateLunas || prev.date_lunas,
+          file: updatedMenuRecord.file || prev.file
+        } : null);
       }
       fetchData();
       setDialog({
@@ -5508,6 +5530,75 @@ export default function MenuPage() {
                   className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                   placeholder="Contoh: Pelunasan Transfer BCA"
                 />
+              </div>
+
+              {/* Upload Media / Bukti Transfer */}
+              <div>
+                <label className="text-xs font-bold text-slate-700 mb-1.5 flex items-center justify-between">
+                  <span>Upload Media / Bukti Transfer (Opsional)</span>
+                  {quickSettleData.menu.file && quickSettleData.menu.file.length > 0 && (
+                    <span className="text-[10px] text-blue-600 font-medium">
+                      ({quickSettleData.menu.file.length} file terdahulu)
+                    </span>
+                  )}
+                </label>
+                <div className="border-2 border-dashed border-slate-200 rounded-2xl p-4 bg-slate-50/50 hover:bg-slate-50 transition-colors">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    id="quick-settle-file-input"
+                    className="hidden"
+                    onChange={(e) => {
+                      if (e.target.files && e.target.files.length > 0) {
+                        const filesArray = Array.from(e.target.files);
+                        setQuickSettleData(prev => prev ? {
+                          ...prev,
+                          settleFiles: [...(prev.settleFiles || []), ...filesArray]
+                        } : null);
+                      }
+                    }}
+                  />
+                  <label
+                    htmlFor="quick-settle-file-input"
+                    className="flex flex-col items-center justify-center cursor-pointer gap-2 py-2"
+                  >
+                    <div className="p-3 bg-white rounded-full shadow-sm text-emerald-600">
+                      <Upload size={20} />
+                    </div>
+                    <div className="text-center">
+                      <p className="text-xs font-bold text-slate-700">Klik untuk Pilih Foto Bukti Transfer</p>
+                      <p className="text-[10px] text-slate-400 mt-0.5">Format: JPG, PNG, WEBP</p>
+                    </div>
+                  </label>
+
+                  {/* Thumbnail Preview File Baru */}
+                  {quickSettleData.settleFiles && quickSettleData.settleFiles.length > 0 && (
+                    <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 mt-3 pt-3 border-t border-slate-200">
+                      {quickSettleData.settleFiles.map((file, idx) => {
+                        const previewUrl = URL.createObjectURL(file);
+                        return (
+                          <div key={idx} className="relative group rounded-xl overflow-hidden border border-slate-200 aspect-square bg-white">
+                            <img src={previewUrl} alt={file.name} className="w-full h-full object-cover" />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setQuickSettleData(prev => prev ? {
+                                  ...prev,
+                                  settleFiles: prev.settleFiles.filter((_, i) => i !== idx)
+                                } : null);
+                              }}
+                              className="absolute top-1 right-1 p-1 bg-rose-500 text-white rounded-full opacity-80 hover:opacity-100 transition-opacity"
+                              title="Hapus foto ini"
+                            >
+                              <X size={12} />
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 
