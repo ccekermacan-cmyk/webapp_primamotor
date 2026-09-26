@@ -2476,10 +2476,24 @@ export default function MenuPage() {
     }
   };
 
-  const openQuickSettle = (menu: HistoryMenu, e?: React.MouseEvent) => {
+  const openQuickSettle = async (menu: HistoryMenu, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
     const sisa = Math.max(0, (menu.total || 0) - (menu.dibayar || 0));
-    const defaultAcc = cashflowAccounts.length > 0 ? cashflowAccounts[0].id : '';
+    
+    // Refresh list akun kas agar nilai number_1 (saldo dompet) selalu akurat & up-to-date
+    let currentAccounts = cashflowAccounts;
+    try {
+      currentAccounts = await pb.collection('dropdown').getFullList<DropdownItem>({
+        filter: `jenis ~ "cashflow account" && visibilitas ~ "${userLevel}"`,
+        sort: 'text_1',
+        $autoCancel: false
+      });
+      setCashflowAccounts(currentAccounts);
+    } catch (err) {
+      console.warn("Gagal merefresh akun kas untuk pelunasan cepat:", err);
+    }
+
+    const defaultAcc = currentAccounts.length > 0 ? currentAccounts[0].id : '';
     setQuickSettleData({
       show: true,
       menu,
@@ -2520,6 +2534,16 @@ export default function MenuPage() {
         } catch {}
       }
 
+      // Pre-flight snapshot saldo terbaru dari PocketBase
+      let saldoAwal = 0;
+      try {
+        const freshAcc = await pb.collection('dropdown').getOne(accountId, { $autoCancel: false });
+        saldoAwal = Number(freshAcc.number_1) || 0;
+      } catch {
+        saldoAwal = Number(selectedAccount?.number_1) || 0;
+      }
+      const saldoAkhir = mutasiValue === 'in' ? (saldoAwal + Number(nominal)) : (saldoAwal - Number(nominal));
+
       // Akumulasi total dibayar dan status menu
       const currentPaid = Number(menu.dibayar || 0);
       const grandTotalVal = Number(menu.total || 0);
@@ -2544,7 +2568,7 @@ export default function MenuPage() {
         });
       }
 
-      // Gabungkan pembuatan Cashflow Pelunasan & Update Menu ke dalam PocketBase Atomic Batch
+      // Gabungkan pembuatan Cashflow Pelunasan, Update Saldo Dompet & Update Menu ke dalam PocketBase Atomic Batch
       const batch = pb.createBatch();
 
       batch.collection('cashflow').create({
@@ -2561,7 +2585,14 @@ export default function MenuPage() {
         persontext: menu.person || '',
         acc1: accountIdLama,
         acc2: '',
+        saldo_awal: saldoAwal,
+        saldo_akhir: saldoAkhir,
         created_at: timestamp
+      });
+
+      // Update saldo dompet (number_1) secara atomic di tabel dropdown
+      batch.collection('dropdown').update(accountId, {
+        number_1: saldoAkhir
       });
 
       batch.collection('menu').update(menu.id, updateData);
@@ -2573,6 +2604,7 @@ export default function MenuPage() {
         await notifyLaravelApi('cashflow', 'created', createdCfId).catch(() => null);
       }
       await notifyLaravelApi('menu', 'updated', menu.id, { dibayar: newPaid, status: newStatus }).catch(() => null);
+      await notifyLaravelApi('dropdown', 'updated', accountId, { number_1: saldoAkhir }).catch(() => null);
 
       // Recalculate report date
       try {
@@ -2584,6 +2616,16 @@ export default function MenuPage() {
       } catch {}
 
       const updatedMenuRecord = await pb.collection('menu').getOne(menu.id).catch(() => null);
+
+      // Refresh akun kas lokal
+      try {
+        const freshAccounts = await pb.collection('dropdown').getFullList<DropdownItem>({
+          filter: `jenis ~ "cashflow account" && visibilitas ~ "${userLevel}"`,
+          sort: 'text_1',
+          $autoCancel: false
+        });
+        setCashflowAccounts(freshAccounts);
+      } catch {}
 
       setQuickSettleData(null);
       if (showDetailHistory?.id === menu.id) {
@@ -5538,8 +5580,17 @@ export default function MenuPage() {
             {/* Form Input Pelunasan */}
             <div className="space-y-4">
               <div>
-                <label className="text-xs font-bold text-slate-700 mb-1.5 block">
-                  Akun Kas Penerima Pembayaran <span className="text-red-500">*</span>
+                <label className="text-xs font-bold text-slate-700 mb-1.5 flex justify-between items-center">
+                  <span>Akun Kas Penerima Pembayaran <span className="text-red-500">*</span></span>
+                  {quickSettleData.accountId && (() => {
+                    const selectedAcc = cashflowAccounts.find(a => a.id === quickSettleData.accountId);
+                    const bal = Number(selectedAcc?.number_1 || 0);
+                    return (
+                      <span className="text-[11px] font-black text-emerald-700 bg-emerald-100/90 border border-emerald-300 px-2.5 py-0.5 rounded-lg flex items-center gap-1 shadow-sm">
+                        <Wallet size={12} /> Saldo Aktif: Rp {bal.toLocaleString('id-ID')}
+                      </span>
+                    );
+                  })()}
                 </label>
                 <select
                   value={quickSettleData.accountId}
@@ -5549,7 +5600,7 @@ export default function MenuPage() {
                   <option value="">-- Pilih Akun Kas --</option>
                   {cashflowAccounts.map(acc => (
                     <option key={acc.id} value={acc.id}>
-                      {acc.text_1} {acc.id_lama ? `(${acc.id_lama})` : ''}
+                      {acc.text_1} {acc.id_lama ? `(${acc.id_lama})` : ''} - Saldo: Rp {Number(acc.number_1 || 0).toLocaleString('id-ID')}
                     </option>
                   ))}
                 </select>
