@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { pb } from '../lib/pocketbase';
+import { pb, notifyLaravelApi } from '../lib/pocketbase';
 import Modal from '../components/modal';
 import { 
   Search, Plus, Edit, Trash2, Users, UserCheck, 
@@ -310,7 +310,7 @@ export default function PeoplePage() {
       formData.append('text_5', currentPerson.text_5 || '');
       formData.append('text_6', currentPerson.text_6 || '');
       formData.append('text_7', currentPerson.text_7 || '');
-      formData.append('text_9', currentPerson.text_9 || '');
+      formData.append('text_9', currentPerson.text_9 || (formattedJenis === 'Customer' ? 'Pelanggan' : 'Supplier'));
       
       formData.append('number_2', String(currentPerson.number_2 ?? '0')); // RT
       formData.append('number_3', String(currentPerson.number_3 ?? '0')); // RW
@@ -322,21 +322,19 @@ export default function PeoplePage() {
       // 🟢 Visibilitas di-hardcode sesuai instruksi
       formData.append('visibilitas', '1,2,3,4,5,6,7');
 
-      // Set fallback text_9 (Kategori) jika user tidak mengisi apa-apa
-      if (!currentPerson.text_9) {
-        formData.append('text_9', formattedJenis === 'Customer' ? 'Pelanggan' : 'Supplier');
-      }
-
       // Menggunakan 'file' sesuai JSON untuk menyimpan file foto aktual
       if ((currentPerson as any).imageFile) {
         formData.append('file', (currentPerson as any).imageFile);
       }
 
+      const batch = pb.createBatch();
       if (currentPerson.id) {
-        await pb.collection('dropdown').update(currentPerson.id, formData);
+        batch.collection('dropdown').update(currentPerson.id, formData);
       } else {
-        await pb.collection('dropdown').create(formData);
+        batch.collection('dropdown').create(formData);
       }
+      await batch.send();
+      notifyLaravelApi('dropdown', currentPerson.id ? 'update' : 'create', currentPerson.id || undefined);
 
       setIsModalOpen(false);
       setCurrentPerson({});
@@ -353,7 +351,11 @@ export default function PeoplePage() {
   const handleDelete = async (id: string) => {
     if (window.confirm('Apakah Anda yakin ingin menghapus data person ini secara permanen?')) {
       try {
-        await pb.collection('dropdown').delete(id);
+        const batch = pb.createBatch();
+        batch.collection('dropdown').delete(id);
+        await batch.send();
+        notifyLaravelApi('dropdown', 'delete', id);
+
         fetchPeople();
       } catch (err) {
         alert('Gagal menghapus data.');
@@ -390,15 +392,22 @@ export default function PeoplePage() {
         formData.append('avatar', editUserData.avatarFile);
       }
 
+      const batch = pb.createBatch();
       if (editUserData.id) {
-        await pb.collection('user').update(editUserData.id, formData);
-        alert('Data karyawan berhasil diperbarui.');
+        batch.collection('user').update(editUserData.id, formData);
       } else {
         formData.append('username', editUserData.username || '');
         const pwd = editUserData.password || 'password123';
         formData.append('password', pwd);
         formData.append('passwordConfirm', pwd);
-        await pb.collection('user').create(formData);
+        batch.collection('user').create(formData);
+      }
+      await batch.send();
+      notifyLaravelApi('user', editUserData.id ? 'update' : 'create', editUserData.id || undefined);
+
+      if (editUserData.id) {
+        alert('Data karyawan berhasil diperbarui.');
+      } else {
         alert('Karyawan baru berhasil ditambahkan (Password Default: password123).');
       }
 
@@ -418,7 +427,11 @@ export default function PeoplePage() {
   const handleDeleteUser = async (userId: string) => {
     if (!window.confirm('Yakin ingin menghapus user ini secara permanen?')) return;
     try {
-      await pb.collection('user').delete(userId);
+      const batch = pb.createBatch();
+      batch.collection('user').delete(userId);
+      await batch.send();
+      notifyLaravelApi('user', 'delete', userId);
+
       setIsUserDetailModalOpen(false);
       fetchUsers();
       alert('User berhasil dihapus');

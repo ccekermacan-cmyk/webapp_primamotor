@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { pb } from '../lib/pocketbase';
+import { pb, notifyLaravelApi } from '../lib/pocketbase';
 import Modal from '../components/modal';
 import { 
   User, Mail, Shield, Camera, Edit3, Lock, 
@@ -273,7 +273,11 @@ export default function AkunPage() {
         } : {})
       };
 
-      await pb.collection('user').update(userData.id, payload);
+      const batch = pb.createBatch();
+      batch.collection('user').update(userData.id, payload);
+      await batch.send();
+
+      await notifyLaravelApi('user', 'updated', userData.id, payload).catch(() => null);
       await fetchProfile(); 
       
       alert("Profil berhasil diperbarui!");

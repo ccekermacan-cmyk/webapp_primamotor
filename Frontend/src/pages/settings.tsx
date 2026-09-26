@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { pb } from '../lib/pocketbase';
+import { pb, notifyLaravelApi } from '../lib/pocketbase';
 import Modal from '../components/modal';
 import { 
   Settings as SettingsIcon, 
@@ -352,10 +352,20 @@ export default function Settings() {
         operator: pb.authStore.model?.username || 'Admin'
       };
 
-      if (selectedItem?.id && modalType === 'form') {
-        await pb.collection('dropdown').update(selectedItem.id, payload);
+      const isEditMode = selectedItem?.id && modalType === 'form';
+      const batch = pb.createBatch();
+
+      if (isEditMode && selectedItem) {
+        batch.collection('dropdown').update(selectedItem.id, payload);
       } else {
-        await pb.collection('dropdown').create(payload);
+        batch.collection('dropdown').create(payload);
+      }
+
+      const batchResults: any = await batch.send();
+      const resId = (batchResults && batchResults[0]?.id) ? batchResults[0].id : (selectedItem?.id || '');
+
+      if (resId) {
+        await notifyLaravelApi('dropdown', isEditMode ? 'updated' : 'created', resId, payload).catch(() => null);
       }
 
       setModalType(null);
@@ -385,7 +395,11 @@ export default function Settings() {
     if (!selectedItem) return;
     setIsProcessing(true);
     try {
-      await pb.collection('dropdown').delete(selectedItem.id);
+      const batch = pb.createBatch();
+      batch.collection('dropdown').delete(selectedItem.id);
+      await batch.send();
+
+      await notifyLaravelApi('dropdown', 'deleted', selectedItem.id).catch(() => null);
       setModalType(null);
       await fetchDropdowns();
 
