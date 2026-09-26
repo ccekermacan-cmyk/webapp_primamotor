@@ -1929,12 +1929,29 @@ export default function MenuPage() {
         }
       }
 
-      // DELETE REMOVED LOGS (Items that were removed from cart during edit)
+      // UPDATE PHYSICAL STOCK IN PRODUK TABLE (stok_3)
+      for (const [prodId, finalStok] of Object.entries(runningStock)) {
+        if (prodId) {
+          batch.collection('produk').update(prodId, { stok_3: finalStok });
+          notifyQueue.push({ type: 'produk' as any, action: 'updated', id: prodId });
+        }
+      }
+
+      // DELETE REMOVED LOGS (Items that were removed from cart during edit) & REVERT THEIR STOCK
       if (isEditing && oldLogs.length > 0) {
         for (const log of oldLogs) {
           if (!processedLogIds.has(log.id)) {
             batch.collection('log_stock').delete(log.id);
             notifyQueue.push({ type: 'log_stock', action: 'deleted', id: log.id });
+
+            // Revert stock for removed item during edit
+            const prodId = log.item_baru || log.item;
+            if (prodId) {
+              const currentStok = preflightStocks[prodId] ?? 0;
+              const revertedStok = log.boolean === 'in' ? Math.max(0, currentStok - Number(log.qty || 0)) : (currentStok + Number(log.qty || 0));
+              batch.collection('produk').update(prodId, { stok_3: revertedStok });
+              notifyQueue.push({ type: 'produk' as any, action: 'updated', id: prodId });
+            }
           }
         }
       }
@@ -1950,7 +1967,7 @@ export default function MenuPage() {
         }
       }
 
-      // Simpan pemetaan pemisahan multi cashflow aliran dana masuk/keluar
+      // Simpan pemetaan pemisahan multi cashflow aliran dana masuk/keluar & UPDATE SALDO DOMPET
       for (const cf of formBayar.cashflowList) {
         if (cf.accountId && cf.nominal > 0) {
           const selectedAccount = cashflowAccounts.find(acc => acc.id === cf.accountId);
@@ -1992,6 +2009,10 @@ export default function MenuPage() {
             });
             notifyQueue.push({ type: 'cashflow', action: 'created', id: '' });
           }
+
+          // Update saldo dompet (number_1) secara atomic di tabel dropdown
+          batch.collection('dropdown').update(cf.accountId, { number_1: saldoAkhir });
+          notifyQueue.push({ type: 'dropdown' as any, action: 'updated', id: cf.accountId });
         }
       }
 
@@ -2441,6 +2462,49 @@ export default function MenuPage() {
       // Eksekusi seluruh penghapusan children & menu dalam PocketBase Atomic Batch
       const batch = pb.createBatch();
 
+      // Revert Stok Produk (stok_3)
+      const updatedProductIds = new Set<string>();
+      for (const log of logStockList) {
+        const prodId = log.item_baru || log.item;
+        if (prodId) {
+          try {
+            const prodRec = await pb.collection('produk').getOne(prodId, { $autoCancel: false });
+            const currentStok = Number(prodRec.stok_3) || 0;
+            // Jika log dulunya 'out' (Penjualan), mengembalikan stok (+qty)
+            // Jika log dulunya 'in' (Pembelian), mengurangi stok (-qty)
+            const revertedStok = log.boolean === 'in' 
+              ? Math.max(0, currentStok - Number(log.qty || 0))
+              : (currentStok + Number(log.qty || 0));
+            
+            batch.collection('produk').update(prodId, { stok_3: revertedStok });
+            updatedProductIds.add(prodId);
+          } catch (err) {
+            console.warn("Gagal revert stok produk saat hapus nota:", prodId, err);
+          }
+        }
+      }
+
+      // Revert Saldo Dompet / Akun Kas (number_1)
+      const updatedAccountIds = new Set<string>();
+      for (const cf of cashflowList) {
+        if (cf.account_1) {
+          try {
+            const accRec = await pb.collection('dropdown').getOne(cf.account_1, { $autoCancel: false });
+            const currentBal = Number(accRec.number_1) || 0;
+            // Jika cf dulunya 'in' (Penerimaan), mengurangi saldo (-nominal)
+            // Jika cf dulunya 'out' (Pengeluaran), mengembalikan saldo (+nominal)
+            const revertedBal = cf.mutasi === 'in'
+              ? (currentBal - Number(cf.nominal || 0))
+              : (currentBal + Number(cf.nominal || 0));
+
+            batch.collection('dropdown').update(cf.account_1, { number_1: revertedBal });
+            updatedAccountIds.add(cf.account_1);
+          } catch (err) {
+            console.warn("Gagal revert saldo akun kas saat hapus nota:", cf.account_1, err);
+          }
+        }
+      }
+
       for (const log of logStockList) batch.collection('log_stock').delete(log.id);
       for (const cf of cashflowList) batch.collection('cashflow').delete(cf.id);
       for (const ong of ongkosList) batch.collection('ongkos').delete(ong.id);
@@ -2451,6 +2515,12 @@ export default function MenuPage() {
       await batch.send();
 
       // Trigger Webhook notifies pasca batch hapus atomic sukses
+      for (const pId of updatedProductIds) {
+        await notifyLaravelApi('produk', 'updated', pId).catch(() => null);
+      }
+      for (const aId of updatedAccountIds) {
+        await notifyLaravelApi('dropdown', 'updated', aId).catch(() => null);
+      }
       for (const g of gajiList) {
         await notifyLaravelApi('gaji', 'deleted', g.id).catch(() => null);
       }
