@@ -497,8 +497,12 @@ const fetchRelatedProducts = async (sp: Produk) => {
       return;
     }
     try {
-      await pb.collection('produk').delete(selectedProduct.id);
-      await notifyLaravelApi('produk', 'deleted', selectedProduct.id);
+      // Eksekusi Hapus Produk via PocketBase Atomic Batch
+      const batch = pb.createBatch();
+      batch.collection('produk').delete(selectedProduct.id);
+      await batch.send();
+
+      await notifyLaravelApi('produk', 'deleted', selectedProduct.id).catch(() => null);
       setModalType(null);
       setDeletePass('');
       fetchProducts(); 
@@ -506,6 +510,46 @@ const fetchRelatedProducts = async (sp: Produk) => {
       alert("Gagal menghapus: " + (error.message || 'Koneksi gagal'));
     } finally {
       setIsProcessing(false);
+    }
+  };
+
+  // Helper Penyesuaian Stok Cepat Atomic Batch (+ / - stok_3)
+  const handleQuickStockChange = async (prod: Produk, delta: number) => {
+    const oldStok = Number(prod.stok_3) || 0;
+    const newStok = Math.max(0, oldStok + delta);
+    if (oldStok === newStok) return;
+
+    const actualDiff = newStok - oldStok;
+    const operatorName = pb.authStore.model?.name || pb.authStore.model?.username || 'Kasir';
+    const timestamp = new Date().toISOString();
+
+    try {
+      const batch = pb.createBatch();
+      
+      // 1. Queue Update stok_3 pada produk
+      batch.collection('produk').update(prod.id, { stok_3: newStok });
+
+      // 2. Queue Create log_stock penyesuaian stok
+      batch.collection('log_stock').create({
+        id_lama: '',
+        created_at: timestamp,
+        operator: operatorName,
+        item: prod.id_lama || prod.id || '',
+        item_baru: prod.id,
+        qty: Math.abs(actualDiff),
+        boolean: actualDiff > 0 ? 'in' : 'out',
+        price_1: Number(prod.sell_6 || 0),
+        price_2: Number(prod.beli || 0) * Math.abs(actualDiff),
+        normal: Number(prod.sell_6 || 0) * Math.abs(actualDiff),
+        stok_awal: oldStok,
+        stok_akhir: newStok,
+      });
+
+      await batch.send();
+      await notifyLaravelApi('produk', 'updated', prod.id, { stok_3: newStok }).catch(() => null);
+      fetchProducts();
+    } catch (err) {
+      console.error("Gagal update stok cepat:", err);
     }
   };
 
@@ -584,48 +628,66 @@ const fetchRelatedProducts = async (sp: Produk) => {
         }
       }
 
-      // 2. Tentukan status File (Apakah ada file baru, hapus semua file, atau hanya pertahankan file lama)
-      // Array lama yg dipertahankan user
+      // 2. Tentukan status File
       const oldFilesToKeep = productFiles.filter(f => typeof f === 'object' && 'isOld' in f).map((f: any) => f.name);
-      // Array file baru yg diupload user
       const newFilesToUpload = productFiles.filter(f => f instanceof File);
 
       if (isEditMode && selectedProduct) {
         const originalFiles = selectedProduct.file || [];
-        
-        // Cari file mana saja yang ADA di original tapi TIDAK ADA di oldFilesToKeep (berarti dihapus user)
         const filesToDelete = originalFiles.filter(fName => !oldFilesToKeep.includes(fName));
-        
-        // 🔴 PENTING: Untuk menghapus spesifik file di array PocketBase, gunakan key `${fieldName}.${indexToDelete}` 
-        // dengan value kosong string (PocketBase doc requirement).
         filesToDelete.forEach((deletedFileName) => {
           const idx = originalFiles.indexOf(deletedFileName);
           if (idx !== -1) {
-            // Ini sintaks standar PB untuk mendelete 1 item dari multiple file
             formDataObj.append(`file.${idx}`, ""); 
           }
         });
       }
 
-      // Append file baru saja ke FormData
       if (newFilesToUpload.length > 0) {
         newFilesToUpload.forEach((f) => {
           formDataObj.append('file', f as File);
         });
       }
 
-      // 🟢 EKSEKUSI API
+      const oldStok = isEditMode && selectedProduct ? Number(selectedProduct.stok_3 || 0) : 0;
+      const newStok = Number(payload.stok_3 || 0);
+      const stockDiff = newStok - oldStok;
+      const operatorName = pb.authStore.model?.name || pb.authStore.model?.username || 'Admin';
+      const timestamp = new Date().toISOString();
+
+      // 🟢 EKSEKUSI API VIA POCKETBASE ATOMIC BATCH
       if (isEditMode && selectedProduct) {
-        await pb.collection('produk').update(selectedProduct.id, formDataObj);
+        const batch = pb.createBatch();
+        batch.collection('produk').update(selectedProduct.id, formDataObj);
+
+        // INCREMENTAL DIFF LOG STOK: Jika stok berubah saat edit, queue pencatatan log_stock
+        if (stockDiff !== 0) {
+          batch.collection('log_stock').create({
+            id_lama: '',
+            created_at: timestamp,
+            operator: operatorName,
+            item: selectedProduct.id_lama || selectedProduct.id || '',
+            item_baru: selectedProduct.id,
+            qty: Math.abs(stockDiff),
+            boolean: stockDiff > 0 ? 'in' : 'out',
+            price_1: Number(payload.sell_6 || 0),
+            price_2: Number(payload.beli || 0) * Math.abs(stockDiff),
+            normal: Number(payload.sell_6 || 0) * Math.abs(stockDiff),
+            stok_awal: oldStok,
+            stok_akhir: newStok,
+          });
+        }
+
+        await batch.send();
+        await notifyLaravelApi('produk', 'updated', selectedProduct.id, payload).catch(() => null);
       } else {
         // Mode Create (dengan retry ID unik)
-        let success = false;
+        let createdProd: any = null;
         let attempts = 0;
         const maxAttempts = 15;
-        while (!success && attempts < maxAttempts) {
+        while (!createdProd && attempts < maxAttempts) {
           try {
-            await pb.collection('produk').create(formDataObj);
-            success = true;
+            createdProd = await pb.collection('produk').create(formDataObj);
           } catch (error: any) {
             const isUniqueError = error?.response?.data?.id_lama?.code === 'validation_not_unique' || error?.status === 400;
             if (isUniqueError) {
@@ -633,11 +695,31 @@ const fetchRelatedProducts = async (sp: Produk) => {
               formDataObj.set('id_lama', newId);
               attempts++;
             } else {
-              throw error; // Lempar keluar jika bukan masalah ID unik
+              throw error;
             }
           }
         }
-        if (!success) throw new Error("Gagal mendapatkan ID unik setelah beberapa kali percobaan.");
+        if (!createdProd) throw new Error("Gagal mendapatkan ID unik setelah beberapa kali percobaan.");
+
+        // Jika produk baru berhasil dibuat dengan stok > 0, catat log_stock awal
+        if (newStok > 0 && createdProd?.id) {
+          await pb.collection('log_stock').create({
+            id_lama: '',
+            created_at: timestamp,
+            operator: operatorName,
+            item: createdProd.id_lama || createdProd.id || '',
+            item_baru: createdProd.id,
+            qty: newStok,
+            boolean: 'in',
+            price_1: Number(payload.sell_6 || 0),
+            price_2: Number(payload.beli || 0) * newStok,
+            normal: Number(payload.sell_6 || 0) * newStok,
+            stok_awal: 0,
+            stok_akhir: newStok,
+          }).catch(() => null);
+        }
+
+        await notifyLaravelApi('produk', 'created', createdProd.id).catch(() => null);
       }
       
       // Jika berhasil
@@ -647,7 +729,6 @@ const fetchRelatedProducts = async (sp: Produk) => {
       
     } catch (error: any) {
       console.error("Error saving product:", error);
-      // Fallback pesan error lebih deskriptif untuk dibaca di alert
       const errorMsg = error?.response?.data?.message 
         || error?.message 
         || "Gagal menyimpan data. Kemungkinan koneksi internet terputus atau server mati.";
@@ -992,9 +1073,9 @@ const fetchRelatedProducts = async (sp: Produk) => {
                         </div>
                         {userLevel === '1' && (
                         <div className="flex items-center gap-0.5" onClick={e => e.stopPropagation()}>
-                          <button onClick={async () => { try { await pb.collection('produk').update(prod.id, {stok_3: Math.max(0, prod.stok_3 - 1)}); fetchProducts(); } catch{} }} className="w-6 h-6 flex items-center justify-center rounded-md bg-red-50 hover:bg-red-100 text-red-600 text-xs font-black">−</button>
+                          <button onClick={async () => { await handleQuickStockChange(prod, -1); }} className="w-6 h-6 flex items-center justify-center rounded-md bg-red-50 hover:bg-red-100 text-red-600 text-xs font-black">−</button>
                           <span className="text-[9px] font-bold text-gray-400 w-4 text-center">{prod.stok_3}</span>
-                          <button onClick={async () => { try { await pb.collection('produk').update(prod.id, {stok_3: prod.stok_3 + 1}); fetchProducts(); } catch{} }} className="w-6 h-6 flex items-center justify-center rounded-md bg-green-50 hover:bg-green-100 text-green-600 text-xs font-black">+</button>
+                          <button onClick={async () => { await handleQuickStockChange(prod, 1); }} className="w-6 h-6 flex items-center justify-center rounded-md bg-green-50 hover:bg-green-100 text-green-600 text-xs font-black">+</button>
                         </div>
                         )}
                       </div>
