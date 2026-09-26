@@ -720,21 +720,29 @@ export default function MenuPage() {
   };
 
   // Helper Simpan Seluruh Batch Slip Gaji (Perangkum + Children)
+  // Helper Simpan Seluruh Batch Slip Gaji (Perangkum + Children)
   const handleSaveGaji = async () => {
     if (gajiItemList.length === 0) {
       showAlert('Perhatian', 'Tambahkan minimal 1 Penerima Gaji ke dalam daftar!');
       return;
     }
     setIsProcessing(true);
+    setProcessingMsg('Menyiapkan batch slip gaji...');
     try {
       const grandTotal = gajiItemList.reduce((sum, item) => sum + item.netto, 0);
       const isEditMode = gajiEditSession !== null;
       let menuId: string;
 
+      // Inisialisasi PocketBase Atomic Batch
+      const batch = pb.createBatch();
+      const deletedGajiIds: string[] = [];
+      const deletedBonIds: string[] = [];
+
       if (isEditMode) {
         // ============== MODE EDIT ==============
-        // 1. Update record menu utama
-        await pb.collection('menu').update(gajiEditSession!.menuId, {
+        menuId = gajiEditSession!.menuId;
+        // 1. Queue Update record menu utama ke atomic batch
+        batch.collection('menu').update(menuId, {
           total: grandTotal,
           dibayar: grandTotal,
           qty: gajiHeader.qty,
@@ -743,39 +751,38 @@ export default function MenuPage() {
           person_baru: gajiItemList[0]?.person || '',
           created_at: gajiHeader.date ? `${gajiHeader.date} 12:00:00` : new Date().toISOString(),
         });
-        menuId = gajiEditSession!.menuId;
 
-        // 2. Hapus semua record gaji lama yang terkait (akan dibuat ulang)
+        // 2. Fetch & Queue Hapus semua record gaji lama yang terkait ke batch
         const oldGajiList = await pb.collection('gaji').getFullList({
           filter: `ref = "${menuId}" || ref_baru = "${menuId}"`,
           $autoCancel: false
         }).catch(() => []);
         for (const og of oldGajiList) {
-          await notifyLaravelApi('gaji', 'deleted', og.id);
-          await pb.collection('gaji').delete(og.id).catch(() => null);
+          deletedGajiIds.push(og.id);
+          batch.collection('gaji').delete(og.id);
         }
 
-        // 3. Hapus semua record bon lama yang ter-generate dari gaji ini
+        // 3. Fetch & Queue Hapus semua record bon lama yang ter-generate dari gaji ini ke batch
         const oldBonList = await pb.collection('bon').getFullList({
           filter: `ref = "${menuId}"`,
           $autoCancel: false
         }).catch(() => []);
         for (const ob of oldBonList) {
-          const obOk = await notifyLaravelApi('bon', 'deleted', ob.id);
-          if (!obOk && ob.user) {
+          deletedBonIds.push(ob.id);
+          if (ob.user) {
             try {
               const u = await pb.collection('user').getOne(ob.user, { $autoCancel: false });
               const bJ = String(ob.jenis||'').toLowerCase();
               const bN = Number(ob.nominal_bon || ob.nominal || 0);
               const newU = bJ==='in' ? Math.max(0,(Number(u.number)||0)-bN) : (Number(u.number)||0)+bN;
-              await pb.collection('user').update(ob.user,{number:newU},{$autoCancel:false});
-            } catch(e) { console.warn('Gaji bon revert fallback:',e); }
+              batch.collection('user').update(ob.user, { number: newU });
+            } catch(e) { console.warn('Gaji bon revert fallback:', e); }
           }
-          await pb.collection('bon').delete(ob.id).catch(() => null);
+          batch.collection('bon').delete(ob.id);
         }
       } else {
         // ============== MODE BARU ==============
-        // 1. Simpan Perangkum Utama ke collection 'menu'
+        // 1. Simpan Perangkum Utama ke collection 'menu' untuk mendapatkan menuId
         const menuRecord = await pb.collection('menu').create({
           jenis: 'gaji',
           status: 'lunas',
@@ -791,7 +798,7 @@ export default function MenuPage() {
         menuId = menuRecord.id;
       }
 
-      // 2 (Bersama). Simpan ulang setiap rincian karyawan ke collection 'gaji'
+      // 2. Queue Simpan ulang setiap rincian karyawan ke collection 'gaji' dan 'bon' dalam atomic batch
       for (const item of gajiItemList) {
         const formData = new FormData();
         formData.append('ref', menuId);
@@ -822,7 +829,7 @@ export default function MenuPage() {
           });
         }
 
-        await pb.collection('gaji').create(formData);
+        batch.collection('gaji').create(formData);
 
         // Cari user ID untuk update saldo bon
         const foundUser = allUsers.find(u => u.username === item.person || u.name === item.person || u.id === item.person);
@@ -834,53 +841,56 @@ export default function MenuPage() {
           if (foundPerson) personDropdownId = foundPerson.id;
         }
 
-        // Auto-buat record bon jika ada bon_dibayar > 0 (Pelunasan Bon)
+        // Auto-queue record bon jika ada bon_dibayar > 0 (Pelunasan Bon)
         if (item.bon_dibayar && item.bon_dibayar > 0) {
-          try {
-            await pb.collection('bon').create({
-              persontext: item.person,
-              person: personDropdownId,
-              jenis: 'in', // Pelunasan = in (mengurangi saldo bon)
-              nominal: item.bon_dibayar,
-              note: `Potongan Bon via Slip Gaji Periode ${gajiHeader.date}`,
-              ref_gaji: menuId,
-              operator: operatorName || pb.authStore.model?.username || 'System'
-            });
+          batch.collection('bon').create({
+            persontext: item.person,
+            person: personDropdownId,
+            jenis: 'in', // Pelunasan = in (mengurangi saldo bon)
+            nominal: item.bon_dibayar,
+            note: `Potongan Bon via Slip Gaji Periode ${gajiHeader.date}`,
+            ref_gaji: menuId,
+            operator: operatorName || pb.authStore.model?.username || 'System'
+          });
 
-            if (foundUser) {
-              const uRec = await pb.collection('user').getOne(foundUser.id, { $autoCancel: false });
-              const newBon = Math.max(0, (Number(uRec.number) || 0) - item.bon_dibayar);
-              await pb.collection('user').update(foundUser.id, { number: newBon }, { $autoCancel: false });
-            }
-          } catch (bonErr) {
-            console.error("Error auto-creating bon payment record:", bonErr);
+          if (foundUser) {
+            const uRec = await pb.collection('user').getOne(foundUser.id, { $autoCancel: false });
+            const newBon = Math.max(0, (Number(uRec.number) || 0) - item.bon_dibayar);
+            batch.collection('user').update(foundUser.id, { number: newBon });
           }
         }
 
-        // Auto-buat record bon jika ada bon_diambil > 0 (Pinjaman Bon Baru)
+        // Auto-queue record bon jika ada bon_diambil > 0 (Pinjaman Bon Baru)
         if (item.bon_diambil && item.bon_diambil > 0) {
-          try {
-            await pb.collection('bon').create({
-              persontext: item.person,
-              person: personDropdownId,
-              jenis: 'out', // Ambil bon baru = out (menambah saldo bon)
-              nominal: item.bon_diambil,
-              note: `Pinjaman Bon Baru via Slip Gaji Periode ${gajiHeader.date}`,
-              ref_gaji: menuId,
-              operator: operatorName || pb.authStore.model?.username || 'System'
-            });
+          batch.collection('bon').create({
+            persontext: item.person,
+            person: personDropdownId,
+            jenis: 'out', // Ambil bon baru = out (menambah saldo bon)
+            nominal: item.bon_diambil,
+            note: `Pinjaman Bon Baru via Slip Gaji Periode ${gajiHeader.date}`,
+            ref_gaji: menuId,
+            operator: operatorName || pb.authStore.model?.username || 'System'
+          });
 
-            if (foundUser) {
-              const uRec = await pb.collection('user').getOne(foundUser.id, { $autoCancel: false });
-              const newBon = (Number(uRec.number) || 0) + item.bon_diambil;
-              await pb.collection('user').update(foundUser.id, { number: newBon }, { $autoCancel: false });
-            }
-          } catch (bonErr) {
-            console.error("Error auto-creating new bon loan record:", bonErr);
+          if (foundUser) {
+            const uRec = await pb.collection('user').getOne(foundUser.id, { $autoCancel: false });
+            const newBon = (Number(uRec.number) || 0) + item.bon_diambil;
+            batch.collection('user').update(foundUser.id, { number: newBon });
           }
         }
       }
 
+      // EKSEKUSI ATOMIC BATCH POCKETBASE
+      setProcessingMsg('Mengeksekusi batch ke PocketBase...');
+      await batch.send();
+
+      // Trigger webhook notify ke Laravel pasca batch sukses
+      for (const id of deletedGajiIds) {
+        await notifyLaravelApi('gaji', 'deleted', id).catch(() => null);
+      }
+      for (const id of deletedBonIds) {
+        await notifyLaravelApi('bon', 'deleted', id).catch(() => null);
+      }
       await notifyLaravelApi('menu', isEditMode ? 'updated' : 'created', menuId, isEditMode ? gajiEditSession : undefined);
 
       showAlert('Berhasil 🎉', `Slip Gaji Karyawan (${gajiItemList.length} Penerima) berhasil ${isEditMode ? 'diperbarui' : 'disimpan'}!`);
@@ -894,6 +904,7 @@ export default function MenuPage() {
       showAlert('Error', 'Gagal menyimpan Slip Gaji: ' + (err.message || 'Error server'));
     } finally {
       setIsProcessing(false);
+      setProcessingMsg('');
     }
   };
 
@@ -1787,10 +1798,17 @@ export default function MenuPage() {
         const menuRecord = await pb.collection('menu').create(menuFormData);
         menuRecordId = menuRecord.id;
         createdRecords.push({ type: 'menu', id: menuRecordId });
-        await mustNotify('menu', 'created', menuRecordId);
       }
 
-      // ========== MODE EDIT: hapus children lama terlebih dahulu (webhook dulu agar observer revert) ==========
+      // Inisialisasi PocketBase Atomic Batch & antrean webhook
+      const batch = pb.createBatch();
+      const notifyQueue: Array<{ type: 'menu' | 'log_stock' | 'cashflow' | 'ongkos'; action: 'created' | 'updated' | 'deleted'; id: string; oldData?: any }> = [];
+
+      if (!isEditing) {
+        notifyQueue.push({ type: 'menu', action: 'created', id: menuRecordId });
+      }
+
+      // ========== MODE EDIT: hapus children lama terlebih dahulu (di-queue ke batch) ==========
       const pickFields = (obj: any, keys: string[]) => {
         const out: Record<string, any> = {};
         keys.forEach(k => { if (obj[k] !== undefined) out[k] = obj[k]; });
@@ -1806,8 +1824,8 @@ export default function MenuPage() {
         const newCfIds = formBayar.cashflowList.map((cf: any) => cf.id).filter(id => id);
         for (const cf of oldCashflows) {
           if (!newCfIds.includes(cf.id)) {
-            await notifyLaravelApi('cashflow', 'deleted', cf.id).catch(() => false);
-            await pb.collection('cashflow').delete(cf.id).catch(() => null);
+            batch.collection('cashflow').delete(cf.id);
+            notifyQueue.push({ type: 'cashflow', action: 'deleted', id: cf.id });
           }
         }
 
@@ -1816,8 +1834,8 @@ export default function MenuPage() {
         const activeMekanikPersonIds = validMekanik.map((m: any) => m.idLama);
         for (const ong of oldOngkos) {
           if (!activeMekanikPersonIds.includes(ong.person)) {
-            await notifyLaravelApi('ongkos', 'deleted', ong.id).catch(() => false);
-            await pb.collection('ongkos').delete(ong.id).catch(() => null);
+            batch.collection('ongkos').delete(ong.id);
+            notifyQueue.push({ type: 'ongkos', action: 'deleted', id: ong.id });
           }
         }
       }
@@ -1863,14 +1881,14 @@ export default function MenuPage() {
             // UNCHANGED ITEM: Skip DB update & webhook, retain stock & ID in-place
             runningStock[prodId] = preflightStocks[prodId] ?? qtyAwal;
           } else {
-            // CHANGED ITEM: Update existing log_stock in-place
+            // CHANGED ITEM: Update existing log_stock in-place via Batch
             const afterRevert = matchedOldLog.boolean === 'in'
               ? (preflightStocks[prodId] ?? 0) - Number(matchedOldLog.qty || 0)
               : (preflightStocks[prodId] ?? 0) + Number(matchedOldLog.qty || 0);
             const qtyAkhir = booleanValue === 'in' ? afterRevert + logQty : Math.max(0, afterRevert - logQty);
             runningStock[prodId] = qtyAkhir;
 
-            const updatedLogRecord = await pb.collection('log_stock').update(matchedOldLog.id, {
+            batch.collection('log_stock').update(matchedOldLog.id, {
               qty: logQty,
               price_1: Number(item.priceSelected || 0),
               price_2: Number(price2Value || 0),
@@ -1879,14 +1897,16 @@ export default function MenuPage() {
               stok_awal: preflightStocks[prodId] ?? qtyAwal,
               stok_akhir: qtyAkhir,
             });
-            await mustNotify('log_stock', 'updated', matchedOldLog.id, matchedOldLog);
+            notifyQueue.push({ type: 'log_stock', action: 'updated', id: matchedOldLog.id, oldData: matchedOldLog });
           }
         } else {
           // NEW ITEM ADDED TO CART DURING EDIT / NEW TRANSACTION
           const qtyAkhir = booleanValue === 'in' ? qtyAwal + logQty : Math.max(0, qtyAwal - logQty);
           runningStock[prodId] = qtyAkhir;
 
-          const logRecord = await pb.collection('log_stock').create({
+          // Dalam batch mode, jika item baru dibuat, buat id sementara atau serahkan ke PB batch
+          // Catatan: PocketBase batch membuat entri baru secara otomatis
+          batch.collection('log_stock').create({
             id_lama: '',
             created_at: timestamp,
             operator: operatorName || pb.authStore.model?.username || 'Kasir',
@@ -1904,8 +1924,8 @@ export default function MenuPage() {
             stok_awal: qtyAwal,
             stok_akhir: qtyAkhir,
           });
-          createdRecords.push({ type: 'log_stock', id: logRecord.id });
-          await mustNotify('log_stock', 'created', logRecord.id);
+          // Webhook notification untuk created log_stock
+          notifyQueue.push({ type: 'log_stock', action: 'created', id: '' });
         }
       }
 
@@ -1913,8 +1933,8 @@ export default function MenuPage() {
       if (isEditing && oldLogs.length > 0) {
         for (const log of oldLogs) {
           if (!processedLogIds.has(log.id)) {
-            await notifyLaravelApi('log_stock', 'deleted', log.id).catch(() => false);
-            await pb.collection('log_stock').delete(log.id).catch(() => null);
+            batch.collection('log_stock').delete(log.id);
+            notifyQueue.push({ type: 'log_stock', action: 'deleted', id: log.id });
           }
         }
       }
@@ -1959,19 +1979,18 @@ export default function MenuPage() {
           };
 
           if (cf.id) {
-            // Update exist
-            const cfRecord = await pb.collection('cashflow').update(cf.id, cfData);
-            createdRecords.push({ type: 'cashflow', id: cfRecord.id });
+            // Update exist via Batch
+            batch.collection('cashflow').update(cf.id, cfData);
+            createdRecords.push({ type: 'cashflow', id: cf.id });
             const oldCfObj = oldCashflows.find(o => o.id === cf.id);
-            await mustNotify('cashflow', 'updated', cfRecord.id, oldCfObj);
+            notifyQueue.push({ type: 'cashflow', action: 'updated', id: cf.id, oldData: oldCfObj });
           } else {
-            // Create new
-            const cfRecord = await pb.collection('cashflow').create({
+            // Create new via Batch
+            batch.collection('cashflow').create({
               ...cfData,
               created_at: new Date().toISOString()
             });
-            createdRecords.push({ type: 'cashflow', id: cfRecord.id });
-            await mustNotify('cashflow', 'created', cfRecord.id);
+            notifyQueue.push({ type: 'cashflow', action: 'created', id: '' });
           }
         }
       }
@@ -1981,40 +2000,63 @@ export default function MenuPage() {
         const mekanikValid = formBayar.mekanikList.filter(m => m.idLama && m.ongkos > 0);
         
         if (mekanikValid.length > 0) {
-          try {
-            const ongkosPromises = mekanikValid.map(async (mek) => {
-              const existingOng = oldOngkos.find(o => o.person === mek.idLama);
-              if (existingOng) {
-                if (existingOng.ongkos !== mek.ongkos) {
-                  const updatedOng = await pb.collection('ongkos').update(existingOng.id, { ongkos: mek.ongkos }, { '$autoCancel': false });
-                  await mustNotify('ongkos', 'updated', updatedOng.id, existingOng);
-                  return updatedOng;
-                }
-                return existingOng;
-              } else {
-                const res = await pb.collection('ongkos').create(
-                  {
-                    id_lama: '',
-                    date: timestamp,
-                    person: mek.idLama,
-                    ongkos: mek.ongkos,
-                    operator: operatorName,
-                    ref: '',
-                    ref_baru: menuRecordId
-                  },
-                  { '$autoCancel': false }
-                );
-                createdRecords.push({ type: 'ongkos', id: res.id });
-                await mustNotify('ongkos', 'created', res.id);
-                return res;
+          for (const mek of mekanikValid) {
+            const existingOng = oldOngkos.find(o => o.person === mek.idLama);
+            if (existingOng) {
+              if (existingOng.ongkos !== mek.ongkos) {
+                batch.collection('ongkos').update(existingOng.id, { ongkos: mek.ongkos });
+                notifyQueue.push({ type: 'ongkos', action: 'updated', id: existingOng.id, oldData: existingOng });
               }
-            });
-            await Promise.all(ongkosPromises);
-          } catch (error) {
-            console.error('Gagal menyimpan ongkos:', error);
-            // Lempar error agar user tahu ada masalah
-            throw new Error('Gagal menyimpan data ongkos mekanik. Periksa input mekanik.');
+            } else {
+              batch.collection('ongkos').create({
+                id_lama: '',
+                date: timestamp,
+                person: mek.idLama,
+                ongkos: mek.ongkos,
+                operator: operatorName,
+                ref: '',
+                ref_baru: menuRecordId
+              });
+              notifyQueue.push({ type: 'ongkos', action: 'created', id: '' });
+            }
           }
+        }
+      }
+
+      // MODE EDIT: queue update menu terakhir (setelah semua children tersusun)
+      let freshOldMenu: any = null;
+      if (isEditing) {
+        freshOldMenu = await pb.collection('menu').getOne(menuRecordId, { $autoCancel: false }).catch(() => oldMenuData);
+        batch.collection('menu').update(menuRecordId, menuFormData);
+        notifyQueue.push({ type: 'menu', action: 'updated', id: menuRecordId, oldData: freshOldMenu ?? undefined });
+      }
+
+      // EKSEKUSI POCKETBASE ATOMIC BATCH TRANSACTION
+      setProcessingMsg('Mengeksekusi transaksi atomic batch ke PocketBase...');
+      const batchResults: any = await batch.send();
+      if (isEditing) menuUpdatedInPb = true;
+
+      // Map hasil ID baru dari batch untuk webhook notifications
+      if (batchResults && Array.isArray(batchResults)) {
+        let resIndex = 0;
+        for (const nItem of notifyQueue) {
+          if (!nItem.id && resIndex < batchResults.length) {
+            // Jika id belum ada (karena baru di-create), ambil dari batch output result
+            const resRecord = batchResults[resIndex];
+            if (resRecord && resRecord.id) {
+              nItem.id = resRecord.id;
+              createdRecords.push({ type: nItem.type, id: nItem.id });
+            }
+          }
+          resIndex++;
+        }
+      }
+
+      // Trigger Webhook Notify ke Laravel pasca batch sukses
+      setProcessingMsg('Mengirim notifikasi ke sistem...');
+      for (const nItem of notifyQueue) {
+        if (nItem.id) {
+          await mustNotify(nItem.type, nItem.action, nItem.id, nItem.oldData).catch(() => null);
         }
       }
 
@@ -2038,15 +2080,6 @@ export default function MenuPage() {
         jenis: selectedMenu,
         mechanics: mechanicsForPrint
       });
-
-      // MODE EDIT: update menu terakhir (setelah semua children baru tersimpan)
-      if (isEditing) {
-        // Ambil snapshot terbaru karena trigger Laravel (CashflowObserver) mungkin telah mengubah field dibayar/status!
-        const freshOldMenu = await pb.collection('menu').getOne(menuRecordId, { $autoCancel: false }).catch(() => oldMenuData);
-        await pb.collection('menu').update(menuRecordId, menuFormData);
-        menuUpdatedInPb = true;
-        await mustNotify('menu', 'updated', menuRecordId, freshOldMenu ?? undefined);
-      }
 
       setDialog({ show: true, title: 'SUKSES', message: isEditing ? "Perubahan transaksi berhasil diperbarui!" : "Transaksi berhasil disimpan!", type: 'alert' });
       
@@ -2380,69 +2413,56 @@ export default function MenuPage() {
     }
 
     try {
-      // 2. Fetch seluruh log_stock terkait transaksi ini
       const logStockList = await pb.collection('log_stock').getFullList({
         filter: `ref = "${menuId}" || ref_baru = "${menuId}"`,
         $autoCancel: false
       }).catch(() => []);
 
-      for (const log of logStockList) {
-        if (!deletedOk) console.warn('Laravel menu delete notify failed, deleting log_stock in PB only');
-        await pb.collection('log_stock').delete(log.id).catch(() => null);
-      }
-
-      // 3. Fetch dan hapus seluruh cashflow terkait transaksi ini
       const cashflowList = await pb.collection('cashflow').getFullList({
         filter: `ref_baru = "${menuId}"`,
         $autoCancel: false
       }).catch(() => []);
 
-      for (const cf of cashflowList) {
-        if (!deletedOk) console.warn('Laravel menu delete notify failed, deleting cashflow in PB only');
-        await pb.collection('cashflow').delete(cf.id).catch(() => null);
-      }
-
-      // 4. Fetch dan hapus seluruh ongkos mekanik terkait
       const ongkosList = await pb.collection('ongkos').getFullList({
         filter: `ref_baru = "${menuId}" || ref = "${menuId}"`,
         $autoCancel: false
       }).catch(() => []);
 
-      for (const ong of ongkosList) {
-        // ponytail: ongkos cascade delete&revert handled by MenuObserver@deleting
-        await pb.collection('ongkos').delete(ong.id).catch(() => null);
-      }
-
-      // 5. Fetch dan hapus seluruh slip gaji / bon jika ada
       const gajiList = await pb.collection('gaji').getFullList({
         filter: `ref = "${menuId}" || ref_baru = "${menuId}"`,
         $autoCancel: false
       }).catch(() => []);
-
-      for (const g of gajiList) {
-        const gajiOk = await notifyLaravelApi('gaji', 'deleted', g.id);
-        if (!gajiOk) console.warn('Laravel gaji delete notify failed, record deleted from PB only');
-        await pb.collection('gaji').delete(g.id).catch(() => null);
-      }
 
       const bonList = await pb.collection('bon').getFullList({
         filter: `ref = "${menuId}" || ref_menu = "${menuId}"`,
         $autoCancel: false
       }).catch(() => []);
 
+      // Eksekusi seluruh penghapusan children & menu dalam PocketBase Atomic Batch
+      const batch = pb.createBatch();
+
+      for (const log of logStockList) batch.collection('log_stock').delete(log.id);
+      for (const cf of cashflowList) batch.collection('cashflow').delete(cf.id);
+      for (const ong of ongkosList) batch.collection('ongkos').delete(ong.id);
+      for (const g of gajiList) batch.collection('gaji').delete(g.id);
+      for (const b of bonList) batch.collection('bon').delete(b.id);
+      batch.collection('menu').delete(menuId);
+
+      await batch.send();
+
+      // Trigger Webhook notifies pasca batch hapus atomic sukses
+      for (const g of gajiList) {
+        await notifyLaravelApi('gaji', 'deleted', g.id).catch(() => null);
+      }
       for (const b of bonList) {
-        const bonOk = await notifyLaravelApi('bon', 'deleted', b.id);
-        if (!bonOk) console.warn('Laravel bon delete notify failed, record deleted from PB only');
-        await pb.collection('bon').delete(b.id).catch(() => null);
+        await notifyLaravelApi('bon', 'deleted', b.id).catch(() => null);
       }
     } catch (err) {
       console.warn("Notice: Cleanup child records fallback:", err);
+      await pb.collection('menu').delete(menuId).catch(() => null);
     }
 
-    // 6. Hapus entitas menu utama di PocketBase
-    await pb.collection('menu').delete(menuId).catch(e => console.warn('Menu delete failed (may already be deleted by Laravel):', e.message));
-
-    // 7. Recalculate report tanggal transaksi setelah menu terhapus (agar piutang/hutang nol)
+    // Recalculate report tanggal transaksi setelah menu terhapus (agar piutang/hutang nol)
     if (menuDateStr) {
       try {
         await fetch(`${getLaravelApiUrl()}/reports/recalculate`, {
@@ -2484,7 +2504,7 @@ export default function MenuPage() {
     }
 
     setIsProcessing(true);
-    setProcessingMsg('Menyimpan pelunasan...');
+    setProcessingMsg('Menyimpan pelunasan atomic batch...');
 
     try {
       const selectedAccount = cashflowAccounts.find(acc => acc.id === accountId);
@@ -2500,8 +2520,34 @@ export default function MenuPage() {
         } catch {}
       }
 
-      // 1. Buat entri cashflow pelunasan
-      const cfRecord = await pb.collection('cashflow').create({
+      // Akumulasi total dibayar dan status menu
+      const currentPaid = Number(menu.dibayar || 0);
+      const grandTotalVal = Number(menu.total || 0);
+      const newPaid = currentPaid + Number(nominal);
+      const newStatus = newPaid >= grandTotalVal ? 'lunas' : 'belum';
+      const dateLunas = newStatus === 'lunas' ? (menu.date_lunas || new Date().toISOString()) : null;
+
+      const updateData = new FormData();
+      updateData.append('dibayar', String(newPaid));
+      updateData.append('status', newStatus);
+      if (dateLunas) updateData.append('date_lunas', dateLunas);
+
+      if (menu.file && Array.isArray(menu.file)) {
+        menu.file.forEach((fName: string) => {
+          updateData.append('file', fName);
+        });
+      }
+
+      if (quickSettleData.settleFiles && quickSettleData.settleFiles.length > 0) {
+        quickSettleData.settleFiles.forEach((f: File) => {
+          updateData.append('file', f);
+        });
+      }
+
+      // Gabungkan pembuatan Cashflow Pelunasan & Update Menu ke dalam PocketBase Atomic Batch
+      const batch = pb.createBatch();
+
+      batch.collection('cashflow').create({
         id_lama: '',
         operator: operatorName || pb.authStore.model?.username || 'Kasir',
         nominal: Number(nominal),
@@ -2518,36 +2564,15 @@ export default function MenuPage() {
         created_at: timestamp
       });
 
-      await notifyLaravelApi('cashflow', 'created', cfRecord.id);
+      batch.collection('menu').update(menu.id, updateData);
 
-      // 2. Akumulasi total dibayar dan update status menu
-      const currentPaid = Number(menu.dibayar || 0);
-      const grandTotalVal = Number(menu.total || 0);
-      const newPaid = currentPaid + Number(nominal);
-      const newStatus = newPaid >= grandTotalVal ? 'lunas' : 'belum';
-      const dateLunas = newStatus === 'lunas' ? (menu.date_lunas || new Date().toISOString()) : null;
+      const batchResults: any = await batch.send();
+      const createdCfId = batchResults && batchResults[0] ? batchResults[0].id : '';
 
-      const updateData = new FormData();
-      updateData.append('dibayar', String(newPaid));
-      updateData.append('status', newStatus);
-      if (dateLunas) updateData.append('date_lunas', dateLunas);
-
-      // Pertahankan file lampiran terdahulu agar tidak hilang
-      if (menu.file && Array.isArray(menu.file)) {
-        menu.file.forEach((fName: string) => {
-          updateData.append('file', fName);
-        });
+      if (createdCfId) {
+        await notifyLaravelApi('cashflow', 'created', createdCfId).catch(() => null);
       }
-
-      // Upload file bukti transfer / pelunasan baru
-      if (quickSettleData.settleFiles && quickSettleData.settleFiles.length > 0) {
-        quickSettleData.settleFiles.forEach((f: File) => {
-          updateData.append('file', f);
-        });
-      }
-
-      const updatedMenuRecord = await pb.collection('menu').update(menu.id, updateData);
-      await notifyLaravelApi('menu', 'updated', menu.id, { dibayar: newPaid, status: newStatus });
+      await notifyLaravelApi('menu', 'updated', menu.id, { dibayar: newPaid, status: newStatus }).catch(() => null);
 
       // Recalculate report date
       try {
@@ -2558,6 +2583,8 @@ export default function MenuPage() {
         });
       } catch {}
 
+      const updatedMenuRecord = await pb.collection('menu').getOne(menu.id).catch(() => null);
+
       setQuickSettleData(null);
       if (showDetailHistory?.id === menu.id) {
         setShowDetailHistory(prev => prev ? { 
@@ -2565,7 +2592,7 @@ export default function MenuPage() {
           dibayar: newPaid, 
           status: newStatus as any, 
           date_lunas: dateLunas || prev.date_lunas,
-          file: updatedMenuRecord.file || prev.file
+          file: updatedMenuRecord?.file || prev.file
         } : null);
       }
       fetchData();
