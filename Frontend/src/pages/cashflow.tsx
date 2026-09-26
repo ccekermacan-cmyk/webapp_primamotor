@@ -207,28 +207,26 @@
           setSystemAlert(prev => ({ ...prev, show: false }));
           setIsProcessing(true);
           try {
-            // 1. Revert user.number
             const nominal = Number(bRec.nominal) || 0;
             const jenis = (bRec.jenis || '').toLowerCase(); // in = kurang saldo, out = tambah saldo
-            // Jika bon 'in' dihapus, saldo bertambah lagi. Jika bon 'out' dihapus, saldo berkurang lagi.
             const change = jenis === 'in' ? nominal : (jenis === 'out' ? -nominal : 0);
             
+            const batch = pb.createBatch();
+
+            // 1. Queue Revert user.number
             if (bonHistoryUser && change !== 0) {
               const uRec = await pb.collection('user').getOne(bonHistoryUser.id, { $autoCancel: false });
               const newNumber = Math.max(0, (Number(uRec.number) || 0) + change);
-              await pb.collection('user').update(bonHistoryUser.id, { number: newNumber }, { $autoCancel: false });
-              // Update local wallet view
+              batch.collection('user').update(bonHistoryUser.id, { number: newNumber });
               bonHistoryUser.number_1 = newNumber;
             }
 
-            // 2. Revert gaji jika ada
+            // 2. Queue Revert gaji jika ada
             if (bRec.ref_gaji) {
-              // Cari detail gaji yang terkait dengan perangkum gaji ini untuk karyawan yang sama
               const gajiRecords = await pb.collection('gaji').getFullList({
                 filter: `(ref = "${bRec.ref_gaji}" || ref_baru = "${bRec.ref_gaji}")`,
                 $autoCancel: false
-              });
-              // Temukan milik user ini
+              }).catch(() => []);
               const username = bonHistoryUser?.id_lama;
               const gRec = gajiRecords.find(g => String(g.person) === String(username));
               if (gRec) {
@@ -236,13 +234,16 @@
                 if (jenis === 'in' && Number(gRec.bon_dibayar) > 0) updateData.bon_dibayar = 0;
                 if (jenis === 'out' && Number(gRec.bon_diambil) > 0) updateData.bon_diambil = 0;
                 if (Object.keys(updateData).length > 0) {
-                  await pb.collection('gaji').update(gRec.id, updateData, { $autoCancel: false });
+                  batch.collection('gaji').update(gRec.id, updateData);
                 }
               }
             }
 
-            // 3. Delete bon record
-            await pb.collection('bon').delete(bonId);
+            // 3. Queue Delete bon record
+            batch.collection('bon').delete(bonId);
+
+            // Eksekusi atomic batch
+            await batch.send();
             showAlert("Berhasil", "Riwayat Bon dihapus dan saldo di-revert.");
             
             // Reload history
@@ -311,9 +312,9 @@
         const [hours, minutes] = timePart.split(':').map(Number);
         const utcDate = new Date(year, month - 1, day, hours, minutes, 0).toISOString();
 
-        let refCashflowId = "";
+        const batch = pb.createBatch();
 
-        // 1. TULIS KE CASHFLOW (Jika dicentang)
+        // 1. Queue TULIS KE CASHFLOW (Jika dicentang)
         if (formDataBon.catatCashflow && formDataBon.akun_asal) {
           const cfData = new FormData();
           cfData.append("created_at", utcDate);
@@ -334,32 +335,40 @@
           
           files.forEach(f => { if (!f.isOld) cfData.append("file", f); });
 
-          const createdCf = await pb.collection('cashflow').create(cfData);
-          refCashflowId = createdCf.id;
-          const bonCfOk = await notifyLaravelApi('cashflow', 'created', createdCf.id);
-          if (!bonCfOk) console.warn('Laravel cashflow notify failed in bon creation');
+          batch.collection('cashflow').create(cfData);
         }
 
-        // 2. TULIS KE BON (Sesuai JSON)
+        // 2. Queue TULIS KE BON
         const bonData = new FormData();
         bonData.append("created_at", utcDate);
         bonData.append("person", formDataBon.person);
         bonData.append("persontext", formDataBon.persontext);
-        bonData.append("nominal", String(formDataBon.nominal)); // JSON: nominal
-        bonData.append("note", formDataBon.note);               // JSON: note
-        bonData.append("jenis", "out");                         // JSON: jenis (in/out)
-        bonData.append("operator", operatorName);               // JSON: operator
+        bonData.append("nominal", String(formDataBon.nominal));
+        bonData.append("note", formDataBon.note);
+        bonData.append("jenis", "out");
+        bonData.append("operator", operatorName);
         
         if (formDataBon.catatCashflow) {
           bonData.append("akun_asal", formDataBon.akun_asal);
-          bonData.append("ref_cashflow", refCashflowId);
         }
 
         files.forEach(f => { if (!f.isOld) bonData.append("file", f); });
 
-        const createdBon = await pb.collection('bon').create(bonData);
-        const bonOk = await notifyLaravelApi('bon', 'created', createdBon.id);
-        if (!bonOk) console.warn('Laravel bon notify failed, BonObserver not triggered');
+        batch.collection('bon').create(bonData);
+
+        // EKSEKUSI POCKETBASE ATOMIC BATCH
+        const batchResults: any = await batch.send();
+
+        // Trigger Laravel Webhook Notification pasca batch sukses
+        if (formDataBon.catatCashflow && batchResults && batchResults.length >= 2) {
+          const createdCfId = batchResults[0]?.id || '';
+          const createdBonId = batchResults[1]?.id || '';
+          if (createdCfId) await notifyLaravelApi('cashflow', 'created', createdCfId).catch(() => null);
+          if (createdBonId) await notifyLaravelApi('bon', 'created', createdBonId).catch(() => null);
+        } else if (batchResults && batchResults[0]?.id) {
+          const createdBonId = batchResults[0].id;
+          await notifyLaravelApi('bon', 'created', createdBonId).catch(() => null);
+        }
 
         showAlert("Sukses", "Data Bon berhasil disimpan!");
         setModalType(null);
@@ -585,22 +594,31 @@
           menuByPerson[p] = (menuByPerson[p] || 0) + ((m.total || 0) - (m.dibayar || 0));
         });
 
+        const batch = pb.createBatch();
         let updateCount = 0;
         for (const item of targetItems) {
           const personId = (item as any).id_lama;
           if (!personId) continue;
           const totalBalance = menuByPerson[personId] || 0;
 
-          await pb.collection('dropdown').update(item.id, {
-            number_1: totalBalance,
-            text_8: dateStr,
-          });
-          updateCount++;
+          // INCREMENTAL DIFF: Hanya update jika saldo berubah atau belum pernah di-sync
+          const isChanged = Number(item.number_1) !== totalBalance || (item as any).text_8 !== dateStr;
+          if (isChanged) {
+            batch.collection('dropdown').update(item.id, {
+              number_1: totalBalance,
+              text_8: dateStr,
+            });
+            updateCount++;
+          }
+        }
+        
+        if (updateCount > 0) {
+          await batch.send();
         }
         
         // Refresh data wallets
         await fetchWallets();
-        showAlert('Sukses', `Berhasil menghitung ulang ${updateCount} data!`);
+        showAlert('Sukses', `Berhasil menghitung ulang & memperbarui ${updateCount} data!`);
         
       } catch (error: any) {
         console.error('Gagal menghitung:', error);
@@ -1005,15 +1023,34 @@
           });
         }
 
+        // Eksekusi Simpan / Edit Cashflow via PocketBase Atomic Batch
+        const batch = pb.createBatch();
         if (isEditMode && selectedTx) {
-          const updated = await pb.collection('cashflow').update(selectedTx.id, formDataObj);
+          batch.collection('cashflow').update(selectedTx.id, formDataObj);
+        } else {
+          batch.collection('cashflow').create(formDataObj);
+        }
+
+        const batchResults: any = await batch.send();
+        const resId = (batchResults && batchResults[0]?.id) ? batchResults[0].id : (selectedTx?.id || '');
+
+        if (isEditMode && selectedTx) {
           const editOk = await notifyLaravelApi('cashflow', 'updated', selectedTx.id, selectedTx);
           if (!editOk) console.warn('Laravel cashflow notify failed for update');
-        } else {
-          const created = await pb.collection('cashflow').create(formDataObj);
-          const cfOk = await notifyLaravelApi('cashflow', 'created', created.id);
+        } else if (resId) {
+          const cfOk = await notifyLaravelApi('cashflow', 'created', resId);
           if (!cfOk) console.warn('Laravel cashflow notify failed for creation');
         }
+
+        // Recalculate report date
+        try {
+          const dateStr = (formattedDate || '').split('T')[0];
+          await fetch(`${getLaravelApiUrl()}/reports/recalculate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ date: dateStr })
+          });
+        } catch {}
         
         setModalType(null);
         setFormData({
@@ -1051,22 +1088,44 @@
       setIsProcessing(true);
       try {
         const deletedOk = await notifyLaravelApi('cashflow', 'deleted', selectedTx.id);
-        // Revert account balance manually (fallback)
+
+        const batch = pb.createBatch();
+
+        // Revert account balance manually (fallback jika laravel notify gagal)
         if (!deletedOk && selectedTx.account_1 && selectedTx.nominal) {
           try {
             const isOut = String(selectedTx.mutasi).toLowerCase() === 'out';
-            const acc = await pb.collection('dropdown').getOne(selectedTx.account_1,{$autoCancel:false});
+            const acc = await pb.collection('dropdown').getOne(selectedTx.account_1, {$autoCancel:false});
             const newBal = isOut ? (Number(acc.number_1)||0)+Number(selectedTx.nominal) : (Number(acc.number_1)||0)-Number(selectedTx.nominal);
-            await pb.collection('dropdown').update(selectedTx.account_1,{number_1:newBal},{$autoCancel:false});
+            batch.collection('dropdown').update(selectedTx.account_1, { number_1: newBal });
+            
             // Transfer: revert account_2 too
             if (String(selectedTx.jenis||'').toLowerCase()==='transfer' && selectedTx.account_2) {
-              const acc2 = await pb.collection('dropdown').getOne(selectedTx.account_2,{$autoCancel:false});
+              const acc2 = await pb.collection('dropdown').getOne(selectedTx.account_2, {$autoCancel:false});
               const newBal2 = isOut ? (Number(acc2.number_1)||0)-Number(selectedTx.nominal) : (Number(acc2.number_1)||0)+Number(selectedTx.nominal);
-              await pb.collection('dropdown').update(selectedTx.account_2,{number_1:newBal2},{$autoCancel:false});
+              batch.collection('dropdown').update(selectedTx.account_2, { number_1: newBal2 });
             }
+          } catch (revertErr) {
+            console.warn("Notice: Balance revert batch error:", revertErr);
+          }
+        }
+
+        // Queue & execute Delete cashflow record
+        batch.collection('cashflow').delete(selectedTx.id);
+        await batch.send();
+
+        // Recalculate report date
+        if (selectedTx.created_at) {
+          try {
+            const dateStr = String(selectedTx.created_at).split('T')[0].split(' ')[0];
+            await fetch(`${getLaravelApiUrl()}/reports/recalculate`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ date: dateStr })
+            });
           } catch {}
         }
-        await pb.collection('cashflow').delete(selectedTx.id);
+
         setModalType(null);
         fetchCashflow();
       } catch (error) {
