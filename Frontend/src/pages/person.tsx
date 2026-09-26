@@ -334,7 +334,7 @@ export default function PeoplePage() {
         batch.collection('dropdown').create(formData);
       }
       await batch.send();
-      notifyLaravelApi('dropdown', currentPerson.id ? 'update' : 'create', currentPerson.id || undefined);
+      notifyLaravelApi('dropdown', currentPerson.id ? 'updated' : 'created', currentPerson.id || undefined);
 
       setIsModalOpen(false);
       setCurrentPerson({});
@@ -354,7 +354,7 @@ export default function PeoplePage() {
         const batch = pb.createBatch();
         batch.collection('dropdown').delete(id);
         await batch.send();
-        notifyLaravelApi('dropdown', 'delete', id);
+        notifyLaravelApi('dropdown', 'deleted', id);
 
         fetchPeople();
       } catch (err) {
@@ -403,7 +403,7 @@ export default function PeoplePage() {
         batch.collection('user').create(formData);
       }
       await batch.send();
-      notifyLaravelApi('user', editUserData.id ? 'update' : 'create', editUserData.id || undefined);
+      notifyLaravelApi('user', editUserData.id ? 'updated' : 'created', editUserData.id || undefined);
 
       if (editUserData.id) {
         alert('Data karyawan berhasil diperbarui.');
@@ -430,7 +430,7 @@ export default function PeoplePage() {
       const batch = pb.createBatch();
       batch.collection('user').delete(userId);
       await batch.send();
-      notifyLaravelApi('user', 'delete', userId);
+      notifyLaravelApi('user', 'deleted', userId);
 
       setIsUserDetailModalOpen(false);
       fetchUsers();

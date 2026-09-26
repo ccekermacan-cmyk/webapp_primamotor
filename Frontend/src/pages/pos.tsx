@@ -2420,18 +2420,13 @@ export default function MenuPage() {
     // Ambil tanggal transaksi sebelum dihapus (untuk recalc report final)
     let menuDateStr = '';
     try {
-      const menuRec = await pb.collection('menu').getOne(menuId, { $autoCancel: false });
+      const menuRec = await pb.collection('dropdown').getOne(menuId, { $autoCancel: false }).catch(() => null) ||
+                     await pb.collection('menu').getOne(menuId, { $autoCancel: false }).catch(() => null);
       if (menuRec?.created_at) {
         const d = new Date(menuRec.created_at.replace(' ', 'T'));
         menuDateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
       }
     } catch {}
-
-    const deletedOk = await notifyLaravelApi('menu', 'deleted', menuId);
-    if (!deletedOk) {
-      // Jangan hapus children dari PB tanpa revert stok/saldo — itu membuat inkonsistensi permanen.
-      throw new Error('Server backend tidak dapat dijangkau. Transaksi belum dihapus. Coba lagi.');
-    }
 
     try {
       const logStockList = await pb.collection('log_stock').getFullList({
@@ -2514,7 +2509,9 @@ export default function MenuPage() {
 
       await batch.send();
 
-      // Trigger Webhook notifies pasca batch hapus atomic sukses
+      // Trigger Webhook notifies pasca batch hapus atomic sukses di PocketBase
+      await notifyLaravelApi('menu', 'deleted', menuId).catch(() => null);
+
       for (const pId of updatedProductIds) {
         await notifyLaravelApi('produk', 'updated', pId).catch(() => null);
       }
@@ -2530,6 +2527,7 @@ export default function MenuPage() {
     } catch (err) {
       console.warn("Notice: Cleanup child records fallback:", err);
       await pb.collection('menu').delete(menuId).catch(() => null);
+      await notifyLaravelApi('menu', 'deleted', menuId).catch(() => null);
     }
 
     // Recalculate report tanggal transaksi setelah menu terhapus (agar piutang/hutang nol)
