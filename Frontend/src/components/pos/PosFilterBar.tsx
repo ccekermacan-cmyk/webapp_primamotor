@@ -57,6 +57,8 @@ export const PosFilterBar: React.FC<PosFilterBarProps> = React.memo(({
   menuOptions,
   setPage,
 }) => {
+  const isOverview = selectedMenu?.toLowerCase() === 'overview';
+
   return (
     <div className="p-2 sm:p-3 md:p-4 mb-2 sm:mb-3 bg-slate-200/60 rounded-2xl border border-slate-200/50 shadow-sm shrink-0 flex flex-col gap-1 sm:gap-2 md:gap-3">
       {/* BARIS UTAMA: Search + Filter Button + Indikator */}
@@ -77,7 +79,7 @@ export const PosFilterBar: React.FC<PosFilterBarProps> = React.memo(({
         {/* Grup Tombol & Indikator */}
         <div className="flex items-center gap-2 flex-wrap">
           {/* Tombol Toggle View (Desktop & Tablet) - hanya jika bukan Overview */}
-          {selectedMenu.toLowerCase() !== 'overview' && (
+          {!isOverview && (
             <div className="hidden sm:flex bg-white/80 border border-slate-200 rounded-xl p-1 shadow-sm shrink-0 items-center">
               <button onClick={() => setViewMode('list')} className={`p-2 rounded-lg transition-all duration-300 ${viewMode === 'list' ? `${activeTheme.main} text-white shadow-sm` : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'}`}>
                 <List size={16} />
@@ -88,8 +90,8 @@ export const PosFilterBar: React.FC<PosFilterBarProps> = React.memo(({
             </div>
           )}
 
-          {/* Tombol Filter & Indikator (hanya untuk Overview) */}
-          {selectedMenu === 'Overview' && (
+          {/* Tombol Filter & Indikator (Tampil untuk Overview & halaman transaksi) */}
+          {isOverview && (
             <>
               <button
                 onClick={() => setShowFilters(!showFilters)}
@@ -151,10 +153,10 @@ export const PosFilterBar: React.FC<PosFilterBarProps> = React.memo(({
                   <button
                     onClick={() => {
                       setFilterPerson('');
-                      setFilterStatus('all');
+                      setPage(1);
                       const url = new URL(window.location.href);
                       url.searchParams.delete('person');
-                      url.searchParams.delete('status');
+                      if (filterStatus !== 'all') url.searchParams.set('status', filterStatus);
                       window.history.replaceState({}, '', url.toString());
                     }}
                     className="ml-0.5 text-blue-400 hover:text-blue-600"
@@ -168,11 +170,11 @@ export const PosFilterBar: React.FC<PosFilterBarProps> = React.memo(({
         </div>
       </div>
 
-      {/* Area Filter (collapsible) - hanya untuk Overview */}
-      {selectedMenu === 'Overview' && (
+      {/* Area Filter (collapsible) */}
+      {isOverview && (
         <div
           className={`overflow-visible transition-all duration-300 ease-in-out ${
-            showFilters ? 'max-h-[800px] opacity-100 mt-1' : 'max-h-0 opacity-0'
+            showFilters ? 'max-h-[800px] opacity-100 mt-1' : 'max-h-0 opacity-0 hidden'
           }`}
         >
           <div className="flex flex-wrap items-center gap-2 md:gap-3 p-3 bg-white/80 rounded-xl border border-slate-200/60 shadow-sm">
@@ -190,6 +192,7 @@ export const PosFilterBar: React.FC<PosFilterBarProps> = React.memo(({
                     const url = new URL(window.location.href);
                     url.searchParams.delete('status');
                     if (filterPerson) url.searchParams.set('person', filterPerson);
+                    if (selectedMenuFilters.length > 0) url.searchParams.set('jenis', selectedMenuFilters.join(','));
                     window.history.replaceState({}, '', url.toString());
                   }}
                   className={`flex items-center gap-1 px-3 py-1.5 text-[9px] md:text-[10px] font-black uppercase tracking-wider rounded-lg transition-all duration-200 whitespace-nowrap ${
@@ -211,6 +214,7 @@ export const PosFilterBar: React.FC<PosFilterBarProps> = React.memo(({
                     const url = new URL(window.location.href);
                     url.searchParams.set('status', 'lunas');
                     if (filterPerson) url.searchParams.set('person', filterPerson);
+                    if (selectedMenuFilters.length > 0) url.searchParams.set('jenis', selectedMenuFilters.join(','));
                     window.history.replaceState({}, '', url.toString());
                   }}
                   className={`flex items-center gap-1 px-3 py-1.5 text-[9px] md:text-[10px] font-black uppercase tracking-wider rounded-lg transition-all duration-200 whitespace-nowrap ${
@@ -232,6 +236,7 @@ export const PosFilterBar: React.FC<PosFilterBarProps> = React.memo(({
                     const url = new URL(window.location.href);
                     url.searchParams.set('status', 'belum');
                     if (filterPerson) url.searchParams.set('person', filterPerson);
+                    if (selectedMenuFilters.length > 0) url.searchParams.set('jenis', selectedMenuFilters.join(','));
                     window.history.replaceState({}, '', url.toString());
                   }}
                   className={`flex items-center gap-1 px-3 py-1.5 text-[9px] md:text-[10px] font-black uppercase tracking-wider rounded-lg transition-all duration-200 whitespace-nowrap ${
@@ -250,15 +255,20 @@ export const PosFilterBar: React.FC<PosFilterBarProps> = React.memo(({
             <div className="hidden md:block w-px h-6 bg-slate-300/50"></div>
 
             {/* === GRUP FILTER PERSON === */}
-            <div className="relative" style={{ zIndex: 9999 }}>
+            <div className="relative">
               <button
                 ref={personButtonRef}
                 onClick={() => {
                   if (!isPersonFilterOpen && personButtonRef.current) {
                     const rect = personButtonRef.current.getBoundingClientRect();
+                    const dropdownWidth = 288;
+                    let leftPos = rect.left;
+                    if (leftPos + dropdownWidth > window.innerWidth - 16) {
+                      leftPos = Math.max(16, window.innerWidth - dropdownWidth - 16);
+                    }
                     setDropdownPosition({
-                      top: rect.bottom + window.scrollY,
-                      left: rect.left + window.scrollX,
+                      top: rect.bottom,
+                      left: leftPos,
                     });
                   }
                   setIsPersonFilterOpen(!isPersonFilterOpen);
@@ -283,10 +293,10 @@ export const PosFilterBar: React.FC<PosFilterBarProps> = React.memo(({
                     onClick={(e) => {
                       e.stopPropagation();
                       setFilterPerson('');
-                      setFilterStatus('all');
+                      setPage(1);
                       const url = new URL(window.location.href);
                       url.searchParams.delete('person');
-                      url.searchParams.delete('status');
+                      if (filterStatus !== 'all') url.searchParams.set('status', filterStatus);
                       window.history.replaceState({}, '', url.toString());
                     }}
                   />
@@ -320,38 +330,67 @@ export const PosFilterBar: React.FC<PosFilterBarProps> = React.memo(({
                       />
                     </div>
                     <div className="mt-2 space-y-1">
+                      {/* Tampilkan Pilihan 'Semua Person' */}
+                      <div
+                        onClick={() => {
+                          setFilterPerson('');
+                          setIsPersonFilterOpen(false);
+                          setPersonFilterSearch('');
+                          setPage(1);
+                          const url = new URL(window.location.href);
+                          url.searchParams.delete('person');
+                          if (filterStatus !== 'all') url.searchParams.set('status', filterStatus);
+                          window.history.replaceState({}, '', url.toString());
+                        }}
+                        className={`px-3 py-2 rounded-xl cursor-pointer hover:bg-slate-100 text-xs font-bold transition-colors ${
+                          !filterPerson ? 'bg-slate-200 text-slate-800' : 'text-slate-500'
+                        }`}
+                      >
+                        Semua Person
+                      </div>
+
                       {allPersons
-                        .filter(p =>
-                          (p.jenis?.toLowerCase().includes('customer') || p.jenis?.toLowerCase().includes('supplier')) &&
-                          (p.text_1.toLowerCase().includes(personFilterSearch.toLowerCase()) ||
-                            (p.text_2 && p.text_2.toLowerCase().includes(personFilterSearch.toLowerCase())))
-                        )
-                        .map(p => (
-                          <div
-                            key={p.id}
-                            onClick={() => {
-                              setFilterPerson(p.id_lama);
-                              setIsPersonFilterOpen(false);
-                              setPersonFilterSearch('');
-                              const currentStatus = filterStatus === 'all' ? 'belum' : filterStatus;
-                              const url = new URL(window.location.href);
-                              url.searchParams.set('person', p.id_lama);
-                              url.searchParams.set('status', currentStatus);
-                              window.history.replaceState({}, '', url.toString());
-                            }}
-                            className={`px-3 py-2.5 rounded-xl cursor-pointer hover:bg-blue-50 text-xs font-bold flex justify-between items-center transition-colors ${
-                              filterPerson === p.id_lama ? 'bg-blue-100 text-blue-700' : 'text-slate-700'
-                            }`}
-                          >
-                            <span className="truncate">
-                              {p.text_1} {p.text_2 ? `- ${p.text_2}` : ''}
-                            </span>
-                            <span className="text-[10px] text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
-                              {p.jenis}
-                            </span>
-                          </div>
-                        ))}
-                      {allPersons.filter(p => p.jenis?.toLowerCase().includes('customer') || p.jenis?.toLowerCase().includes('supplier')).length === 0 && (
+                        .filter(p => {
+                          if (!personFilterSearch.trim()) return true;
+                          const s = personFilterSearch.toLowerCase();
+                          const t1 = (p.text_1 || '').toLowerCase();
+                          const t2 = (p.text_2 || '').toLowerCase();
+                          const j = (p.jenis || '').toLowerCase();
+                          const idLama = (p.id_lama || '').toLowerCase();
+                          return t1.includes(s) || t2.includes(s) || j.includes(s) || idLama.includes(s);
+                        })
+                        .map(p => {
+                          const personId = p.id_lama || p.id;
+                          const isSelected = filterPerson === p.id_lama || filterPerson === p.id;
+                          return (
+                            <div
+                              key={p.id || p.id_lama}
+                              onClick={() => {
+                                setFilterPerson(personId);
+                                setIsPersonFilterOpen(false);
+                                setPersonFilterSearch('');
+                                setPage(1);
+                                const url = new URL(window.location.href);
+                                url.searchParams.set('person', personId);
+                                if (filterStatus !== 'all') url.searchParams.set('status', filterStatus);
+                                window.history.replaceState({}, '', url.toString());
+                              }}
+                              className={`px-3 py-2.5 rounded-xl cursor-pointer hover:bg-blue-50 text-xs font-bold flex justify-between items-center transition-colors ${
+                                isSelected ? 'bg-blue-100 text-blue-700' : 'text-slate-700'
+                              }`}
+                            >
+                              <span className="truncate">
+                                {p.text_1} {p.text_2 ? `- ${p.text_2}` : ''}
+                              </span>
+                              {p.jenis && (
+                                <span className="text-[10px] text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full capitalize">
+                                  {p.jenis}
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      {allPersons.length === 0 && (
                         <div className="px-3 py-2 text-xs text-slate-500">Tidak ada data</div>
                       )}
                     </div>
@@ -383,10 +422,10 @@ export const PosFilterBar: React.FC<PosFilterBarProps> = React.memo(({
                 Semua Jenis
               </button>
               {menuOptions
-                .filter(m => m.text_1 !== 'Overview')
+                .filter(m => m.text_1?.toLowerCase() !== 'overview')
                 .map(menu => (
                   <button
-                    key={menu.id}
+                    key={menu.id || menu.text_1}
                     onClick={() => {
                       const newFilters = selectedMenuFilters.includes(menu.text_1)
                         ? selectedMenuFilters.filter(j => j !== menu.text_1)

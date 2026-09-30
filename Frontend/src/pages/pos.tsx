@@ -153,12 +153,13 @@ export default function MenuPage() {
 
   const [searchTerm, setSearchTerm] = useState('');
   // Ambil parameter dari URL saat pertama kali render
-  const initialPerson = new URLSearchParams(window.location.search).get('person') || '';
-  const initialStatus = new URLSearchParams(window.location.search).get('status') === 'belum' ? 'belum' : 'all';
+  const initialPersonParam = new URLSearchParams(window.location.search).get('person') || '';
+  const initialStatusParam = new URLSearchParams(window.location.search).get('status');
+  const initialStatus = initialStatusParam === 'lunas' ? 'lunas' : (initialStatusParam === 'belum' ? 'belum' : 'all');
 
   const [showFilters, setShowFilters] = useState(false);
   const [filterStatus, setFilterStatus] = useState<string>(initialStatus);
-  const [filterPerson, setFilterPerson] = useState<string>(initialPerson);
+  const [filterPerson, setFilterPerson] = useState<string>(initialPersonParam);
   const [selectedMenuFilters, setSelectedMenuFilters] = useState<string[]>([]);
   const [showJenisFilter, setShowJenisFilter] = useState(false);
   const [isPersonFilterOpen, setIsPersonFilterOpen] = useState(false);
@@ -392,23 +393,24 @@ export default function MenuPage() {
     };
   }, [showDetailHistory]); // dependency: ketika modal detail berubah (open/close)
 
-  // Ambil parameter dari URL saat pertama kali mount
+  // Ambil parameter dari URL saat pertama kali mount / URL berubah
   useEffect(() => {
     const searchParams = new URLSearchParams(location.search);
     const personParam = searchParams.get('person');
     const statusParam = searchParams.get('status');
 
-    // Hanya update jika nilai berbeda (untuk menghindari infinite loop)
-    if (personParam && personParam !== filterPerson) {
+    if (personParam !== null && personParam !== filterPerson) {
       setFilterPerson(personParam);
     }
-    if (statusParam === 'belum' && filterStatus !== 'belum') {
+
+    if (statusParam === 'lunas' && filterStatus !== 'lunas') {
+      setFilterStatus('lunas');
+    } else if (statusParam === 'belum' && filterStatus !== 'belum') {
       setFilterStatus('belum');
-    }
-    if (statusParam !== 'belum' && filterStatus !== 'all') {
+    } else if (!statusParam && filterStatus !== 'all') {
       setFilterStatus('all');
     }
-  }, [location.search, filterPerson, filterStatus]);
+  }, [location.search]);
 
   // Fungsi helper cek video
   const isVideo = (filename: string) => filename.match(/\.(mp4|webm|ogg)$/i);
@@ -2832,7 +2834,7 @@ export default function MenuPage() {
         
         <>
         {/* ===== INDIKATOR FILTER PERSON (CUSTOMER/SUPPLIER) ===== */}
-        {selectedMenu === 'Overview' && showFilters && 
+        {selectedMenu?.toLowerCase() === 'overview' && showFilters && 
           (filterStatus !== 'all' || filterPerson || selectedMenuFilters.length > 0) && (
           <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
             <div className="flex flex-wrap items-center gap-2 text-sm font-bold text-blue-700">
