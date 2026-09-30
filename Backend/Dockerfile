@@ -1,4 +1,4 @@
-FROM php:8.3-cli-alpine
+FROM php:8.3-fpm-alpine
 
 # Install system dependencies & PHP extensions
 RUN apk add --no-cache \
@@ -10,7 +10,11 @@ RUN apk add --no-cache \
     unzip \
     git \
     curl \
-    && docker-php-ext-install pdo pdo_sqlite pdo_mysql bcmath zip
+    && docker-php-ext-install pdo pdo_sqlite pdo_mysql bcmath zip opcache
+
+# Copy OPcache & FPM custom configs
+COPY docker/php/opcache.ini /usr/local/etc/php/conf.d/opcache.ini
+COPY docker/php/www.conf /usr/local/etc/php-fpm.d/www.conf
 
 WORKDIR /var/www/html
 
@@ -20,7 +24,6 @@ COPY . /var/www/html
 # Set permissions for Laravel storage and bootstrap/cache
 RUN chmod -R 777 storage bootstrap/cache
 
-EXPOSE 8000
+EXPOSE 9000
 
-# Run Laravel artisan serve on port 8000
-CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8000"]
+CMD ["php-fpm"]
