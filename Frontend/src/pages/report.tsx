@@ -148,8 +148,7 @@ export default function ReportPage() {
 
   // Helper: timestamp UTC tetap untuk created_at report (timezone-independent)
   const toReportCreatedAt = (localDateStr: string) => {
-    const [y, m, d] = localDateStr.split('-').map(Number);
-    return new Date(Date.UTC(y, m - 1, d)).toISOString();
+    return `${localDateStr} 00:00:00.000Z`;
   };
 
   // Helper: dapatkan "YYYY-MM-DD" lokal hari ini
@@ -225,9 +224,8 @@ export default function ReportPage() {
   useEffect(() => {
     const checkTodayReport = async () => {
       const todayStr = getLocalToday();
-      const lookup = toReportCreatedAt(todayStr);
       try {
-        const res = await pb.collection('report').getFirstListItem(`created_at = "${lookup}"`);
+        const res = await pb.collection('report').getFirstListItem(`created_at ~ "${todayStr}"`);
         setTodayReportExists(!!res);
       } catch (e) {
         setTodayReportExists(false);
@@ -292,7 +290,7 @@ export default function ReportPage() {
       const todayStr = getLocalToday();
       const reportCreatedAt = toReportCreatedAt(todayStr);
 
-      const existing = await pb.collection('report').getFirstListItem(`created_at = "${reportCreatedAt}"`).catch(() => null);
+      const existing = await pb.collection('report').getFirstListItem(`created_at ~ "${todayStr}"`).catch(() => null);
       if (existing) {
         showAlert('Informasi', 'Laporan untuk hari ini sudah ada!');
         setAddingReport(false);
@@ -309,7 +307,7 @@ export default function ReportPage() {
       const yesterdayFormatted = `${yY}-${yM}-${yD}`;
       const yesterdayLookup = toReportCreatedAt(yesterdayFormatted);
 
-      const lastReport = await pb.collection('report').getFirstListItem(`created_at = "${yesterdayLookup}"`).catch(() => null);
+      const lastReport = await pb.collection('report').getFirstListItem(`created_at ~ "${yesterdayFormatted}"`).catch(() => null);
       const kasirKemarin = lastReport?.kasir_toko ?? 0;
       const piutangKemarin = lastReport?.piutang ?? 0;
       const hutangKemarin = lastReport?.hutang ?? 0;
