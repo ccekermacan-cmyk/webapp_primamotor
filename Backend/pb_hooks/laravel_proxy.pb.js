@@ -15,7 +15,7 @@ routerAdd("POST", "/api/webhook/:collection/:event/:id", (c) => {
     try {
         const body = c.requestInfo().body;
         const res = $http.send({
-            url: `http://laravel-prima-motor:8000/api/webhook/${collection}/${event}/${id}`,
+            url: `http://pm-nginx/api/webhook/${collection}/${event}/${id}`,
             method: "POST",
             body: JSON.stringify(body),
             headers: { "Content-Type": "application/json" }
@@ -31,7 +31,7 @@ routerAdd("POST", "/api/reports/recalculate", (c) => {
     try {
         const body = c.requestInfo().body;
         const res = $http.send({
-            url: `http://laravel-prima-motor:8000/api/reports/recalculate`,
+            url: `http://pm-nginx/api/reports/recalculate`,
             method: "POST",
             body: JSON.stringify(body),
             headers: { "Content-Type": "application/json" }

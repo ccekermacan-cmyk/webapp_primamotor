@@ -1793,7 +1793,7 @@
                               <div className="w-12 h-12 rounded-2xl bg-white/20 border border-white/30 flex items-center justify-center font-black text-sm text-white shadow-sm overflow-hidden">
                                 {wData.link_image && !wData.link_image.startsWith('#') ? (
                                   <img
-                                    src={pb.files.getUrl(wallet, wData.link_image)}
+                                    src={wData.link_image.startsWith('http') ? wData.link_image : pb.files.getUrl(wallet, wData.link_image)}
                                     alt="PP"
                                     className="w-full h-full object-cover"
                                     onError={(e) => {

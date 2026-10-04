@@ -21,7 +21,7 @@ class WebhookController extends Controller
     {
         $model = $this->dispatcher->getModel($collection, $id);
         if (!$model) {
-            return response()->json(['message' => 'Model not found or collection unmonitored'], 404);
+            return response()->json(['status' => 'skipped', 'message' => 'Collection unmonitored or model not found']);
         }
 
         $this->idempotency->ensureMarksTable();
