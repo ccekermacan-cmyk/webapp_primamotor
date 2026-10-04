@@ -15,25 +15,20 @@ return [
     |
     */
 
-    'paths' => ['api/*', 'sanctum/csrf-cookie'],
+    'paths' => ['api/*', 'sanctum/csrf-cookie', 'webhook/*'],
 
     'allowed_methods' => ['*'],
 
-    'allowed_origins' => [
-        'https://webapp-primamotor.vercel.app',
-        'http://localhost:5173',
-        'http://127.0.0.1:5173',
-        'https://webapp.primamotorgladag.my.id',
-    ],
+    'allowed_origins' => ['*'],
 
     'allowed_origins_patterns' => [],
 
-    'allowed_headers' => ['Content-Type', 'Authorization', 'ngrok-skip-browser-warning', 'X-Requested-With'],
+    'allowed_headers' => ['*'],
 
-    'exposed_headers' => [],
+    'exposed_headers' => ['*'],
 
     'max_age' => 86400,
 
-    'supports_credentials' => true,
+    'supports_credentials' => false,
 
 ];

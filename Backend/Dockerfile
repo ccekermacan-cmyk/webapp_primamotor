@@ -22,7 +22,8 @@ WORKDIR /var/www/html
 COPY . /var/www/html
 
 # Set permissions for Laravel storage and bootstrap/cache
-RUN chmod -R 777 storage bootstrap/cache
+RUN chown -R www-data:www-data storage bootstrap/cache \
+    && chmod -R 777 storage bootstrap/cache
 
 EXPOSE 9000
 

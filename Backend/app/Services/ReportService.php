@@ -145,8 +145,8 @@ class ReportService
                     $pemasukanLain += $nominal;
                 }
 
-                $acc1 = strtolower($cf->acc1 ?? '');
-                $acc2 = strtolower($cf->acc2 ?? '');
+                $acc1 = strtolower($cf->account_1 ?? $cf->acc1 ?? '');
+                $acc2 = strtolower($cf->account_2 ?? $cf->acc2 ?? '');
 
                 if (str_contains($acc1, 'kasir') || str_contains($acc1, 'cash')) {
                     if ($mutasi === 'in' || $mutasi === 'masuk') $cashKasir += $nominal;
@@ -186,8 +186,9 @@ class ReportService
             }
             
             Log::info("ReportService: Berhasil re-kalkulasi laporan {$dateString}");
-        } catch (\Exception $e) {
-            Log::error("ReportService Error: " . $e->getMessage());
+        } catch (\Throwable $e) {
+            Log::error("ReportService Error: " . $e->getMessage() . "\n" . $e->getTraceAsString());
+            throw $e;
         }
     }
 }

@@ -7,6 +7,7 @@ use App\Models\Report;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 class ReportController extends Controller
 {
@@ -40,7 +41,16 @@ class ReportController extends Controller
     public function recalculate(Request $request): JsonResponse
     {
         $date = $request->input('date') ?? Carbon::now('Asia/Jakarta')->format('Y-m-d');
-        \App\Services\ReportService::recalculateDaily($date);
-        return response()->json(['status' => 'success', 'date' => $date]);
+        try {
+            \App\Services\ReportService::recalculateDaily($date);
+            return response()->json(['status' => 'success', 'date' => $date]);
+        } catch (\Throwable $e) {
+            Log::error("Recalculate report failed for {$date}: " . $e->getMessage());
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Gagal menghitung ulang laporan: ' . $e->getMessage(),
+                'date' => $date
+            ], 500);
+        }
     }
 }
