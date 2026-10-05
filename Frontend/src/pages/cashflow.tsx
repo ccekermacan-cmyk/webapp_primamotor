@@ -336,6 +336,7 @@
           files.forEach(f => { if (!f.isOld) cfData.append("file", f); });
 
           batch.collection('cashflow').create(cfData);
+          batch.collection('dropdown').update(formDataBon.akun_asal, { number_1: saldoAwalCf - Number(formDataBon.nominal) });
         }
 
         // 2. Queue TULIS KE BON
@@ -975,7 +976,8 @@
 
         formDataObj.append("jenis", formData.jenis || "");
 
-        const mutasiValue = formData.mutasi?.toLowerCase() === 'masuk' ? 'in' : 'out';
+        const mLower = (formData.mutasi || '').toLowerCase();
+        const mutasiValue = (mLower === 'masuk' || mLower === 'in') ? 'in' : 'out';
         formDataObj.append("mutasi", mutasiValue);
         formDataObj.append("account_1", formData.account_1 || "");
         formDataObj.append("account_2", formData.account_2 || "");
@@ -1027,8 +1029,33 @@
         const batch = pb.createBatch();
         if (isEditMode && selectedTx) {
           batch.collection('cashflow').update(selectedTx.id, formDataObj);
+          
+          if (selectedTx.account_1 && formData.account_1 && selectedTx.account_1 !== formData.account_1) {
+            const oldIsOut = (selectedTx.mutasi || '').toLowerCase() === 'out' || (selectedTx.mutasi || '').toLowerCase() === 'keluar';
+            const oldNominal = Number(selectedTx.nominal || 0);
+            try {
+              const oldAcc = await pb.collection('dropdown').getOne(selectedTx.account_1, { $autoCancel: false });
+              const revertedOldBal = oldIsOut ? (Number(oldAcc.number_1) || 0) + oldNominal : (Number(oldAcc.number_1) || 0) - oldNominal;
+              batch.collection('dropdown').update(selectedTx.account_1, { number_1: revertedOldBal });
+            } catch {}
+          }
+          if (formData.account_1) {
+            batch.collection('dropdown').update(formData.account_1, { number_1: saldoAkhir });
+          }
         } else {
           batch.collection('cashflow').create(formDataObj);
+          if (formData.account_1) {
+            batch.collection('dropdown').update(formData.account_1, { number_1: saldoAkhir });
+          }
+          if (formData.account_2 && (formData.jenis || '').toLowerCase().includes('transfer')) {
+            let saldo2Awal = 0;
+            try {
+              const acc2 = await pb.collection('dropdown').getOne(formData.account_2, { $autoCancel: false });
+              saldo2Awal = Number(acc2.number_1) || 0;
+            } catch {}
+            const saldo2Akhir = mutasiValue === 'out' ? saldo2Awal + Number(formData.nominal || 0) : saldo2Awal - Number(formData.nominal || 0);
+            batch.collection('dropdown').update(formData.account_2, { number_1: saldo2Akhir });
+          }
         }
 
         const batchResults: any = await batch.send();
@@ -1087,20 +1114,18 @@
       if (!selectedTx) return;
       setIsProcessing(true);
       try {
-        const deletedOk = await notifyLaravelApi('cashflow', 'deleted', selectedTx.id);
-
         const batch = pb.createBatch();
 
-        // Revert account balance manually (fallback jika laravel notify gagal)
-        if (!deletedOk && selectedTx.account_1 && selectedTx.nominal) {
+        // Revert account balance manually di atomic batch
+        if (selectedTx.account_1 && selectedTx.nominal) {
           try {
-            const isOut = String(selectedTx.mutasi).toLowerCase() === 'out';
+            const isOut = String(selectedTx.mutasi).toLowerCase() === 'out' || String(selectedTx.mutasi).toLowerCase() === 'keluar';
             const acc = await pb.collection('dropdown').getOne(selectedTx.account_1, {$autoCancel:false});
             const newBal = isOut ? (Number(acc.number_1)||0)+Number(selectedTx.nominal) : (Number(acc.number_1)||0)-Number(selectedTx.nominal);
             batch.collection('dropdown').update(selectedTx.account_1, { number_1: newBal });
             
-            // Transfer: revert account_2 too
-            if (String(selectedTx.jenis||'').toLowerCase()==='transfer' && selectedTx.account_2) {
+            // Transfer: revert account_2 juga
+            if (String(selectedTx.jenis||'').toLowerCase().includes('transfer') && selectedTx.account_2) {
               const acc2 = await pb.collection('dropdown').getOne(selectedTx.account_2, {$autoCancel:false});
               const newBal2 = isOut ? (Number(acc2.number_1)||0)-Number(selectedTx.nominal) : (Number(acc2.number_1)||0)+Number(selectedTx.nominal);
               batch.collection('dropdown').update(selectedTx.account_2, { number_1: newBal2 });
@@ -1110,9 +1135,12 @@
           }
         }
 
-        // Queue & execute Delete cashflow record
+        // Queue & execute Delete cashflow record secara atomic
         batch.collection('cashflow').delete(selectedTx.id);
         await batch.send();
+
+        // Notify Laravel setelah batch hapus di PocketBase sukses
+        await notifyLaravelApi('cashflow', 'deleted', selectedTx.id).catch(() => null);
 
         // Recalculate report date
         if (selectedTx.created_at) {

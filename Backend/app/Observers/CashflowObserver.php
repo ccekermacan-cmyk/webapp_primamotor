@@ -57,6 +57,14 @@ class CashflowObserver
         return $s;
     }
 
+    private function resolveDropdownId($val): string
+    {
+        $id = $this->getRelId($val);
+        if (!$id) return '';
+        $dp = DB::table('dropdown')->where('id', $id)->orWhere('id_lama', $id)->first();
+        return $dp ? (string) $dp->id : '';
+    }
+
     private function getCashkasirId(): string
     {
         $ck = Dropdown::where('text_1', 'cashkasir')->first();
@@ -94,10 +102,12 @@ class CashflowObserver
         $this->syncMenuDibayar($this->getMenuIdForSync($cashflow));
 
         $nominal = (float) $cashflow->nominal;
-        $mutasi = strtolower((string) $cashflow->mutasi);
+        $mutasiRaw = strtolower((string) $cashflow->mutasi);
+        $isMasuk = ($mutasiRaw === 'in' || $mutasiRaw === 'masuk');
+        $isKeluar = ($mutasiRaw === 'out' || $mutasiRaw === 'keluar');
         $jenis = strtolower((string) $cashflow->jenis);
-        $acc1 = $this->getRelId($cashflow->account_1);
-        $acc2 = $this->getRelId($cashflow->account_2);
+        $acc1 = $this->resolveDropdownId($cashflow->account_1 ?: $cashflow->acc1);
+        $acc2 = $this->resolveDropdownId($cashflow->account_2 ?: $cashflow->acc2);
         $refBaru = $this->getRelId($cashflow->ref_baru);
         $createdAt = (string) $cashflow->created_at;
         $tanggal = $this->getReportDate($refBaru, $createdAt);
@@ -108,31 +118,36 @@ class CashflowObserver
         $cashkasirId = $this->getCashkasirId();
 
         // 1. Sinkron saldo akun (Atomic with Saldo Capture)
-        if ($mutasi === 'in') {
-            if ($acc1) {
-                DB::transaction(function () use ($acc1, $nominal, $cashflow) {
-                    DB::table('dropdown')->where('id', $acc1)->increment('number_1', $nominal);
-                    $newBal = DB::table('dropdown')->where('id', $acc1)->value('number_1') ?? 0;
-                    
-                    $cashflow->saldo_awal = $newBal - $nominal;
-                    $cashflow->saldo_akhir = $newBal;
-                    $cashflow->saveQuietly();
-                });
+        if ($acc1) {
+            $currBal = (float) (DB::table('dropdown')->where('id', $acc1)->value('number_1') ?? 0);
+            $expectedSaldo = $cashflow->saldo_akhir !== null ? (float) $cashflow->saldo_akhir : null;
+
+            // Jika number_1 belum diperbarui oleh client atomic batch, lakukan update di server
+            if ($expectedSaldo === null || abs($currBal - $expectedSaldo) > 0.01) {
+                if ($isMasuk) {
+                    DB::transaction(function () use ($acc1, $nominal, $cashflow) {
+                        DB::table('dropdown')->where('id', $acc1)->increment('number_1', $nominal);
+                        $newBal = DB::table('dropdown')->where('id', $acc1)->value('number_1') ?? 0;
+                        
+                        $cashflow->saldo_awal = $newBal - $nominal;
+                        $cashflow->saldo_akhir = $newBal;
+                        $cashflow->saveQuietly();
+                    });
+                } elseif ($isKeluar) {
+                    DB::transaction(function () use ($acc1, $acc2, $nominal, $cashflow) {
+                        DB::table('dropdown')->where('id', $acc1)->decrement('number_1', $nominal);
+                        $newBal = DB::table('dropdown')->where('id', $acc1)->value('number_1') ?? 0;
+                        
+                        $cashflow->saldo_awal = $newBal + $nominal;
+                        $cashflow->saldo_akhir = $newBal;
+                        $cashflow->saveQuietly();
+
+                        if ($acc2) {
+                            DB::table('dropdown')->where('id', $acc2)->increment('number_1', $nominal);
+                        }
+                    });
+                }
             }
-        } elseif ($mutasi === 'out') {
-            DB::transaction(function () use ($acc1, $acc2, $nominal, $cashflow) {
-                if ($acc1) {
-                    DB::table('dropdown')->where('id', $acc1)->decrement('number_1', $nominal);
-                    $newBal = DB::table('dropdown')->where('id', $acc1)->value('number_1') ?? 0;
-                    
-                    $cashflow->saldo_awal = $newBal + $nominal;
-                    $cashflow->saldo_akhir = $newBal;
-                    $cashflow->saveQuietly();
-                }
-                if ($acc2) {
-                    DB::table('dropdown')->where('id', $acc2)->increment('number_1', $nominal);
-                }
-            });
         }
 
         // 2. Bon karyawan
@@ -213,19 +228,23 @@ class CashflowObserver
         }
 
         $oldNominal = (float) ($cashflow->getOriginal('nominal') ?? 0);
-        $oldMutasi = strtolower((string) ($cashflow->getOriginal('mutasi') ?? ''));
+        $oldMutasiRaw = strtolower((string) ($cashflow->getOriginal('mutasi') ?? ''));
+        $isOldMasuk = ($oldMutasiRaw === 'in' || $oldMutasiRaw === 'masuk');
+        $isOldKeluar = ($oldMutasiRaw === 'out' || $oldMutasiRaw === 'keluar');
         $oldJenis = strtolower((string) ($cashflow->getOriginal('jenis') ?? ''));
-        $oldAcc1 = $this->getRelId($cashflow->getOriginal('account_1'));
-        $oldAcc2 = $this->getRelId($cashflow->getOriginal('account_2'));
+        $oldAcc1 = $this->resolveDropdownId($cashflow->getOriginal('account_1') ?: $cashflow->getOriginal('acc1'));
+        $oldAcc2 = $this->resolveDropdownId($cashflow->getOriginal('account_2') ?: $cashflow->getOriginal('acc2'));
         $oldRef = $this->getRelId($cashflow->getOriginal('ref_baru'));
         $oldCreated = (string) ($cashflow->getOriginal('created_at') ?? '');
         $oldTanggal = $this->getReportDate($oldRef, $oldCreated);
 
         $newNominal = (float) $cashflow->nominal;
-        $newMutasi = strtolower((string) $cashflow->mutasi);
+        $newMutasiRaw = strtolower((string) $cashflow->mutasi);
+        $isNewMasuk = ($newMutasiRaw === 'in' || $newMutasiRaw === 'masuk');
+        $isNewKeluar = ($newMutasiRaw === 'out' || $newMutasiRaw === 'keluar');
         $newJenis = strtolower((string) $cashflow->jenis);
-        $newAcc1 = $this->getRelId($cashflow->account_1);
-        $newAcc2 = $this->getRelId($cashflow->account_2);
+        $newAcc1 = $this->resolveDropdownId($cashflow->account_1 ?: $cashflow->acc1);
+        $newAcc2 = $this->resolveDropdownId($cashflow->account_2 ?: $cashflow->acc2);
         $newRef = $this->getRelId($cashflow->ref_baru);
         $newCreated = (string) $cashflow->created_at;
         $newTanggal = $this->getReportDate($newRef, $newCreated);
@@ -236,11 +255,11 @@ class CashflowObserver
         $cashkasirId = $this->getCashkasirId();
 
         // 1. Revert old account balance (Atomic)
-        if ($oldMutasi === 'in') {
+        if ($isOldMasuk) {
             if ($oldAcc1) {
                 DB::table('dropdown')->where('id', $oldAcc1)->decrement('number_1', $oldNominal);
             }
-        } elseif ($oldMutasi === 'out') {
+        } elseif ($isOldKeluar) {
             if ($oldAcc1) {
                 DB::table('dropdown')->where('id', $oldAcc1)->increment('number_1', $oldNominal);
             }
@@ -250,11 +269,11 @@ class CashflowObserver
         }
 
         // 2. Apply new account balance (Atomic)
-        if ($newMutasi === 'in') {
+        if ($isNewMasuk) {
             if ($newAcc1) {
                 DB::table('dropdown')->where('id', $newAcc1)->increment('number_1', $newNominal);
             }
-        } elseif ($newMutasi === 'out') {
+        } elseif ($isNewKeluar) {
             if ($newAcc1) {
                 DB::table('dropdown')->where('id', $newAcc1)->decrement('number_1', $newNominal);
             }
@@ -377,21 +396,23 @@ class CashflowObserver
         $this->syncMenuDibayar($this->getMenuIdForSync($cashflow), (string)$cashflow->id);
 
         $nominal = (float) $cashflow->nominal;
-        $mutasi = strtolower((string) $cashflow->mutasi);
+        $mutasiRaw = strtolower((string) $cashflow->mutasi);
+        $isMasuk = ($mutasiRaw === 'in' || $mutasiRaw === 'masuk');
+        $isKeluar = ($mutasiRaw === 'out' || $mutasiRaw === 'keluar');
         $jenis = strtolower((string) $cashflow->jenis);
-        $acc1 = $this->getRelId($cashflow->account_1);
-        $acc2 = $this->getRelId($cashflow->account_2);
+        $acc1 = $this->resolveDropdownId($cashflow->account_1 ?: $cashflow->acc1);
+        $acc2 = $this->resolveDropdownId($cashflow->account_2 ?: $cashflow->acc2);
         $createdAt = (string) $cashflow->created_at;
         $tanggal = $this->getReportDate($this->getRelId($cashflow->ref_baru), $createdAt);
 
         $cashkasirId = $this->getCashkasirId();
 
         // 1. Revert account balance (Atomic)
-        if ($mutasi === 'in') {
+        if ($isMasuk) {
             if ($acc1) {
                 DB::table('dropdown')->where('id', $acc1)->decrement('number_1', $nominal);
             }
-        } elseif ($mutasi === 'out') {
+        } elseif ($isKeluar) {
             if ($acc1) {
                 DB::table('dropdown')->where('id', $acc1)->increment('number_1', $nominal);
             }
