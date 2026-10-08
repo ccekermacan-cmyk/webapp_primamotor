@@ -147,17 +147,13 @@ class ReportService
 
                 $acc1 = strtolower($cf->account_1 ?? $cf->acc1 ?? '');
                 $acc2 = strtolower($cf->account_2 ?? $cf->acc2 ?? '');
-
-                if (str_contains($acc1, 'kasir') || str_contains($acc1, 'cash')) {
-                    if ($mutasi === 'in' || $mutasi === 'masuk') $cashKasir += $nominal;
-                    elseif ($mutasi === 'out' || $mutasi === 'keluar') $cashKasir -= $nominal;
-                } elseif (str_contains($acc2, 'kasir') || str_contains($acc2, 'cash')) {
-                    if ($mutasi === 'out' || $mutasi === 'keluar') $cashKasir += $nominal;
-                }
             }
 
             $operasionalToko = $totalCashflowKeluarNonPembelian;
             $pengeluaranLain = 0;
+
+            // Formulasi Kasir Toko Final: [Omset Toko] + [Omset Servis] + [Omset Minuman] + [Pemasukan Lain] - [Operasional Toko]
+            $cashKasir = ($totalOmsetPenjualan + $omsetServis + $totalOmsetMinuman + $pemasukanLain) - $operasionalToko;
 
             // --- 5. Simpan / Perbarui Record Report ---
             
