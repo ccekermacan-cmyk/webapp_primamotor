@@ -246,7 +246,7 @@ export default function ReportPage() {
         tanggal,
         Omset: r.omset_toko + r.omset_servis + r.omset_minuman,
         Pengeluaran: r.operasional_toko + r.pengeluaran_lain,
-        Laba: r.laba_penjualan + (r.laba_servis || 0) + (r.laba_minuman || 0), // 🟢 DIPERBAIKI
+        Laba: r.laba_penjualan + (r.laba_service || 0) + (r.laba_minuman || 0),
         Piutang: r.piutang || 0,
         Hutang: r.hutang || 0,
       };
@@ -256,7 +256,7 @@ export default function ReportPage() {
       totalOmsetToko += r.omset_toko;
       totalOmsetServis += r.omset_servis;
       totalOmsetMinum += r.omset_minuman;
-      totalLaba += r.laba_penjualan + (r.laba_servis || 0) + (r.laba_minuman || 0); // 🟢 DIPERBAIKI
+      totalLaba += r.laba_penjualan + (r.laba_service || 0) + (r.laba_minuman || 0);
       totalPengeluaran += (r.operasional_toko + r.pengeluaran_lain);
       totalPemasukanLain += r.pemasukan_lain;
     });
@@ -319,7 +319,7 @@ export default function ReportPage() {
         omset_servis: 0,
         omset_minuman: 0,
         laba_penjualan: 0,
-        laba_servis: 0,
+        laba_service: 0,
         laba_minuman: 0,    
         operasional_toko: 0,
         pengeluaran_lain: 0,
