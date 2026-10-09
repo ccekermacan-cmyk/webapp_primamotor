@@ -1736,12 +1736,39 @@ export default function MenuPage() {
         const stockPromises = cartWithTierPrice
           .filter(item => item.id)
           .map(item => pb.collection('produk').getOne(item.id, { $autoCancel: false }).then(p => ({ id: item.id, stok: Number(p.stok_3) || 0 })).catch(() => ({ id: item.id, stok: 0 })));
-        const balancePromises = formBayar.cashflowList
-          .filter(cf => cf.accountId && cf.nominal > 0)
-          .map(cf => pb.collection('dropdown').getOne(cf.accountId, { $autoCancel: false }).then(a => ({ id: cf.accountId, bal: Number(a.number_1) || 0 })).catch(() => ({ id: cf.accountId, bal: 0 })));
+        
+        const oldAccountIds = isEditing ? oldCashflows.flatMap((c: any) => [c.account_1, c.account_2]) : [];
+        const newAccountIds = formBayar.cashflowList.map((cf: any) => cf.accountId);
+        const allAccountIds = Array.from(new Set([...oldAccountIds, ...newAccountIds].filter(Boolean)));
+
+        const balancePromises = allAccountIds
+          .map(accId => pb.collection('dropdown').getOne(accId, { $autoCancel: false }).then(a => ({ id: accId, bal: Number(a.number_1) || 0 })).catch(() => ({ id: accId, bal: 0 })));
         const [stocks, balances] = await Promise.all([Promise.all(stockPromises), Promise.all(balancePromises)]);
         stocks.forEach(s => { preflightStocks[s.id] = s.stok; });
         balances.forEach(b => { preflightBalances[b.id] = b.bal; });
+
+        // Jika mode edit, revert saldo transaksi cashflow lama pada preflightBalances
+        if (isEditing && oldCashflows.length > 0) {
+          for (const oldCf of oldCashflows) {
+            const acc1 = oldCf.account_1;
+            const acc2 = oldCf.account_2;
+            const nom = Number(oldCf.nominal || 0);
+            const mut = String(oldCf.mutasi || '').toLowerCase();
+            const isOut = mut === 'out' || mut === 'keluar';
+            const isTransfer = String(oldCf.jenis || '').toLowerCase().includes('transfer');
+
+            if (acc1 && preflightBalances[acc1] !== undefined) {
+              preflightBalances[acc1] = isOut
+                ? preflightBalances[acc1] + nom
+                : preflightBalances[acc1] - nom;
+            }
+            if (acc2 && isTransfer && preflightBalances[acc2] !== undefined) {
+              preflightBalances[acc2] = isOut
+                ? preflightBalances[acc2] - nom
+                : preflightBalances[acc2] + nom;
+            }
+          }
+        }
       } catch { /* pre-flight failure is non-fatal, fallbacks handle it */ }
       setProcessingMsg('Menyimpan transaksi...');
 
@@ -1970,6 +1997,8 @@ export default function MenuPage() {
       }
 
       // Simpan pemetaan pemisahan multi cashflow aliran dana masuk/keluar & UPDATE SALDO DOMPET
+      const updatedAccountsInPos = new Set<string>();
+
       for (const cf of formBayar.cashflowList) {
         if (cf.accountId && cf.nominal > 0) {
           const selectedAccount = cashflowAccounts.find(acc => acc.id === cf.accountId);
@@ -1978,6 +2007,8 @@ export default function MenuPage() {
           
           let saldoAwal = preflightBalances[cf.accountId] ?? 0;
           const saldoAkhir = mutasiValue === 'in' ? (saldoAwal + cf.nominal) : (saldoAwal - cf.nominal);
+          preflightBalances[cf.accountId] = saldoAkhir;
+          updatedAccountsInPos.add(cf.accountId);
 
           const cfData = {
             id_lama: '',
@@ -2011,10 +2042,20 @@ export default function MenuPage() {
             });
             notifyQueue.push({ type: 'cashflow', action: 'created', id: '' });
           }
+        }
+      }
 
-          // Update saldo dompet (number_1) secara atomic di tabel dropdown
-          batch.collection('dropdown').update(cf.accountId, { number_1: saldoAkhir });
-          notifyQueue.push({ type: 'dropdown' as any, action: 'updated', id: cf.accountId });
+      // Update saldo dompet (number_1) secara atomic di tabel dropdown untuk SEMUA akun yang terlibat (termasuk yang direvert / dihapus)
+      if (isEditing && oldCashflows.length > 0) {
+        for (const oldCf of oldCashflows) {
+          if (oldCf.account_1) updatedAccountsInPos.add(oldCf.account_1);
+          if (oldCf.account_2) updatedAccountsInPos.add(oldCf.account_2);
+        }
+      }
+      for (const accId of updatedAccountsInPos) {
+        if (preflightBalances[accId] !== undefined) {
+          batch.collection('dropdown').update(accId, { number_1: preflightBalances[accId] });
+          notifyQueue.push({ type: 'dropdown' as any, action: 'updated', id: accId });
         }
       }
 
