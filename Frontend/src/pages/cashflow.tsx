@@ -990,14 +990,70 @@
         formDataObj.append("acc1", accountIdLama);
         formDataObj.append("acc2", account2IdLama);
 
+        // Ambil saldo awal & hitung saldo akhir sesuai mode (Create / Edit)
         let saldoAwal = 0;
-        if (formData.account_1) {
-          try {
-            const acc = await pb.collection('dropdown').getOne(formData.account_1, { $autoCancel: false });
-            saldoAwal = Number(acc.number_1) || 0;
-          } catch { console.warn('Could not fetch account balance for saldo_awal'); }
+        let saldoAkhir = 0;
+        const accountBalances: Record<string, number> = {};
+
+        if (isEditMode && selectedTx) {
+          const oldAcc1 = selectedTx.account_1 || '';
+          const oldAcc2 = selectedTx.account_2 || '';
+          const newAcc1 = formData.account_1 || '';
+          const newAcc2 = formData.account_2 || '';
+          const oldNominal = Number(selectedTx.nominal || 0);
+          const oldMutasi = (selectedTx.mutasi || '').toLowerCase();
+          const oldIsOut = oldMutasi === 'out' || oldMutasi === 'keluar';
+          const oldIsTransfer = (selectedTx.jenis || '').toLowerCase().includes('transfer');
+
+          const newNominal = Number(formData.nominal || 0);
+          const newIsOut = mutasiValue === 'out';
+          const newIsTransfer = (formData.jenis || '').toLowerCase().includes('transfer');
+
+          const accountIdsToFetch = Array.from(new Set([oldAcc1, oldAcc2, newAcc1, newAcc2].filter(Boolean)));
+          for (const accId of accountIdsToFetch) {
+            try {
+              const acc = await pb.collection('dropdown').getOne(accId, { $autoCancel: false });
+              accountBalances[accId] = Number(acc.number_1) || 0;
+            } catch {
+              accountBalances[accId] = 0;
+            }
+          }
+
+          // 1. Revert transaksi lama pada accountBalances
+          if (oldAcc1) {
+            accountBalances[oldAcc1] = oldIsOut
+              ? (accountBalances[oldAcc1] || 0) + oldNominal
+              : (accountBalances[oldAcc1] || 0) - oldNominal;
+          }
+          if (oldAcc2 && oldIsTransfer) {
+            accountBalances[oldAcc2] = oldIsOut
+              ? (accountBalances[oldAcc2] || 0) - oldNominal
+              : (accountBalances[oldAcc2] || 0) + oldNominal;
+          }
+
+          // 2. Hitung saldoAwal & saldoAkhir untuk newAcc1 setelah direvert
+          saldoAwal = newAcc1 ? (accountBalances[newAcc1] || 0) : 0;
+          saldoAkhir = newIsOut ? (saldoAwal - newNominal) : (saldoAwal + newNominal);
+          if (newAcc1) {
+            accountBalances[newAcc1] = saldoAkhir;
+          }
+
+          // 3. Hitung saldo untuk newAcc2 jika transaksi baru adalah transfer
+          if (newAcc2 && newIsTransfer) {
+            const saldo2Awal = accountBalances[newAcc2] || 0;
+            const saldo2Akhir = newIsOut ? (saldo2Awal + newNominal) : (saldo2Awal - newNominal);
+            accountBalances[newAcc2] = saldo2Akhir;
+          }
+        } else {
+          if (formData.account_1) {
+            try {
+              const acc = await pb.collection('dropdown').getOne(formData.account_1, { $autoCancel: false });
+              saldoAwal = Number(acc.number_1) || 0;
+            } catch { console.warn('Could not fetch account balance for saldo_awal'); }
+          }
+          saldoAkhir = mutasiValue === 'in' ? (saldoAwal + Number(formData.nominal || 0)) : (saldoAwal - Number(formData.nominal || 0));
         }
-        const saldoAkhir = mutasiValue === 'in' ? (saldoAwal + Number(formData.nominal || 0)) : (saldoAwal - Number(formData.nominal || 0));
+
         formDataObj.append("saldo_awal", String(saldoAwal));
         formDataObj.append("saldo_akhir", String(saldoAkhir));
 
@@ -1030,17 +1086,9 @@
         if (isEditMode && selectedTx) {
           batch.collection('cashflow').update(selectedTx.id, formDataObj);
           
-          if (selectedTx.account_1 && formData.account_1 && selectedTx.account_1 !== formData.account_1) {
-            const oldIsOut = (selectedTx.mutasi || '').toLowerCase() === 'out' || (selectedTx.mutasi || '').toLowerCase() === 'keluar';
-            const oldNominal = Number(selectedTx.nominal || 0);
-            try {
-              const oldAcc = await pb.collection('dropdown').getOne(selectedTx.account_1, { $autoCancel: false });
-              const revertedOldBal = oldIsOut ? (Number(oldAcc.number_1) || 0) + oldNominal : (Number(oldAcc.number_1) || 0) - oldNominal;
-              batch.collection('dropdown').update(selectedTx.account_1, { number_1: revertedOldBal });
-            } catch {}
-          }
-          if (formData.account_1) {
-            batch.collection('dropdown').update(formData.account_1, { number_1: saldoAkhir });
+          // Batch update seluruh akun yang terlibat dalam transaksi lama maupun baru
+          for (const accId of Object.keys(accountBalances)) {
+            batch.collection('dropdown').update(accId, { number_1: accountBalances[accId] });
           }
         } else {
           batch.collection('cashflow').create(formDataObj);
