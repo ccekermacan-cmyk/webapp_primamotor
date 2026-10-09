@@ -87,6 +87,54 @@
       return `${year}-${month}-${day}T${hours}:${minutes}`;
     };
     
+    const cleanMenuId = (val: any): string => {
+      if (!val) return '';
+      if (Array.isArray(val)) return val.length > 0 ? String(val[0]) : '';
+      const s = String(val).trim();
+      if (s.startsWith('[')) {
+        try {
+          const arr = JSON.parse(s);
+          return Array.isArray(arr) && arr.length > 0 ? String(arr[0]) : '';
+        } catch { return ''; }
+      }
+      return s;
+    };
+
+    const syncMenuDibayarInPb = async (rawMenuId: any) => {
+      const targetMenuId = cleanMenuId(rawMenuId);
+      if (!targetMenuId) return;
+      try {
+        const menuRec = await pb.collection('menu').getOne(targetMenuId, { $autoCancel: false }).catch(() => null);
+        if (!menuRec) return;
+
+        const linkedCashflows = await pb.collection('cashflow').getFullList({
+          filter: `ref_baru = "${targetMenuId}" || ref = "${targetMenuId}"`,
+          $autoCancel: false
+        }).catch(() => []);
+
+        const totalDibayar = linkedCashflows.reduce((sum, cf: any) => sum + (Number(cf.nominal) || 0), 0);
+        const grandTotal = Number(menuRec.total) || 0;
+        const newStatus = (totalDibayar >= grandTotal && grandTotal > 0) ? 'lunas' : 'belum';
+
+        const updateData: Record<string, any> = {};
+        if (Number(menuRec.dibayar) !== totalDibayar) {
+          updateData.dibayar = totalDibayar;
+        }
+        if (menuRec.status !== newStatus) {
+          updateData.status = newStatus;
+          if (newStatus === 'lunas' && !menuRec.date_lunas) {
+            updateData.date_lunas = new Date().toISOString();
+          }
+        }
+
+        if (Object.keys(updateData).length > 0) {
+          await pb.collection('menu').update(targetMenuId, updateData);
+        }
+      } catch (err) {
+        console.warn('Notice: Could not sync menu dibayar in PocketBase:', err);
+      }
+    };
+
     const [jenisOptionsIn, setJenisOptionsIn] = useState<DropdownItem[]>([]);
     const [jenisOptionsOut, setJenisOptionsOut] = useState<DropdownItem[]>([]);
     const [accountOptions, setAccountOptions] = useState<DropdownItem[]>([]);
@@ -1109,6 +1157,18 @@
         const batchResults: any = await batch.send();
         const resId = (batchResults && batchResults[0]?.id) ? batchResults[0].id : (selectedTx?.id || '');
 
+        // Sync data menu utama di PocketBase yang terhubung via ref_baru atau ref
+        const affectedMenuIds = Array.from(new Set([
+          selectedTx?.ref_baru,
+          selectedTx?.ref,
+          (formData as any)?.ref_baru,
+          (formData as any)?.ref
+        ].map(cleanMenuId).filter(Boolean)));
+
+        for (const mId of affectedMenuIds) {
+          await syncMenuDibayarInPb(mId);
+        }
+
         if (isEditMode && selectedTx) {
           const editOk = await notifyLaravelApi('cashflow', 'updated', selectedTx.id, selectedTx);
           if (!editOk) console.warn('Laravel cashflow notify failed for update');
@@ -1186,6 +1246,16 @@
         // Queue & execute Delete cashflow record secara atomic
         batch.collection('cashflow').delete(selectedTx.id);
         await batch.send();
+
+        // Sync data menu utama di PocketBase yang terhubung via ref_baru atau ref
+        const affectedMenuIds = Array.from(new Set([
+          selectedTx?.ref_baru,
+          selectedTx?.ref
+        ].map(cleanMenuId).filter(Boolean)));
+
+        for (const mId of affectedMenuIds) {
+          await syncMenuDibayarInPb(mId);
+        }
 
         // Notify Laravel setelah batch hapus di PocketBase sukses
         await notifyLaravelApi('cashflow', 'deleted', selectedTx.id).catch(() => null);
