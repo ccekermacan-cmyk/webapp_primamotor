@@ -156,4 +156,58 @@ class TransactionSyncTest extends TestCase
         $this->withToken('token')->getJson('/api/reports')->assertForbidden();
         Http::assertSent(fn ($request) => $request->body() === '{}');
     }
+    public function test_pocketbase_connection_failure_returns_actionable_503(): void
+    {
+        Http::fake(fn () => throw new \Illuminate\Http\Client\ConnectionException('Connection refused'));
+        $this->withToken('diagnostic-token')->getJson('/api/user')->assertStatus(503)
+            ->assertJsonFragment(['message' => 'Layanan autentikasi tidak tersedia. Periksa POCKETBASE_URL dan koneksi Laravel ke PocketBase.']);
+    }
+
+    public function test_upstream_auth_outage_is_not_reported_as_an_expired_session(): void
+    {
+        Http::fake(['*' => Http::response(['message' => 'unavailable'], 503)]);
+        $this->withToken('diagnostic-token')->getJson('/api/user')->assertStatus(503);
+    }
+
+    public function test_missing_auth_endpoint_and_malformed_success_are_configuration_errors(): void
+    {
+        Http::fake(['*' => Http::response([], 404)]);
+        $this->withToken('diagnostic-token')->getJson('/api/user')->assertStatus(503);
+        Http::fake(['*' => Http::response(['status' => 'ok'], 200)]);
+        $this->withToken('diagnostic-token')->getJson('/api/user')->assertStatus(503);
+    }
+
+    public function test_delete_that_would_overdraw_cash_rolls_back_all_children(): void
+    {
+        $this->withoutMiddleware(AuthenticatePocketBase::class);
+        Produk::create(['id' => 'p1', 'stok_3' => 10]);
+        Dropdown::create(['id' => 'acc', 'number_1' => 0]);
+        $menu = Menu::create(['id' => 'm1', 'jenis' => 'penjualan', 'total' => 50]);
+        LogStock::create(['item_baru' => 'p1', 'qty' => 2, 'boolean' => 'out', 'ref_baru' => 'm1']);
+        Cashflow::create(['account_1' => 'acc', 'nominal' => 50, 'mutasi' => 'in', 'ref_baru' => 'm1']);
+        \Illuminate\Support\Facades\DB::table('dropdown')->where('id', 'acc')->update(['number_1' => 10]);
+        $this->deleteJson('/api/transactions/menu/m1')->assertUnprocessable()->assertJsonValidationErrors('nominal');
+        $this->assertNotNull($menu->fresh());
+        $this->assertEquals(8, Produk::find('p1')->stok_3);
+        $this->assertEquals(10, Dropdown::find('acc')->number_1);
+        $this->assertDatabaseCount('log_stock', 1);
+        $this->assertDatabaseCount('cashflow', 1);
+    }
+
+    public function test_replacing_equivalent_payment_does_not_fail_on_a_temporary_overdraft(): void
+    {
+        Dropdown::create(['id' => 'acc', 'number_1' => 10]);
+        Menu::create(['id' => 'm1', 'jenis' => 'penjualan', 'total' => 100]);
+        $old = ['id' => 'oldcf', 'account_1' => 'acc', 'nominal' => 100, 'mutasi' => 'in', 'ref_baru' => 'm1'];
+        DB::table('cashflow')->insert(['id' => 'newcf', 'account_1' => 'acc', 'nominal' => 100, 'mutasi' => 'in', 'ref_baru' => 'm1']);
+        $events = [
+            ['collection' => 'cashflow', 'event' => 'deleted', 'id' => 'oldcf', 'record' => $old],
+            ['collection' => 'cashflow', 'event' => 'created', 'id' => 'newcf'],
+        ];
+        $this->sync($events, 'replace-payment')->assertOk();
+        $this->sync($events, 'replace-payment')->assertOk();
+        $this->assertEquals(10, Dropdown::find('acc')->number_1);
+        $this->assertEquals(100, Menu::find('m1')->dibayar);
+    }
+
 }

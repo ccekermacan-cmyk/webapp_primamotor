@@ -205,6 +205,8 @@ import { syncLaravelEvents, flushPendingSync, deleteFinancialRecord } from '../s
         message: 'Aksi ini akan mengembalikan (revert) saldo bon karyawan sesuai dengan nominal riwayat ini. Apakah Anda yakin?',
         type: 'confirm',
         onConfirm: async () => {
+          if (submitLockRef.current) return;
+          submitLockRef.current = true;
           setSystemAlert(prev => ({ ...prev, show: false }));
           setIsProcessing(true);
           try {
@@ -223,8 +225,9 @@ import { syncLaravelEvents, flushPendingSync, deleteFinancialRecord } from '../s
             }
           } catch (e) {
             console.error(e);
-            showAlert("Gagal", "Gagal menghapus riwayat bon.");
+            showAlert("Gagal", e instanceof Error ? e.message : "Gagal menghapus riwayat bon.");
           } finally {
+            submitLockRef.current = false;
             setIsProcessing(false);
           }
         }
@@ -507,10 +510,12 @@ import { syncLaravelEvents, flushPendingSync, deleteFinancialRecord } from '../s
 
     // ========== FUNGSI HITUNG ULANG BON / PIUTANG / HUTANG ==========
     const calculateBalances = async () => {
-      if (calculating) return;
+      if (calculating || submitLockRef.current) return;
+      submitLockRef.current = true;
       setCalculating(true);
       
       try {
+        await flushPendingSync();
         const dateStr = businessDate();
         
         // Ambil data wallet sesuai activeAccountTab
@@ -589,6 +594,7 @@ import { syncLaravelEvents, flushPendingSync, deleteFinancialRecord } from '../s
         console.error('Gagal menghitung:', error);
         showAlert('Gagal', 'Terjadi kesalahan saat menghitung: ' + error.message);
       } finally {
+        submitLockRef.current = false;
         setCalculating(false);
       }
     };
@@ -1003,7 +1009,8 @@ import { syncLaravelEvents, flushPendingSync, deleteFinancialRecord } from '../s
     };
 
     const submitDelete = async () => {
-      if (!selectedTx) return;
+      if (!selectedTx || submitLockRef.current) return;
+      submitLockRef.current = true;
       setIsProcessing(true);
       try {
         await deleteFinancialRecord('cashflow', selectedTx.id);
@@ -1012,8 +1019,9 @@ import { syncLaravelEvents, flushPendingSync, deleteFinancialRecord } from '../s
         fetchCashflow();
         fetchWallets();
       } catch (error) {
-        showAlert("Gagal Menghapus", "Terjadi kesalahan saat menghapus data.");
+        showAlert("Gagal Menghapus", error instanceof Error ? error.message : "Terjadi kesalahan saat menghapus data.");
       } finally {
+        submitLockRef.current = false;
         setIsProcessing(false);
       }
     };

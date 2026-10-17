@@ -1,5 +1,5 @@
-import { laravelFetch } from '../services/api/laravel';
-import { useState, useEffect, useMemo } from 'react';
+import { recalculateFinancialReport, flushPendingSync } from '../services/api/laravel';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { pb } from '../lib/pocketbase';
 import Modal from '../components/modal'; // PENTING: Jangan dihapus agar Alert UI berjalan
 import { Search, Calendar, ChevronLeft, ChevronRight, ChevronDown, Download, TrendingUp, TrendingDown, DollarSign, Wallet, Filter, RefreshCw, BarChart3, Lightbulb, X, Trash2, AlertTriangle, Info } from 'lucide-react';
@@ -53,6 +53,7 @@ export default function ReportPage() {
   const [showGenerateModal, setShowGenerateModal] = useState(false);
   const [generateDate, setGenerateDate] = useState('');
   const [generating, setGenerating] = useState(false);
+  const mutationLockRef = useRef(false);
   const [, setTodayReportExists] = useState(false);
 
   // === SISTEM ALERT TERPUSAT ===
@@ -282,37 +283,23 @@ export default function ReportPage() {
   // --- LOGIKA CENTRALIZED UNTUK GENERATE & KALKULASI LAPORAN TELAH DIPINDAHKAN KE LARAVEL ---
 
   const handleGenerateReport = async (dateStr?: string, _forceReplace: boolean = false) => {
-    if (generating) return;
+    if (mutationLockRef.current) return;
+    mutationLockRef.current = true;
     setGenerating(true);
     try {
       const targetDateStr = dateStr || getLocalToday();
 
-      // Panggil Laravel API untuk recalculate report
-      const { getLaravelApiUrl } = await import('../lib/pocketbase');
-      const apiUrl = getLaravelApiUrl() + '/reports/recalculate';
-      
-      try {
-        const response = await laravelFetch(apiUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ date: targetDateStr })
-        });
-        if (!response.ok) {
-          console.warn('Laravel API recalculate notice:', response.status);
-        }
-      } catch (apiErr) {
-        console.warn('Laravel API recalculate fetch warning:', apiErr);
-      }
+      await recalculateFinancialReport(targetDateStr);
+      setDetailCache({});
+      setReportDetailData(null);
 
       await fetchReports();
       setShowGenerateModal(false);
       showAlert('Sukses', 'Laporan berhasil direkalkulasi!');
     } catch (error) {
-      console.error(error);
-      await fetchReports();
-      setShowGenerateModal(false);
-      showAlert('Sukses', 'Laporan berhasil diperbarui!');
+      showAlert('Gagal Menghitung Laporan', error instanceof Error ? error.message : 'Perhitungan laporan belum berhasil.');
     } finally {
+      mutationLockRef.current = false;
       setGenerating(false);
     }
   };
@@ -325,8 +312,12 @@ export default function ReportPage() {
       'Hapus Laporan',
       `Yakin ingin menghapus laporan tanggal ${formatDate(report.created_at)} secara permanen?`,
       async () => {
+        if (mutationLockRef.current) return;
+        mutationLockRef.current = true;
         try {
+          await flushPendingSync();
           await pb.collection('report').delete(report.id);
+          setDetailCache({});
           setSelectedReport(null);
           setReportDetailData(null);
           await fetchReports();
@@ -334,7 +325,7 @@ export default function ReportPage() {
         } catch (error) {
           console.error(error);
           showAlert('Error', 'Gagal menghapus laporan: ' + (error as any)?.message);
-        }
+        } finally { mutationLockRef.current = false; }
       }
     );
   };

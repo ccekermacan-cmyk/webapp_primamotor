@@ -17,10 +17,14 @@ class AuthenticatePocketBase
             $auth = Http::timeout(8)->withToken($token)
                 ->post(rtrim(config('services.pocketbase.url'), '/') . '/api/collections/user/auth-refresh', new \stdClass);
         } catch (\Throwable $error) {
-            return response()->json(['message' => 'Layanan autentikasi tidak tersedia.'], 503);
+            return response()->json(['message' => 'Layanan autentikasi tidak tersedia. Periksa POCKETBASE_URL dan koneksi Laravel ke PocketBase.'], 503);
+        }
+        if ($auth->serverError() || $auth->status() === 404) {
+            return response()->json(['message' => 'Layanan autentikasi PocketBase belum tersedia. Periksa POCKETBASE_URL.'], 503);
         }
         if (!$auth->successful()) return response()->json(['message' => 'Sesi tidak valid.'], 401);
         $user = $auth->json('record');
+        if (!is_array($user) || empty($user['id'])) return response()->json(['message' => 'Respons autentikasi PocketBase tidak valid. Periksa POCKETBASE_URL.'], 503);
         if (strtolower($user['status'] ?? '') !== 'active') {
             return response()->json(['message' => 'Akun tidak aktif.'], 403);
         }

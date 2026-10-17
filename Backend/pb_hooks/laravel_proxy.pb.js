@@ -18,7 +18,7 @@ routerAdd("POST", "/api/webhook/{collection}/{event}/{id}", (c) => {
             url: `http://pm-nginx/api/webhook/${collection}/${event}/${id}`,
             method: "POST",
             body: JSON.stringify(body),
-            headers: { "Content-Type": "application/json", "Authorization": c.request.header.get("Authorization") }
+            headers: { "Content-Type": "application/json", "Accept": "application/json", "Authorization": c.request.header.get("Authorization") }
         });
         
         return c.json(res.statusCode, res.json);
@@ -34,7 +34,7 @@ routerAdd("POST", "/api/reports/recalculate", (c) => {
             url: `http://pm-nginx/api/reports/recalculate`,
             method: "POST",
             body: JSON.stringify(body),
-            headers: { "Content-Type": "application/json", "Authorization": c.request.header.get("Authorization") }
+            headers: { "Content-Type": "application/json", "Accept": "application/json", "Authorization": c.request.header.get("Authorization") }
         });
         
         return c.json(res.statusCode, res.json);
@@ -53,7 +53,7 @@ routerAdd("POST", "/api/webhooks/batch", (c) => {
         const res = $http.send({
             url: "http://pm-nginx/api/webhooks/batch",
             method: "POST", body: JSON.stringify(c.requestInfo().body),
-            headers: { "Content-Type": "application/json", "Authorization": c.request.header.get("Authorization") }
+            headers: { "Content-Type": "application/json", "Accept": "application/json", "Authorization": c.request.header.get("Authorization") }
         });
         return c.json(res.statusCode, res.json);
     } catch (err) { return c.json(502, { error: "Backend tidak tersedia" }); }
@@ -63,7 +63,7 @@ routerAdd("DELETE", "/api/transactions/{collection}/{id}", (c) => {
     try {
         const res = $http.send({
             url: `http://pm-nginx/api/transactions/${c.request.pathValue("collection")}/${c.request.pathValue("id")}`,
-            method: "DELETE", headers: { "Authorization": c.request.header.get("Authorization") }
+            method: "DELETE", headers: { "Accept": "application/json", "Authorization": c.request.header.get("Authorization") }
         });
         return c.json(res.statusCode, res.json);
     } catch (err) { return c.json(502, { error: "Backend tidak tersedia" }); }

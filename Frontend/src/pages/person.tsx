@@ -1,4 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import { financialPatch } from '../lib/financialPatch';
+import { flushPendingSync } from '../services/api/laravel';
+import React, { useState, useEffect, useRef } from 'react';
 import { pb, notifyLaravelApi } from '../lib/pocketbase';
 import Modal from '../components/modal';
 import { 
@@ -99,6 +101,12 @@ export default function PeoplePage() {
   const [isEditUserModalOpen, setIsEditUserModalOpen] = useState(false);
   const [editUserData, setEditUserData] = useState<any>(null);
   const [isProcessingUser, setIsProcessingUser] = useState(false);
+  const userMutationLockRef = useRef(false);
+  const originalUserRef = useRef<Record<string, unknown> | null>(null);
+  useEffect(() => {
+    if (isEditUserModalOpen) originalUserRef.current = editUserData ? {...editUserData} : null;
+  }, [isEditUserModalOpen, editUserData?.id]);
+
 
   // State untuk tab di modal detail user
   const [activeDetailTab, setActiveDetailTab] = useState<'Overview' | 'Gaji' | 'Bon'>('Overview');
@@ -375,7 +383,8 @@ export default function PeoplePage() {
 
   const handleUpdateUser = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editUserData) return;
+    if (!editUserData || userMutationLockRef.current) return;
+    userMutationLockRef.current = true;
     setIsProcessingUser(true);
     try {
       const emailVal = (editUserData.email || '').trim();
@@ -386,7 +395,12 @@ export default function PeoplePage() {
       formData.append('status', editUserData.status || 'active');
       formData.append('level', String(editUserData.level ?? 2));
       formData.append('link_image', editUserData.link_image || '');
-      formData.append('number', String(editUserData.number ?? 0));
+      await flushPendingSync();
+      const original = editUserData.id ? originalUserRef.current : null;
+      if (editUserData.id && original?.id !== editUserData.id) throw new Error('Data form sudah berubah. Buka ulang profil karyawan.');
+      const current = editUserData.id ? await pb.collection('user').getOne(editUserData.id, {$autoCancel:false}) : undefined;
+      const balancePatch = financialPatch({number: editUserData.number ?? 0}, original, ['number'], current);
+      if ('number' in balancePatch) formData.append('number', String(balancePatch.number));
       // PocketBase menyembunyikan field email jika emailVisibility false. Selalu set 'true' agar email dapat dibaca.
       formData.append('emailVisibility', editUserData.emailVisibility === false ? 'false' : 'true');
       formData.append('verified', editUserData.verified === true ? 'true' : 'false');
@@ -423,6 +437,7 @@ export default function PeoplePage() {
       console.error('Gagal menyimpan user:', error);
       alert(`Gagal menyimpan user: ${error?.message || 'Periksa kembali input masukan.'}`);
     } finally {
+      userMutationLockRef.current = false;
       setIsProcessingUser(false);
     }
   };
@@ -981,7 +996,7 @@ export default function PeoplePage() {
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider ml-1">Status Akun</label>
                     <select 
                       className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:border-cyan-400" 
-                      value={editUserData.status || 'active'} 
+                      value={String(editUserData.status || 'active').toLowerCase()}
                       onChange={(e) => setEditUserData({ ...editUserData, status: e.target.value })}
                     >
                       <option value="active">Active (Aktif)</option>

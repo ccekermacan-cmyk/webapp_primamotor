@@ -1,4 +1,4 @@
-import { hasPendingSync, flushPendingSync } from './services/api/laravel';
+import { hasPendingSync, flushPendingSync, getPendingSyncError } from './services/api/laravel';
 import React, { useState, lazy, Suspense, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { pb } from './lib/pocketbase';
@@ -40,13 +40,14 @@ export default function App() {
 
   const [syncPending, setSyncPending] = useState(hasPendingSync);
   const [syncBusy, setSyncBusy] = useState(false);
+  const [syncError, setSyncError] = useState(getPendingSyncError);
   const retrySync = async () => {
     setSyncBusy(true);
-    try { await flushPendingSync(); } catch { /* Keep the blocking retry panel visible. */ }
+    try { await flushPendingSync(); setSyncError(''); } catch (error) { setSyncError(error instanceof Error ? error.message : 'Sinkronisasi gagal.'); }
     finally { setSyncBusy(false); setSyncPending(hasPendingSync()); }
   };
   useEffect(() => {
-    const refresh = () => setSyncPending(hasPendingSync());
+    const refresh = () => { setSyncPending(hasPendingSync()); setSyncError(getPendingSyncError()); };
     window.addEventListener('prima:sync-change', refresh);
     const unsubscribe = pb.authStore.onChange(() => { setIsAuthenticated(pb.authStore.isValid); refresh(); });
     if (pb.authStore.isValid && hasPendingSync()) void retrySync();
@@ -88,6 +89,7 @@ export default function App() {
           <div className="max-w-md rounded-2xl bg-white p-6 shadow-xl">
             <h2 className="text-lg font-bold">Sinkronisasi transaksi tertunda</h2>
             <p className="my-4 text-sm text-slate-600">Data sudah tersimpan. Selesaikan sinkronisasi sebelum membuat transaksi berikutnya agar stok, saldo, dan laporan konsisten. Jangan membuat ulang transaksi yang sama.</p>
+            {syncError && <p role="alert" className="my-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">{syncError}</p>}
             <button disabled={syncBusy} onClick={retrySync} className="rounded-xl bg-red-600 px-5 py-3 font-bold text-white disabled:opacity-50">
               {syncBusy ? 'Menyinkronkan…' : 'Coba sinkronisasi ulang'}
             </button>

@@ -47,6 +47,18 @@ Produk baru dan log stok awal dikirim dalam satu batch. Penyesuaian manual memak
 
 Validasi menolak stok/kuantitas negatif atau pecahan, mengikuti kolom stok produk PocketBase yang bertipe bilangan bulat. Pilihan kategori/tipe diperbarui setelah simpan; pencarian dan riwayat memakai pengaman respons lama. Foto ditambah dengan `file+` dan dihapus selektif dengan `file-`. Pratinjau membedakan gambar/video, membatasi jumlah lampiran ke 10, dan menyediakan fallback saat media gagal dimuat.
 
+## Diagnosis kegagalan input/hapus POS
+
+Jika input dan hapus sama-sama mendapat HTTP 503 dengan pesan autentikasi tidak tersedia, periksa `POCKETBASE_URL` dari container PHP. `127.0.0.1:8090` di dalam container PHP bukan layanan PocketBase; gunakan `http://pm-pocketbase:8090`. Compose memasang variabel tersebut; konfigurasi juga memakai alamat internal ini sebagai fallback ketika berjalan di Docker tanpa variabel. Jalankan `php artisan config:clear` jika instalasi memakai cache konfigurasi lama.
+
+Frontend menyertakan HTTP status dan alasan validasi yang aman dari backend. Respons HTML/SPA atau JSON tanpa `status: success` tidak dianggap sebagai bukti transaksi selesai. Antrean sinkronisasi tetap disimpan saat backend gagal. Setelah koneksi pulih, pilih **Coba sinkronisasi ulang**, bukan membuat ulang transaksi yang sudah tersimpan atau menghapus localStorage.
+
+Pelunasan cepat memakai lock yang sama dengan checkout/hapus, mengambil ulang saldo tagihan, memeriksa saldo akun, dan memakai adapter batch yang menyertakan snapshot serta seluruh event. Ejaan `service` dan `servis` sama-sama merupakan kas masuk. Timeout antarmuka tidak membuka lock transaksi yang masih berjalan. Pemeriksaan produksi dilakukan lewat endpoint baca dengan token uji tidak valid; pengujian tambah/hapus transaksi tetap memakai database sementara.
+
+Perhitungan ulang laporan juga memeriksa konfirmasi sukses backend dan menyelesaikan antrean sinkronisasi terlebih dahulu; kegagalan tidak lagi ditampilkan sebagai sukses. Hapus Cashflow/Bon mempertahankan alasan kegagalan backend. Operasi terkait memakai pengunci untuk mencegah pengiriman ganda selama permintaan berjalan.
+
+Edit Settings dan profil Person menghilangkan field saldo yang tidak diubah dari payload, sehingga edit metadata tidak menimpa saldo transaksi terbaru. Koreksi saldo yang disengaja memeriksa ulang nilai terkini dan ditolak jika berbeda dari nilai saat form dibuka. Pemeriksaan ini merupakan pemeriksaan frontend; bukan pengganti pembaruan saldo atomik di backend.
+
 ## Verifikasi
 
 ```sh

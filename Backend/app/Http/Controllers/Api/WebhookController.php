@@ -44,7 +44,7 @@ class WebhookController extends Controller
         DB::transaction(function () use ($data) {
             if (!$this->idempotency->addMark('batch:' . $data['request_id'])) return;
             $dates = [];
-            foreach ($data['events'] as $entry) {
+            foreach ($this->orderEffects($data['events']) as $entry) {
                 $class = self::MODELS[$entry['collection']];
                 $model = $class::find($entry['id']);
                 if (!$model && $entry['event'] === 'deleted' && !empty($entry['record'])) {
@@ -75,6 +75,33 @@ class WebhookController extends Controller
             foreach (array_keys($dates) as $date) $this->dispatcher->recalcForDate($date);
         }, 3);
         return response()->json(['status' => 'success']);
+    }
+
+    /** Apply cash credits before cash reversals/debits within the same SQL transaction.
+     * Replacing an equivalent payment must not fail on a temporary negative balance.
+     */
+    private function orderEffects(array $events): array
+    {
+        $ledger = app(\App\Services\CashflowLedger::class);
+        $ranked = [];
+        foreach ($events as $index => $entry) {
+            $priority = 0;
+            if ($entry['collection'] === 'cashflow') {
+                $current = Cashflow::find($entry['id'])?->getAttributes() ?? ($entry['record'] ?? []);
+                $deltas = $entry['event'] === 'deleted' ? [] : $ledger->deltas($current);
+                if ($entry['event'] !== 'created') {
+                    $old = $entry['event'] === 'deleted' ? $current : ($entry['old_data'] ?? []);
+                    foreach ($ledger->deltas($old, true) as $id => $amount) $deltas[$id] = ($deltas[$id] ?? 0) - $amount;
+                }
+                $positive = count(array_filter($deltas, fn ($amount) => $amount > 0));
+                $negative = count(array_filter($deltas, fn ($amount) => $amount < 0));
+                if ($positive && !$negative) $priority = -1;
+                elseif ($negative && !$positive) $priority = 1;
+            }
+            $ranked[] = ['entry' => $entry, 'priority' => $priority, 'index' => $index];
+        }
+        usort($ranked, fn ($a, $b) => [$a['priority'], $a['index']] <=> [$b['priority'], $b['index']]);
+        return array_column($ranked, 'entry');
     }
 
     private function collectDates(array $record, array &$dates): void

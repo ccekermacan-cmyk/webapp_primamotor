@@ -85,6 +85,17 @@ try:
  _,menu=api(pb,'/api/collections/menu/records','POST',{'jenis':'penjualan','total':400,'dibayar':400,'status':'lunas','created_at':'2026-10-18 04:00:00.000Z'},admin)
  env=dict(os.environ,APP_ENV='testing',APP_KEY='base64:'+base64.b64encode(os.urandom(32)).decode(),DB_CONNECTION='sqlite',DB_DATABASE=str(data/'data.db'),DB_URL='',CACHE_STORE='array',SESSION_DRIVER='array',QUEUE_CONNECTION='sync',POCKETBASE_URL=pb,LOG_CHANNEL='stderr')
  f=open(tmp/'php.log','w');logs.append(f);processes.append(subprocess.Popen(['php8.3','-S','127.0.0.1:18080','-t',str(root/'Backend/public')],cwd=root/'Backend',env=env,stdout=f,stderr=subprocess.STDOUT));wait('http://127.0.0.1:18080/up')
+ # Authentication outages are recoverable and do not require recreating persisted transactions.
+ api('http://127.0.0.1:18080','/api/user',token=token)
+ processes[0].terminate();processes[0].wait(timeout=5)
+ try:
+  api('http://127.0.0.1:18080','/api/user',token=token)
+  raise AssertionError('Stopped PocketBase should report an authentication outage')
+ except RuntimeError as error:assert ': 503 ' in str(error)
+ processes[0]=subprocess.Popen([str(root/'Backend/pocketbase'),'serve','--http','127.0.0.1:18090',*pbflags],stdout=logs[0],stderr=subprocess.STDOUT)
+ wait(pb+'/api/health')
+ api('http://127.0.0.1:18080','/api/user',token=token)
+ print('PASS: authentication outage returns 503 and valid-token requests recover after connectivity is restored')
  _,openingLog=api(pb,'/api/collections/log_stock/records','POST',{'item_baru':product['id'],'qty':10,'boolean':'in','price_1':0,'created_at':'2026-10-17 04:00:00.000Z'},admin)
  api(pb,'/api/webhooks/batch','POST',{'request_id':'opening-stock','events':[{'collection':'log_stock','event':'created','id':openingLog['id']}]},token)
  requests=[{'method':'POST','url':'/api/collections/log_stock/records','body':{'item_baru':product['id'],'qty':2,'price_1':200,'price_2':200,'boolean':'out','ref_baru':menu['id'],'created_at':'2026-10-18 04:00:00.000Z'}},{'method':'POST','url':'/api/collections/cashflow/records','body':{'account_1':wallet['id'],'nominal':400,'mutasi':'in','jenis':'penjualan','ref_baru':menu['id'],'created_at':'2026-10-18 04:00:00.000Z'}}]
@@ -150,6 +161,22 @@ try:
  print('PASS: employee-only manual bon stays consistent through cashflow create/edit/delete')
  print('PASS: real salary/loan relations and cascade restore employee debt')
  print('PASS: real PocketBase batch → proxy → authenticated Laravel sync → retry → cascade delete restores stock and balance')
+ # Editing a payment replacement must validate the final balance, not a temporary reversal.
+ _,replaceWallet=api(pb,'/api/collections/dropdown/records','POST',{'id_lama':'rplw1','text_1':'replacement-wallet','number_1':100},admin)
+ _,replaceMenu=api(pb,'/api/collections/menu/records','POST',{'jenis':'penjualan','total':100,'created_at':'2026-10-18 04:00:00.000Z'},admin)
+ _,replaceOld=api(pb,'/api/collections/cashflow/records','POST',{'account_1':replaceWallet['id'],'nominal':100,'mutasi':'in','jenis':'penjualan','ref_baru':replaceMenu['id'],'created_at':'2026-10-18 04:00:00.000Z'},token)
+ api(pb,'/api/webhooks/batch','POST',{'request_id':'replacement-old-create','events':[{'collection':'cashflow','event':'created','id':replaceOld['id']}]},token)
+ _,spent=api(pb,'/api/collections/cashflow/records','POST',{'account_1':replaceWallet['id'],'nominal':190,'mutasi':'out','jenis':'operasional','created_at':'2026-10-18 04:00:00.000Z'},token)
+ api(pb,'/api/webhooks/batch','POST',{'request_id':'replacement-spend','events':[{'collection':'cashflow','event':'created','id':spent['id']}]},token)
+ _,oldPayment=api(pb,'/api/collections/cashflow/records/'+replaceOld['id'],token=token)
+ _,replacement=api(pb,'/api/batch','POST',{'requests':[
+  {'method':'DELETE','url':'/api/collections/cashflow/records/'+replaceOld['id']},
+  {'method':'POST','url':'/api/collections/cashflow/records','body':{'account_1':replaceWallet['id'],'nominal':100,'mutasi':'in','jenis':'penjualan','ref_baru':replaceMenu['id'],'created_at':'2026-10-18 04:00:00.000Z'}}]},token)
+ replacementEvents={'request_id':'replacement-complete','events':[{'collection':'cashflow','event':'deleted','id':replaceOld['id'],'record':oldPayment},{'collection':'cashflow','event':'created','id':replacement[1]['body']['id']}]}
+ for _ in range(2):api(pb,'/api/webhooks/batch','POST',replacementEvents,token)
+ _,replaceBalance=api(pb,'/api/collections/dropdown/records/'+replaceWallet['id'],token=token)
+ assert replaceBalance['number_1']==10
+ print('PASS: equivalent payment replacement with a low cash balance succeeds atomically and retries safely')
  # Product and opening stock must either both persist or both roll back.
  atomicProduct='atomicproduct01'
  invalidProduct='invalidproduct1'

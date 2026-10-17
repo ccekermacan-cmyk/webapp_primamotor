@@ -1,12 +1,12 @@
+import { isIncomeTransaction, settlementRemaining, matchUnusedStockLog } from '../lib/posTransactions';
 import { createRecordId } from '../lib/ids';
 import type { CheckoutForm } from '../types/pos';
 import { createFinancialBatch } from '../services/api/financialBatch';
 import { syncLaravelEvents, flushPendingSync, deleteFinancialRecord } from '../services/api/laravel';
-import { laravelFetch } from '../services/api/laravel';
 import { useLocation } from 'react-router-dom'; // Ini yang menyebabkan error ReferenceError
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useReactToPrint } from 'react-to-print';
-import { pb, getLaravelApiUrl } from '../lib/pocketbase';
+import { pb } from '../lib/pocketbase';
 import Modal from '../components/modal';
 import { 
   Search, ShoppingCart, ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
@@ -1658,12 +1658,9 @@ export default function MenuPage() {
     submitLockRef.current = true;
     setIsProcessing(true);
     setProcessingMsg('Menyimpan...');
-    // Watchdog: auto-recover jika proses >60 detik (stall/macet)
+    // A slow response is still in flight: keep the submit lock and avoid encouraging duplicate input.
     const watchdog = setTimeout(() => {
-      console.warn('Watchdog: executeStoringData stalled >60s, force re-enabling UI');
-      setIsProcessing(false);
-      setProcessingMsg('');
-      setDialog({ show: true, title: 'Timeout', message: 'Proses penyimpanan terlalu lama (>60 detik). Silakan coba lagi atau refresh halaman.', type: 'alert' });
+      setProcessingMsg('Server masih memproses. Jangan membuat transaksi yang sama lagi.');
     }, 60000);
     const isEditing = !!(editSession?.isEditing && editSession?.menuId);
     let menuRecordId = isEditing ? editSession.menuId : '';
@@ -1702,9 +1699,8 @@ export default function MenuPage() {
       const preflightStocks: Record<string, number> = {};
       const preflightBalances: Record<string, number> = {};
       try {
-        const stockPromises = cartWithTierPrice
-          .filter(item => item.id)
-          .map(item => pb.collection('produk').getOne(item.id, { $autoCancel: false }).then(p => ({ id: item.id, stok: Number(p.stok_3) || 0 })));
+        const stockIds = Array.from(new Set([...cartWithTierPrice.map(item => item.id), ...oldLogs.map(log => log.item_baru)].filter(Boolean)));
+        const stockPromises = stockIds.map(id => pb.collection('produk').getOne(id, { $autoCancel: false }).then(p => ({ id, stok: Number(p.stok_3) || 0 })));
         
         const oldAccountIds = isEditing ? oldCashflows.flatMap((c: any) => [c.account_1, c.account_2]) : [];
         const newAccountIds = formBayar.cashflowList.map((cf: any) => cf.accountId);
@@ -1819,13 +1815,6 @@ export default function MenuPage() {
       }
 
       // ========== INCREMENTAL DIFF PENYIMPANAN LOG STOCK ==========
-      const oldLogMap: Record<string, any> = {};
-      if (isEditing && oldLogs.length > 0) {
-        oldLogs.forEach(l => {
-          if (l.item_baru) oldLogMap[l.item_baru] = l;
-          if (l.item) oldLogMap[l.item] = l;
-        });
-      }
       const processedLogIds = new Set<string>();
       const runningStock: Record<string, number> = {};
 
@@ -1848,7 +1837,7 @@ export default function MenuPage() {
         if (!Number.isInteger(logQty) || logQty <= 0) throw new Error('Jumlah barang harus bilangan bulat positif.');
         const qtyAwal = runningStock[prodId] ?? 0;
 
-        const matchedOldLog = isEditing ? (oldLogMap[prodId] || (item.id_lama ? oldLogMap[item.id_lama] : null)) : null;
+        const matchedOldLog = isEditing ? matchUnusedStockLog(oldLogs, prodId, item.id_lama || '', processedLogIds) : undefined;
 
         if (matchedOldLog) {
           processedLogIds.add(matchedOldLog.id);
@@ -1860,12 +1849,12 @@ export default function MenuPage() {
 
           if (!isLogChanged) {
             // UNCHANGED ITEM: Skip DB update & webhook, retain stock & ID in-place
-            runningStock[prodId] = preflightStocks[prodId] ?? qtyAwal;
+            runningStock[prodId] = qtyAwal;
           } else {
             // CHANGED ITEM: Update existing log_stock in-place via Batch
             const afterRevert = matchedOldLog.boolean === 'in'
-              ? (preflightStocks[prodId] ?? 0) - Number(matchedOldLog.qty || 0)
-              : (preflightStocks[prodId] ?? 0) + Number(matchedOldLog.qty || 0);
+              ? qtyAwal - Number(matchedOldLog.qty || 0)
+              : qtyAwal + Number(matchedOldLog.qty || 0);
             const qtyAkhir = booleanValue === 'in' ? afterRevert + logQty : afterRevert - logQty;
             if (qtyAkhir < 0) throw new Error('Stok barang tidak cukup.');
             runningStock[prodId] = qtyAkhir;
@@ -1916,6 +1905,13 @@ export default function MenuPage() {
       if (isEditing && oldLogs.length > 0) {
         for (const log of oldLogs) {
           if (!processedLogIds.has(log.id)) {
+            if (log.item_baru) {
+              const stock = runningStock[log.item_baru] ?? preflightStocks[log.item_baru];
+              if (stock === undefined) throw new Error('Stok item yang dihapus belum dapat diverifikasi.');
+              const afterRemoval = stock + (log.boolean === 'in' ? -Number(log.qty) : Number(log.qty));
+              if (afterRemoval < 0) throw new Error('Item pembelian tidak dapat dihapus karena stoknya sudah terpakai.');
+              runningStock[log.item_baru] = afterRemoval;
+            }
             batch.collection('log_stock').delete(log.id);
             notifyQueue.push({ type: 'log_stock', action: 'deleted', id: log.id, record: log });
 
@@ -1981,6 +1977,8 @@ export default function MenuPage() {
         }
       }
 
+      if (Object.values(preflightBalances).some(balance => balance < -0.00001)) throw new Error('Saldo akun tidak cukup untuk perubahan pembayaran ini.');
+
       // Alokasikan alur pembagian komisi upah ke sub-koleksi ongkos (Khusus Jenis Service)
       if (menuLower.includes('service') || menuLower.includes('servis')) {
         const mekanikValid = formBayar.mekanikList.filter(m => m.idLama && m.ongkos > 0);
@@ -2028,7 +2026,7 @@ export default function MenuPage() {
         if (entry.action === 'created') entry.id = result.body?.id || '';
       }
       setIsPaymentFormOpen(false);
-      localStorage.removeItem('pos_draft_cart');
+      try { localStorage.removeItem('pos_draft_cart'); } catch { /* Draft cleanup must not interrupt financial synchronization. */ }
       setCart([]);
       setEditSession(null);
       await syncLaravelEvents(notifyQueue.map(entry => ({
@@ -2317,24 +2315,28 @@ export default function MenuPage() {
   };
 
   const executeQuickSettle = async () => {
-    if (!quickSettleData || !quickSettleData.menu) return;
-    const { menu, nominal, accountId, note, createdAt } = quickSettleData;
+    if (!quickSettleData || !quickSettleData.menu || submitLockRef.current) return;
+    const { menu: displayedMenu, nominal, accountId, note, createdAt } = quickSettleData;
     if (!accountId) {
       setDialog({ show: true, title: 'Validasi Gagal', message: 'Pilih akun kas penerima pembayaran!', type: 'alert' });
       return;
     }
-    if (nominal <= 0) {
+    if (!Number.isFinite(Number(nominal)) || Number(nominal) <= 0) {
       setDialog({ show: true, title: 'Validasi Gagal', message: 'Nominal pelunasan harus lebih besar dari 0!', type: 'alert' });
       return;
     }
 
+    submitLockRef.current = true;
     setIsProcessing(true);
     setProcessingMsg('Menyimpan pelunasan atomic batch...');
 
     try {
+      await flushPendingSync();
+      const menu = await pb.collection('menu').getOne<HistoryMenu>(displayedMenu.id, {$autoCancel:false});
+      settlementRemaining(Number(menu.total), Number(menu.dibayar), Number(nominal));
       const selectedAccount = cashflowAccounts.find(acc => acc.id === accountId);
       const accountIdLama = selectedAccount ? selectedAccount.id_lama : '';
-      const mutasiValue = (menu.jenis?.toLowerCase().includes('penjualan') || menu.jenis?.toLowerCase().includes('service')) ? 'in' : 'out';
+      const mutasiValue = isIncomeTransaction(menu.jenis || '') ? 'in' : 'out';
       const timestamp = createdAt ? new Date(createdAt).toISOString() : new Date().toISOString();
 
       let personRecordId = '';
@@ -2350,10 +2352,10 @@ export default function MenuPage() {
       try {
         const freshAcc = await pb.collection('dropdown').getOne(accountId, { $autoCancel: false });
         saldoAwal = Number(freshAcc.number_1) || 0;
-      } catch {
-        saldoAwal = Number(selectedAccount?.number_1) || 0;
-      }
+      } catch { throw new Error('Saldo akun belum dapat diverifikasi. Silakan coba kembali.'); }
       const saldoAkhir = mutasiValue === 'in' ? (saldoAwal + Number(nominal)) : (saldoAwal - Number(nominal));
+
+      if (saldoAkhir < 0) throw new Error('Saldo akun tidak cukup untuk pelunasan ini.');
 
       // Akumulasi total dibayar dan status menu
       const currentPaid = Number(menu.dibayar || 0);
@@ -2367,20 +2369,14 @@ export default function MenuPage() {
       updateData.append('status', newStatus);
       if (dateLunas) updateData.append('date_lunas', dateLunas);
 
-      if (menu.file && Array.isArray(menu.file)) {
-        menu.file.forEach((fName: string) => {
-          updateData.append('file', fName);
-        });
-      }
-
       if (quickSettleData.settleFiles && quickSettleData.settleFiles.length > 0) {
         quickSettleData.settleFiles.forEach((f: File) => {
-          updateData.append('file', f);
+          updateData.append('file+', f);
         });
       }
 
       // Gabungkan pembuatan Cashflow Pelunasan, Update Saldo Dompet & Update Menu ke dalam PocketBase Atomic Batch
-      const batch = pb.createBatch();
+      const batch = createFinancialBatch();
 
       batch.collection('cashflow').create({
         id_lama: '',
@@ -2403,26 +2399,10 @@ export default function MenuPage() {
 
       batch.collection('menu').update(menu.id, updateData);
 
-      const batchResults: any = await batch.send();
-      const createdCfId = batchResults && batchResults[0] ? batchResults[0].body?.id : '';
-
-      setQuickSettleData(null);
-      if (createdCfId) {
-        await syncLaravelEvents([{ collection: 'cashflow', event: 'created', id: createdCfId }]);
-      }
-
-
-
-      // Recalculate report date
-      try {
-        await laravelFetch(`${getLaravelApiUrl()}/reports/recalculate`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ date: (createdAt || '').split('T')[0] })
-        });
-      } catch {}
+      await batch.send([], () => setQuickSettleData(null));
 
       const updatedMenuRecord = await pb.collection('menu').getOne(menu.id).catch(() => null);
+      const finalStatus = updatedMenuRecord?.status || newStatus;
 
       // Refresh akun kas lokal
       try {
@@ -2439,7 +2419,7 @@ export default function MenuPage() {
         setShowDetailHistory(prev => prev ? { 
           ...prev, 
           dibayar: newPaid, 
-          status: newStatus as any, 
+          status: finalStatus as any,
           date_lunas: dateLunas || prev.date_lunas,
           file: updatedMenuRecord?.file || prev.file
         } : null);
@@ -2448,20 +2428,22 @@ export default function MenuPage() {
       setDialog({
         show: true,
         title: 'Pelunasan Sukses!',
-        message: `Pembayaran sebesar Rp ${Number(nominal).toLocaleString('id-ID')} berhasil dicatat. Status nota saat ini: ${newStatus.toUpperCase()}`,
+        message: `Pembayaran sebesar Rp ${Number(nominal).toLocaleString('id-ID')} berhasil dicatat. Status nota saat ini: ${String(finalStatus).toUpperCase()}`,
         type: 'alert'
       });
     } catch (err: any) {
       console.error('Quick Settle Error:', err);
       setDialog({ show: true, title: 'Gagal Pelunasan', message: 'Terjadi kesalahan saat menyimpan pelunasan: ' + (err.message || err), type: 'alert' });
     } finally {
+      submitLockRef.current = false;
       setIsProcessing(false);
       setProcessingMsg('');
     }
   };
 
   const handleDeleteHistory = async (menuItem: HistoryMenu) => {
-    if (isDeleting) return; // guard double-call
+    if (submitLockRef.current) return;
+    submitLockRef.current = true;
     setIsDeleting(true);
 
     // Blokir refresh / navigasi selama proses hapus berjalan
@@ -2489,6 +2471,7 @@ export default function MenuPage() {
       setDialog({ show: true, title: 'Gagal Hapus', message: 'Gagal menghapus data transaksi: ' + (e.message || e), type: 'alert' });
     } finally {
       window.removeEventListener('beforeunload', blockUnload);
+      submitLockRef.current = false;
       setIsDeleting(false);
       setIsProcessing(false);
     }

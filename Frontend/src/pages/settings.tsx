@@ -1,4 +1,6 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import { financialPatch } from '../lib/financialPatch';
+import { flushPendingSync } from '../services/api/laravel';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { pb, notifyLaravelApi } from '../lib/pocketbase';
 import Modal from '../components/modal';
 import { 
@@ -152,6 +154,7 @@ export default function Settings() {
   const [formData, setFormData] = useState<Partial<DropdownData>>({});
   const [formTab, setFormTab] = useState<'basic' | 'extra' | 'access'>('basic');
   const [isProcessing, setIsProcessing] = useState(false);
+  const mutationLockRef = useRef(false);
   
   // Tab Jenis Aktif
   const [activeJenisTab, setActiveJenisTab] = useState<string>('all');
@@ -313,6 +316,8 @@ export default function Settings() {
 
   const submitForm = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (mutationLockRef.current) return;
+    mutationLockRef.current = true;
     setIsProcessing(true);
     try {
       const formatEnum = (val: any) => {
@@ -320,7 +325,7 @@ export default function Settings() {
         return val || '';
       };
 
-      const payload = {
+      let payload = {
         kategori: formData.kategori || '',
         jenis: formData.jenis || '',
         text_1: formData.text_1 || '',
@@ -355,14 +360,17 @@ export default function Settings() {
       const isEditMode = selectedItem?.id && modalType === 'form';
       const batch = pb.createBatch();
 
+      await flushPendingSync();
       if (isEditMode && selectedItem) {
+        const current = await pb.collection('dropdown').getOne(selectedItem.id, {$autoCancel:false});
+        payload = financialPatch(payload, {...selectedItem}, ['number_1','number_2','number_3','number_4','number_5'], current);
         batch.collection('dropdown').update(selectedItem.id, payload);
       } else {
         batch.collection('dropdown').create(payload);
       }
 
       const batchResults: any = await batch.send();
-      const resId = (batchResults && batchResults[0]?.id) ? batchResults[0].id : (selectedItem?.id || '');
+      const resId = (batchResults && batchResults[0]?.body?.id) ? batchResults[0].body.id : (selectedItem?.id || '');
 
       if (resId) {
         await notifyLaravelApi('dropdown', isEditMode ? 'updated' : 'created', resId, payload).catch(() => null);
@@ -387,15 +395,18 @@ export default function Settings() {
         type: 'alert'
       });
     } finally {
+      mutationLockRef.current = false;
       setIsProcessing(false);
     }
   };
 
   const submitDelete = async () => {
-    if (!selectedItem) return;
+    if (!selectedItem || mutationLockRef.current) return;
+    mutationLockRef.current = true;
     setIsProcessing(true);
     try {
       const batch = pb.createBatch();
+      await flushPendingSync();
       batch.collection('dropdown').delete(selectedItem.id);
       await batch.send();
 
@@ -417,6 +428,7 @@ export default function Settings() {
         type: 'alert'
       });
     } finally {
+      mutationLockRef.current = false;
       setIsProcessing(false);
     }
   };

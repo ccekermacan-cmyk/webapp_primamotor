@@ -103,3 +103,71 @@ test('a save arriving while an empty flush finishes is still sent before success
   assert.equal(requests.length, 1);
   assert.equal(api.hasPendingSync(), false);
 });
+
+test('delete reports the actual authentication outage instead of a generic reload error', async () => {
+  const api = await loadApi();
+  globalThis.fetch = async () => Response.json({message:'Layanan autentikasi tidak tersedia.'},{status:503});
+  await assert.rejects(api.deleteFinancialRecord('menu','m1'),error => error.status===503 && /HTTP 503/.test(error.message) && /autentikasi/.test(error.message));
+});
+
+test('delete exposes business validation reasons and never reports a rejected delete as success', async () => {
+  const api = await loadApi();
+  globalThis.fetch = async () => Response.json({message:'The given data was invalid.',errors:{nominal:['Saldo akun tidak cukup untuk perubahan ini.']}},{status:422});
+  await assert.rejects(api.deleteFinancialRecord('menu','m1'),/Saldo akun tidak cukup/);
+});
+
+test('HTTP 200 HTML or a JSON error payload is not a transaction acknowledgement', async () => {
+  const api = await loadApi();
+  globalThis.fetch = async () => new Response('<!doctype html><html>SPA fallback</html>',{status:200,headers:{'Content-Type':'text/html'}});
+  await assert.rejects(api.deleteFinancialRecord('menu','m1'),/Respons server tidak valid/);
+  globalThis.fetch = async () => Response.json({status:'error'});
+  await assert.rejects(api.deleteFinancialRecord('menu','m1'),/Respons server tidak valid/);
+});
+
+test('successful delete requires an acknowledgement and requests JSON with bearer authentication', async () => {
+  const api = await loadApi();
+  await api.deleteFinancialRecord('menu','m1');
+  assert.equal(requests[0].method,'DELETE');
+  assert.equal(requests[0].headers.get('Accept'),'application/json');
+  assert.equal(requests[0].headers.get('Authorization'),'Bearer valid-token');
+});
+
+test('sync failure retains both the durable queue and the backend reason for the retry panel', async () => {
+  const api = await loadApi();
+  globalThis.fetch = async () => Response.json({message:'Layanan autentikasi tidak tersedia.'},{status:503});
+  await assert.rejects(api.syncLaravelEvents([{collection:'menu',event:'created',id:'m1'}]),/HTTP 503/);
+  assert.equal(api.hasPendingSync(),true);
+  assert.match(api.getPendingSyncError(),/autentikasi/);
+  globalThis.fetch = async () => Response.json({status:'success'});
+  await api.flushPendingSync();
+  assert.equal(api.hasPendingSync(),false);
+  assert.equal(api.getPendingSyncError(),'');
+});
+
+test('lost delete responses describe uncertain status and do not trigger an unsafe PocketBase fallback', async () => {
+  const api = await loadApi();
+  let count=0;
+  globalThis.fetch = async () => {count++;throw new TypeError('Network error');};
+  await assert.rejects(api.deleteFinancialRecord('menu','m1'),/Status penghapusan belum dapat dipastikan/);
+  assert.equal(count,1);
+});
+
+test('report recalculation propagates backend outages and requires a success acknowledgement', async () => {
+  const api=await loadApi();
+  globalThis.fetch=async()=>Response.json({message:'Layanan autentikasi tidak tersedia.'},{status:503});
+  await assert.rejects(api.recalculateFinancialReport('2026-10-18'),/HTTP 503/);
+  globalThis.fetch=async()=>Response.json({status:'error'});
+  await assert.rejects(api.recalculateFinancialReport('2026-10-18'),/Respons server tidak valid/);
+  globalThis.fetch=async(url,options)=>{requests.push({url,...options});return Response.json({status:'success'});};
+  await api.recalculateFinancialReport('2026-10-18');
+  assert.equal(JSON.parse(requests.at(-1).body).date,'2026-10-18');
+});
+
+test('reports cannot recalculate against financial records with pending synchronization', async () => {
+  const api=await loadApi();
+  globalThis.fetch=async()=>Response.json({message:'offline'},{status:503});
+  await assert.rejects(api.syncLaravelEvents([{collection:'cashflow',event:'created',id:'c1'}]));
+  globalThis.fetch=async(url,options)=>{requests.push({url,...options});return Response.json({message:'offline'},{status:503});};
+  await assert.rejects(api.recalculateFinancialReport('2026-10-18'));
+  assert.equal(requests.some(request=>request.url.includes('/reports/recalculate')),false);
+});
