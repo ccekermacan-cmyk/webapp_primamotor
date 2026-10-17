@@ -8,6 +8,9 @@ import {
 } from 'lucide-react';
 
 interface Person {
+  visibilitas?: string;
+  text_3?: string; text_4?: string; text_5?: string; text_6?: string; text_7?: string; text_9?: string;
+  number_2?: number; number_3?: number; imageFile?: File;
   id: string;
   id_lama?: string;
   text_1: string;   // Nama Lengkap
@@ -24,7 +27,7 @@ export default function PeoplePage() {
   const [currentPerson, setCurrentPerson] = useState<Partial<Person>>({});
   const [isProcessing, setIsProcessing] = useState(false);
 
-  const [isCategoryDropdownOpen, setIsCategoryDropdownOpen] = useState(false);
+
 
   // State untuk tab di modal detail person (Customer/Supplier)
   const [personDetailTab, setPersonDetailTab] = useState<'Overview' | 'History'>('Overview');
@@ -153,7 +156,7 @@ export default function PeoplePage() {
     }
   };
 
-  const fetchPersonHistory = async (personId: string, pageNum: number = 1) => {
+  const fetchPersonHistory = async (_personId: string, pageNum: number = 1) => {
     try {
       const targetIdLama = selectedUserForDetail?.id_lama;
 

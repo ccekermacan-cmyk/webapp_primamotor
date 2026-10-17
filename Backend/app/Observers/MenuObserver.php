@@ -3,6 +3,8 @@
 namespace App\Observers;
 
 use App\Models\Cashflow;
+use App\Models\Bon;
+use Illuminate\Support\Facades\Schema;
 use App\Models\LogStock;
 use App\Models\Menu;
 use App\Models\Ongkos;
@@ -40,7 +42,7 @@ class MenuObserver
         $total = (float) $menu->total;
         $dibayar = (float) $menu->dibayar;
         $createdAt = (string) $menu->created_at;
-        $tanggal = $createdAt ? substr($createdAt, 0, 10) : '';
+        $tanggal = $createdAt ? \App\Services\ReportService::dateOf($createdAt) : '';
         $personId = (string) $menu->person_baru;
         $menuId = (string) $menu->id;
 
@@ -74,8 +76,8 @@ class MenuObserver
         $newPerson = (string) $menu->person_baru;
         $menuId = (string) $menu->id;
 
-        $oldTanggal = $oldCreated ? substr($oldCreated, 0, 10) : '';
-        $newTanggal = $newCreated ? substr($newCreated, 0, 10) : '';
+        $oldTanggal = $oldCreated ? \App\Services\ReportService::dateOf($oldCreated) : '';
+        $newTanggal = $newCreated ? \App\Services\ReportService::dateOf($newCreated) : '';
 
         $oldIsPembelian = str_contains($oldJenis, 'pembelian');
         $oldIsPenjServis = (str_contains($oldJenis, 'penjualan') || str_contains($oldJenis, 'servis') || str_contains($oldJenis, 'service'));
@@ -112,7 +114,7 @@ class MenuObserver
         $total = (float) $menu->total;
         $dibayar = (float) $menu->dibayar;
         $createdAt = (string) $menu->created_at;
-        $tanggal = $createdAt ? substr($createdAt, 0, 10) : '';
+        $tanggal = $createdAt ? \App\Services\ReportService::dateOf($createdAt) : '';
 
         $isPembelian = str_contains($jenis, 'pembelian');
         $isPenjServis = (str_contains($jenis, 'penjualan') || str_contains($jenis, 'servis') || str_contains($jenis, 'service'));
@@ -126,6 +128,11 @@ class MenuObserver
 
         // Cashflow delete triggers CashflowObserver@deleted (reverting account balances & report entries)
         Cashflow::where('ref_baru', $menuId)->orWhere('ref', $menuId)->get()->each->delete();
+
+        $salaryIds = Schema::hasTable('gaji')
+            ? DB::table('gaji')->where('ref_baru', $menuId)->orWhere('ref', $menuId)->pluck('id')->all() : [];
+        Bon::where('ref_menu', $menuId)->orWhereIn('ref_gaji', $salaryIds)->get()->each->delete();
+        if ($salaryIds) DB::table('gaji')->whereIn('id', $salaryIds)->delete();
 
         // 2. Revert report hutang/piutang (Atomic)
         $hp = $this->getHutangPiutang($status, $total, $dibayar);

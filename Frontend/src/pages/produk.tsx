@@ -1,5 +1,10 @@
+import PocketBase, { BaseAuthStore } from 'pocketbase';
+import { createRecordId } from '../lib/ids';
+import { normalizeProductCode, productValidationError, stockAdjustment, isProductCodeConflict, isProductVideo, displayProductCode } from '../lib/products';
+import { createFinancialBatch } from '../services/api/financialBatch';
+import { flushPendingSync } from '../services/api/laravel';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { pb, notifyLaravelApi } from '../lib/pocketbase';
+import { pb } from '../lib/pocketbase';
 import Modal from '../components/modal';
 import { Package, Search, Trash2, Edit, Copy, ChevronLeft, ChevronRight, X, Filter, LayoutGrid, List, ArrowUp, ArrowDown, ImagePlus, ExternalLink, Plus, AlertTriangle, Check } from 'lucide-react';
 interface Produk {
@@ -30,11 +35,27 @@ interface Produk {
   file?: string[]; // field untuk menyimpan file gambar
 }
 
+function ProductMedia({ src, alt = '', className, loading, controls = false, video = false }: {src: string; alt?: string; className?: string; loading?: 'lazy' | 'eager'; controls?: boolean; video?: boolean}) {
+  const [failedSource, setFailedSource] = useState('');
+  if (failedSource === src) return <Package className="text-gray-300 m-auto" aria-label="Media tidak tersedia" />;
+  if (video || isProductVideo(src)) {
+    const videoUrl = new URL(src, window.location.href);
+    videoUrl.searchParams.delete('thumb');
+    return <video src={videoUrl.href} controls={controls} muted={!controls} playsInline preload="metadata" className={className} onError={() => setFailedSource(src)} />;
+  }
+  return <img src={src} alt={alt} loading={loading} className={className} onError={() => setFailedSource(src)} />;
+}
+
 export default function Produk() {
   const [products, setProducts] = useState<Produk[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
+  const mutationLockRef = useRef(false);
+  const productsRequestRef = useRef(0);
+  const logRequestRef = useRef(0);
+  const relatedRequestRef = useRef(0);
+  const [logError, setLogError] = useState('');
 
   const [logHistory, setLogHistory] = useState<any[]>([]);
   const [logPage, setLogPage] = useState(1);
@@ -42,7 +63,7 @@ export default function Produk() {
 
   const [inputValue, setInputValue] = useState('');
 
-  const [userLevel, setUserLevel] = useState(localStorage.getItem('user_level') || '');
+  const userLevel = String(pb.authStore.record?.level || '');
   const [sortField, setSortField] = useState<'id_lama' | 'nama' | 'stok' | 'harga_customer' | 'harga_retail'>('id_lama');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   // Pagination & Search
@@ -90,32 +111,32 @@ export default function Produk() {
   };
 
   const formatIdLamaDisplay = (id: string | number | undefined) => {
-    if (id === undefined || id === null || id === '') return 'N/A';
-    return String(id).padStart(5, '0');
+    return displayProductCode(id);
   };
 
   const cleanIdLamaStorage = (id: string | number) => {
-    return String(Number(id)); 
+    return normalizeProductCode(id);
   };
 
   // ==========================================
   // FETCH DATA & PENCARIAN (REVISI MULTI-WORD)
   // ==========================================
   const fetchProducts = async () => {
+    const requestId = ++productsRequestRef.current;
     try {
       setLoading(true);
       let conditions: string[] = [];
 
       // Filter kategori
       if (filterKategori !== 'all') {
-        conditions.push(`kategori = "${filterKategori}"`);
+        conditions.push(pb.filter('kategori = {:category}', {category: filterKategori}));
       }
 
       // Filter stok
       if (filterStok === 'menipis') {
         conditions.push(`stok_3 <= stok_2 && stok_3 > 0`);
       } else if (filterStok === 'habis') {
-        conditions.push(`stok_3 = 0`);
+        conditions.push(`stok_3 <= 0`);
       }
 
       // Filter pencarian
@@ -128,7 +149,7 @@ export default function Produk() {
           // Untuk id_lama, tambahkan juga pencarian exact match dengan nilai numerik tanpa leading zero
           const numericValue = parseInt(term, 10);
           let idCondition = `id_lama ~ {:t${idx}}`;
-          if (!isNaN(numericValue)) {
+          if (/^\d+$/.test(term) && Number.isSafeInteger(numericValue)) {
             idCondition = `(id_lama ~ {:t${idx}} || id_lama = "${numericValue}")`;
           }
           searchConditions.push(`(${idCondition} || kategori ~ {:t${idx}} || merk ~ {:t${idx}} || jenis ~ {:t${idx}} || varian ~ {:t${idx}} || keterangan ~ {:t${idx}} || tipe ~ {:t${idx}})`);
@@ -139,34 +160,35 @@ export default function Produk() {
       }
 
       const filterString = conditions.length ? conditions.join(' && ') : '';
-      console.log("Filter Query:", filterString);
 
       const sortMap: Record<string, string> = {
         id_lama: '+id_lama',
-        nama: '+kategori',
+        nama: '+kategori,+merk,+jenis,+varian,+keterangan,+tipe',
         stok: '+stok_3',
         harga_customer: '+sell_5',
         harga_retail: '+sell_6',
       };
-      const sortStr = sortOrder === 'desc' ? (sortMap[sortField] || '+id_lama').replace('+','-') : (sortMap[sortField] || '+id_lama');
+      const sortStr = sortOrder === 'desc' ? (sortMap[sortField] || '+id_lama').replace(/\+/g,'-') : (sortMap[sortField] || '+id_lama');
 
       const result = await pb.collection('produk').getList<Produk>(page, perPage, {
-        sort: sortStr,
+        sort: `${sortStr},+id`,
         filter: filterString,
         $autoCancel: false,
       });
       
+      if (requestId !== productsRequestRef.current) return;
+      if (page > Math.max(1, result.totalPages)) { setPage(Math.max(1, result.totalPages)); return; }
       setProducts(result.items);
       setTotalPages(result.totalPages);
       setTotalItems(result.totalItems);
       setFetchError('');
     } catch (error: any) {
-      if (!error.isAbort) {
+      if (requestId === productsRequestRef.current && !error.isAbort) {
         console.error("Gagal mengambil data:", error);
         setFetchError('Gagal memuat data: ' + (error.message || 'Koneksi gagal'));
       }
     } finally {
-      setLoading(false);
+      if (requestId === productsRequestRef.current) setLoading(false);
     }
   };
 
@@ -183,25 +205,16 @@ export default function Produk() {
   const sortedProducts = useMemo(() => products, [products]);
 
   // Helper untuk menampilkan datetime lokal dari string ISO UTC
-  const formatLocalDateTime = (isoString: string | undefined) => {
-    if (!isoString) return '';
-    const date = new Date(isoString);
-    return date.toLocaleString('id-ID', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false
-    });
-  };
+
 
   const [kategoriOptions, setKategoriOptions] = useState<string[]>([]);
   const hasFetchedOptions = useRef(false);
   useEffect(() => {
     if (hasFetchedOptions.current) return;
     hasFetchedOptions.current = true;
+    fetchDropdownOptions();
+  }, []);
+
     const fetchDropdownOptions = async () => {
       try {
         const records = await pb.collection('produk').getFullList({ fields: 'tipe,kategori', $autoCancel: false });
@@ -213,13 +226,11 @@ export default function Produk() {
         console.error("Gagal memuat opsi tipe/kategori", e);
       }
     };
-    fetchDropdownOptions();
-  }, []);
 
   // Jalan setiap kali ganti halaman atau ketik pencarian
   useEffect(() => {
     fetchProducts();
-  }, [page, searchTerm, filterKategori, filterStok, sortField, sortOrder]);
+  }, [page, searchTerm, filterKategori, filterStok, sortField, sortOrder, perPage]);
 
   useEffect(() => {
     const delayDebounceFn = setTimeout(() => {
@@ -228,6 +239,8 @@ export default function Produk() {
     }, 500);
     return () => clearTimeout(delayDebounceFn);
   }, [searchInput]);
+
+  useEffect(() => { setPage(1); }, [perPage]);
 
   // Dynamic perPage based on screen width (3 rows × columns)
   useEffect(() => {
@@ -285,6 +298,9 @@ useEffect(() => {
 }, [productFiles]);
 
 const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
+  const requestId = ++logRequestRef.current;
+  setLogHistory([]);
+  setLogError('');
   try {
     const filterString = pb.filter('item_baru = {:id}', { id: prodId });
     
@@ -294,14 +310,16 @@ const fetchLogHistory = async (prodId: string, pageNum: number = 1) => {
       $autoCancel: false
     });
     
+    if (requestId !== logRequestRef.current) return;
     setLogHistory(result.items);
     setLogTotalPages(result.totalPages);
   } catch (e) {
-    console.error("Gagal load history:", e);
+    if (requestId === logRequestRef.current) setLogError("Riwayat stok belum dapat dimuat.");
   }
 };
 
 const fetchRelatedProducts = async (sp: Produk) => {
+  const requestId = ++relatedRequestRef.current;
   try {
     setRelatedProductsList([]); // Clear previous
     let records: Produk[] = [];
@@ -386,7 +404,7 @@ const fetchRelatedProducts = async (sp: Produk) => {
       .slice(0, 5)
       .map(p => p.prod);
 
-    setRelatedProductsList(related);
+    if (requestId === relatedRequestRef.current) setRelatedProductsList(related);
   } catch (e) {
     console.error("Gagal memuat produk terkait:", e);
   }
@@ -453,7 +471,8 @@ const fetchRelatedProducts = async (sp: Produk) => {
     copyData.id_lama = generateRawRandomId();
     // Reset stok ke 0 saat membuat salinan baru
     copyData.stok_1 = 0; 
-    copyData.stok_3 = 0; 
+    copyData.stok_3 = 0;
+    if (userLevel !== '1') copyData.beli = 0;
     
     setSelectedProduct(null); 
     setFormData(copyData);
@@ -469,7 +488,7 @@ const fetchRelatedProducts = async (sp: Produk) => {
     setModalType('delete');
   };
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target;
     setFormData(prev => ({
       ...prev,
@@ -481,75 +500,65 @@ const fetchRelatedProducts = async (sp: Produk) => {
   // CRUD ACTIONS
   // ==========================================
   const submitDelete = async () => {
-    if (!selectedProduct) return;
+    if (!selectedProduct || mutationLockRef.current || userLevel !== '1') return;
     if (!deletePass) { setDeleteError('Password wajib diisi'); return; }
     setIsProcessing(true);
     setDeleteError('');
+    mutationLockRef.current = true;
     try {
       const email = pb.authStore.model?.email || localStorage.getItem('user_email') || '';
       const username = pb.authStore.model?.username || localStorage.getItem('user_username') || '';
       const identity = email || username;
-      if (identity) await pb.collection('users').authWithPassword(identity, deletePass);
+      if (identity) await new PocketBase(pb.baseURL, new BaseAuthStore()).collection('user').authWithPassword(identity, deletePass);
       else throw new Error('no identity');
     } catch {
-      setDeleteError('Password salah');
+      setDeleteError('Verifikasi gagal. Periksa password dan koneksi.');
+      setDeletePass('');
+      mutationLockRef.current = false;
       setIsProcessing(false);
       return;
     }
     try {
+      await flushPendingSync();
       // Eksekusi Hapus Produk via PocketBase Atomic Batch
       const batch = pb.createBatch();
       batch.collection('produk').delete(selectedProduct.id);
       await batch.send();
 
-      await notifyLaravelApi('produk', 'deleted', selectedProduct.id).catch(() => null);
+
       setModalType(null);
       setDeletePass('');
       fetchProducts(); 
     } catch (error: any) {
       alert("Gagal menghapus: " + (error.message || 'Koneksi gagal'));
     } finally {
+      mutationLockRef.current = false;
       setIsProcessing(false);
     }
   };
 
   // Helper Penyesuaian Stok Cepat Atomic Batch (+ / - stok_3)
   const handleQuickStockChange = async (prod: Produk, delta: number) => {
-    const oldStok = Number(prod.stok_3) || 0;
-    const newStok = Math.max(0, oldStok + delta);
-    if (oldStok === newStok) return;
-
-    const actualDiff = newStok - oldStok;
-    const operatorName = pb.authStore.model?.name || pb.authStore.model?.username || 'Kasir';
-    const timestamp = new Date().toISOString();
-
+    if (mutationLockRef.current || userLevel !== '1' || ![-1,1].includes(delta)) return;
+    mutationLockRef.current = true;
+    setIsProcessing(true);
     try {
-      const batch = pb.createBatch();
-      
-      // 1. Queue Update stok_3 pada produk
-      batch.collection('produk').update(prod.id, { stok_3: newStok });
-
-      // 2. Queue Create log_stock penyesuaian stok
+      await flushPendingSync();
+      const current = await pb.collection('produk').getOne<Produk>(prod.id, {$autoCancel:false});
+      if (Number(current.stok_3) + delta < 0) throw new Error('Stok tidak cukup.');
+      const batch = createFinancialBatch();
       batch.collection('log_stock').create({
-        id_lama: '',
-        created_at: timestamp,
-        operator: operatorName,
-        item: prod.id_lama || prod.id || '',
-        item_baru: prod.id,
-        qty: Math.abs(actualDiff),
-        boolean: actualDiff > 0 ? 'in' : 'out',
-        price_1: Number(prod.sell_6 || 0),
-        price_2: Number(prod.beli || 0) * Math.abs(actualDiff),
-        normal: Number(prod.sell_6 || 0) * Math.abs(actualDiff),
-        stok_awal: oldStok,
-        stok_akhir: newStok,
+        created_at: new Date().toISOString(), operator: pb.authStore.record?.name || pb.authStore.record?.username || 'Admin',
+        item: current.id_lama || current.id, item_baru: current.id, qty: Math.abs(delta), boolean: delta > 0 ? 'in' : 'out',
+        price_1: 0, price_2: 0, normal: 0,
       });
-
       await batch.send();
-      await notifyLaravelApi('produk', 'updated', prod.id, { stok_3: newStok }).catch(() => null);
-      fetchProducts();
-    } catch (err) {
-      console.error("Gagal update stok cepat:", err);
+      await fetchProducts();
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Penyesuaian stok gagal.');
+    } finally {
+      mutationLockRef.current = false;
+      setIsProcessing(false);
     }
   };
 
@@ -558,6 +567,9 @@ const fetchRelatedProducts = async (sp: Produk) => {
   // ==========================================
   const submitForm = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (mutationLockRef.current) return;
+    const validationError = productValidationError(formData);
+    if (validationError) { alert(validationError); return; }
 
     // 🟢 VALIDASI SAFETY GUARD
     const required = [
@@ -574,6 +586,7 @@ const fetchRelatedProducts = async (sp: Produk) => {
       }
     }
 
+    mutationLockRef.current = true;
     setIsProcessing(true);
     try {
       let payload = { ...formData };
@@ -585,6 +598,7 @@ const fetchRelatedProducts = async (sp: Produk) => {
       delete payload.file; // File dihandle via FormData secara manual
       delete payload.collectionId;
       delete payload.collectionName;
+      delete payload.expand;
 
       const numericFields = ['beli', 'sell_1', 'sell_2', 'sell_3', 'sell_4', 'sell_5', 'sell_6', 'min_1', 'min_2', 'min_3', 'stok_1', 'stok_2', 'stok_3'];
 
@@ -623,7 +637,8 @@ const fetchRelatedProducts = async (sp: Produk) => {
       
       // 1. Masukkan semua key value biasa
       for (const key in payload) {
-        if (payload.hasOwnProperty(key)) {
+        if (Object.prototype.hasOwnProperty.call(payload, key)) {
+          if (isEditMode && selectedProduct && String(payload[key] ?? '') === String(selectedProduct[key] ?? '')) continue;
           formDataObj.append(key, String(payload[key]));
         }
       }
@@ -638,26 +653,33 @@ const fetchRelatedProducts = async (sp: Produk) => {
         filesToDelete.forEach((deletedFileName) => {
           const idx = originalFiles.indexOf(deletedFileName);
           if (idx !== -1) {
-            formDataObj.append(`file.${idx}`, ""); 
+            formDataObj.append("file-", deletedFileName);
           }
         });
       }
 
       if (newFilesToUpload.length > 0) {
         newFilesToUpload.forEach((f) => {
-          formDataObj.append('file', f as File);
+          formDataObj.append(isEditMode ? 'file+' : 'file', f as File);
         });
       }
 
       const oldStok = isEditMode && selectedProduct ? Number(selectedProduct.stok_3 || 0) : 0;
       const newStok = Number(payload.stok_3 || 0);
-      const stockDiff = newStok - oldStok;
+      let stockDiff = newStok - oldStok;
       const operatorName = pb.authStore.model?.name || pb.authStore.model?.username || 'Admin';
       const timestamp = new Date().toISOString();
 
+      await flushPendingSync();
+      if (isEditMode && selectedProduct) {
+        const current = await pb.collection('produk').getOne<Produk>(selectedProduct.id, {$autoCancel:false});
+        stockDiff = stockAdjustment(oldStok, newStok, Number(current.stok_3));
+      }
+      formDataObj.delete('stok_3');
+      if (!isEditMode) formDataObj.set('stok_3', '0');
       // 🟢 EKSEKUSI API VIA POCKETBASE ATOMIC BATCH
       if (isEditMode && selectedProduct) {
-        const batch = pb.createBatch();
+        const batch = createFinancialBatch();
         batch.collection('produk').update(selectedProduct.id, formDataObj);
 
         // INCREMENTAL DIFF LOG STOK: Jika stok berubah saat edit, queue pencatatan log_stock
@@ -670,70 +692,41 @@ const fetchRelatedProducts = async (sp: Produk) => {
             item_baru: selectedProduct.id,
             qty: Math.abs(stockDiff),
             boolean: stockDiff > 0 ? 'in' : 'out',
-            price_1: Number(payload.sell_6 || 0),
-            price_2: Number(payload.beli || 0) * Math.abs(stockDiff),
-            normal: Number(payload.sell_6 || 0) * Math.abs(stockDiff),
+            price_1: 0,
+            price_2: 0,
+            normal: 0,
             stok_awal: oldStok,
             stok_akhir: newStok,
           });
         }
 
-        await batch.send();
-        await notifyLaravelApi('produk', 'updated', selectedProduct.id, payload).catch(() => null);
+        await batch.send([], () => setModalType(null));
+
       } else {
-        // Mode Create (dengan retry ID unik)
-        let createdProd: any = null;
-        let attempts = 0;
-        const maxAttempts = 15;
-        while (!createdProd && attempts < maxAttempts) {
-          try {
-            createdProd = await pb.collection('produk').create(formDataObj);
-          } catch (error: any) {
-            const isUniqueError = error?.response?.data?.id_lama?.code === 'validation_not_unique' || error?.status === 400;
-            if (isUniqueError) {
-              const newId = generateRawRandomId();
-              formDataObj.set('id_lama', newId);
-              attempts++;
-            } else {
-              throw error;
-            }
-          }
-        }
-        if (!createdProd) throw new Error("Gagal mendapatkan ID unik setelah beberapa kali percobaan.");
-
-        // Jika produk baru berhasil dibuat dengan stok > 0, catat log_stock awal
-        if (newStok > 0 && createdProd?.id) {
-          await pb.collection('log_stock').create({
-            id_lama: '',
-            created_at: timestamp,
-            operator: operatorName,
-            item: createdProd.id_lama || createdProd.id || '',
-            item_baru: createdProd.id,
-            qty: newStok,
-            boolean: 'in',
-            price_1: Number(payload.sell_6 || 0),
-            price_2: Number(payload.beli || 0) * newStok,
-            normal: Number(payload.sell_6 || 0) * newStok,
-            stok_awal: 0,
-            stok_akhir: newStok,
-          }).catch(() => null);
-        }
-
-        await notifyLaravelApi('produk', 'created', createdProd.id).catch(() => null);
+        const productId = createRecordId();
+        formDataObj.set('id', productId);
+        const batch = createFinancialBatch();
+        batch.collection('produk').create(formDataObj);
+        if (newStok > 0) batch.collection('log_stock').create({
+          created_at: timestamp, operator: operatorName, item: String(formDataObj.get('id_lama') || ''),
+          item_baru: productId, qty: newStok, boolean: 'in', price_1: 0, price_2: 0, normal: 0,
+        });
+        await batch.send([], () => setModalType(null));
       }
       
       // Jika berhasil
       setModalType(null);
       setProductFiles([]); // reset file state
       fetchProducts(); // Refresh list grid
+      fetchDropdownOptions();
       
     } catch (error: any) {
-      console.error("Error saving product:", error);
-      const errorMsg = error?.response?.data?.message 
+      const errorMsg = isProductCodeConflict(error) ? 'Kode produk sudah digunakan. Pilih kode lain; produk belum disimpan.' : error?.response?.data?.message
         || error?.message 
         || "Gagal menyimpan data. Kemungkinan koneksi internet terputus atau server mati.";
       alert(`GAGAL: ${errorMsg}`);
     } finally {
+      mutationLockRef.current = false;
       setIsProcessing(false);
     }
   };
@@ -818,6 +811,7 @@ const fetchRelatedProducts = async (sp: Produk) => {
                       placeholder="Cari kategori..."
                       value={kategoriSearch}
                       onChange={(e) => {
+                        setKategoriSearch(e.target.value);
                         setIsKategoriDropdownOpen(true);
                       }}
                       onFocus={() => setIsKategoriDropdownOpen(true)}
@@ -909,6 +903,7 @@ const fetchRelatedProducts = async (sp: Produk) => {
                       type="text"
                       placeholder="Cari kategori..."
                       onChange={(e) => {
+                        setKategoriSearch(e.target.value);
                         setIsKategoriDropdownOpen(true);
                       }}
                       onFocus={() => setIsKategoriDropdownOpen(true)}
@@ -1013,7 +1008,7 @@ const fetchRelatedProducts = async (sp: Produk) => {
                     {/* Thumbnail */}
                     <div className="relative w-full aspect-[3/2] sm:aspect-[4/3] bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center overflow-hidden">
                       {prod.file && prod.file.length > 0 ? (
-                        <img src={`${pb.files.getUrl(prod, prod.file[0])}?thumb=300x225`} alt="" loading="lazy" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                        <ProductMedia src={`${pb.files.getUrl(prod, prod.file[0])}?thumb=300x225`} alt="" loading="lazy" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
                       ) : (
                         <Package size={40} className="text-gray-300" />
                       )}
@@ -1073,9 +1068,9 @@ const fetchRelatedProducts = async (sp: Produk) => {
                         </div>
                         {userLevel === '1' && (
                         <div className="flex items-center gap-0.5" onClick={e => e.stopPropagation()}>
-                          <button onClick={async () => { await handleQuickStockChange(prod, -1); }} className="w-6 h-6 flex items-center justify-center rounded-md bg-red-50 hover:bg-red-100 text-red-600 text-xs font-black">−</button>
+                          <button disabled={isProcessing} onClick={async () => { await handleQuickStockChange(prod, -1); }} className="w-6 h-6 flex items-center justify-center rounded-md bg-red-50 hover:bg-red-100 text-red-600 text-xs font-black">−</button>
                           <span className="text-[9px] font-bold text-gray-400 w-4 text-center">{prod.stok_3}</span>
-                          <button onClick={async () => { await handleQuickStockChange(prod, 1); }} className="w-6 h-6 flex items-center justify-center rounded-md bg-green-50 hover:bg-green-100 text-green-600 text-xs font-black">+</button>
+                          <button disabled={isProcessing} onClick={async () => { await handleQuickStockChange(prod, 1); }} className="w-6 h-6 flex items-center justify-center rounded-md bg-green-50 hover:bg-green-100 text-green-600 text-xs font-black">+</button>
                         </div>
                         )}
                       </div>
@@ -1129,7 +1124,7 @@ const fetchRelatedProducts = async (sp: Produk) => {
                         <td className="py-2 px-2">
                           <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg bg-gray-100 overflow-hidden flex items-center justify-center shrink-0">
                             {prod.file && prod.file.length > 0 ? (
-                              <img src={`${pb.files.getUrl(prod, prod.file[0])}?thumb=80x80`} alt="" loading="lazy" className="w-full h-full object-cover" />
+                              <ProductMedia src={`${pb.files.getUrl(prod, prod.file[0])}?thumb=80x80`} alt="" loading="lazy" className="w-full h-full object-cover" />
                             ) : (
                               <Package size={14} className="text-gray-300" />
                             )}
@@ -1204,18 +1199,18 @@ const fetchRelatedProducts = async (sp: Produk) => {
           <div className="space-y-5">
             {/* Hero image */}
             <div className="relative w-full aspect-[16/9] sm:aspect-[2/1] bg-gradient-to-br from-gray-100 to-gray-200 rounded-2xl overflow-hidden">
-              {selectedProduct.file && selectedProduct.file.length > 0 ? (
+              {selectedProduct.file && (selectedProduct.file || []).length > 0 ? (
                 <>
-                  <img 
+                  <ProductMedia controls
                     src={pb.files.getUrl(selectedProduct, selectedProduct.file[currentImageIndex])} 
                     alt="" 
                     className="w-full h-full object-cover"
                   />
-                  {selectedProduct.file.length > 1 && (
+                  {(selectedProduct.file || []).length > 1 && (
                     <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-black/40 backdrop-blur rounded-full px-3 py-1.5">
-                      <button onClick={e => { e.stopPropagation(); setCurrentImageIndex(p => p === 0 ? selectedProduct.file.length - 1 : p - 1); }} className="text-white text-xs font-black px-1">‹</button>
-                      <span className="text-white text-[10px] font-bold">{currentImageIndex + 1}/{selectedProduct.file.length}</span>
-                      <button onClick={e => { e.stopPropagation(); setCurrentImageIndex(p => p === selectedProduct.file.length - 1 ? 0 : p + 1); }} className="text-white text-xs font-black px-1">›</button>
+                      <button onClick={e => { e.stopPropagation(); setCurrentImageIndex(p => p === 0 ? (selectedProduct.file || []).length - 1 : p - 1); }} className="text-white text-xs font-black px-1">‹</button>
+                      <span className="text-white text-[10px] font-bold">{currentImageIndex + 1}/{(selectedProduct.file || []).length}</span>
+                      <button onClick={e => { e.stopPropagation(); setCurrentImageIndex(p => p === (selectedProduct.file || []).length - 1 ? 0 : p + 1); }} className="text-white text-xs font-black px-1">›</button>
                     </div>
                   )}
                 </>
@@ -1238,12 +1233,14 @@ const fetchRelatedProducts = async (sp: Produk) => {
               <div className="flex flex-col items-end gap-1 shrink-0">
                 <span className="px-2 py-1 bg-orange-100 text-orange-600 text-[10px] font-black rounded-lg">{selectedProduct.unit || '-'}</span>
                 <button 
-                  onClick={(e) => {
+                  onClick={async (e) => {
                     e.stopPropagation();
                     const fullName = `${selectedProduct.kategori} ${selectedProduct.merk} ${selectedProduct.jenis} ${selectedProduct.varian} ${selectedProduct.keterangan || ''} ${selectedProduct.tipe || ''}`.trim();
-                    navigator.clipboard.writeText(fullName);
-                    setIsCopied(true);
-                    setTimeout(() => setIsCopied(false), 2000);
+                    try {
+                      await navigator.clipboard.writeText(fullName);
+                      setIsCopied(true);
+                      setTimeout(() => setIsCopied(false), 2000);
+                    } catch { alert('Nama produk belum dapat disalin. Periksa izin clipboard browser.'); }
                   }}
                   className="p-1.5 mt-1 bg-white text-orange-500 hover:text-orange-700 hover:bg-orange-100 border border-orange-200 rounded-lg transition-colors shadow-sm"
                   title="Salin Nama Produk"
@@ -1414,6 +1411,7 @@ const fetchRelatedProducts = async (sp: Produk) => {
                 </table>
               </div>
               
+              {logError && <p role="alert" className="text-red-600 text-xs">{logError} <button onClick={() => fetchLogHistory(selectedProduct!.id, logPage)} className="underline">Coba lagi</button></p>}
               {/* Pagination History */}
               <div className="flex justify-between items-center mt-4 px-1">
                 <button 
@@ -1437,17 +1435,17 @@ const fetchRelatedProducts = async (sp: Produk) => {
             </div>
 
             {/* Lampiran Gambar */}
-            {selectedProduct.file && selectedProduct.file.length > 0 && (
+            {selectedProduct.file && (selectedProduct.file || []).length > 0 && (
               <div className="bg-slate-50 p-5 rounded-[1.5rem] border-2 border-slate-100 shadow-sm">
                 <p className={`font-black text-[11px] text-blue-600 uppercase border-b-2 border-slate-200 pb-3 mb-3 flex items-center gap-2`}>
                   <ImagePlus size={16}/> Lampiran Gambar Produk
                 </p>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  {selectedProduct.file.map((f, i) => {
+                  {(selectedProduct.file || []).map((f, i) => {
                     const fileUrl = pb.files.getUrl(selectedProduct, f);
                     return (
                       <div key={i} className="relative group rounded-xl overflow-hidden border-2 border-white shadow-md aspect-square bg-slate-100">
-                        {f.match(/\.(mp4|webm|ogg)$/i) ? (
+                        {isProductVideo(f) ? (
                           <video src={fileUrl} className="w-full h-full object-cover" />
                         ) : (
                           <img src={fileUrl} alt={`lampiran-${i}`} className="w-full h-full object-cover transition-transform group-hover:scale-110 duration-500" />
@@ -1475,7 +1473,7 @@ const fetchRelatedProducts = async (sp: Produk) => {
                       >
                         <div className="w-12 h-12 shrink-0 bg-slate-50/80 rounded-xl overflow-hidden relative border border-slate-100/50">
                           {prod.file && prod.file.length > 0 ? (
-                            <img src={pb.files.getUrl(prod, prod.file[0])} alt="" className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"/>
+                            <ProductMedia src={pb.files.getUrl(prod, prod.file[0])} alt="" className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"/>
                           ) : (
                             <div className="w-full h-full flex items-center justify-center text-slate-300">
                               <Package size={20} />
@@ -1515,7 +1513,7 @@ const fetchRelatedProducts = async (sp: Produk) => {
       {/* 2. MODAL FORM (TAMBAH / EDIT / COPY) */}
       {/* ========================================================= */}
       {/* Modal Form ini input-annya sangat banyak, butuh space yang lebih lebar */}
-      <Modal isOpen={modalType === 'form'} onClose={() => setModalType(null)} title={isEditMode ? "Edit Produk" : "Tambah/Copy Produk"} maxWidth="max-w-4xl">
+      <Modal isOpen={modalType === 'form'} onClose={() => { if (!mutationLockRef.current) setModalType(null); }} title={isEditMode ? "Edit Produk" : "Tambah/Copy Produk"} maxWidth="max-w-4xl">
         <form onSubmit={submitForm} className="space-y-4">
           <div className="max-h-[60vh] overflow-y-auto pr-2 space-y-4">
 
@@ -1660,7 +1658,7 @@ const fetchRelatedProducts = async (sp: Produk) => {
                 <div>
                   <label className="text-xs font-bold text-gray-500">Stok Awal</label>
                   <input
-                    type="number"
+                    type="number" min="0" step="1"
                     name="stok_1"
                     disabled={!(userLevel === '1' || userLevel === '5' || !isEditMode)}
                     value={formData.stok_1 ?? ''}
@@ -1671,7 +1669,7 @@ const fetchRelatedProducts = async (sp: Produk) => {
                 <div>
                   <label className="text-xs font-bold text-gray-500">Stok Menipis</label>
                   <input
-                    type="number"
+                    type="number" min="0" step="1"
                     name="stok_2"
                     disabled={!['1','6','7','10'].includes(userLevel)}
                     value={formData.stok_2 ?? ''}
@@ -1682,7 +1680,7 @@ const fetchRelatedProducts = async (sp: Produk) => {
                 <div>
                   <label className="text-xs font-bold text-green-600">Stok Realtime</label>
                   <input
-                    type="number"
+                    type="number" min="0" step="1"
                     name="stok_3"
                     disabled={!(userLevel === '1' || userLevel === '5' || !isEditMode)}
                     value={formData.stok_3 ?? ''}
@@ -1701,7 +1699,7 @@ const fetchRelatedProducts = async (sp: Produk) => {
               <div>
                 <label className="text-xs font-bold text-gray-500">Harga Beli Dasar (Modal)</label>
                 <input
-                  type="number"
+                  type="number" min="0" step="1"
                   name="beli"
                   value={formData.beli ?? ''}
                   onChange={handleInputChange}
@@ -1717,13 +1715,13 @@ const fetchRelatedProducts = async (sp: Produk) => {
                 <div className="bg-white p-3 rounded-lg border space-y-2">
                   <div>
                     <label className="text-xs font-bold text-gray-500 block mb-1">Min 1 Qty</label>
-                    <input type="number" name="min_1" value={formData.min_1 ?? ''} onChange={handleInputChange} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-orange-400" />
+                    <input type="number" min="0" step="1" name="min_1" value={formData.min_1 ?? ''} onChange={handleInputChange} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-orange-400" />
                   </div>
                   <div>
                     <label className="text-xs font-bold text-gray-500 block mb-1">Sell 1</label>
                     <div className="flex items-center gap-2">
-                      <input type="number" name="sell_1" value={formData.sell_1 ?? ''} onChange={handleInputChange} className="flex-1 p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-orange-400 bg-gray-50" />
-                      {formData.beli > 0 && formData.sell_1 && <span className="text-[10px] font-bold text-emerald-600 whitespace-nowrap">+{((formData.sell_1 - formData.beli) / formData.beli * 100).toFixed(1)}%</span>}
+                      <input type="number" min="0" step="1" name="sell_1" value={formData.sell_1 ?? ''} onChange={handleInputChange} className="flex-1 p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-orange-400 bg-gray-50" />
+                      {(formData.beli || 0) > 0 && formData.sell_1 && <span className="text-[10px] font-bold text-emerald-600 whitespace-nowrap">+{((formData.sell_1 - (formData.beli || 0)) / (formData.beli || 0) * 100).toFixed(1)}%</span>}
                     </div>
                   </div>
                 </div>
@@ -1732,13 +1730,13 @@ const fetchRelatedProducts = async (sp: Produk) => {
                 <div className="bg-white p-3 rounded-lg border space-y-2">
                   <div>
                     <label className="text-xs font-bold text-gray-500 block mb-1">Min 2 Qty</label>
-                    <input type="number" name="min_2" value={formData.min_2 ?? ''} onChange={handleInputChange} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-orange-400" />
+                    <input type="number" min="0" step="1" name="min_2" value={formData.min_2 ?? ''} onChange={handleInputChange} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-orange-400" />
                   </div>
                   <div>
                     <label className="text-xs font-bold text-gray-500 block mb-1">Sell 2</label>
                     <div className="flex items-center gap-2">
-                      <input type="number" name="sell_2" value={formData.sell_2 ?? ''} onChange={handleInputChange} className="flex-1 p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-orange-400 bg-gray-50" />
-                      {formData.beli > 0 && formData.sell_2 && <span className="text-[10px] font-bold text-emerald-600 whitespace-nowrap">+{((formData.sell_2 - formData.beli) / formData.beli * 100).toFixed(1)}%</span>}
+                      <input type="number" min="0" step="1" name="sell_2" value={formData.sell_2 ?? ''} onChange={handleInputChange} className="flex-1 p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-orange-400 bg-gray-50" />
+                      {(formData.beli || 0) > 0 && formData.sell_2 && <span className="text-[10px] font-bold text-emerald-600 whitespace-nowrap">+{((formData.sell_2 - (formData.beli || 0)) / (formData.beli || 0) * 100).toFixed(1)}%</span>}
                     </div>
                   </div>
                 </div>
@@ -1747,13 +1745,13 @@ const fetchRelatedProducts = async (sp: Produk) => {
                 <div className="bg-white p-3 rounded-lg border space-y-2">
                   <div>
                     <label className="text-xs font-bold text-gray-500 block mb-1">Min 3 Qty</label>
-                    <input type="number" name="min_3" value={formData.min_3 ?? ''} onChange={handleInputChange} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-orange-400" />
+                    <input type="number" min="0" step="1" name="min_3" value={formData.min_3 ?? ''} onChange={handleInputChange} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-orange-400" />
                   </div>
                   <div>
                     <label className="text-xs font-bold text-gray-500 block mb-1">Sell 3</label>
                     <div className="flex items-center gap-2">
-                      <input type="number" name="sell_3" value={formData.sell_3 ?? ''} onChange={handleInputChange} className="flex-1 p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-orange-400 bg-gray-50" />
-                      {formData.beli > 0 && formData.sell_3 && <span className="text-[10px] font-bold text-emerald-600 whitespace-nowrap">+{((formData.sell_3 - formData.beli) / formData.beli * 100).toFixed(1)}%</span>}
+                      <input type="number" min="0" step="1" name="sell_3" value={formData.sell_3 ?? ''} onChange={handleInputChange} className="flex-1 p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-orange-400 bg-gray-50" />
+                      {(formData.beli || 0) > 0 && formData.sell_3 && <span className="text-[10px] font-bold text-emerald-600 whitespace-nowrap">+{((formData.sell_3 - (formData.beli || 0)) / (formData.beli || 0) * 100).toFixed(1)}%</span>}
                     </div>
                   </div>
                 </div>
@@ -1764,8 +1762,8 @@ const fetchRelatedProducts = async (sp: Produk) => {
                   <div>
                     <label className="text-xs font-bold text-gray-500 block mb-1">Sell 4</label>
                     <div className="flex items-center gap-2">
-                      <input type="number" name="sell_4" value={formData.sell_4 ?? ''} onChange={handleInputChange} className="flex-1 p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-orange-400 bg-gray-50" />
-                      {formData.beli > 0 && formData.sell_4 && <span className="text-[10px] font-bold text-emerald-600 whitespace-nowrap">+{((formData.sell_4 - formData.beli) / formData.beli * 100).toFixed(1)}%</span>}
+                      <input type="number" min="0" step="1" name="sell_4" value={formData.sell_4 ?? ''} onChange={handleInputChange} className="flex-1 p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-orange-400 bg-gray-50" />
+                      {(formData.beli || 0) > 0 && formData.sell_4 && <span className="text-[10px] font-bold text-emerald-600 whitespace-nowrap">+{((formData.sell_4 - (formData.beli || 0)) / (formData.beli || 0) * 100).toFixed(1)}%</span>}
                     </div>
                   </div>
                 </div>
@@ -1776,8 +1774,8 @@ const fetchRelatedProducts = async (sp: Produk) => {
                   <div>
                     <label className="text-xs font-bold text-purple-600 block mb-1">Sell 5 (Pelanggan)</label>
                     <div className="flex items-center gap-2">
-                      <input type="number" name="sell_5" value={formData.sell_5 ?? ''} onChange={handleInputChange} className="flex-1 p-2 border border-purple-300 rounded-lg outline-none focus:ring-2 focus:ring-purple-400 bg-purple-100 font-bold text-purple-700" />
-                      {formData.beli > 0 && formData.sell_5 && <span className="text-[10px] font-bold text-emerald-600 whitespace-nowrap">+{((formData.sell_5 - formData.beli) / formData.beli * 100).toFixed(1)}%</span>}
+                      <input type="number" min="0" step="1" name="sell_5" value={formData.sell_5 ?? ''} onChange={handleInputChange} className="flex-1 p-2 border border-purple-300 rounded-lg outline-none focus:ring-2 focus:ring-purple-400 bg-purple-100 font-bold text-purple-700" />
+                      {(formData.beli || 0) > 0 && formData.sell_5 && <span className="text-[10px] font-bold text-emerald-600 whitespace-nowrap">+{((formData.sell_5 - (formData.beli || 0)) / (formData.beli || 0) * 100).toFixed(1)}%</span>}
                     </div>
                   </div>
                 </div>
@@ -1788,8 +1786,8 @@ const fetchRelatedProducts = async (sp: Produk) => {
                   <div>
                     <label className="text-xs font-bold text-blue-600 block mb-1">Sell 6 (Default Ecer)</label>
                     <div className="flex items-center gap-2">
-                      <input type="number" name="sell_6" value={formData.sell_6 ?? ''} onChange={handleInputChange} className="flex-1 p-2 border border-blue-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-400 bg-blue-100 font-bold text-blue-700" />
-                      {formData.beli > 0 && formData.sell_6 && <span className="text-[10px] font-bold text-emerald-600 whitespace-nowrap">+{((formData.sell_6 - formData.beli) / formData.beli * 100).toFixed(1)}%</span>}
+                      <input type="number" min="0" step="1" name="sell_6" value={formData.sell_6 ?? ''} onChange={handleInputChange} className="flex-1 p-2 border border-blue-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-400 bg-blue-100 font-bold text-blue-700" />
+                      {(formData.beli || 0) > 0 && formData.sell_6 && <span className="text-[10px] font-bold text-emerald-600 whitespace-nowrap">+{((formData.sell_6 - (formData.beli || 0)) / (formData.beli || 0) * 100).toFixed(1)}%</span>}
                     </div>
                   </div>
                 </div>
@@ -1814,6 +1812,7 @@ const fetchRelatedProducts = async (sp: Produk) => {
                   className="hidden"
                   onChange={e => {
                     const selectedFiles = Array.from(e.target.files || []);
+                    if (productFiles.length + selectedFiles.length > 10) { alert('Maksimal 10 file per produk.'); e.target.value = ''; return; }
                     if (selectedFiles.length > 0) setProductFiles(prev => [...prev, ...selectedFiles]);
                     e.target.value = '';
                   }}
@@ -1828,13 +1827,7 @@ const fetchRelatedProducts = async (sp: Produk) => {
                 <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
                   {productPreviewUrls.map((url, idx) => (
                     <div key={idx} className="relative group rounded-xl overflow-hidden border border-white shadow-sm aspect-square bg-white">
-                      {productFiles[idx]?.isOld ? (
-                        <img src={url} alt={`preview-${idx}`} className="w-full h-full object-cover transition-transform group-hover:scale-110 duration-500" />
-                      ) : productFiles[idx] instanceof File && productFiles[idx].type.startsWith('video/') ? (
-                        <video src={url} className="w-full h-full object-cover opacity-80" muted />
-                      ) : (
-                        <img src={url} alt={`preview-${idx}`} className="w-full h-full object-cover transition-transform group-hover:scale-110 duration-500" />
-                      )}
+                      <ProductMedia src={url} video={isProductVideo(productFiles[idx])} alt={`preview-${idx}`} className="w-full h-full object-cover transition-transform group-hover:scale-110 duration-500" />
                       <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                         <button type="button" onClick={() => setProductFiles(prev => prev.filter((_, i) => i !== idx))} className="w-8 h-8 bg-rose-500 text-white rounded-full flex items-center justify-center hover:scale-110 active:scale-95 shadow-lg">
                           <Trash2 size={14} />
@@ -1859,7 +1852,7 @@ const fetchRelatedProducts = async (sp: Produk) => {
 
           {/* ── TOMBOL AKSI ─────────────────────────────────────────── */}
           <div className="flex gap-3 pt-4 border-t">
-            <button type="button" onClick={() => setModalType(null)} className="flex-1 py-3 bg-gray-100 text-gray-700 font-bold rounded-xl hover:bg-gray-200">Batal</button>
+            <button type="button" disabled={isProcessing} onClick={() => setModalType(null)} className="flex-1 py-3 bg-gray-100 text-gray-700 font-bold rounded-xl hover:bg-gray-200">Batal</button>
             <button type="submit" disabled={isProcessing} className="flex-1 py-3 bg-orange-500 text-white font-bold rounded-xl hover:bg-orange-600 disabled:opacity-50">
               {isProcessing ? 'Menyimpan...' : 'Simpan Data'}
             </button>

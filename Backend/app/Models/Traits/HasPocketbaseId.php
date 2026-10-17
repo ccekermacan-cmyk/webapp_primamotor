@@ -20,7 +20,7 @@ trait HasPocketbaseId
     {
         static::creating(function ($model) {
             if (empty($model->{$model->getKeyName()})) {
-                $model->{$model->getKeyName()} = Str::random(15);
+                $model->{$model->getKeyName()} = strtolower(Str::random(15));
             }
         });
     }

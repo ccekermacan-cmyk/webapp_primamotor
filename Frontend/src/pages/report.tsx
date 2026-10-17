@@ -1,12 +1,8 @@
+import { laravelFetch } from '../services/api/laravel';
 import { useState, useEffect, useMemo } from 'react';
 import { pb } from '../lib/pocketbase';
 import Modal from '../components/modal'; // PENTING: Jangan dihapus agar Alert UI berjalan
-import { 
-  Search, Calendar, ChevronLeft, ChevronRight, ChevronDown, Download, 
-  TrendingUp, TrendingDown, DollarSign, Wallet, FileText, 
-  Filter, RefreshCw, BarChart3, Lightbulb, Coffee, Wrench, Store, X,
-  Plus, Trash2, AlertTriangle, Info
-} from 'lucide-react';
+import { Search, Calendar, ChevronLeft, ChevronRight, ChevronDown, Download, TrendingUp, TrendingDown, DollarSign, Wallet, Filter, RefreshCw, BarChart3, Lightbulb, X, Trash2, AlertTriangle, Info } from 'lucide-react';
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Line
 } from 'recharts';
@@ -57,7 +53,7 @@ export default function ReportPage() {
   const [showGenerateModal, setShowGenerateModal] = useState(false);
   const [generateDate, setGenerateDate] = useState('');
   const [generating, setGenerating] = useState(false);
-  const [todayReportExists, setTodayReportExists] = useState(false);
+  const [, setTodayReportExists] = useState(false);
 
   // === SISTEM ALERT TERPUSAT ===
   const [dialog, setDialog] = useState<{show: boolean, title: string, message: string, type: 'alert' | 'confirm', onConfirm?: () => void}>({
@@ -78,7 +74,7 @@ export default function ReportPage() {
     });
   };
 
-  const [userLevel, setUserLevel] = useState<string>(() => localStorage.getItem('user_level') || '');
+  const [userLevel] = useState<string>(() => localStorage.getItem('user_level') || '');
 
   // --- FORMATTER HELPER ---
   const formatRp = (num: number | undefined) => {
@@ -107,6 +103,7 @@ export default function ReportPage() {
   // Filter untuk tab Menu
   const [menuFilterJenis, setMenuFilterJenis] = useState<string[]>(['semua']);
   const [isMenuDropdownOpen, setIsMenuDropdownOpen] = useState(false);
+  const [logStockFilterRefJenis, setLogStockFilterRefJenis] = useState('');
   const [logStockFilterBoolean, setLogStockFilterBoolean] = useState<string>('semua');
   const [cashflowFilterMutasi, setCashflowFilterMutasi] = useState<string>('semua');
   const [cashflowFilterAccount, setCashflowFilterAccount] = useState<string>('semua');
@@ -147,11 +144,7 @@ export default function ReportPage() {
   };
 
   // Helper: timestamp UTC tetap untuk created_at report (timezone-independent)
-  const toReportCreatedAt = (localDateStr: string) => {
-    return `${localDateStr} 00:00:00.000Z`;
-  };
 
-  // Helper: dapatkan "YYYY-MM-DD" lokal hari ini
   const getLocalToday = () => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -281,70 +274,14 @@ export default function ReportPage() {
     };
   }, [reports]);
 
-  const [addingReport, setAddingReport] = useState(false);
 
-  const handleAddReport = async () => {
-    if (addingReport) return;
-    setAddingReport(true);
-    try {
-      const todayStr = getLocalToday();
-      const reportCreatedAt = toReportCreatedAt(todayStr);
 
-      const existing = await pb.collection('report').getFirstListItem(`created_at ~ "${todayStr}"`).catch(() => null);
-      if (existing) {
-        showAlert('Informasi', 'Laporan untuk hari ini sudah ada!');
-        setAddingReport(false);
-        return;
-      }
 
-      const yesterdayObj = new Date();
-      yesterdayObj.setDate(yesterdayObj.getDate() - 1);
-      const yesterdayStr = getLocalToday();
-      const yesterdayDate = new Date(yesterdayObj);
-      const yY = yesterdayDate.getFullYear();
-      const yM = String(yesterdayDate.getMonth() + 1).padStart(2, '0');
-      const yD = String(yesterdayDate.getDate()).padStart(2, '0');
-      const yesterdayFormatted = `${yY}-${yM}-${yD}`;
-      const yesterdayLookup = toReportCreatedAt(yesterdayFormatted);
-
-      const lastReport = await pb.collection('report').getFirstListItem(`created_at ~ "${yesterdayFormatted}"`).catch(() => null);
-      const kasirKemarin = lastReport?.kasir_toko ?? 0;
-      const piutangKemarin = lastReport?.piutang ?? 0;
-      const hutangKemarin = lastReport?.hutang ?? 0;
-
-      const today = new Date();
-      const newReport = {
-        text: `Laporan harian ${today.toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })}`,
-        omset_toko: 0,
-        omset_servis: 0,
-        omset_minuman: 0,
-        laba_penjualan: 0,
-        laba_service: 0,
-        laba_minuman: 0,    
-        operasional_toko: 0,
-        pengeluaran_lain: 0,
-        kasir_toko: kasirKemarin,
-        pemasukan_lain: 0,
-        piutang: piutangKemarin,
-        hutang: hutangKemarin,
-        created_at: reportCreatedAt,
-      };
-
-      await pb.collection('report').create(newReport);
-      await fetchReports();
-      showAlert('Sukses', 'Laporan hari ini berhasil dibuat!');
-    } catch (error) {
-      console.error(error);
-      showAlert('Error', 'Gagal membuat laporan: ' + (error as any)?.message || '');
-    } finally {
-      setAddingReport(false);
-    }
-  };
 
   // --- LOGIKA CENTRALIZED UNTUK GENERATE & KALKULASI LAPORAN ---
   // --- LOGIKA CENTRALIZED UNTUK GENERATE & KALKULASI LAPORAN TELAH DIPINDAHKAN KE LARAVEL ---
 
-  const handleGenerateReport = async (dateStr?: string, forceReplace: boolean = false) => {
+  const handleGenerateReport = async (dateStr?: string, _forceReplace: boolean = false) => {
     if (generating) return;
     setGenerating(true);
     try {
@@ -355,7 +292,7 @@ export default function ReportPage() {
       const apiUrl = getLaravelApiUrl() + '/reports/recalculate';
       
       try {
-        const response = await fetch(apiUrl, {
+        const response = await laravelFetch(apiUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ date: targetDateStr })
@@ -635,7 +572,7 @@ export default function ReportPage() {
                     <input
                       type="checkbox"
                       checked={selectedMetrics[key as keyof typeof selectedMetrics]}
-                      onChange={() => setSelectedMetrics(prev => ({ ...prev, [key]: !prev[key] }))}
+                      onChange={() => setSelectedMetrics(prev => ({ ...prev, [key]: !prev[key as keyof typeof prev] }))}
                       className="w-4 h-4 rounded border-gray-300 focus:ring-blue-500"
                       style={{ accentColor: color }}
                     />
@@ -661,7 +598,7 @@ export default function ReportPage() {
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                   <XAxis dataKey="tanggal" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#94a3b8', fontWeight: 'bold' }} dy={10} />
                   <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#94a3b8', fontWeight: 'bold' }} tickFormatter={(val) => `Rp${val/1000}k`} />
-                  <Tooltip formatter={(value: number) => [`Rp ${value.toLocaleString('id-ID')}`, '']} />
+                  <Tooltip formatter={(value) => [`Rp ${Number(value || 0).toLocaleString('id-ID')}`, '']} />
                   {selectedMetrics.Omset && <Area type="monotone" dataKey="Omset" stroke="#3b82f6" strokeWidth={3} fillOpacity={1} fill="url(#colorOmset)" />}
                   {selectedMetrics.Pengeluaran && <Area type="monotone" dataKey="Pengeluaran" stroke="#f43f5e" strokeWidth={3} fillOpacity={1} fill="url(#colorPengeluaran)" />}
                   {selectedMetrics.Laba && <Line type="monotone" dataKey="Laba" stroke="#10b981" strokeWidth={2} dot={false} />}
@@ -1046,7 +983,7 @@ export default function ReportPage() {
                 const sumTotal = filteredMenu.reduce((acc, m) => acc + (m.total || 0), 0);
                 const sumDibayar = filteredMenu.reduce((acc, m) => acc + (m.dibayar || 0), 0);
                 const sumAdmin = filteredMenu.reduce((acc, m) => acc + (m.admin || 0), 0);
-                const sumCashback = filteredMenu.reduce((acc, m) => acc + (m.cashback || 0), 0);
+
                 
                 // Pisahkan Piutang (Penjualan/Servis) dan Hutang (Pembelian)
                 const totalPiutang = filteredMenu
@@ -1237,7 +1174,7 @@ export default function ReportPage() {
                   });
                 }
 
-                let filteredLogStock = baseLog.filter(l => logStockFilterBoolean === 'semua' || (l.boolean || '').toLowerCase() === logStockFilterBoolean.toLowerCase());
+                let filteredLogStock = baseLog.filter(l => !logStockFilterRefJenis || l.ref_baru === logStockFilterRefJenis || l.ref === logStockFilterRefJenis).filter(l => logStockFilterBoolean === 'semua' || (l.boolean || '').toLowerCase() === logStockFilterBoolean.toLowerCase());
 
                 filteredLogStock.sort((a, b) => {
                   let valA = a[logStockSort.key]; let valB = b[logStockSort.key];
@@ -1276,7 +1213,7 @@ export default function ReportPage() {
                   <div>
                     <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
                       <div className="flex flex-wrap gap-2">
-                        <select className="p-2 border border-slate-200 rounded-xl text-sm font-bold bg-white" value={logStockFilterBoolean} onChange={(e) => setLogStockFilterBoolean(e.target.value)}>
+                        <select className="p-2 border border-slate-200 rounded-xl text-sm font-bold bg-white" value={logStockFilterBoolean} onChange={(e) => { setLogStockFilterBoolean(e.target.value); setLogStockFilterRefJenis(''); }}>
                           <option value="semua">Semua Mutasi</option>
                           <option value="in">Masuk (In)</option>
                           <option value="out">Keluar (Out)</option>

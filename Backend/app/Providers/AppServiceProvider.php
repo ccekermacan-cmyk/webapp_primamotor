@@ -29,6 +29,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        \App\Models\Produk::observe(\App\Observers\ProdukObserver::class);
         Bon::observe(BonObserver::class);
         Ongkos::observe(OngkosObserver::class);
         LogStock::observe(LogStockObserver::class);

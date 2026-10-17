@@ -1,15 +1,20 @@
+import { businessDate, businessDateBoundary, csvIncludes, editableBalance } from '../lib/cashflow';
+import { createRecordId } from '../lib/ids';
+import { createFinancialBatch } from '../services/api/financialBatch';
+import { syncLaravelEvents, flushPendingSync, deleteFinancialRecord } from '../services/api/laravel';
   import React, { useState, useEffect, useMemo, useRef } from 'react';
   import { useNavigate } from 'react-router-dom';
-  import { pb, notifyLaravelApi } from '../lib/pocketbase';
+  import { pb } from '../lib/pocketbase';
   import Modal from '../components/modal';
   import { 
-    Wallet, Search, Trash2, Edit, ChevronLeft, ChevronRight, ChevronUp,
+    Wallet, Search, Trash2, ChevronLeft, ChevronRight, ChevronUp,
     ArrowDownRight, ArrowUpRight, Calendar, User,
     ExternalLink, Layers, X, DollarSign, ImagePlus, Save, FileText,
     ArrowRight, Filter, Plus, ChevronDown, AlertCircle, RefreshCw, AlertTriangle
   } from 'lucide-react';
 
   interface Cashflow {
+    saldo_awal?: number; saldo_akhir?: number;
     id: string;
     id_lama: string;
     ref: string;
@@ -31,6 +36,7 @@
   }
 
   interface DropdownItem {
+    id_lama?: string; text_2?: string; number_1?: number; enum_1?: string;
     id: string;
     kategori: string;
     jenis: string;
@@ -40,6 +46,8 @@
 
   export default function CashflowPage() {
     const navigate = useNavigate();
+    const submitLockRef = useRef(false);
+    const cashflowRequestRef = useRef(0);
     const [transactions, setTransactions] = useState<Cashflow[]>([]);
     const [loading, setLoading] = useState(true);
     const [isProcessing, setIsProcessing] = useState(false);
@@ -64,18 +72,9 @@
     const scrollTempoRef = useRef<HTMLDivElement>(null);
     const [showHeader, setShowHeader] = useState(true);
     const [showTabs, setShowTabs] = useState(true);
-    const [lastScrollTop, setLastScrollTop] = useState(0);
+
 
     // Helper untuk mengkonversi tanggal lokal (dari input date picker) ke ISO UTC
-    const toLocalDateISO = (dateStr: string, endOfDay = false) => {
-      const [year, month, day] = dateStr.split('-').map(Number);
-      const hour = endOfDay ? 23 : 0;
-      const minute = endOfDay ? 59 : 0;
-      const second = endOfDay ? 59 : 0;
-      const localDate = new Date(year, month - 1, day, hour, minute, second);
-      return localDate.toISOString();
-    };
-
     // Helper untuk mengkonversi ISO UTC ke format datetime-local (YYYY-MM-DDThh:mm)
     const formatToLocalDatetimeInput = (isoString: string) => {
       const date = new Date(isoString);
@@ -87,59 +86,13 @@
       return `${year}-${month}-${day}T${hours}:${minutes}`;
     };
     
-    const cleanMenuId = (val: any): string => {
-      if (!val) return '';
-      if (Array.isArray(val)) return val.length > 0 ? String(val[0]) : '';
-      const s = String(val).trim();
-      if (s.startsWith('[')) {
-        try {
-          const arr = JSON.parse(s);
-          return Array.isArray(arr) && arr.length > 0 ? String(arr[0]) : '';
-        } catch { return ''; }
-      }
-      return s;
-    };
 
-    const syncMenuDibayarInPb = async (rawMenuId: any) => {
-      const targetMenuId = cleanMenuId(rawMenuId);
-      if (!targetMenuId) return;
-      try {
-        const menuRec = await pb.collection('menu').getOne(targetMenuId, { $autoCancel: false }).catch(() => null);
-        if (!menuRec) return;
-
-        const linkedCashflows = await pb.collection('cashflow').getFullList({
-          filter: `ref_baru = "${targetMenuId}" || ref = "${targetMenuId}"`,
-          $autoCancel: false
-        }).catch(() => []);
-
-        const totalDibayar = linkedCashflows.reduce((sum, cf: any) => sum + (Number(cf.nominal) || 0), 0);
-        const grandTotal = Number(menuRec.total) || 0;
-        const newStatus = (totalDibayar >= grandTotal && grandTotal > 0) ? 'lunas' : 'belum';
-
-        const updateData: Record<string, any> = {};
-        if (Number(menuRec.dibayar) !== totalDibayar) {
-          updateData.dibayar = totalDibayar;
-        }
-        if (menuRec.status !== newStatus) {
-          updateData.status = newStatus;
-          if (newStatus === 'lunas' && !menuRec.date_lunas) {
-            updateData.date_lunas = new Date().toISOString();
-          }
-        }
-
-        if (Object.keys(updateData).length > 0) {
-          await pb.collection('menu').update(targetMenuId, updateData);
-        }
-      } catch (err) {
-        console.warn('Notice: Could not sync menu dibayar in PocketBase:', err);
-      }
-    };
 
     const [jenisOptionsIn, setJenisOptionsIn] = useState<DropdownItem[]>([]);
     const [jenisOptionsOut, setJenisOptionsOut] = useState<DropdownItem[]>([]);
     const [accountOptions, setAccountOptions] = useState<DropdownItem[]>([]);
 
-    const [personOptions, setPersonOptions] = useState<{ id: string; id_lama: string; text_1: string; source: 'dropdown' | 'user' }[]>([]);
+    const [personOptions, setPersonOptions] = useState<{ id: string; id_lama: string; text_1: string; text_2?: string; jenis?: string; source: 'dropdown' | 'user' }[]>([]);
     const [searchPerson, setSearchPerson] = useState('');
     const [isPersonOpen, setIsPersonOpen] = useState(false);
     
@@ -162,7 +115,7 @@
     // State baru untuk filter tanggal
     const [dateRange, setDateRange] = useState({ start: '', end: '' });
 
-    const [modalType, setModalType] = useState<'detail' | 'form' | 'delete' | null>(null);
+    const [modalType, setModalType] = useState<'detail' | 'form' | 'formBon' | 'delete' | null>(null);
     const [selectedTx, setSelectedTx] = useState<Cashflow | null>(null);
     const [formData, setFormData] = useState<Partial<Cashflow>>({
       mutasi: 'Masuk',
@@ -193,11 +146,11 @@
     const [showZeroBalances, setShowZeroBalances] = useState(false);
     const [calculating, setCalculating] = useState(false);
     
-    const [isFormDirty, setIsFormDirty] = useState(false);
+    const [, setIsFormDirty] = useState(false);
 
     const [filterPerson, setFilterPerson] = useState<string | null>(null);
 
-    const userLevel = localStorage.getItem('user_level') || '';
+    const userLevel = String(pb.authStore.record?.level || localStorage.getItem('user_level') || '');
     const [tempoGroups, setTempoGroups] = useState<{ date: string; items: any[] }[]>([]);
     const [loadingTempo, setLoadingTempo] = useState(false);
     const [tempoPage, setTempoPage] = useState(1);
@@ -222,14 +175,14 @@
         const name = wallet.text_1 || '';
         // Cari ID dropdown yang sesuai dengan user ini agar aman filter di bon.person
         const dropdownPerson = await pb.collection('dropdown').getFullList({
-          filter: `kategori ~ "person" && (id_lama = "${username}" || text_1 = "${name}")`,
+          filter: pb.filter('kategori ~ "person" && ((id_lama != "" && id_lama = {:username}) || (text_1 != "" && text_1 = {:name}))', { username, name }),
           $autoCancel: false
         });
         const dId = dropdownPerson.length > 0 ? dropdownPerson[0].id : '';
 
         // Filter bon yang memiliki username, nama, atau ID dropdown yang cocok
         const records = await pb.collection('bon').getFullList({
-          filter: `persontext = "${username}" || persontext = "${name}" ${dId ? `|| person = "${dId}"` : ''}`,
+          filter: pb.filter('user = {:user} || (persontext != "" && (persontext = {:username} || persontext = {:name})) || (person != "" && person = {:person})', { user: wallet.id, username, name, person: dId }),
           sort: '-created_at',
           $autoCancel: false,
           expand: 'ref_gaji'
@@ -255,43 +208,12 @@
           setSystemAlert(prev => ({ ...prev, show: false }));
           setIsProcessing(true);
           try {
-            const nominal = Number(bRec.nominal) || 0;
-            const jenis = (bRec.jenis || '').toLowerCase(); // in = kurang saldo, out = tambah saldo
-            const change = jenis === 'in' ? nominal : (jenis === 'out' ? -nominal : 0);
-            
-            const batch = pb.createBatch();
-
-            // 1. Queue Revert user.number
-            if (bonHistoryUser && change !== 0) {
-              const uRec = await pb.collection('user').getOne(bonHistoryUser.id, { $autoCancel: false });
-              const newNumber = Math.max(0, (Number(uRec.number) || 0) + change);
-              batch.collection('user').update(bonHistoryUser.id, { number: newNumber });
-              bonHistoryUser.number_1 = newNumber;
-            }
-
-            // 2. Queue Revert gaji jika ada
             if (bRec.ref_gaji) {
-              const gajiRecords = await pb.collection('gaji').getFullList({
-                filter: `(ref = "${bRec.ref_gaji}" || ref_baru = "${bRec.ref_gaji}")`,
-                $autoCancel: false
-              }).catch(() => []);
-              const username = bonHistoryUser?.id_lama;
-              const gRec = gajiRecords.find(g => String(g.person) === String(username));
-              if (gRec) {
-                const updateData: any = {};
-                if (jenis === 'in' && Number(gRec.bon_dibayar) > 0) updateData.bon_dibayar = 0;
-                if (jenis === 'out' && Number(gRec.bon_diambil) > 0) updateData.bon_diambil = 0;
-                if (Object.keys(updateData).length > 0) {
-                  batch.collection('gaji').update(gRec.id, updateData);
-                }
-              }
+              showAlert("Bon terkait gaji", "Ubah atau hapus melalui transaksi gaji agar perhitungan slip dan pembayaran tetap konsisten.");
+              return;
             }
-
-            // 3. Queue Delete bon record
-            batch.collection('bon').delete(bonId);
-
-            // Eksekusi atomic batch
-            await batch.send();
+            if (bRec.ref_cashflow) await deleteFinancialRecord('cashflow', bRec.ref_cashflow);
+            else await deleteFinancialRecord('bon', bonId);
             showAlert("Berhasil", "Riwayat Bon dihapus dan saldo di-revert.");
             
             // Reload history
@@ -329,7 +251,7 @@
       const checkConfigVisibility = async () => {
         try {
           const userLvl = localStorage.getItem('user_level') || '';
-          const configs = await pb.collection('dropdown').getFullList({
+          const configs = await pb.collection('dropdown').getFullList<DropdownItem>({
             filter: `(id_lama="addbon") && visibilitas ~ "${userLvl}"`,
             $autoCancel: false
           });
@@ -349,6 +271,8 @@
       if (formDataBon.catatCashflow && !formDataBon.akun_asal) return showAlert("Validasi Gagal", "Akun asal wajib dipilih!");
       if (!formDataBon.note || formDataBon.note.trim() === '') return showAlert("Validasi Gagal", "Catatan wajib diisi!");
 
+      if (submitLockRef.current) return;
+      submitLockRef.current = true;
       setIsProcessing(true);
       try {
         const currentUser = pb.authStore.model;
@@ -360,11 +284,15 @@
         const [hours, minutes] = timePart.split(':').map(Number);
         const utcDate = new Date(year, month - 1, day, hours, minutes, 0).toISOString();
 
-        const batch = pb.createBatch();
+        const batch = createFinancialBatch();
+        const cashflowId = formDataBon.catatCashflow ? createRecordId() : '';
+        const selectedPerson = personOptions.find(p => p.id === formDataBon.person);
+        const employee = selectedPerson?.source === 'user' ? { id: selectedPerson.id } : await pb.collection('user').getFirstListItem(pb.filter('username = {:username}', { username: formDataBon.persontext })).catch(() => null);
 
         // 1. Queue TULIS KE CASHFLOW (Jika dicentang)
         if (formDataBon.catatCashflow && formDataBon.akun_asal) {
           const cfData = new FormData();
+          cfData.append("id", cashflowId);
           cfData.append("created_at", utcDate);
           cfData.append("operator", operatorName);
           cfData.append("jenis", "bon");
@@ -384,13 +312,15 @@
           files.forEach(f => { if (!f.isOld) cfData.append("file", f); });
 
           batch.collection('cashflow').create(cfData);
-          batch.collection('dropdown').update(formDataBon.akun_asal, { number_1: saldoAwalCf - Number(formDataBon.nominal) });
+
         }
 
         // 2. Queue TULIS KE BON
         const bonData = new FormData();
         bonData.append("created_at", utcDate);
-        bonData.append("person", formDataBon.person);
+        bonData.append("person", selectedPerson?.source === "dropdown" ? formDataBon.person : "");
+        bonData.append("user", employee?.id || "");
+        bonData.append("ref_cashflow", cashflowId);
         bonData.append("persontext", formDataBon.persontext);
         bonData.append("nominal", String(formDataBon.nominal));
         bonData.append("note", formDataBon.note);
@@ -406,18 +336,7 @@
         batch.collection('bon').create(bonData);
 
         // EKSEKUSI POCKETBASE ATOMIC BATCH
-        const batchResults: any = await batch.send();
-
-        // Trigger Laravel Webhook Notification pasca batch sukses
-        if (formDataBon.catatCashflow && batchResults && batchResults.length >= 2) {
-          const createdCfId = batchResults[0]?.id || '';
-          const createdBonId = batchResults[1]?.id || '';
-          if (createdCfId) await notifyLaravelApi('cashflow', 'created', createdCfId).catch(() => null);
-          if (createdBonId) await notifyLaravelApi('bon', 'created', createdBonId).catch(() => null);
-        } else if (batchResults && batchResults[0]?.id) {
-          const createdBonId = batchResults[0].id;
-          await notifyLaravelApi('bon', 'created', createdBonId).catch(() => null);
-        }
+        await batch.send([], () => setModalType(null));
 
         showAlert("Sukses", "Data Bon berhasil disimpan!");
         setModalType(null);
@@ -428,9 +347,11 @@
           akun_asal: '', person: '', persontext: '', nominal: 0, note: '', jenis: 'out'
         } as any);
         fetchCashflow();
+        fetchWallets();
       } catch (error: any) {
         showAlert("Gagal Simpan", error.message);
       } finally {
+        submitLockRef.current = false;
         setIsProcessing(false);
       }
     };
@@ -438,23 +359,20 @@
     const fetchTempo = async () => {
       setLoadingTempo(true);
       try {
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const todayMs = today.getTime();
+        const todayKey = businessDate();
 
-        const result = await pb.collection('menu').getList(1, 100, {
+        const result = await pb.collection('menu').getFullList({
           filter: `jenis ~ "pembelian" && status = "belum" && tempo != ""`,
           sort: 'tempo',
           $autoCancel: false,
         });
-        const items = result.items;
+        const items = result;
 
         // Kelompokkan berdasarkan tanggal (YYYY-MM-DD)
         const groups: Record<string, any[]> = {};
         items.forEach(item => {
-          const tempoDate = new Date(item.tempo);
-          tempoDate.setHours(0, 0, 0, 0);
-          const dateKey = tempoDate.toISOString().split('T')[0];
+          const dateKey = businessDate(item.tempo);
+          if (!dateKey) return;
           if (!groups[dateKey]) groups[dateKey] = [];
           groups[dateKey].push(item);
         });
@@ -463,8 +381,8 @@
         const sortedKeys = Object.keys(groups).sort((a, b) => {
           const aMs = new Date(a).getTime();
           const bMs = new Date(b).getTime();
-          const aIsUpcoming = aMs >= todayMs;
-          const bIsUpcoming = bMs >= todayMs;
+          const aIsUpcoming = a >= todayKey;
+          const bIsUpcoming = b >= todayKey;
           if (aIsUpcoming && !bIsUpcoming) return -1;
           if (!aIsUpcoming && bIsUpcoming) return 1;
           return aMs - bMs;
@@ -517,19 +435,20 @@
 
     const fetchDropdowns = async () => {
       try {
-        const userLevel = "1"; 
+        const userLevel = String(pb.authStore.record?.level || localStorage.getItem('user_level') || '');
         const records = await pb.collection('dropdown').getFullList<DropdownItem>({
-          filter: `kategori ~ "Cashflow" && (jenis ~ "jenis" || jenis ~ "account") && visibilitas ~ "${userLevel}"`,
+          filter: `kategori ~ "Cashflow" && (jenis ~ "jenis" || jenis ~ "account") `,
           $autoCancel: false
         });
         // Pisahkan berdasarkan jenis
-        const jenisRecords = records.filter(r => String(r.jenis).toLowerCase().includes('jenis'));
-        const accountRecords = records.filter(r => String(r.jenis).toLowerCase().includes('account'));
+        const visibleRecords = records.filter(r => userLevel === '1' || csvIncludes(r.visibilitas, userLevel));
+        const jenisRecords = visibleRecords.filter(r => String(r.jenis).toLowerCase().includes('jenis'));
+        const accountRecords = visibleRecords.filter(r => String(r.jenis).toLowerCase().includes('account'));
         
         // Filter jenis berdasarkan text_2 (in / out)
         setJenisOptionsIn(jenisRecords.filter(r => r.text_2?.toLowerCase() === 'in'));
         setJenisOptionsOut(jenisRecords.filter(r => r.text_2?.toLowerCase() === 'out'));
-        setAccountOptions(accountRecords);
+        setAccountOptions(accountRecords.filter(r => userLevel === '1' || csvIncludes(r.enum_1, String(pb.authStore.record?.username || ''))));
       } catch (error) {
         console.error("Gagal memuat dropdown:", error);
       }
@@ -539,13 +458,13 @@
       setLoadingWallets(true);
       try {
         const currentUser = pb.authStore.model;
-        const userLevel = localStorage.getItem('user_level') || '';
+        const userLevel = String(pb.authStore.record?.level || localStorage.getItem('user_level') || '');
         const userName = currentUser?.username || '';
 
         // 1. Kondisi untuk Akun Kas (Cashflow)
         let cashflowCond = `(kategori ~ "cashflow" && jenis ~ "cashflow account"`;
         if (userLevel !== '1') {
-          cashflowCond += ` && enum_1 ~ "${userName}" && visibilitas ~ "${userLevel}"`;
+          cashflowCond += ` && enum_1 ~ "${userName}" `;
         }
         cashflowCond += `)`;
 
@@ -578,7 +497,7 @@
           enum_4: u.level || ''
         } as unknown as DropdownItem));
 
-        setWallets([...records, ...userAsDropdown]);
+        setWallets([...records.filter(r => !(r.jenis || '').toLowerCase().includes('account') || userLevel === '1' || (csvIncludes(r.enum_1, userName) && csvIncludes(r.visibilitas, userLevel))), ...userAsDropdown]);
       } catch (error) {
         console.error("Gagal memuat dompet:", error);
       } finally {
@@ -592,10 +511,7 @@
       setCalculating(true);
       
       try {
-        const today = new Date();
-        const yesterday = new Date(today);
-        yesterday.setDate(yesterday.getDate() - 1);
-        const dateStr = yesterday.toISOString().split('T')[0];
+        const dateStr = businessDate();
         
         // Ambil data wallet sesuai activeAccountTab
         let targetItems: DropdownItem[] = [];
@@ -626,11 +542,10 @@
         
         // Batch pre-fetch semua data sekaligus
         let allMenu: any[] = [];
-        let allBon: any[] = [];
         if (activeAccountTab === 'customer' || activeAccountTab === 'supplier') {
           allMenu = await pb.collection('menu').getFullList({
-            filter: `status != "lunas"`,
-            fields: 'person,total,dibayar',
+            filter: activeAccountTab === 'supplier' ? 'jenis ~ "pembelian"' : '(jenis ~ "penjualan" || jenis ~ "service")',
+            fields: 'person,person_baru,total,dibayar',
             $autoCancel: false,
             batch: 500,
           });
@@ -639,15 +554,16 @@
         // Group by person untuk perhitungan cepat
         const menuByPerson: Record<string, number> = {};
         allMenu.forEach(m => {
-          const p = m.person || '';
-          menuByPerson[p] = (menuByPerson[p] || 0) + ((m.total || 0) - (m.dibayar || 0));
+          const personRecord = targetItems.find(item => item.id === m.person_baru || (item.id_lama && item.id_lama === m.person));
+          if (!personRecord) return;
+          const p = personRecord.id;
+          menuByPerson[p] = (menuByPerson[p] || 0) + Math.max(0, Number(m.total || 0) - Number(m.dibayar || 0));
         });
 
         const batch = pb.createBatch();
         let updateCount = 0;
         for (const item of targetItems) {
-          const personId = (item as any).id_lama;
-          if (!personId) continue;
+          const personId = item.id;
           const totalBalance = menuByPerson[personId] || 0;
 
           // INCREMENTAL DIFF: Hanya update jika saldo berubah atau belum pernah di-sync
@@ -695,7 +611,7 @@
 
         // Ambil dari koleksi user (karyawan) sebagai tambahan
         const users = await pb.collection('user').getFullList({
-          filter: `status = "active"`,
+          filter: `status = "Active" || status = "active"`,
           $autoCancel: false
         });
         const userList = users.map(u => ({
@@ -711,7 +627,7 @@
         const combined = [...dropdownList, ...userList];
         const uniqueMap = new Map();
         combined.forEach(item => {
-          const key = item.id_lama;
+          const key = item.id_lama || item.id;
           if (!uniqueMap.has(key)) {
             uniqueMap.set(key, item);
           }
@@ -723,6 +639,7 @@
     };
 
     const fetchCashflow = async () => {
+      const requestId = ++cashflowRequestRef.current;
       try {
         setLoading(true);
         let conditions: string[] = [];
@@ -737,18 +654,22 @@
         }
 
         if (filterMutasi !== 'semua') {
-          if (filterMutasi === 'masuk') conditions.push(`mutasi = "in"`);
-          else if (filterMutasi === 'keluar') conditions.push(`mutasi = "out"`);
+          if (filterAccounts.length) {
+            const source = filterAccounts.map((id, i) => { params[`wallet${i}`] = id; return `account_1 = {:wallet${i}}`; }).join(' || ');
+            const target = filterAccounts.map((_, i) => `account_2 = {:wallet${i}}`).join(' || ');
+            if (filterMutasi === 'masuk') conditions.push(`((mutasi = "in" && (${source})) || (mutasi = "out" && jenis ~ "transfer" && (${target}) && !(${source})))`);
+            else conditions.push(`mutasi = "out" && (${source})`);
+          } else conditions.push(filterMutasi === 'masuk' ? `mutasi = "in"` : `mutasi = "out"`);
         }
 
         // --- LOGIKA FILTER TANGGAL BARU ---
         if (dateRange.start) {
           conditions.push(`created_at >= {:start}`);
-          params.start = toLocalDateISO(dateRange.start, false);
+          params.start = businessDateBoundary(dateRange.start);
         }
         if (dateRange.end) {
-          conditions.push(`created_at <= {:end}`);
-          params.end = toLocalDateISO(dateRange.end, true);
+          conditions.push(`created_at < {:end}`);
+          params.end = businessDateBoundary(dateRange.end, true);
         }
 
         // --- LOGIKA FILTER AKUN/DOMPET (MULTISELECT) ---
@@ -775,12 +696,13 @@
           ...requestOptions,
           $autoCancel: false 
         });
+        if (requestId !== cashflowRequestRef.current) return;
         setTransactions(result.items);
         setTotalPages(result.totalPages);
       } catch (error) {
         console.error("Gagal mengambil data:", error);
       } finally {
-        setLoading(false);
+        if (requestId === cashflowRequestRef.current) setLoading(false);
       }
     };
 
@@ -795,7 +717,7 @@
     }, [searchInput]);
     
     // Tambahkan filterAccounts ke dalam dependency agar data otomatis ter-refresh
-    useEffect(() => { fetchCashflow(); }, [page, searchTerm, filterMutasi, dateRange, filterAccounts, filterJenis]);
+    useEffect(() => { fetchCashflow(); }, [page, searchTerm, filterMutasi, dateRange, filterAccounts, filterJenis, filterPerson]);
 
     useEffect(() => {
       // Reset person jika bukan (mutasi keluar & jenis bonkaryawan)
@@ -905,18 +827,18 @@
 
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
       const { name, value, type } = e.target;
-      setFormData(prev => ({ ...prev, [name]: type === 'number' ? (value === '' ? '' : Number(value)) : value }));
+      setFormData(prev => ({ ...prev, [name]: type === 'number' ? (value === '' ? '' : Number(value)) : value, ...(name === 'jenis' && !value.toLowerCase().includes('transfer') ? { account_2: '' } : {}) }));
       setIsFormDirty(true);
     };
 
     const handleMutasiChange = (newMutasi: string) => {
       if (formData.jenis && formData.jenis !== '') {
         if (window.confirm("Mengubah jenis mutasi akan mereset pilihan Jenis Cashflow. Lanjutkan?")) {
-          setFormData(prev => ({ ...prev, mutasi: newMutasi, jenis: '' }));
+          setFormData(prev => ({ ...prev, mutasi: newMutasi, jenis: '', account_2: '' }));
           setIsFormDirty(true);
         }
       } else {
-        setFormData(prev => ({ ...prev, mutasi: newMutasi }));
+        setFormData(prev => ({ ...prev, mutasi: newMutasi, account_2: '' }));
         setIsFormDirty(true);
       }
     };
@@ -950,7 +872,7 @@
         showAlert("Validasi Gagal", "Akun Pembayaran wajib dipilih!");
         return;
       }
-      if (!formData.nominal || formData.nominal <= 0) {
+      if (!Number.isFinite(Number(formData.nominal)) || Number(formData.nominal) <= 0) {
         showAlert("Validasi Gagal", "Nominal harus diisi dan lebih dari 0!");
         return;
       }
@@ -958,36 +880,23 @@
         showAlert("Validasi Gagal", "Keterangan wajib diisi!");
         return;
       }
-      if (formData.jenis?.toLowerCase() === 'transfer' && !formData.account_2) {
-        showAlert("Validasi Gagal", "Akun Tujuan wajib dipilih untuk transaksi Transfer!");
+      if (formData.jenis?.toLowerCase() === 'transfer' && (!formData.account_2 || formData.account_2 === formData.account_1)) {
+        showAlert("Validasi Gagal", "Akun tujuan transfer harus berbeda dari akun sumber!");
         return;
       }
       // Validasi saldo cukup untuk transfer & pengeluaran
       if ((formData.jenis?.toLowerCase() === 'transfer' || formData.mutasi?.toLowerCase() === 'keluar') && formData.account_1) {
         try {
           const acc = await pb.collection('dropdown').getOne(formData.account_1, {$autoCancel:false});
-          if ((Number(acc.number_1)||0) < Number(formData.nominal||0)) {
+          if (editableBalance(Number(acc.number_1) || 0, formData.account_1, isEditMode && selectedTx ? selectedTx : undefined) < Number(formData.nominal || 0)) {
             showAlert("Validasi Gagal", `Saldo tidak cukup! Saldo saat ini: Rp ${Number(acc.number_1).toLocaleString('id-ID')}, dibutuhkan: Rp ${Number(formData.nominal).toLocaleString('id-ID')}`);
             return;
           }
-        } catch {}
+        } catch { showAlert("Validasi Gagal", "Saldo belum dapat diperiksa. Silakan coba kembali."); return; }
       }
 
-      // Duplicate check 30 detik
-      try {
-        const recent = await pb.collection('cashflow').getList(1,1,{
-          filter: pb.filter('created_at >= {:cutoff}',{cutoff:new Date(Date.now()-30000).toISOString()}),
-          sort:'-created_at',$autoCancel:false
-        });
-        if (recent.items.length > 0) {
-          const last = recent.items[0];
-          if (last.nominal === Number(formData.nominal) && last.jenis === formData.jenis && last.account_1 === formData.account_1) {
-            showAlert('Potensi Duplikat', 'Transaksi sama tercatat <30 detik lalu. Klik simpan lagi jika yakin.');
-            return;
-          }
-        }
-      } catch {}
-
+      if (submitLockRef.current) return;
+      submitLockRef.current = true;
       setIsProcessing(true);
       try {
         const currentUser = pb.authStore.model;
@@ -1028,82 +937,15 @@
         const mutasiValue = (mLower === 'masuk' || mLower === 'in') ? 'in' : 'out';
         formDataObj.append("mutasi", mutasiValue);
         formDataObj.append("account_1", formData.account_1 || "");
-        formDataObj.append("account_2", formData.account_2 || "");
+        formDataObj.append("account_2", formData.jenis.toLowerCase().includes("transfer") ? formData.account_2 || "" : "");
         formDataObj.append("nominal", String(formData.nominal || 0));
         formDataObj.append("note", formData.note || "");
         formDataObj.append("created_at", formattedDate);
         formDataObj.append("operator", operatorName);
-        formDataObj.append("person", formData.person || "");
+        formDataObj.append("person", personOptions.find(p => p.id === formData.person)?.source === "user" ? "" : formData.person || "");
         formDataObj.append("persontext", formData.persontext || "");
         formDataObj.append("acc1", accountIdLama);
-        formDataObj.append("acc2", account2IdLama);
-
-        // Ambil saldo awal & hitung saldo akhir sesuai mode (Create / Edit)
-        let saldoAwal = 0;
-        let saldoAkhir = 0;
-        const accountBalances: Record<string, number> = {};
-
-        if (isEditMode && selectedTx) {
-          const oldAcc1 = selectedTx.account_1 || '';
-          const oldAcc2 = selectedTx.account_2 || '';
-          const newAcc1 = formData.account_1 || '';
-          const newAcc2 = formData.account_2 || '';
-          const oldNominal = Number(selectedTx.nominal || 0);
-          const oldMutasi = (selectedTx.mutasi || '').toLowerCase();
-          const oldIsOut = oldMutasi === 'out' || oldMutasi === 'keluar';
-          const oldIsTransfer = (selectedTx.jenis || '').toLowerCase().includes('transfer');
-
-          const newNominal = Number(formData.nominal || 0);
-          const newIsOut = mutasiValue === 'out';
-          const newIsTransfer = (formData.jenis || '').toLowerCase().includes('transfer');
-
-          const accountIdsToFetch = Array.from(new Set([oldAcc1, oldAcc2, newAcc1, newAcc2].filter(Boolean)));
-          for (const accId of accountIdsToFetch) {
-            try {
-              const acc = await pb.collection('dropdown').getOne(accId, { $autoCancel: false });
-              accountBalances[accId] = Number(acc.number_1) || 0;
-            } catch {
-              accountBalances[accId] = 0;
-            }
-          }
-
-          // 1. Revert transaksi lama pada accountBalances
-          if (oldAcc1) {
-            accountBalances[oldAcc1] = oldIsOut
-              ? (accountBalances[oldAcc1] || 0) + oldNominal
-              : (accountBalances[oldAcc1] || 0) - oldNominal;
-          }
-          if (oldAcc2 && oldIsTransfer) {
-            accountBalances[oldAcc2] = oldIsOut
-              ? (accountBalances[oldAcc2] || 0) - oldNominal
-              : (accountBalances[oldAcc2] || 0) + oldNominal;
-          }
-
-          // 2. Hitung saldoAwal & saldoAkhir untuk newAcc1 setelah direvert
-          saldoAwal = newAcc1 ? (accountBalances[newAcc1] || 0) : 0;
-          saldoAkhir = newIsOut ? (saldoAwal - newNominal) : (saldoAwal + newNominal);
-          if (newAcc1) {
-            accountBalances[newAcc1] = saldoAkhir;
-          }
-
-          // 3. Hitung saldo untuk newAcc2 jika transaksi baru adalah transfer
-          if (newAcc2 && newIsTransfer) {
-            const saldo2Awal = accountBalances[newAcc2] || 0;
-            const saldo2Akhir = newIsOut ? (saldo2Awal + newNominal) : (saldo2Awal - newNominal);
-            accountBalances[newAcc2] = saldo2Akhir;
-          }
-        } else {
-          if (formData.account_1) {
-            try {
-              const acc = await pb.collection('dropdown').getOne(formData.account_1, { $autoCancel: false });
-              saldoAwal = Number(acc.number_1) || 0;
-            } catch { console.warn('Could not fetch account balance for saldo_awal'); }
-          }
-          saldoAkhir = mutasiValue === 'in' ? (saldoAwal + Number(formData.nominal || 0)) : (saldoAwal - Number(formData.nominal || 0));
-        }
-
-        formDataObj.append("saldo_awal", String(saldoAwal));
-        formDataObj.append("saldo_akhir", String(saldoAkhir));
+        formDataObj.append("acc2", formData.jenis.toLowerCase().includes("transfer") ? account2IdLama : "");
 
         // Di PocketBase, cukup kirim 'string' nama file lama untuk dipertahankan, dan 'File object' untuk file baru
         // Abaikan file lama agar dipertahankan oleh server, dan kirim object File untuk upload baru.
@@ -1123,70 +965,23 @@
           // Filter file yang ada di database, namun sudah tidak ada di UI (dihapus user)
           const deletedFiles = selectedTx.file.filter(oldName => !retainedOldFiles.includes(oldName));
           
-          // Beritahu PocketBase untuk menghapus file-file tersebut menggunakan modifier ".-"
+          // Beritahu PocketBase untuk menghapus file-file tersebut menggunakan modifier "-"
           deletedFiles.forEach(deletedName => {
-            formDataObj.append("file.-", deletedName); 
+            formDataObj.append("file-", deletedName);
           });
         }
 
-        // Eksekusi Simpan / Edit Cashflow via PocketBase Atomic Batch
-        const batch = pb.createBatch();
-        if (isEditMode && selectedTx) {
-          batch.collection('cashflow').update(selectedTx.id, formDataObj);
-          
-          // Batch update seluruh akun yang terlibat dalam transaksi lama maupun baru
-          for (const accId of Object.keys(accountBalances)) {
-            batch.collection('dropdown').update(accId, { number_1: accountBalances[accId] });
-          }
-        } else {
-          batch.collection('cashflow').create(formDataObj);
-          if (formData.account_1) {
-            batch.collection('dropdown').update(formData.account_1, { number_1: saldoAkhir });
-          }
-          if (formData.account_2 && (formData.jenis || '').toLowerCase().includes('transfer')) {
-            let saldo2Awal = 0;
-            try {
-              const acc2 = await pb.collection('dropdown').getOne(formData.account_2, { $autoCancel: false });
-              saldo2Awal = Number(acc2.number_1) || 0;
-            } catch {}
-            const saldo2Akhir = mutasiValue === 'out' ? saldo2Awal + Number(formData.nominal || 0) : saldo2Awal - Number(formData.nominal || 0);
-            batch.collection('dropdown').update(formData.account_2, { number_1: saldo2Akhir });
-          }
-        }
+        await flushPendingSync();
+        const record = isEditMode && selectedTx
+          ? await pb.collection('cashflow').update(selectedTx.id, formDataObj)
+          : await pb.collection('cashflow').create(formDataObj);
+        // Close the entry form once persisted, so a sync retry cannot create a duplicate.
+        setModalType(null);
+        await syncLaravelEvents([{
+          collection: 'cashflow', event: isEditMode ? 'updated' : 'created', id: record.id,
+          old_data: isEditMode && selectedTx ? { ...selectedTx } : undefined,
+        }]);
 
-        const batchResults: any = await batch.send();
-        const resId = (batchResults && batchResults[0]?.id) ? batchResults[0].id : (selectedTx?.id || '');
-
-        // Sync data menu utama di PocketBase yang terhubung via ref_baru atau ref
-        const affectedMenuIds = Array.from(new Set([
-          selectedTx?.ref_baru,
-          selectedTx?.ref,
-          (formData as any)?.ref_baru,
-          (formData as any)?.ref
-        ].map(cleanMenuId).filter(Boolean)));
-
-        for (const mId of affectedMenuIds) {
-          await syncMenuDibayarInPb(mId);
-        }
-
-        if (isEditMode && selectedTx) {
-          const editOk = await notifyLaravelApi('cashflow', 'updated', selectedTx.id, selectedTx);
-          if (!editOk) console.warn('Laravel cashflow notify failed for update');
-        } else if (resId) {
-          const cfOk = await notifyLaravelApi('cashflow', 'created', resId);
-          if (!cfOk) console.warn('Laravel cashflow notify failed for creation');
-        }
-
-        // Recalculate report date
-        try {
-          const dateStr = (formattedDate || '').split('T')[0];
-          await fetch(`${getLaravelApiUrl()}/reports/recalculate`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ date: dateStr })
-          });
-        } catch {}
-        
         setModalType(null);
         setFormData({
           mutasi: 'Masuk',
@@ -1198,82 +993,24 @@
         });
         setFiles([]);
         fetchCashflow();
+        fetchWallets();
       } catch (error: any) {
-        showAlert("Gagal Simpan", error.data?.message || "Terjadi kesalahan saat menyimpan transaksi.");
+        showAlert("Gagal Simpan", error.data?.message || error.message || "Terjadi kesalahan saat menyimpan transaksi.");
       } finally {
+        submitLockRef.current = false;
         setIsProcessing(false);
       }
     };
 
-    const exportCsv = () => {
-    if (!transactions.length) return;
-    const rows = transactions.map(tx => [
-      tx.id, formatLocalDateTime(tx.created_at), tx.jenis, tx.mutasi, tx.nominal,
-      getAccountName(tx.account_1), getAccountName(tx.account_2), tx.note, tx.operator
-    ].join(';'));
-    const csv = 'ID;Waktu;Jenis;Mutasi;Nominal;Akun1;Akun2;Keterangan;Operator\n' + rows.join('\n');
-    const blob = new Blob(['\uFEFF'+csv], {type:'text/csv;charset=utf-8'});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href=url; a.download=`cashflow-${new Date().toISOString().split('T')[0]}.csv`; a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const submitDelete = async () => {
+    const submitDelete = async () => {
       if (!selectedTx) return;
       setIsProcessing(true);
       try {
-        const batch = pb.createBatch();
-
-        // Revert account balance manually di atomic batch
-        if (selectedTx.account_1 && selectedTx.nominal) {
-          try {
-            const isOut = String(selectedTx.mutasi).toLowerCase() === 'out' || String(selectedTx.mutasi).toLowerCase() === 'keluar';
-            const acc = await pb.collection('dropdown').getOne(selectedTx.account_1, {$autoCancel:false});
-            const newBal = isOut ? (Number(acc.number_1)||0)+Number(selectedTx.nominal) : (Number(acc.number_1)||0)-Number(selectedTx.nominal);
-            batch.collection('dropdown').update(selectedTx.account_1, { number_1: newBal });
-            
-            // Transfer: revert account_2 juga
-            if (String(selectedTx.jenis||'').toLowerCase().includes('transfer') && selectedTx.account_2) {
-              const acc2 = await pb.collection('dropdown').getOne(selectedTx.account_2, {$autoCancel:false});
-              const newBal2 = isOut ? (Number(acc2.number_1)||0)-Number(selectedTx.nominal) : (Number(acc2.number_1)||0)+Number(selectedTx.nominal);
-              batch.collection('dropdown').update(selectedTx.account_2, { number_1: newBal2 });
-            }
-          } catch (revertErr) {
-            console.warn("Notice: Balance revert batch error:", revertErr);
-          }
-        }
-
-        // Queue & execute Delete cashflow record secara atomic
-        batch.collection('cashflow').delete(selectedTx.id);
-        await batch.send();
-
-        // Sync data menu utama di PocketBase yang terhubung via ref_baru atau ref
-        const affectedMenuIds = Array.from(new Set([
-          selectedTx?.ref_baru,
-          selectedTx?.ref
-        ].map(cleanMenuId).filter(Boolean)));
-
-        for (const mId of affectedMenuIds) {
-          await syncMenuDibayarInPb(mId);
-        }
-
-        // Notify Laravel setelah batch hapus di PocketBase sukses
-        await notifyLaravelApi('cashflow', 'deleted', selectedTx.id).catch(() => null);
-
-        // Recalculate report date
-        if (selectedTx.created_at) {
-          try {
-            const dateStr = String(selectedTx.created_at).split('T')[0].split(' ')[0];
-            await fetch(`${getLaravelApiUrl()}/reports/recalculate`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ date: dateStr })
-            });
-          } catch {}
-        }
+        await deleteFinancialRecord('cashflow', selectedTx.id);
 
         setModalType(null);
         fetchCashflow();
+        fetchWallets();
       } catch (error) {
         showAlert("Gagal Menghapus", "Terjadi kesalahan saat menghapus data.");
       } finally {
@@ -1380,6 +1117,7 @@
                 setActiveTab('history');
                 setPage(1);
                 fetchCashflow();
+        fetchWallets();
               }}
               className={`flex-1 sm:w-40 py-2.5 text-xs font-black uppercase tracking-wider rounded-xl transition-all duration-300 ${
                 activeTab === 'history'
@@ -1649,8 +1387,8 @@
                     <div className="h-[2px] flex-1 bg-slate-100" />
                   </div>
                   <div className="grid gap-3">
-                    {items.map((tx, idx) => {
-                      const isMasuk = tx.mutasi.toLowerCase() === 'in';
+                    {items.map((tx) => {
+                      const isMasuk = tx.mutasi.toLowerCase() === 'in' || (filterAccounts.includes(tx.account_2) && !filterAccounts.includes(tx.account_1) && tx.jenis.toLowerCase().includes('transfer'));
                       const isTransfer = (tx.jenis || '').toLowerCase() === 'transfer';
                       const iconColor = isTransfer ? 'bg-indigo-50 text-indigo-600' : (isMasuk ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600');
                       const textColor = isTransfer ? 'text-indigo-600' : (isMasuk ? 'text-emerald-600' : 'text-rose-600');
@@ -1852,14 +1590,7 @@
             <div className="space-y-8">
               {(() => {
                 const getInitials = (name: string) => name.split(' ').map((n) => n[0]).join('').substring(0, 2).toUpperCase();
-                const stringToColor = (str: string) => {
-                  let hash = 0;
-                  for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
-                  const c = (hash & 0x00ffffff).toString(16).toUpperCase();
-                  return '#' + '00000'.substring(0, 6 - c.length) + c;
-                };
-
-                // Mengambil dan mensortir data berdasarkan saldo terbesar (descending)
+                 // Mengambil dan mensortir data berdasarkan saldo terbesar (descending)
                 const listCashflow = wallets.filter(w => (w.kategori || '').toLowerCase().includes('cashflow')).sort((a, b) => ((b as any).number_1 || 0) - ((a as any).number_1 || 0));
                 const listCustomer = wallets.filter(w => (w.kategori || '').toLowerCase().includes('person') && (w.jenis || '').toLowerCase().includes('customer')).sort((a, b) => ((b as any).number_1 || 0) - ((a as any).number_1 || 0));
                 const listSupplier = wallets.filter(w => (w.kategori || '').toLowerCase().includes('person') && (w.jenis || '').toLowerCase().includes('supplier')).sort((a, b) => ((b as any).number_1 || 0) - ((a as any).number_1 || 0));
@@ -2016,8 +1747,7 @@
         const allItems = tempoGroups.flatMap(g => g.items.map(item => ({ ...item, tempoDate: g.date })));
         const totalItemsCount = allItems.length;
 
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
+        const todayKey = businessDate();
 
         // Perhitungan Ringkasan Metrik (Overdue vs Upcoming)
         let overdueCount = 0;
@@ -2027,12 +1757,11 @@
         let grandSisaTotal = 0;
 
         allItems.forEach(item => {
-          const groupDate = new Date(item.tempoDate);
-          groupDate.setHours(0, 0, 0, 0);
-          const sisa = (item.total || 0) - (item.dibayar || 0);
+          const groupDate = item.tempoDate;
+          const sisa = Math.max(0, Number(item.total || 0) - Number(item.dibayar || 0));
           grandSisaTotal += sisa;
 
-          if (groupDate < today) {
+          if (groupDate < todayKey) {
             overdueCount += 1;
             overdueSisaTotal += sisa;
           } else {
@@ -2043,10 +1772,9 @@
 
         // Filtering data berdasarkan kategori yang diklik pada metric cards
         const filteredAllItems = allItems.filter(item => {
-          const groupDate = new Date(item.tempoDate);
-          groupDate.setHours(0, 0, 0, 0);
-          if (tempoCategoryFilter === 'overdue') return groupDate < today;
-          if (tempoCategoryFilter === 'upcoming') return groupDate >= today;
+          const groupDate = item.tempoDate;
+          if (tempoCategoryFilter === 'overdue') return groupDate < todayKey;
+          if (tempoCategoryFilter === 'upcoming') return groupDate >= todayKey;
           return true;
         });
 
@@ -2058,12 +1786,10 @@
         const endIndex = Math.min(startIndex + tempoPerPage, totalFilteredItems);
         const currentPageItems = filteredAllItems.slice(startIndex, endIndex);
 
-        const totalHalaman = currentPageItems.reduce((acc, item) => acc + (item.total || 0), 0);
+        const totalHalaman = currentPageItems.reduce((acc, item) => acc + Math.max(0, Number(item.total || 0) - Number(item.dibayar || 0)), 0);
 
         const getDaysDiffText = (dateStr: string) => {
-          const groupDate = new Date(dateStr);
-          groupDate.setHours(0, 0, 0, 0);
-          const diffMs = groupDate.getTime() - today.getTime();
+          const diffMs = new Date(dateStr).getTime() - new Date(todayKey).getTime();
           const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
           if (diffDays < 0) return `Lewat ${Math.abs(diffDays)} Hari`;
           if (diffDays === 0) return `Jatuh Tempo Hari Ini`;
@@ -2244,9 +1970,7 @@
                   const sortedGroupKeys = Object.keys(groupedPageItems).sort((a, b) => a.localeCompare(b));
 
                   return sortedGroupKeys.map((dateKey) => {
-                    const groupDate = new Date(dateKey);
-                    groupDate.setHours(0, 0, 0, 0);
-                    const isOverdueGroup = groupDate < today;
+                    const isOverdueGroup = dateKey < todayKey;
                     const items = groupedPageItems[dateKey];
                     const daysDiffText = getDaysDiffText(dateKey);
 

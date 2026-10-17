@@ -27,7 +27,7 @@ export default function Layout({ setAuth }: { setAuth: (status: boolean) => void
   const [systemAlert, setSystemAlert] = useState({ show: false, title: '', message: '', onConfirm: () => {} });
   
   const userName = pb.authStore.model?.name || pb.authStore.model?.username || 'Guest';
-  const [userLevel, setUserLevel] = useState<string | null>(localStorage.getItem('user_level'));
+  const [userLevel] = useState<string | null>(localStorage.getItem('user_level'));
   const isUserLoggedIn = pb.authStore.isValid;
 
   // Proteksi awal jika user_level hilang saat reload

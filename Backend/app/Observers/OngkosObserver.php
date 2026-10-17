@@ -16,11 +16,11 @@ class OngkosObserver
         if ($ref) {
             $menu = Menu::find($ref);
             if ($menu && $menu->created_at) {
-                return substr((string) $menu->created_at, 0, 10);
+                return \App\Services\ReportService::dateOf((string) $menu->created_at);
             }
         }
         if ($ongkos->created_at) {
-            return substr((string) $ongkos->created_at, 0, 10);
+            return \App\Services\ReportService::dateOf((string) $ongkos->created_at);
         }
         if ($ongkos->date) {
             return substr((string) $ongkos->date, 0, 10);
@@ -68,11 +68,11 @@ class OngkosObserver
         if ($oldRef) {
             $om = Menu::find($oldRef);
             if ($om && $om->created_at) {
-                $oldTanggal = substr((string) $om->created_at, 0, 10);
+                $oldTanggal = \App\Services\ReportService::dateOf((string) $om->created_at);
             }
         }
         if (!$oldTanggal) {
-            $oldTanggal = $oldCreated ? substr($oldCreated, 0, 10) : '';
+            $oldTanggal = $oldCreated ? \App\Services\ReportService::dateOf($oldCreated) : '';
         }
 
         $newVal = (float) $ongkos->ongkos;

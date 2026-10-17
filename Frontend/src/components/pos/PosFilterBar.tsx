@@ -5,7 +5,7 @@ import { Search, List, Grid, Filter, ChevronDown, User, X, CheckCircle2, Clock, 
 interface PosFilterBarProps {
   selectedMenu: string;
   activeTheme: any;
-  searchInputRef: React.RefObject<HTMLInputElement>;
+  searchInputRef: React.RefObject<HTMLInputElement | null>;
   searchInput: string;
   setSearchInput: (val: string) => void;
   viewMode: 'list' | 'grid';
@@ -19,7 +19,7 @@ interface PosFilterBarProps {
   selectedMenuFilters: string[];
   setSelectedMenuFilters: (val: string[]) => void;
   allPersons: any[];
-  personButtonRef: React.RefObject<HTMLButtonElement>;
+  personButtonRef: React.RefObject<HTMLButtonElement | null>;
   isPersonFilterOpen: boolean;
   setIsPersonFilterOpen: (val: boolean) => void;
   dropdownPosition: { top: number; left: number };

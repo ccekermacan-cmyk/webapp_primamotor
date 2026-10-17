@@ -1,13 +1,12 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { pb, notifyLaravelApi } from '../lib/pocketbase';
+import PocketBase, { BaseAuthStore, ClientResponseError, type RecordModel } from 'pocketbase';
+import { useNavigate } from 'react-router-dom';
+import { accountHistoryFilters, salaryDetails as getSalaryDetails, loanSummary, passwordChangeError } from '../lib/account';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { pb } from '../lib/pocketbase';
 import Modal from '../components/modal';
-import { 
-  User, Mail, Shield, Camera, Edit3, Lock, 
-  Eye, EyeOff, ChevronLeft, ChevronRight, DollarSign, Calendar, FileText,
-  Award, TrendingUp, AlertTriangle, Key, ShieldCheck
-} from 'lucide-react';
+import { User, Mail, Shield, Camera, Edit3, Lock, Eye, EyeOff, ChevronLeft, ChevronRight, DollarSign, Calendar, FileText, Award, Key, ShieldCheck } from 'lucide-react';
 
-interface UserData {
+interface UserData extends RecordModel {
   id: string;
   username: string;
   email: string;
@@ -15,8 +14,8 @@ interface UserData {
   status: string;
   avatar: string;
   link_image: string;
-  tokenkey: string;
-  user_level: number;
+  level: number;
+  number: number;
 }
 
 interface Gaji {
@@ -42,7 +41,7 @@ interface Gaji {
   note?: string;
   operator?: string;
   expand?: {
-    ref?: {
+    ref_baru?: {
       qty: number;
     }
   };
@@ -51,8 +50,14 @@ interface Gaji {
 }
 
 export default function AkunPage() {
+  const navigate = useNavigate();
+  const submitLockRef = useRef(false);
+  const historyRequestRef = useRef(0);
+  const [profileError, setProfileError] = useState('');
+  const [historyError, setHistoryError] = useState('');
+  const [loadingHistory, setLoadingHistory] = useState(false);
   const [userData, setUserData] = useState<UserData | null>(null);
-  const [salaryList, setSalaryList] = useState<Gaji[]>([]);
+  const [allSalary, setAllSalary] = useState<Gaji[]>([]);
   const [loading, setLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
 
@@ -60,55 +65,26 @@ export default function AkunPage() {
   const [hideNominal, setHideNominal] = useState(true);
 
   // Pagination Gaji
-  const [totalGaji, setTotalGaji] = useState(0);
   const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
 
   // States & Pagination Bon
-  const [bonList, setBonList] = useState<any[]>([]);
-  const [totalBon, setTotalBon] = useState(0);
+  const [allBon, setAllBon] = useState<{id: string; nominal: number; jenis: string; note?: string; operator?: string; created_at: string}[]>([]);
   const [bonPage, setBonPage] = useState(1);
-  const [bonTotalPages, setBonTotalPages] = useState(1);
   const perPage = 5;
 
-  // Kalkulasi Skor Kredit Karyawan (diambil dari rasio pelunasan bon)
-  const creditAnalysis = useMemo(() => {
-    let totalBonDiambil = 0;
-    let totalBonDibayar = 0;
-
-    salaryList.forEach(g => {
-      totalBonDiambil += (g.bon_diambil || 0);
-      totalBonDibayar += (g.bon_dibayar || 0);
-    });
-
-    bonList.forEach(b => {
-      if (b.id_lama === 'addbon' || (b.note && b.note.toLowerCase().includes('bon'))) {
-        totalBonDiambil += (b.nominal || 0);
-      }
-    });
-
-    if (totalBonDiambil === 0 && totalBon === 0) {
-      return { rate: 100, status: 'SANGAT BAGUS', color: 'bg-emerald-500 text-white border-emerald-600', desc: 'Tidak Memiliki Penunggakan Bon (100% Bersih)' };
-    }
-
-    const effectiveTotalDiambil = totalBonDiambil || totalBon;
-    const rate = effectiveTotalDiambil > 0 ? Math.round((totalBonDibayar / effectiveTotalDiambil) * 100) : 0;
-
-    if (rate >= 15) {
-      return { rate, status: 'BAGUS', color: 'bg-emerald-500 text-white border-emerald-600', desc: 'Pelunasan Cepat & Lancar (≥ 15% / bln)' };
-    } else if (rate >= 10) {
-      return { rate, status: 'SEDANG', color: 'bg-blue-500 text-white border-blue-600', desc: 'Pelunasan Cukup (10% - 14% / bln)' };
-    } else if (rate >= 0) {
-      return { rate, status: 'KURANG', color: 'bg-amber-500 text-white border-amber-600', desc: 'Pelunasan Lambat (< 10% / bln)' };
-    } else {
-      return { rate, status: 'JELEK POL', color: 'bg-rose-600 text-white border-rose-700 animate-pulse', desc: 'Penunggakan Bon Tinggi (< 0% / bln)' };
-    }
-  }, [salaryList, bonList, totalBon]);
+  const salaryList = allSalary.slice((page - 1) * perPage, page * perPage);
+  const bonList = allBon.slice((bonPage - 1) * perPage, bonPage * perPage);
+  const totalPages = Math.max(1, Math.ceil(allSalary.length / perPage));
+  const bonTotalPages = Math.max(1, Math.ceil(allBon.length / perPage));
+  const totalGaji = useMemo(() => allSalary.reduce((sum, row) => sum + getSalaryDetails(row).grandTotal, 0), [allSalary]);
+  const loanTotals = useMemo(() => loanSummary(allBon, Number(userData?.number || 0)), [allBon, userData?.number]);
+  const totalBon = loanTotals.balance;
 
   // Modal States
-  const [modalType, setModalType] = useState<'editProfile' | 'verifyPassword' | 'salaryDetail' | null>(null);
+  const [modalType, setModalType] = useState<'editProfile' | 'verifyPassword' | 'salaryDetail' | 'changeEmail' | null>(null);
   const [selectedGaji, setSelectedGaji] = useState<Gaji | null>(null);
   const [verifyPass, setVerifyPass] = useState('');
+  const [newEmail, setNewEmail] = useState('');
   
   const [formData, setFormData] = useState<Partial<UserData>>({});
   const [passwordData, setPasswordData] = useState({ oldPassword: '', password: '', passwordConfirm: '' });
@@ -161,6 +137,7 @@ export default function AkunPage() {
     
     img.onerror = () => setHeaderStyle({ background: defaultGradient });
     img.src = userData.link_image;
+    return () => { img.onload = null; img.onerror = null; };
   }, [userData?.link_image]);
 
   useEffect(() => {
@@ -168,135 +145,155 @@ export default function AkunPage() {
   }, []);
 
   useEffect(() => {
-    fetchGaji();
-    fetchBon();
-  }, [userData?.username, userData?.user_level, page, bonPage]);
+    const relock = () => {
+      if (document.hidden) {
+        setHideNominal(true);
+        setVerifyPass('');
+        setModalType(current => current === 'salaryDetail' || current === 'verifyPassword' ? null : current);
+      }
+    };
+    document.addEventListener('visibilitychange', relock);
+    return () => document.removeEventListener('visibilitychange', relock);
+  }, []);
+
+  useEffect(() => {
+    if (userData?.id && userData.username) fetchHistory(userData);
+    return () => { historyRequestRef.current++; };
+  }, [userData?.id, userData?.username, userData?.level]);
 
   const fetchProfile = async () => {
       try {
         setLoading(true);
+        setProfileError('');
         const userId = pb.authStore.model?.id;
+        if (!userId) throw new Error('Sesi berakhir. Silakan masuk kembali.');
         if (userId) {
           const record = await pb.collection('user').getOne<UserData>(userId, { $autoCancel: false });
           setUserData(record);
           setFormData(record);
           
-          if (record.user_level) localStorage.setItem('user_level', String(record.user_level));
+          pb.authStore.save(pb.authStore.token, record);
+          if (record.level) localStorage.setItem('user_level', String(record.level));
           if (record.name) localStorage.setItem('user_name', record.name);
         }
       } catch (error) {
         console.error("Gagal load profil:", error);
+        setProfileError("Profil belum dapat dimuat. Periksa koneksi dan coba kembali.");
       } finally {
         setLoading(false);
       }
     };
 
-  const fetchGaji = async () => {
+  const fetchHistory = async (profile: UserData) => {
+    const requestId = ++historyRequestRef.current;
+    setLoadingHistory(true);
+    setHistoryError('');
     try {
-      const currentUsername = localStorage.getItem('user_username') || userData?.username || '';
-      const userLevel = userData?.user_level ?? parseInt(localStorage.getItem('user_level') || '10');
-      const isSuperUser = userLevel === 1 || userLevel === 2;
-
-      // Jika level 1 atau 2, tampilkan semua data tanpa terkecuali (tanpa filter username)
-      const filterClause = isSuperUser ? '' : (currentUsername ? `person = "${currentUsername}"` : '');
-
-      const result = await pb.collection('gaji').getList<Gaji>(page, perPage, {
-        ...(filterClause ? { filter: filterClause } : {}),
-        sort: '-created_at',
-        expand: 'ref',
-        $autoCancel: false 
-      });
-      setSalaryList(result.items);
-      setTotalPages(result.totalPages);
-
-      const allGaji = await pb.collection('gaji').getFullList<Gaji>({
-        ...(filterClause ? { filter: filterClause } : {}),
-        expand: 'ref',
-        $autoCancel: false
-      });
-      const total = allGaji.reduce((sum, g) => {
-        const { grandTotal } = getSalaryDetails(g);
-        return sum + grandTotal;
-      }, 0);
-      setTotalGaji(total);
+      const filters = accountHistoryFilters(profile);
+      const [salaries, loans] = await Promise.all([
+        pb.collection('gaji').getFullList<Gaji>({filter: filters.salary, sort: '-created_at,-id', expand: 'ref_baru', $autoCancel: false}),
+        pb.collection('bon').getFullList<{id: string; nominal: number; jenis: string; note?: string; operator?: string; created_at: string}>({filter: filters.loans, sort: '-created_at,-id', $autoCancel: false}),
+      ]);
+      if (requestId !== historyRequestRef.current) return;
+      setAllSalary(salaries);
+      setAllBon(loans);
+      setPage(1);
+      setBonPage(1);
     } catch (error) {
-      console.error("Gagal load gaji:", error);
-    }
-  };
-
-  const fetchBon = async () => {
-    try {
-      const currentUsername = localStorage.getItem('user_username') || userData?.username || '';
-      const userLevel = userData?.user_level ?? parseInt(localStorage.getItem('user_level') || '10');
-      const isSuperUser = userLevel === 1 || userLevel === 2;
-
-      // Jika level 1 atau 2, tampilkan semua data bon tanpa terkecuali
-      const baseBonFilter = '(id_lama = "addbon" || note ~ "bon")';
-      const filterClause = isSuperUser 
-        ? baseBonFilter 
-        : (currentUsername ? `${baseBonFilter} && (person = "${currentUsername}" || persontext = "${currentUsername}")` : baseBonFilter);
-
-      const result = await pb.collection('cashflow').getList(bonPage, perPage, {
-        filter: filterClause,
-        sort: '-created_at',
-        $autoCancel: false 
-      });
-      setBonList(result.items);
-      setBonTotalPages(result.totalPages);
-
-      const allBon = await pb.collection('cashflow').getFullList({
-        filter: filterClause,
-        $autoCancel: false
-      });
-      const total = allBon.reduce((sum, b) => sum + (b.nominal || 0), 0);
-      setTotalBon(total);
-    } catch (error) {
-      console.error("Gagal load bon:", error);
+      if (requestId !== historyRequestRef.current) return;
+      console.error('Gagal memuat riwayat akun:', error);
+      setAllSalary([]);
+      setAllBon([]);
+      setHistoryError('Riwayat gaji dan bon belum dapat dimuat.');
+    } finally {
+      if (requestId === historyRequestRef.current) setLoadingHistory(false);
     }
   };
 
   const handleUpdateProfile = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!userData) return;
-
+    if (!userData || submitLockRef.current) return;
+    const passwordError = passwordChangeError(passwordData);
+    if (passwordError) { alert(passwordError); return; }
+    if (!formData.name?.trim()) { alert('Nama wajib diisi.'); return; }
+    submitLockRef.current = true;
     setIsProcessing(true);
     try {
       const payload = {
-        name: formData.name,
-        email: formData.email,
+        name: formData.name?.trim(),
+        ...(passwordData.password ? {oldPassword: passwordData.oldPassword} : {}),
         link_image: formData.link_image,
-        tokenkey: formData.tokenkey,
         ...(passwordData.password ? {
-           oldPassword: passwordData.oldPassword,
            password: passwordData.password,
            passwordConfirm: passwordData.passwordConfirm
         } : {})
       };
 
-      const batch = pb.createBatch();
-      batch.collection('user').update(userData.id, payload);
-      await batch.send();
+      const updated = await pb.collection('user').update<UserData>(userData.id, payload);
+      setModalType(null);
+      setPasswordData({ oldPassword: '', password: '', passwordConfirm: '' });
+      setVerifyPass('');
+      setHideNominal(true);
+      if (passwordData.password) {
+        try {
+          await pb.collection('user').authWithPassword(userData.username, passwordData.password);
+        } catch {
+          pb.authStore.clear();
+          alert('Perubahan profil berhasil disimpan. Silakan masuk kembali.');
+          navigate('/login', {replace: true});
+          return;
+        }
+      } else {
+        pb.authStore.save(pb.authStore.token, updated);
+      }
+      setUserData(updated);
+      setFormData(updated);
+      localStorage.setItem('user_name', updated.name || updated.username);
+      await fetchHistory(updated);
 
-      await notifyLaravelApi('user', 'updated', userData.id, payload).catch(() => null);
-      await fetchProfile(); 
-      
       alert("Profil berhasil diperbarui!");
       setModalType(null);
       setPasswordData({ oldPassword: '', password: '', passwordConfirm: '' });
     } catch (error: any) {
-      console.error(error);
       alert("Gagal update: " + (error.message || "Periksa password lama Anda."));
     } finally {
+      submitLockRef.current = false;
+      setIsProcessing(false);
+    }
+  };
+
+  const requestEmailUpdate = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!userData || submitLockRef.current) return;
+    if (!newEmail.trim() || newEmail.trim().toLowerCase() === userData.email?.toLowerCase()) {
+      alert('Masukkan alamat email baru yang berbeda.');
+      return;
+    }
+    submitLockRef.current = true;
+    setIsProcessing(true);
+    try {
+      await pb.collection('user').requestEmailChange(newEmail.trim());
+      setNewEmail('');
+      setModalType(null);
+      alert('Tautan konfirmasi dikirim ke email baru. Email akun berubah setelah tautan dikonfirmasi dengan password Anda.');
+    } catch {
+      alert('Permintaan perubahan email belum berhasil. Periksa koneksi atau hubungi administrator untuk memeriksa layanan email.');
+    } finally {
+      submitLockRef.current = false;
       setIsProcessing(false);
     }
   };
 
   const checkSalaryPassword = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!userData || submitLockRef.current) return;
+    submitLockRef.current = true;
     setIsProcessing(true);
     try {
-      await pb.collection('user').authWithPassword(userData?.username || '', verifyPass);
-      setHideNominal(false); // Membuka sensitivitas privasi nominal seluruh halaman
+      const verifier = new PocketBase(pb.baseURL, new BaseAuthStore());
+      await verifier.collection('user').authWithPassword(userData.username, verifyPass);
+      if (document.hidden) return;
+      setHideNominal(false);
       if (selectedGaji) {
         setModalType('salaryDetail');
       } else {
@@ -304,8 +301,10 @@ export default function AkunPage() {
       }
       setVerifyPass('');
     } catch (error) {
-      alert("Password salah! Akses ditolak.");
+      alert(error instanceof ClientResponseError && [400, 401].includes(error.status) ? 'Password salah! Akses ditolak.' : 'Verifikasi belum berhasil. Periksa koneksi dan coba kembali.');
     } finally {
+      submitLockRef.current = false;
+      setVerifyPass('');
       setIsProcessing(false);
     }
   };
@@ -335,50 +334,15 @@ export default function AkunPage() {
   };
 
   const formatNominalPrivasi = (nominal: number) => {
+    if (loadingHistory) return 'Memuat...';
+    if (historyError) return 'Tidak tersedia';
     if (hideNominal) return 'Rp •••••••••';
     return formatRupiah(nominal);
   };
 
-  const getSalaryDetails = (gaji: Gaji) => {
-    const qty = Number(gaji.qty) || gaji.expand?.ref?.qty || 1;
-    const pokok = gaji.pokok || 0;
-    const tunjangan = gaji.tunjangan || 0;
-
-    const nilaiDasar = qty > 0 ? (pokok + tunjangan) / qty : 0;
-
-    const t1 = {
-      pokok: pokok,
-      tunjangan: tunjangan,
-      bonus_1: gaji.bonus_1 || 0,
-      bonus_2: gaji.bonus_2 || 0,
-      bonus_3: gaji.bonus_3 || 0,
-      bonus_4: gaji.bonus_4 || 0,
-      program: gaji.program || 0,
-      lembur: gaji.lembur || 0,
-    };
-    const total1 = Object.values(t1).reduce((sum, val) => sum + val, 0);
-
-    const t2 = {
-      alfa: nilaiDasar * (gaji.alfa || 0),
-      setengah_hari: (nilaiDasar / 2) * (gaji.setengah_hari || 0),
-      sakit: (nilaiDasar * 0.9) * (gaji.sakit || 0),
-      telat: (gaji.telat || 0) * 1000, 
-    };
-    const total2 = Object.values(t2).reduce((sum, val) => sum + val, 0);
-
-    const t3 = {
-      bpjs: gaji.bpjs || 0,
-      bon_diambil: gaji.bon_diambil || 0,
-      bon_dibayar: gaji.bon_dibayar || 0,
-    };
-    const total3 = Object.values(t3).reduce((sum, val) => sum + val, 0);
-
-    const grandTotal = Number(gaji.total) || (total1 - total2 - total3);
-
-    return { t1, total1, t2, total2, t3, total3, grandTotal };
-  };
-
   if (loading) return <div className="flex h-full items-center justify-center font-bold text-slate-400 p-8">Memuat Profil...</div>;
+
+  if (!userData || profileError) return <div className="p-8 text-center space-y-4"><p role="alert">{profileError || 'Sesi tidak tersedia.'}</p><button onClick={fetchProfile} className="px-4 py-2 bg-slate-900 text-white rounded-xl">Coba lagi</button></div>;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-white p-4 sm:p-6 lg:p-8 pt-16 md:pt-8">
@@ -403,6 +367,8 @@ export default function AkunPage() {
           </button>
         </div>
 
+        {loadingHistory && <p role="status" className="p-3 text-slate-500">Memuat riwayat gaji dan bon...</p>}
+        {historyError && <div role="alert" className="p-4 bg-amber-50 rounded-xl">{historyError} <button onClick={() => fetchHistory(userData)} className="font-bold underline">Coba lagi</button></div>}
         {/* 1. SECTION PROFILE - Responsive */}
         <div className="bg-white rounded-3xl md:rounded-[2.5rem] shadow-xl shadow-slate-200/50 border border-slate-100 overflow-hidden relative group transition-all duration-300 hover:shadow-2xl">
           <div 
@@ -412,7 +378,7 @@ export default function AkunPage() {
           <div className="px-4 sm:px-8 pb-6 sm:pb-8 flex flex-col items-center -mt-12 sm:-mt-16 text-center">
             <div className="relative">
               <img 
-                src={userData?.link_image || 'https://via.placeholder.com/150'} 
+                src={userData?.link_image || (userData?.avatar ? pb.files.getURL(userData, userData.avatar) : '/favicon.svg')}
                 alt="Avatar" 
                 className="w-24 h-24 sm:w-32 sm:h-32 rounded-2xl sm:rounded-3xl object-cover border-4 border-white shadow-xl bg-white"
               />
@@ -445,7 +411,7 @@ export default function AkunPage() {
                 <div className="min-w-0">
                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Status Jabatan</p>
                   <p className="font-bold text-slate-800 text-sm sm:text-base truncate">
-                    {userData?.user_level === 1 ? 'Administrator' : userData?.user_level === 10 ? 'Mekanik Utama' : 'Karyawan / User'}
+                    {userData?.level === 1 ? 'Administrator' : userData?.level === 10 ? 'Mekanik Utama' : 'Karyawan / User'}
                   </p>
                 </div>
               </div>
@@ -454,7 +420,7 @@ export default function AkunPage() {
             {/* TOMBOL AKSI: EDIT PROFIL & RESET PASSWORD */}
             <div className="flex flex-col sm:flex-row gap-3 w-full mt-6 px-2 sm:px-4">
               <button 
-                onClick={() => setModalType('editProfile')}
+                onClick={() => { setFormData(userData || {}); setPasswordData({oldPassword: '', password: '', passwordConfirm: ''}); setModalType('editProfile'); }}
                 className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-slate-900 hover:bg-black text-white rounded-2xl font-black transition-all shadow-lg text-xs uppercase tracking-wider"
               >
                 <Edit3 size={15} /> EDIT PROFIL
@@ -494,7 +460,7 @@ export default function AkunPage() {
                   <span className="px-3 py-1 bg-emerald-500/20 text-emerald-300 rounded-lg text-[10px] font-black uppercase tracking-widest border border-emerald-400/30">
                     Ringkasan Penghasilan
                   </span>
-                  <h4 className="text-xl sm:text-2xl font-black text-white mt-2">Total Akumulasi Gaji Diterima</h4>
+                  <h4 className="text-xl sm:text-2xl font-black text-white mt-2">Total Akumulasi Gaji Netto{userData.level === 1 ? ' Seluruh Karyawan' : ''}</h4>
                   <p className="text-xs text-emerald-200/80 font-medium mt-0.5">Akumulasi pendapatan bersih dari seluruh slip gaji yang telah tercatat</p>
                 </div>
                 <div className="text-left sm:text-right shrink-0 bg-white/10 backdrop-blur-md p-4 rounded-2xl border border-white/10">
@@ -526,7 +492,7 @@ export default function AkunPage() {
                 </div>
                 <div className="mt-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <div className="flex items-baseline gap-2">
-                    <span className="text-2xl sm:text-3xl font-black text-slate-900">{salaryList.length}</span>
+                    <span className="text-2xl sm:text-3xl font-black text-slate-900">{allSalary.length}</span>
                     <span className="text-[10px] font-bold text-slate-500">Periode Slip Tercatat</span>
                   </div>
                   <span className="text-[10px] font-bold text-slate-500 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100">
@@ -567,7 +533,7 @@ export default function AkunPage() {
               salaryList.map((item) => {
                 const { grandTotal } = getSalaryDetails(item);
                 const periode = new Date(item.created_at).toLocaleDateString('id-ID', { month: 'long', year: 'numeric' });
-                const personName = userData?.name || userData?.username || 'Karyawan';
+                const personName = item.person === userData?.username ? userData.name || item.person : item.person || 'Karyawan tidak tercatat';
 
                 return (
                   <div 
@@ -586,7 +552,7 @@ export default function AkunPage() {
                     </div>
                     <div className="flex items-center justify-between sm:justify-end gap-4 sm:gap-6">
                       <div className="text-right">
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Diterima</p>
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Gaji Netto</p>
                         <p className="font-black text-emerald-600 text-base sm:text-lg">
                           {formatNominalPrivasi(grandTotal)}
                         </p>
@@ -630,7 +596,7 @@ export default function AkunPage() {
             </h3>
           </div>
 
-          {/* TOTAL BON & SKOR KREDIT CONTAINER (1 HORIZONTAL TOP + 2 VERTICAL SUB-CARDS BELOW) */}
+          {/* Ringkasan saldo dan seluruh mutasi bon */}
           <div className="mb-6 space-y-4">
             {/* 1. HORIZONTAL CARD UTAMA (Top Banner) */}
             <div className="p-5 sm:p-6 bg-gradient-to-r from-purple-900 via-indigo-900 to-slate-900 text-white rounded-3xl shadow-xl border border-purple-500/20 relative overflow-hidden">
@@ -640,11 +606,11 @@ export default function AkunPage() {
                   <span className="px-3 py-1 bg-purple-500/20 text-purple-300 rounded-lg text-[10px] font-black uppercase tracking-widest border border-purple-400/30">
                     Ringkasan Pinjaman
                   </span>
-                  <h4 className="text-xl sm:text-2xl font-black text-white mt-2">Total Akumulasi Bon Karyawan</h4>
-                  <p className="text-xs text-purple-200/80 font-medium mt-0.5">Seluruh nominal pinjaman bon yang telah dicatat dan dalam proses pelunasan</p>
+                  <h4 className="text-xl sm:text-2xl font-black text-white mt-2">Sisa Bon Karyawan</h4>
+                  <p className="text-xs text-purple-200/80 font-medium mt-0.5">Saldo bon saat ini sesuai catatan akun karyawan</p>
                 </div>
                 <div className="text-left sm:text-right shrink-0 bg-white/10 backdrop-blur-md p-4 rounded-2xl border border-white/10">
-                  <p className="text-[10px] font-black text-purple-200 uppercase tracking-widest">Total Akumulasi Bon</p>
+                  <p className="text-[10px] font-black text-purple-200 uppercase tracking-widest">Sisa Bon</p>
                   <p className="text-2xl sm:text-3xl font-black text-amber-300 mt-1">
                     {formatNominalPrivasi(totalBon)}
                   </p>
@@ -654,7 +620,7 @@ export default function AkunPage() {
 
             {/* 2 & 3. DUA VERTICAL CARDS (Sub-Cards Di Bawahnya) */}
             <div className="flex flex-col gap-4">
-              {/* Vertical Card 1: Analisa Skor Kredit & Status */}
+              {/* Rasio pelunasan dari seluruh riwayat bon */}
               <div className="p-5 bg-white rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
                 <div className="flex justify-between items-center border-b border-slate-100 pb-3">
                   <div className="flex items-center gap-2">
@@ -662,54 +628,29 @@ export default function AkunPage() {
                       <Award size={16} />
                     </div>
                     <div>
-                      <h5 className="font-black text-slate-800 text-xs uppercase tracking-wider">Skor Kredit & Kelancaran</h5>
-                      <p className="text-[10px] text-slate-400 font-medium">Kategori reputasi pembayaran pinjaman</p>
+                      <h5 className="font-black text-slate-800 text-xs uppercase tracking-wider">Ringkasan Pelunasan</h5>
+                      <p className="text-[10px] text-slate-400 font-medium">Akumulasi dari seluruh riwayat bon, termasuk potongan gaji</p>
                     </div>
                   </div>
-                  <span className={`px-3 py-1 rounded-xl text-xs font-black uppercase tracking-wider border shadow-xs ${creditAnalysis.color}`}>
-                    {creditAnalysis.status}
+                  <span className={`px-3 py-1 rounded-xl text-xs font-black uppercase tracking-wider border shadow-xs ${totalBon > 0 ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
+                    {hideNominal ? 'Tersembunyi' : totalBon > 0 ? 'Ada Saldo Bon' : totalBon < 0 ? 'Saldo Kredit' : 'Saldo Nol'}
                   </span>
                 </div>
                 <div className="mt-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <div className="flex items-baseline gap-2">
-                    <span className="text-2xl sm:text-3xl font-black text-slate-900">{creditAnalysis.rate}%</span>
-                    <span className="text-[10px] font-bold text-slate-500">Pelunasan / Bln</span>
+                    <span className="text-2xl sm:text-3xl font-black text-slate-900">{hideNominal ? '•••' : loanTotals.rate === null ? '—' : `${loanTotals.rate}%`}</span>
+                    <span className="text-[10px] font-bold text-slate-500">Pelunasan Tercatat</span>
                   </div>
                   <span className="text-[10px] font-bold text-slate-500 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100">
-                    📌 {creditAnalysis.desc}
+                    Rasio total pembayaran terhadap total pinjaman yang tercatat
                   </span>
                 </div>
               </div>
 
-              {/* Vertical Card 2: Indikator & Catatan Pengajuan Bon */}
-              <div className="p-5 bg-gradient-to-br from-purple-50 to-indigo-50/60 rounded-2xl border border-purple-100 shadow-xs flex flex-col justify-between">
-                <div className="flex items-center gap-2 border-b border-purple-200/50 pb-3">
-                  <div className="p-2 bg-white text-purple-600 rounded-xl shadow-xs">
-                    <TrendingUp size={16} />
-                  </div>
-                  <div>
-                    <h5 className="font-black text-purple-900 text-xs uppercase tracking-wider">Ketentuan Pengajuan Bon</h5>
-                    <p className="text-[10px] text-purple-600/80 font-medium">Standar kelayakan pinjaman karyawan</p>
-                  </div>
-                </div>
-                <div className="mt-3 space-y-2 text-xs font-bold text-purple-950">
-                  <div className="flex items-center justify-between text-[11px]">
-                    <span className="text-slate-600">≥ 15% / Bulan:</span>
-                    <span className="text-emerald-700 font-black bg-emerald-100 px-2 py-0.5 rounded border border-emerald-200">BAGUS (Lancar)</span>
-                  </div>
-                  <div className="flex items-center justify-between text-[11px]">
-                    <span className="text-slate-600">10% - 14% / Bulan:</span>
-                    <span className="text-blue-700 font-black bg-blue-100 px-2 py-0.5 rounded border border-blue-200">SEDANG (Cukup)</span>
-                  </div>
-                  <div className="flex items-center justify-between text-[11px]">
-                    <span className="text-slate-600">&lt; 10% / Bulan:</span>
-                    <span className="text-amber-700 font-black bg-amber-100 px-2 py-0.5 rounded border border-amber-200">KURANG (Lambat)</span>
-                  </div>
-                  <div className="flex items-center justify-between text-[11px]">
-                    <span className="text-slate-600">&lt; 0% / Menunggak:</span>
-                    <span className="text-rose-700 font-black bg-rose-100 px-2 py-0.5 rounded border border-rose-200">JELEK POL</span>
-                  </div>
-                </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm p-5 bg-purple-50 rounded-2xl border border-purple-100">
+                <div><p className="text-xs text-slate-500">Total pinjaman tercatat</p><strong>{formatNominalPrivasi(loanTotals.borrowed)}</strong></div>
+                <div><p className="text-xs text-slate-500">Total pembayaran tercatat</p><strong>{formatNominalPrivasi(loanTotals.repaid)}</strong></div>
+                <p className="sm:col-span-2 text-xs text-slate-500">Saldo awal atau koreksi dapat menyebabkan sisa bon berbeda dari selisih riwayat.</p>
               </div>
             </div>
           </div>
@@ -737,7 +678,7 @@ export default function AkunPage() {
                     </div>
                     <div className="flex items-center justify-between sm:justify-end gap-4 sm:gap-6">
                       <div className="text-right">
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Nominal Bon</p>
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{item.jenis === 'in' ? 'Pembayaran Bon' : 'Pinjaman Bon'}</p>
                         <p className="font-black text-purple-600 text-base sm:text-lg">
                           {formatNominalPrivasi(item.nominal || 0)}
                         </p>
@@ -772,12 +713,12 @@ export default function AkunPage() {
       </div>
 
       {/* --- MODAL: EDIT PROFILE & PASSWORD (Responsive) --- */}
-      <Modal isOpen={modalType === 'editProfile'} onClose={() => setModalType(null)} title="Update Profil">
+      <Modal isOpen={modalType === 'editProfile'} onClose={() => { if (!isProcessing) { setModalType(null); setPasswordData({oldPassword: '', password: '', passwordConfirm: ''}); } }} title="Update Profil">
         <form onSubmit={handleUpdateProfile} className="space-y-5 max-h-[70vh] overflow-y-auto pr-2 custom-scrollbar">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="sm:col-span-2">
               <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Full Name</label>
-              <input type="text" value={formData.name || ''} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full mt-1 p-3 bg-slate-50 rounded-2xl outline-none border focus:border-blue-500 font-bold text-slate-700" />
+              <input type="text" required value={formData.name || ''} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full mt-1 p-3 bg-slate-50 rounded-2xl outline-none border focus:border-blue-500 font-bold text-slate-700" />
             </div>
             <div>
               <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Username</label>
@@ -789,16 +730,14 @@ export default function AkunPage() {
             </div>
             <div className="sm:col-span-2">
               <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Email</label>
-              <input type="email" value={formData.email || ''} onChange={e => setFormData({...formData, email: e.target.value})} className="w-full mt-1 p-3 bg-slate-50 rounded-2xl outline-none border focus:border-blue-500 font-bold text-slate-700" />
+              <input disabled type="email" value={formData.email || ''} onChange={e => setFormData({...formData, email: e.target.value})} className="w-full mt-1 p-3 bg-slate-50 rounded-2xl outline-none border focus:border-blue-500 font-bold text-slate-700" />
             </div>
+            <button type="button" disabled={isProcessing} onClick={() => { setNewEmail(''); setPasswordData({oldPassword: '', password: '', passwordConfirm: ''}); setModalType('changeEmail'); }} className="sm:col-span-2 text-left text-blue-600 font-bold text-xs underline">Ubah email melalui tautan konfirmasi</button>
             <div className="sm:col-span-2">
               <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Image Link (Avatar URL)</label>
-              <input type="text" value={formData.link_image || ''} onChange={e => setFormData({...formData, link_image: e.target.value})} className="w-full mt-1 p-3 bg-slate-50 rounded-2xl outline-none border focus:border-blue-500 font-bold text-slate-700" />
+              <input type="url" value={formData.link_image || ''} onChange={e => setFormData({...formData, link_image: e.target.value})} className="w-full mt-1 p-3 bg-slate-50 rounded-2xl outline-none border focus:border-blue-500 font-bold text-slate-700" />
             </div>
-            <div className="sm:col-span-2">
-              <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Token Key</label>
-              <input type="text" value={formData.tokenkey || ''} onChange={e => setFormData({...formData, tokenkey: e.target.value})} className="w-full mt-1 p-3 bg-slate-50 rounded-2xl outline-none border focus:border-blue-500 font-bold text-slate-700" />
-            </div>
+
           </div>
 
           <div className="pt-4 border-t border-slate-200">
@@ -807,10 +746,10 @@ export default function AkunPage() {
             </h4>
             <div className="space-y-3">
               <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Password Lama</label>
+                <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Password Saat Ini</label>
                 <input 
-                  type="password" 
-                  placeholder="Kosongkan jika tidak diganti"
+                  type="password" autoComplete="current-password"
+                  placeholder="Wajib jika mengubah password"
                   value={passwordData.oldPassword} 
                   onChange={e => setPasswordData({...passwordData, oldPassword: e.target.value})} 
                   className="w-full mt-1 p-3 bg-slate-50 rounded-2xl outline-none border focus:border-rose-500 font-bold text-slate-700" 
@@ -820,7 +759,7 @@ export default function AkunPage() {
                 <div>
                   <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Password Baru</label>
                   <input 
-                    type="password" 
+                    type="password" autoComplete="new-password" minLength={8}
                     value={passwordData.password} 
                     onChange={e => setPasswordData({...passwordData, password: e.target.value})} 
                     className="w-full mt-1 p-3 bg-slate-50 rounded-2xl outline-none border focus:border-rose-500 font-bold text-slate-700" 
@@ -829,7 +768,7 @@ export default function AkunPage() {
                 <div>
                   <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Ulangi Password Baru</label>
                   <input 
-                    type="password" 
+                    type="password" autoComplete="new-password" minLength={8}
                     value={passwordData.passwordConfirm} 
                     onChange={e => setPasswordData({...passwordData, passwordConfirm: e.target.value})} 
                     className="w-full mt-1 p-3 bg-slate-50 rounded-2xl outline-none border focus:border-rose-500 font-bold text-slate-700" 
@@ -845,8 +784,16 @@ export default function AkunPage() {
         </form>
       </Modal>
 
+      <Modal isOpen={modalType === 'changeEmail'} onClose={() => { if (!isProcessing) { setModalType(null); setNewEmail(''); } }} title="Ubah Email">
+        <form onSubmit={requestEmailUpdate} className="space-y-4">
+          <p className="text-sm text-slate-600">Tautan konfirmasi dikirim ke email baru. Buka tautan dan masukkan password akun untuk menyelesaikan perubahan.</p>
+          <label className="block text-xs font-bold">Email baru<input type="email" required autoComplete="email" value={newEmail} onChange={e => setNewEmail(e.target.value)} className="block w-full mt-2 p-3 rounded-xl border" /></label>
+          <button type="submit" disabled={isProcessing} className="w-full py-3 rounded-xl bg-blue-600 text-white font-bold disabled:opacity-50">{isProcessing ? 'Mengirim...' : 'Kirim Tautan Konfirmasi'}</button>
+        </form>
+      </Modal>
+
       {/* --- MODAL: VERIFIKASI PASSWORD PRIVASI --- */}
-      <Modal isOpen={modalType === 'verifyPassword'} onClose={() => setModalType(null)} title="Otentikasi Keamanan & Privasi">
+      <Modal isOpen={modalType === 'verifyPassword'} onClose={() => { if (!isProcessing) { setModalType(null); setVerifyPass(''); } }} title="Otentikasi Keamanan & Privasi">
         <form onSubmit={checkSalaryPassword} className="text-center space-y-6">
           <div className="w-16 h-16 sm:w-20 sm:h-20 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center mx-auto shadow-inner border border-emerald-200">
             <Lock size={28} className="sm:w-8 sm:h-8" />
@@ -864,7 +811,7 @@ export default function AkunPage() {
             className="w-full p-3.5 sm:p-4 bg-slate-50 border border-slate-200 rounded-2xl text-center text-lg sm:text-xl outline-none focus:ring-4 focus:ring-emerald-100 transition-all font-bold text-slate-800"
           />
           <div className="flex gap-3">
-            <button type="button" onClick={() => setModalType(null)} className="flex-1 py-3.5 sm:py-4 bg-slate-100 rounded-2xl font-black text-slate-500 text-xs uppercase tracking-wider hover:bg-slate-200">BATAL</button>
+            <button type="button" disabled={isProcessing} onClick={() => { setModalType(null); setVerifyPass(''); setPasswordData({oldPassword: '', password: '', passwordConfirm: ''}); }} className="flex-1 py-3.5 sm:py-4 bg-slate-100 rounded-2xl font-black text-slate-500 text-xs uppercase tracking-wider hover:bg-slate-200">BATAL</button>
             <button type="submit" disabled={isProcessing} className="flex-1 py-3.5 sm:py-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-black text-xs uppercase tracking-wider shadow-lg">BUKA PRIVASI</button>
           </div>
         </form>
@@ -882,7 +829,7 @@ export default function AkunPage() {
               {/* Top Banner Netto Header */}
               <div className="bg-gradient-to-br from-emerald-900 via-teal-900 to-slate-900 p-6 sm:p-7 rounded-3xl text-center text-white shadow-xl relative overflow-hidden border border-emerald-500/30">
                 <div className="absolute -top-12 -right-12 w-40 h-40 bg-emerald-400/20 rounded-full blur-3xl pointer-events-none" />
-                <p className="text-[10px] font-black uppercase tracking-widest text-emerald-300 mb-1">Gaji Netto Diterima</p>
+                <p className="text-[10px] font-black uppercase tracking-widest text-emerald-300 mb-1">Gaji Netto</p>
                 <h3 className="text-3xl sm:text-4xl font-black tracking-tight text-emerald-300">
                   {formatRupiah(grandTotal)}
                 </h3>

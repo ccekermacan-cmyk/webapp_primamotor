@@ -40,6 +40,7 @@ class ReportController extends Controller
 
     public function recalculate(Request $request): JsonResponse
     {
+        $request->validate(['date' => 'nullable|date_format:Y-m-d']);
         $date = $request->input('date') ?? Carbon::now('Asia/Jakarta')->format('Y-m-d');
         try {
             \App\Services\ReportService::recalculateDaily($date);
@@ -47,10 +48,10 @@ class ReportController extends Controller
         } catch (\Throwable $e) {
             Log::error("Recalculate report failed for {$date}: " . $e->getMessage());
             return response()->json([
-                'status' => 'success',
-                'warning' => 'Re-kalkulasi selesai dengan log: ' . $e->getMessage(),
+                'status' => 'error',
+                'message' => 'Gagal menghitung ulang laporan.',
                 'date' => $date
-            ], 200);
+            ], 500);
         }
     }
 }

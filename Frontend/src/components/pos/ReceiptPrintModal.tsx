@@ -1,3 +1,4 @@
+import type { CheckoutForm } from '../../types/pos';
 import React from 'react';
 import Modal from '../modal';
 import { Share2, Printer } from 'lucide-react';
@@ -5,7 +6,7 @@ import { Share2, Printer } from 'lucide-react';
 interface ReceiptPrintModalProps {
   showReceiptPrint: any;
   setShowReceiptPrint: (val: any) => void;
-  receiptRef: React.RefObject<HTMLDivElement>;
+  receiptRef: React.RefObject<HTMLDivElement | null>;
   formatLocalDateTime: (isoString: string | undefined) => string;
   operatorName: string;
   getFullLabel: (item: any) => string;
@@ -14,7 +15,7 @@ interface ReceiptPrintModalProps {
   activeTheme: any;
   setCart: (cart: any[]) => void;
   setIsPaymentFormOpen: (val: boolean) => void;
-  setFormBayar: React.Dispatch<React.SetStateAction<any>>;
+  setFormBayar: React.Dispatch<React.SetStateAction<CheckoutForm>>;
   getLocalDatetimeInput: () => string;
 }
 

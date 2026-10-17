@@ -31,16 +31,13 @@ class WebhookIdempotencyService
         return DB::table('webhook_marks')->where('key', $key)->exists();
     }
 
-    public function addMark(string $key): void
+    // Claim before applying effects, inside the same DB transaction. Rollback also removes the claim.
+    public function addMark(string $key): bool
     {
-        try {
-            DB::table('webhook_marks')->insertOrIgnore([
-                'key' => $key,
-                'created_at' => now('UTC')->format('Y-m-d H:i:s.u\Z'),
-            ]);
-        } catch (\Throwable $e) {
-            Log::error('webhook mark insert failed: ' . $e->getMessage());
-        }
+        return DB::table('webhook_marks')->insertOrIgnore([
+            'key' => $key,
+            'created_at' => now('UTC')->format('Y-m-d H:i:s.u\Z'),
+        ]) === 1;
     }
 
     public function removeMark(string $key): void

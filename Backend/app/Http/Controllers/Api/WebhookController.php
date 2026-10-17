@@ -3,86 +3,87 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\Menu;
-use App\Services\Webhooks\WebhookDispatcher;
-use App\Services\Webhooks\WebhookIdempotencyService;
-use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
+use App\Models\{Bon, Cashflow, LogStock, Menu, Ongkos};
+use App\Services\Webhooks\{WebhookDispatcher, WebhookIdempotencyService};
+use Carbon\Carbon;
+use Illuminate\Http\{JsonResponse, Request};
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class WebhookController extends Controller
 {
-    public function __construct(
-        protected WebhookDispatcher $dispatcher,
-        protected WebhookIdempotencyService $idempotency
-    ) {}
+    private const MODELS = ['menu' => Menu::class, 'cashflow' => Cashflow::class, 'log_stock' => LogStock::class, 'ongkos' => Ongkos::class, 'bon' => Bon::class];
+
+    public function __construct(protected WebhookDispatcher $dispatcher, protected WebhookIdempotencyService $idempotency) {}
 
     public function handle(Request $request, string $collection, string $event, string $id): JsonResponse
     {
-        $model = $this->dispatcher->getModel($collection, $id);
-        if (!$model) {
-            return response()->json(['status' => 'skipped', 'message' => 'Collection unmonitored or model not found']);
+        // Explicitly allow known collections with no side effects.
+        if (in_array($collection, ['produk', 'dropdown', 'user', 'gaji'], true)) {
+            return response()->json(['status' => 'skipped', 'reason' => 'no observer']);
         }
+        $request->merge(['events' => [[
+            'collection' => $collection, 'event' => $event, 'id' => $id,
+            'old_data' => $request->input('old_data'), 'record' => $request->input('record'),
+        ]]]);
+        return $this->batch($request);
+    }
 
+    public function batch(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'request_id' => 'required|string|max:100',
+            'events' => 'required|array|min:1|max:500',
+            'events.*.collection' => 'required|in:menu,cashflow,log_stock,ongkos,bon',
+            'events.*.event' => 'required|in:created,updated,deleted',
+            'events.*.id' => 'required|string|max:100',
+            'events.*.old_data' => 'nullable|array',
+            'events.*.record' => 'nullable|array',
+        ]);
         $this->idempotency->ensureMarksTable();
-        $createdKey = $this->idempotency->createdMarkKey($collection, $id);
-
-        if ($request->has('old_data')) {
-            $setOriginal = function ($old) {
-                $this->original = array_merge($this->original, $old);
-            };
-            $setOriginal->call($model, $request->input('old_data'));
-        }
-
-        $oldData = $request->input('old_data', []);
-
-        if ($event === 'created') {
-            if ($this->idempotency->hasMark($createdKey)) {
-                return response()->json(['status' => 'skipped', 'reason' => 'already processed']);
-            }
-            DB::transaction(function () use ($model, $createdKey) {
-                $this->dispatcher->dispatchObserver($model, 'created');
-                $this->idempotency->addMark($createdKey);
-            });
-        } elseif ($event === 'updated') {
-            $key = $this->idempotency->markKey($collection, 'updated', $id, is_array($oldData) ? $oldData : [$oldData]);
-            if ($this->idempotency->hasMark($key)) {
-                return response()->json(['status' => 'skipped', 'reason' => 'already processed']);
-            }
-            DB::transaction(function () use ($model, $key) {
-                $this->dispatcher->dispatchObserver($model, 'updated');
-                $this->idempotency->addMark($key);
-            });
-        } elseif ($event === 'deleted') {
-            $deletedKey = $this->idempotency->markKey($collection, 'deleted', $id);
-            if ($this->idempotency->hasMark($deletedKey)) {
-                return response()->json(['status' => 'skipped', 'reason' => 'already deleted']);
-            }
-            DB::transaction(function () use ($model, $deletedKey) {
-                $this->dispatcher->dispatchObserver($model, 'deleted');
-                $this->idempotency->addMark($deletedKey);
-            });
-        }
-
-        // Recalculate report secara sinkron agar nilai laporan selalu konsisten
-        $rawCreated = $model->getAttribute('created_at') ?: $model->getAttribute('date');
-        $dateString = $rawCreated
-            ? \Carbon\Carbon::parse($rawCreated)->timezone('Asia/Jakarta')->format('Y-m-d')
-            : now('Asia/Jakarta')->format('Y-m-d');
-        $this->dispatcher->recalcForDate($dateString);
-
-        // Anak transaksi (cashflow/log_stock/ongkos) diatribusikan ke tanggal menu induknya
-        $refMenuId = $this->dispatcher->firstRelId($model->getAttribute('ref_baru'));
-        if ($refMenuId) {
-            $refMenu = Menu::find($refMenuId);
-            if ($refMenu && $refMenu->created_at) {
-                $menuDate = \Carbon\Carbon::parse($refMenu->created_at)->timezone('Asia/Jakarta')->format('Y-m-d');
-                if ($menuDate !== $dateString) {
-                    $this->dispatcher->recalcForDate($menuDate);
+        DB::transaction(function () use ($data) {
+            if (!$this->idempotency->addMark('batch:' . $data['request_id'])) return;
+            $dates = [];
+            foreach ($data['events'] as $entry) {
+                $class = self::MODELS[$entry['collection']];
+                $model = $class::find($entry['id']);
+                if (!$model && $entry['event'] === 'deleted' && !empty($entry['record'])) {
+                    // A PocketBase batch may already have removed the row. Use its captured snapshot.
+                    $snapshot = $entry['record'];
+                    $snapshot['id'] = $entry['id'];
+                    foreach ($snapshot as $field => $value) if (is_array($value)) $snapshot[$field] = json_encode($value);
+                    $model = (new $class)->newFromBuilder($snapshot);
                 }
+                if (!$model) {
+                    throw ValidationException::withMessages(['events' => "Record {$entry['collection']}/{$entry['id']} tidak ditemukan."]);
+                }
+                $this->collectDates($model->getAttributes(), $dates);
+                $old = $entry['old_data'] ?? [];
+                foreach ($old as $field => $value) if (is_array($value)) $old[$field] = json_encode($value);
+                $this->collectDates($old, $dates);
+                if ($entry['event'] === 'updated') {
+                    if (!$old) throw ValidationException::withMessages(['old_data' => 'Snapshot sebelum perubahan wajib disertakan.']);
+                    $model->setRawAttributes(array_replace($model->getAttributes(), $old), true);
+                    $current = $class::findOrFail($entry['id']);
+                    $model->setRawAttributes($current->getAttributes());
+                }
+                $key = $entry['collection'] . ':' . $entry['event'] . ':' . $entry['id'];
+                if ($entry['event'] === 'updated') $key .= ':' . $data['request_id'];
+                if (!$this->idempotency->addMark($key)) continue;
+                $this->dispatcher->dispatchObserver($model, $entry['event']);
             }
-        }
+            foreach (array_keys($dates) as $date) $this->dispatcher->recalcForDate($date);
+        }, 3);
+        return response()->json(['status' => 'success']);
+    }
 
-        return response()->json(['status' => 'success', 'collection' => $collection, 'event' => $event]);
+    private function collectDates(array $record, array &$dates): void
+    {
+        $raw = $record['created_at'] ?? $record['date'] ?? null;
+        if ($raw) $dates[Carbon::parse($raw, 'UTC')->timezone('Asia/Jakarta')->format('Y-m-d')] = true;
+        $parent = $this->dispatcher->firstRelId($record['ref_baru'] ?? $record['ref'] ?? null);
+        if ($parent && ($menu = Menu::find($parent)) && $menu->created_at) {
+            $dates[Carbon::parse($menu->created_at, 'UTC')->timezone('Asia/Jakarta')->format('Y-m-d')] = true;
+        }
     }
 }

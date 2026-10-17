@@ -18,16 +18,21 @@ class ReportService
      * Menghitung ulang data laporan berdasarkan tanggal (Y-m-d) di timezone lokal.
      * Logika ini mereplikasi kalkulasi `calculateReportData` di frontend.
      */
+    public static function dateOf(string $raw): string
+    {
+        return $raw ? Carbon::parse($raw, 'UTC')->timezone('Asia/Jakarta')->format('Y-m-d') : '';
+    }
+
     public static function recalculateDaily(string $dateString)
     {
         try {
             // Karena PocketBase menyimpan data sebagai string UTC "YYYY-MM-DD HH:mm:ss.SSSZ"
             // Dan kita menyimpan tanggal lokal, maka kita akan menggunakan filter rentang tanggal.
             $start = Carbon::parse($dateString, 'Asia/Jakarta')->startOfDay()->timezone('UTC')->format('Y-m-d H:i:s.v\Z');
-            $end = Carbon::parse($dateString, 'Asia/Jakarta')->endOfDay()->timezone('UTC')->format('Y-m-d H:i:s.v\Z');
+            $end = Carbon::parse($dateString, 'Asia/Jakarta')->addDay()->startOfDay()->timezone('UTC')->format('Y-m-d H:i:s.v\Z');
 
             // --- 1. Ambil Data Menu (untuk referensi piutang/hutang dan mapping jenis nota) ---
-            $menus = Menu::whereBetween('created_at', [$start, $end])->get();
+            $menus = Menu::whereRaw('datetime(created_at) >= datetime(?) AND datetime(created_at) < datetime(?)', [$start, $end])->get();
             $menuMap = [];
             $totalPiutang = 0;
             $totalHutang = 0;
@@ -58,7 +63,7 @@ class ReportService
             $allProduk = Produk::all()->keyBy('id');
             
             $logStocks = LogStock::where(function ($q) use ($start, $end, $menuIds) {
-                $q->whereBetween('created_at', [$start, $end]);
+                $q->whereRaw('datetime(created_at) >= datetime(?) AND datetime(created_at) < datetime(?)', [$start, $end]);
                 if (!empty($menuIds)) {
                     $q->orWhereIn('ref_baru', $menuIds);
                 }
@@ -75,7 +80,7 @@ class ReportService
                 
                 $refBaru = $item->ref_baru;
                 // Skip jika punya referensi nota tapi nota tidak ada (orphaned)
-                if ($refBaru && !isset($menuMap[$refBaru])) continue;
+                if (!$refBaru || !isset($menuMap[$refBaru])) continue;
 
                 $menuJenis = $refBaru ? ($menuMap[$refBaru] ?? '') : '';
                 
@@ -107,7 +112,7 @@ class ReportService
 
             // --- 3. Ambil Data Ongkos (untuk omset servis) ---
             $ongkosList = Ongkos::where(function ($q) use ($start, $end, $menuIds) {
-                $q->whereBetween('date', [$start, $end]);
+                $q->whereRaw('datetime(date) >= datetime(?) AND datetime(date) < datetime(?)', [$start, $end]);
                 if (!empty($menuIds)) {
                     $q->orWhereIn('ref_baru', $menuIds);
                 }
@@ -120,7 +125,7 @@ class ReportService
 
             // --- 4. Ambil Data Cashflow (untuk kasir, operasional, pemasukan/pengeluaran lain) ---
             $cashflows = Cashflow::where(function ($q) use ($start, $end, $menuIds) {
-                $q->whereBetween('created_at', [$start, $end]);
+                $q->whereRaw('datetime(created_at) >= datetime(?) AND datetime(created_at) < datetime(?)', [$start, $end]);
                 if (!empty($menuIds)) {
                     $q->orWhereIn('ref_baru', $menuIds);
                 }
@@ -128,7 +133,8 @@ class ReportService
             
             $pemasukanLain = 0;
             $cashKasir = 0;
-            $totalCashflowKeluarNonPembelian = 0;
+            $operasionalToko = 0;
+            $pengeluaranLain = 0;
 
             foreach ($cashflows as $cf) {
                 if ($cf->ref_baru && !isset($menuMap[$cf->ref_baru])) continue;
@@ -137,23 +143,21 @@ class ReportService
                 $nominal = $cf->nominal ?? 0;
                 $mutasi = strtolower($cf->mutasi ?? '');
 
-                if ($mutasi === 'out' && !str_contains($jenis, 'pembelian') && !str_contains($jenis, 'transfer')) {
-                    $totalCashflowKeluarNonPembelian += $nominal;
+                if (in_array($mutasi, ['out', 'keluar'], true) && !str_contains($jenis, 'pembelian') && !str_contains($jenis, 'transfer')) {
+                    if (str_contains($jenis, 'operasional')) $operasionalToko += $nominal;
+                    else $pengeluaranLain += $nominal;
                 }
 
-                if (str_contains($jenis, 'pemasukan')) {
+                if (in_array($mutasi, ['in', 'masuk'], true) && str_contains($jenis, 'pemasukan')) {
                     $pemasukanLain += $nominal;
                 }
 
-                $acc1 = strtolower($cf->account_1 ?? $cf->acc1 ?? '');
-                $acc2 = strtolower($cf->account_2 ?? $cf->acc2 ?? '');
             }
 
-            $operasionalToko = $totalCashflowKeluarNonPembelian;
-            $pengeluaranLain = 0;
+
 
             // Formulasi Kasir Toko Final: [Omset Toko] + [Omset Servis] + [Omset Minuman] + [Pemasukan Lain] - [Operasional Toko]
-            $cashKasir = ($totalOmsetPenjualan + $omsetServis + $totalOmsetMinuman + $pemasukanLain) - $operasionalToko;
+            $cashKasir = ($totalOmsetPenjualan + $omsetServis + $totalOmsetMinuman + $pemasukanLain) - $operasionalToko - $pengeluaranLain;
 
             // --- 5. Simpan / Perbarui Record Report ---
             

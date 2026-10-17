@@ -11,6 +11,37 @@ use Illuminate\Support\Facades\DB;
 
 class LogStockObserver
 {
+    private function validate(LogStock $log): void
+    {
+        $qty = $log->getAttributes()['qty'] ?? 0;
+        if (!is_numeric($qty) || !is_finite((float) $qty) || (float) $qty <= 0 || floor((float) $qty) !== (float) $qty) {
+            throw \Illuminate\Validation\ValidationException::withMessages(['qty' => 'Kuantitas harus bilangan bulat lebih dari nol.']);
+        }
+        if (!in_array((string) $log->boolean, ['in', 'out'], true)) {
+            throw \Illuminate\Validation\ValidationException::withMessages(['boolean' => 'Arah stok tidak valid.']);
+        }
+        foreach (['price_1', 'price_2', 'normal'] as $field) {
+            $value = $log->getAttributes()[$field] ?? 0;
+            if (!is_numeric($value) || !is_finite((float) $value) || (float) $value < 0) {
+                throw \Illuminate\Validation\ValidationException::withMessages([$field => 'Harga tidak boleh negatif.']);
+            }
+        }
+        if (!Produk::where('id', (string) $log->item_baru)->exists()) {
+            throw \Illuminate\Validation\ValidationException::withMessages(['item_baru' => 'Produk tidak ditemukan.']);
+        }
+    }
+
+    public function creating(LogStock $log): void { $this->validate($log); }
+    public function updating(LogStock $log): void { $this->validate($log); }
+
+    private function syncBuyPrice(string $productId, ?string $excludeId = null): void
+    {
+        $latest = LogStock::where('item_baru', $productId)->where('boolean', 'in')->where('price_1', '>', 0)
+            ->when($excludeId, fn ($q) => $q->where('id', '!=', $excludeId))
+            ->orderByRaw('datetime(created_at) desc')->orderBy('id', 'desc')->first();
+        DB::table('produk')->where('id', $productId)->update(['beli' => $latest ? (float) $latest->price_1 : 0]);
+    }
+
     private function getOrCreateReport(string $tanggal): ?Report
     {
         if (!$tanggal) return null;
@@ -31,10 +62,10 @@ class LogStockObserver
         if ($refBaru) {
             $menu = Menu::find($refBaru);
             if ($menu && $menu->created_at) {
-                return substr((string) $menu->created_at, 0, 10);
+                return \App\Services\ReportService::dateOf((string) $menu->created_at);
             }
         }
-        return $fallbackCreated ? substr($fallbackCreated, 0, 10) : '';
+        return $fallbackCreated ? \App\Services\ReportService::dateOf($fallbackCreated) : '';
     }
 
     private function updateReportForStockOut(string $tanggal, string $refBaruId, string $produkId, float $price1, float $price2, int $qty, bool $isRevert = false): void
@@ -103,6 +134,7 @@ class LogStockObserver
 
     public function created(LogStock $logStock): void
     {
+        $this->validate($logStock);
         $produkId = (string) $logStock->item_baru;
         if (!$produkId) return;
 
@@ -122,13 +154,12 @@ class LogStockObserver
             $logStock->stok_akhir = $newStok;
             $logStock->saveQuietly();
             if ($price > 0) {
-                DB::table('produk')->where('id', $produkId)->update(['beli' => $price]);
+                $this->syncBuyPrice($produkId);
             }
         } elseif ($boolVal === 'out') {
-            if ($stok - $qty < 0) {
-                throw new Exception("[CREATE] Stok produk {$produkId} tidak cukup (sisa: {$stok}, dikurangi: {$qty})");
+            if (DB::table('produk')->where('id', $produkId)->where('stok_3', '>=', $qty)->decrement('stok_3', $qty) !== 1) {
+                throw new Exception("[CREATE] Stok produk {$produkId} tidak cukup.");
             }
-            DB::table('produk')->where('id', $produkId)->decrement('stok_3', $qty);
             $newStok = (float) DB::table('produk')->where('id', $produkId)->value('stok_3') ?? 0;
             $logStock->stok_awal = $newStok + $qty;
             $logStock->stok_akhir = $newStok;
@@ -151,6 +182,7 @@ class LogStockObserver
 
     public function updated(LogStock $logStock): void
     {
+        $this->validate($logStock);
         $produkId = (string) $logStock->item_baru;
         if (!$produkId) return;
 
@@ -172,24 +204,20 @@ class LogStockObserver
 
         $stok = (float) $produk->stok_3;
 
-        if ($oldQty !== $newQty || $oldBool !== $newBool) {
-            $delta = 0;
-            if ($oldBool === 'in')  $delta -= $oldQty;
-            if ($oldBool === 'out') $delta += $oldQty;
-            if ($newBool === 'in')  $delta += $newQty;
-            if ($newBool === 'out') $delta -= $newQty;
-
-            if ($stok + $delta < 0) {
-                throw new Exception("[UPDATE] Edit gagal: stok produk {$produkId} akan menjadi minus.");
-            }
-
+        // Revert against the old product, then apply against the new product. A changed
+        // product relation must not leave the old item's stock reduced.
+        $deltas = [];
+        if ($oldItem) $deltas[$oldItem] = ($oldBool === 'in' ? -$oldQty : $oldQty);
+        $deltas[$produkId] = ($deltas[$produkId] ?? 0) + ($newBool === 'in' ? $newQty : -$newQty);
+        foreach ($deltas as $itemId => $delta) {
+            if ($delta === 0) continue;
             if ($delta > 0) {
-                DB::table('produk')->where('id', $produkId)->increment('stok_3', $delta);
-            } elseif ($delta < 0) {
-                DB::table('produk')->where('id', $produkId)->decrement('stok_3', abs($delta));
+                DB::table('produk')->where('id', $itemId)->increment('stok_3', $delta);
+            } elseif (DB::table('produk')->where('id', $itemId)->where('stok_3', '>=', -$delta)->decrement('stok_3', -$delta) !== 1) {
+                throw new Exception("[UPDATE] Stok produk {$itemId} tidak cukup.");
             }
         }
-        
+
         // Re-sync log_stock boundaries safely from server-side calculated stok_3
         $newStok = (float) DB::table('produk')->where('id', $produkId)->value('stok_3') ?? 0;
         if ($newBool === 'in') {
@@ -200,18 +228,9 @@ class LogStockObserver
         $logStock->stok_akhir = $newStok;
         $logStock->saveQuietly();
 
-        $hargaBerubah = ($newBool === 'in' && $oldPrice1 !== $newPrice1);
-        $beralihDariIn = ($oldBool === 'in' && $newBool !== 'in');
-        $beralihKeIn = ($oldBool !== 'in' && $newBool === 'in');
-
-        if ($hargaBerubah || $beralihDariIn || $beralihKeIn) {
-            $latestIn = LogStock::where('item_baru', $produkId)
-                ->where('boolean', 'in')
-                ->orderBy('created_at', 'desc')
-                ->first();
-            $hargaTerbaru = $latestIn ? (float) $latestIn->price_1 : 0;
-            DB::table('produk')->where('id', $produkId)->update(['beli' => $hargaTerbaru]);
-        }
+        // Recalculate both products when a purchase log is moved or backdated.
+        if ($oldBool === 'in' && $oldPrice1 > 0) $this->syncBuyPrice($oldItem ?: $produkId);
+        if ($newBool === 'in' && $newPrice1 > 0) $this->syncBuyPrice($produkId);
 
         // Revert report old effect
         $oldTanggal = $this->getReportDate($oldRef ?: '', $oldCreated);
@@ -263,16 +282,11 @@ class LogStockObserver
             if ($stok - $qty < 0) {
                 throw new Exception("[DELETE] Rollback stok produk {$produkId} gagal, stok akan minus.");
             }
-            DB::table('produk')->where('id', $produkId)->decrement('stok_3', $qty);
+            if (DB::table('produk')->where('id', $produkId)->where('stok_3', '>=', $qty)->decrement('stok_3', $qty) !== 1) {
+                throw new Exception('Stok berubah; penghapusan dibatalkan.');
+            }
 
-            $remaining = LogStock::where('item_baru', $produkId)
-                ->where('boolean', 'in')
-                ->where('id', '!=', $deletedId)
-                ->orderBy('created_at', 'desc')
-                ->first();
-
-            $beliPrice = $remaining ? (float) $remaining->price_1 : 0;
-            DB::table('produk')->where('id', $produkId)->update(['beli' => $beliPrice]);
+            if ((float) $logStock->price_1 > 0) $this->syncBuyPrice($produkId, $deletedId);
         }
 
         if ($boolVal === 'out') {

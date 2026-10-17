@@ -10,7 +10,7 @@ use Illuminate\Support\Facades\Route;
 */
 
 Route::get('/user', function (Request $request) {
-    return $request->user();
+    return $request->attributes->get('pocketbase_user');
 });
 
 // Load modular route definitions

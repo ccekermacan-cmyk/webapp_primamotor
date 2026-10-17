@@ -81,10 +81,6 @@ class WebhookDispatcher
 
     public function recalcForDate(string $dateString): void
     {
-        try {
-            RecalculateReportJob::dispatchSync($dateString);
-        } catch (\Throwable $e) {
-            Log::error('Report recalc failed: ' . $e->getMessage());
-        }
+        RecalculateReportJob::dispatchSync($dateString);
     }
 }

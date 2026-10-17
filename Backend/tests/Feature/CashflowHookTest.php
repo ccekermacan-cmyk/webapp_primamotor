@@ -33,6 +33,7 @@ class CashflowHookTest extends TestCase
             'mutasi' => 'out',
             'account_1' => 'acc1',
             'account_2' => 'acc2',
+            'jenis' => 'transfer',
             'nominal' => 30000,
         ]);
 

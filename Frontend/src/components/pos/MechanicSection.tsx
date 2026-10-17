@@ -1,3 +1,4 @@
+import type { CheckoutForm } from '../../types/pos';
 import React from 'react';
 import { Wrench, Trash2 } from 'lucide-react';
 
@@ -13,7 +14,7 @@ interface MechanicSectionProps {
     mekanikList: MekanikItem[];
     [key: string]: any;
   };
-  setFormBayar: React.Dispatch<React.SetStateAction<any>>;
+  setFormBayar: React.Dispatch<React.SetStateAction<CheckoutForm>>;
   grandTotal: number;
   mechanics: any[];
   setDialog: (dialog: any) => void;

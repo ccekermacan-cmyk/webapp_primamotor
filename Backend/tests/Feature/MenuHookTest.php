@@ -17,7 +17,7 @@ class MenuHookTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_menu_unpaid_creates_bon_and_updates_piutang(): void
+    public function test_menu_unpaid_reports_only_the_outstanding_receivable(): void
     {
         $today = now()->format('Y-m-d');
         Report::create([
@@ -34,11 +34,10 @@ class MenuHookTest extends TestCase
         ]);
 
         $report = Report::whereDate('created_at', $today)->first();
-        $this->assertEquals(100000, $report->piutang);
+        $this->assertEquals(70000, $report->piutang);
 
         $bon = Bon::where('ref_menu', $menu->id)->first();
-        $this->assertNotNull($bon);
-        $this->assertEquals(70000, $bon->nominal); // sisa 70000
+        $this->assertNull($bon); // Customer debt is represented by menu, employee loans by bon.
     }
 
     public function test_menu_cascade_delete_removes_children_and_reverts_state(): void
