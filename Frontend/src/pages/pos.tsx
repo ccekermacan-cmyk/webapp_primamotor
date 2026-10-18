@@ -5382,8 +5382,9 @@ export default function MenuPage() {
                 <input
                   type="datetime-local"
                   value={quickSettleData.createdAt}
+                  disabled={isProcessing}
                   onChange={(e) => setQuickSettleData(prev => prev ? { ...prev, createdAt: e.target.value } : null)}
-                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50"
                 />
               </div>
 
@@ -5394,8 +5395,9 @@ export default function MenuPage() {
                 <input
                   type="text"
                   value={quickSettleData.note}
+                  disabled={isProcessing}
                   onChange={(e) => setQuickSettleData(prev => prev ? { ...prev, note: e.target.value } : null)}
-                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50"
                   placeholder="Contoh: Pelunasan Transfer BCA"
                 />
               </div>
@@ -5415,6 +5417,7 @@ export default function MenuPage() {
                     type="file"
                     accept="image/*"
                     multiple
+                    disabled={isProcessing}
                     id="quick-settle-file-input"
                     className="hidden"
                     onChange={(e) => {

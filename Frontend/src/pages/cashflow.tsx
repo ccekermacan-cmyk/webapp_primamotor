@@ -2729,7 +2729,8 @@ import { flushPendingSync, deleteFinancialRecord } from '../services/api/laravel
                             }
                           });
                         }} 
-                        className="col-span-1 md:w-14 h-12 md:h-14 flex-shrink-0 bg-rose-50 text-rose-600 rounded-2xl hover:bg-rose-500 hover:text-white border border-rose-100 hover:shadow-lg transition-all flex justify-center items-center group"
+                        disabled={isProcessing}
+                        className="col-span-1 md:w-14 h-12 md:h-14 flex-shrink-0 bg-rose-50 text-rose-600 rounded-2xl hover:bg-rose-500 hover:text-white border border-rose-100 hover:shadow-lg transition-all flex justify-center items-center group disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-rose-50 disabled:hover:text-rose-600"
                         title="Hapus transaksi"
                       >
                         <Trash2 size={20} className="group-hover:scale-110 transition-transform"/>
@@ -2761,7 +2762,8 @@ import { flushPendingSync, deleteFinancialRecord } from '../services/api/laravel
                           }); 
                           setModalType('form'); 
                         }}
-                        className="col-span-3 md:flex-1 h-12 md:h-14 bg-blue-500 text-white rounded-xl font-black text-[11px] md:text-xs uppercase tracking-widest hover:bg-blue-600 transition-all flex items-center justify-center"
+                        disabled={isProcessing}
+                        className="col-span-3 md:flex-1 h-12 md:h-14 bg-blue-500 text-white rounded-xl font-black text-[11px] md:text-xs uppercase tracking-widest hover:bg-blue-600 transition-all flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-blue-500"
                       >
                         Edit Transaksi
                       </button>
