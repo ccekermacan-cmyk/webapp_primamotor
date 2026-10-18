@@ -1,52 +1,72 @@
 import { pb } from '../pocketbase/client';
-import { flushPendingSync, syncLaravelEvents, type SyncEvent } from './laravel';
+import { flushPendingSync, type SyncEvent } from './laravel';
+import { createRecordId } from '../../lib/ids';
+import { ensureAtomicLedger, rememberAtomicRequest, clearAtomicRequest, resolveAtomicRequest, announcePendingAtomic, transactionError, type AtomicResult } from './atomic';
 
-const monitored = new Set(['menu', 'log_stock', 'cashflow', 'ongkos', 'bon']);
-
-// Keep response indices tied to actual PocketBase requests, including unmonitored collections.
-export function createFinancialBatch() {
+// Records, balances, stock, linked loans and reports commit inside PocketBase's transaction.
+export function createFinancialBatch(options: {draftKey?: string} = {}) {
   const batch = pb.createBatch();
-  const tracked: Array<{ index: number; entry: SyncEvent }> = [];
-  let index = 0;
+  const requestId = createRecordId(24);
+  const operations: Array<{event: string; id: string}> = [];
+  let sending: Promise<AtomicResult[]> | undefined;
+  function mutable() { if (sending) throw new Error('Batch sudah dikirim dan tidak dapat diubah.'); }
+  function confirmed(results: AtomicResult[]): AtomicResult[] {
+    if (results.length !== operations.length + 1 || results.at(-1)?.body?.atomic !== true) {
+      throw new Error('Konfirmasi commit batch tidak lengkap.');
+    }
+    operations.forEach((op,index) => {
+      const result = results[index];
+      if (!result || result.status < 200 || result.status >= 300 || (op.event !== 'deleted' && result.body?.id !== op.id)) {
+        throw new Error('Respons record batch tidak valid.');
+      }
+    });
+    return results.slice(0,-1);
+  }
   return {
     collection(name: string) {
       const service = batch.collection(name);
       return {
         create(data: Record<string, unknown> | FormData) {
-          if (monitored.has(name)) tracked.push({ index, entry: { collection: name, event: 'created', id: '' } });
-          index++;
-          service.create(data);
+          mutable();
+          const id = String(data instanceof FormData ? data.get('id') || createRecordId() : data.id || createRecordId());
+          const payload = data instanceof FormData ? new FormData() : {...data,id};
+          if (data instanceof FormData && payload instanceof FormData) data.forEach((value,key) => payload.append(key,value));
+          if (payload instanceof FormData) payload.set('id',id);
+          operations.push({event:'created',id}); service.create(payload);
         },
         update(id: string, data: Record<string, unknown> | FormData) {
-          if (monitored.has(name)) tracked.push({ index, entry: { collection: name, event: 'updated', id } });
-          index++;
-          service.update(id, data);
+          mutable(); operations.push({event:'updated',id}); service.update(id,data);
         },
-        delete(id: string) {
-          if (monitored.has(name)) tracked.push({ index, entry: { collection: name, event: 'deleted', id } });
-          index++;
-          service.delete(id);
-        },
+        delete(id: string) { mutable(); operations.push({event:'deleted',id}); service.delete(id); },
       };
     },
-    async send(extraEvents: SyncEvent[] = [], onPersisted?: () => void) {
-      await flushPendingSync();
-      await Promise.all(tracked.map(async ({ entry }) => {
-        if (entry.event === 'created') return;
-        const snapshot = await pb.collection(entry.collection).getOne(entry.id, { requestKey: null });
-        if (entry.event === 'updated') entry.old_data = snapshot;
-        else entry.record = snapshot;
-      }));
-      const results = await batch.send();
-      for (const item of tracked) {
-        const result = results[item.index];
-        if (!result || result.status >= 400) throw new Error('Respons batch tidak lengkap.');
-        if (item.entry.event === 'created') item.entry.id = result.body?.id || '';
-        if (item.entry.event !== 'deleted') item.entry.record = result.body;
-      }
-      onPersisted?.();
-      await syncLaravelEvents([...extraEvents, ...tracked.map(item => item.entry)]);
-      return results;
+    send(extraEvents: SyncEvent[] = [], onPersisted?: () => void): Promise<AtomicResult[]> {
+      if (sending) return sending;
+      sending = (async () => {
+        if (extraEvents.length) throw new Error('Semua perubahan wajib dimasukkan ke dalam batch yang sama.');
+        await flushPendingSync(); // Drain only the old application's durable outbox.
+        await ensureAtomicLedger();
+        rememberAtomicRequest(requestId,options.draftKey);
+        let results: AtomicResult[];
+        try {
+          results = confirmed(await batch.send({query:{atomic_request_id:requestId},requestKey:null}));
+        } catch (error) {
+          // The server resolves under a write lock: committed receipt OR a cancellation
+          // that prevents a late request from committing. Never guess based on HTTP status.
+          try {
+            const recovery = await resolveAtomicRequest(requestId);
+            if (recovery.status === 'committed') results = confirmed(recovery.results!);
+            else { clearAtomicRequest(requestId); throw transactionError(error); }
+          } catch (recoveryError) {
+            announcePendingAtomic();
+            throw recoveryError;
+          }
+        }
+        clearAtomicRequest(requestId);
+        onPersisted?.();
+        return results;
+      })();
+      return sending;
     },
   };
 }

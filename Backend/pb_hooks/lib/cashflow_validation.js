@@ -37,6 +37,6 @@ exports.validate = (e, editing) => {
         throw new ForbiddenError('Anda tidak memiliki akses ke akun ini.');
       }
     }
-    if (account.getFloat('number_1') + deltas[id] < -0.00001) throw new BadRequestError('Saldo akun tidak cukup untuk perubahan ini.');
+    if (!(e.requestInfo().context === 'batch' && e.get('pmAtomicBatch')) && account.getFloat('number_1') + deltas[id] < -0.00001) throw new BadRequestError('Saldo akun tidak cukup untuk perubahan ini.');
   }
 };

@@ -1,7 +1,7 @@
 import { businessDate, businessDateBoundary, csvIncludes, editableBalance } from '../lib/cashflow';
 import { createRecordId } from '../lib/ids';
 import { createFinancialBatch } from '../services/api/financialBatch';
-import { syncLaravelEvents, flushPendingSync, deleteFinancialRecord } from '../services/api/laravel';
+import { flushPendingSync, deleteFinancialRecord } from '../services/api/laravel';
   import React, { useState, useEffect, useMemo, useRef } from 'react';
   import { useNavigate } from 'react-router-dom';
   import { pb } from '../lib/pocketbase';
@@ -545,47 +545,13 @@ import { syncLaravelEvents, flushPendingSync, deleteFinancialRecord } from '../s
           return;
         }
         
-        // Batch pre-fetch semua data sekaligus
-        let allMenu: any[] = [];
-        if (activeAccountTab === 'customer' || activeAccountTab === 'supplier') {
-          allMenu = await pb.collection('menu').getFullList({
-            filter: activeAccountTab === 'supplier' ? 'jenis ~ "pembelian"' : '(jenis ~ "penjualan" || jenis ~ "service")',
-            fields: 'person,person_baru,total,dibayar',
-            $autoCancel: false,
-            batch: 500,
-          });
-        }
-        
-        // Group by person untuk perhitungan cepat
-        const menuByPerson: Record<string, number> = {};
-        allMenu.forEach(m => {
-          const personRecord = targetItems.find(item => item.id === m.person_baru || (item.id_lama && item.id_lama === m.person));
-          if (!personRecord) return;
-          const p = personRecord.id;
-          menuByPerson[p] = (menuByPerson[p] || 0) + Math.max(0, Number(m.total || 0) - Number(m.dibayar || 0));
-        });
-
-        const batch = pb.createBatch();
-        let updateCount = 0;
+        const batch = createFinancialBatch();
         for (const item of targetItems) {
-          const personId = item.id;
-          const totalBalance = menuByPerson[personId] || 0;
+          batch.collection('dropdown').update(item.id, {recalculate_person:true,text_8:dateStr});
+        }
+        const updateCount = targetItems.length;
+        await batch.send();
 
-          // INCREMENTAL DIFF: Hanya update jika saldo berubah atau belum pernah di-sync
-          const isChanged = Number(item.number_1) !== totalBalance || (item as any).text_8 !== dateStr;
-          if (isChanged) {
-            batch.collection('dropdown').update(item.id, {
-              number_1: totalBalance,
-              text_8: dateStr,
-            });
-            updateCount++;
-          }
-        }
-        
-        if (updateCount > 0) {
-          await batch.send();
-        }
-        
         // Refresh data wallets
         await fetchWallets();
         showAlert('Sukses', `Berhasil menghitung ulang & memperbarui ${updateCount} data!`);
@@ -958,7 +924,7 @@ import { syncLaravelEvents, flushPendingSync, deleteFinancialRecord } from '../s
         if (files && files.length > 0) {
           files.forEach(f => {
             if (!f.isOld) {
-              formDataObj.append("file", f); // Upload file baru ini
+              formDataObj.append(isEditMode ? "file+" : "file", f); // Upload file baru ini
             }
           });
         }
@@ -977,16 +943,11 @@ import { syncLaravelEvents, flushPendingSync, deleteFinancialRecord } from '../s
           });
         }
 
-        await flushPendingSync();
-        const record = isEditMode && selectedTx
-          ? await pb.collection('cashflow').update(selectedTx.id, formDataObj)
-          : await pb.collection('cashflow').create(formDataObj);
-        // Close the entry form once persisted, so a sync retry cannot create a duplicate.
-        setModalType(null);
-        await syncLaravelEvents([{
-          collection: 'cashflow', event: isEditMode ? 'updated' : 'created', id: record.id,
-          old_data: isEditMode && selectedTx ? { ...selectedTx } : undefined,
-        }]);
+        if (isEditMode && selectedTx) formDataObj.set('atomic_expected',JSON.stringify(selectedTx));
+        const batch = createFinancialBatch();
+        if (isEditMode && selectedTx) batch.collection('cashflow').update(selectedTx.id, formDataObj);
+        else batch.collection('cashflow').create(formDataObj);
+        await batch.send([], () => setModalType(null));
 
         setModalType(null);
         setFormData({

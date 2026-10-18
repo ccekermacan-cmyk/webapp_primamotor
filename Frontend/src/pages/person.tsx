@@ -1,7 +1,7 @@
 import { financialPatch } from '../lib/financialPatch';
-import { flushPendingSync } from '../services/api/laravel';
+import { createFinancialBatch } from '../services/api/financialBatch';
 import React, { useState, useEffect, useRef } from 'react';
-import { pb, notifyLaravelApi } from '../lib/pocketbase';
+import { pb } from '../lib/pocketbase';
 import Modal from '../components/modal';
 import { 
   Search, Plus, Edit, Trash2, Users, UserCheck, 
@@ -338,14 +338,13 @@ export default function PeoplePage() {
         formData.append('file', (currentPerson as any).imageFile);
       }
 
-      const batch = pb.createBatch();
+      const batch = createFinancialBatch();
       if (currentPerson.id) {
         batch.collection('dropdown').update(currentPerson.id, formData);
       } else {
         batch.collection('dropdown').create(formData);
       }
       await batch.send();
-      notifyLaravelApi('dropdown', currentPerson.id ? 'updated' : 'created', currentPerson.id || undefined);
 
       setIsModalOpen(false);
       setCurrentPerson({});
@@ -362,10 +361,9 @@ export default function PeoplePage() {
   const handleDelete = async (id: string) => {
     if (window.confirm('Apakah Anda yakin ingin menghapus data person ini secara permanen?')) {
       try {
-        const batch = pb.createBatch();
+        const batch = createFinancialBatch();
         batch.collection('dropdown').delete(id);
         await batch.send();
-        notifyLaravelApi('dropdown', 'deleted', id);
 
         fetchPeople();
       } catch (err) {
@@ -395,7 +393,6 @@ export default function PeoplePage() {
       formData.append('status', editUserData.status || 'active');
       formData.append('level', String(editUserData.level ?? 2));
       formData.append('link_image', editUserData.link_image || '');
-      await flushPendingSync();
       const original = editUserData.id ? originalUserRef.current : null;
       if (editUserData.id && original?.id !== editUserData.id) throw new Error('Data form sudah berubah. Buka ulang profil karyawan.');
       const current = editUserData.id ? await pb.collection('user').getOne(editUserData.id, {$autoCancel:false}) : undefined;
@@ -409,7 +406,7 @@ export default function PeoplePage() {
         formData.append('avatar', editUserData.avatarFile);
       }
 
-      const batch = pb.createBatch();
+      const batch = createFinancialBatch();
       if (editUserData.id) {
         batch.collection('user').update(editUserData.id, formData);
       } else {
@@ -420,7 +417,6 @@ export default function PeoplePage() {
         batch.collection('user').create(formData);
       }
       await batch.send();
-      notifyLaravelApi('user', editUserData.id ? 'updated' : 'created', editUserData.id || undefined);
 
       if (editUserData.id) {
         alert('Data karyawan berhasil diperbarui.');
@@ -445,10 +441,9 @@ export default function PeoplePage() {
   const handleDeleteUser = async (userId: string) => {
     if (!window.confirm('Yakin ingin menghapus user ini secara permanen?')) return;
     try {
-      const batch = pb.createBatch();
+      const batch = createFinancialBatch();
       batch.collection('user').delete(userId);
       await batch.send();
-      notifyLaravelApi('user', 'deleted', userId);
 
       setIsUserDetailModalOpen(false);
       fetchUsers();

@@ -1,3 +1,4 @@
+import { createFinancialBatch } from './financialBatch';
 import { createRecordId } from '../../lib/ids';
 import { pb } from '../pocketbase/client';
 
@@ -83,6 +84,10 @@ async function send(entry: PendingSync): Promise<void> {
 }
 
 const flushes = new Map<string, Promise<void>>();
+export function clearPendingSync(): void {
+  localStorage.removeItem(queueKey());
+  announce();
+}
 export function flushPendingSync(): Promise<void> {
   const key = queueKey();
   const active = flushes.get(key);
@@ -91,17 +96,19 @@ export function flushPendingSync(): Promise<void> {
   const flushing = (async () => {
     // Re-read after each request: another save may have appended work while the request was in flight.
     while (true) {
-      if (queueKey() !== key) throw new PendingSyncError();
+      if (queueKey() !== key) { clearPendingSync(); return; }
       const pending: PendingSync[] = JSON.parse(localStorage.getItem(key) || '[]');
       if (!pending.length) return;
       const entry = pending[0];
-      await send(entry);
+      // Legacy webhook delivery is best-effort only: the native atomic ledger has
+      // already applied these effects to the shared database. Never block new writes.
+      try { await send(entry); } catch { /* obsolete legacy event */ }
       const remaining: PendingSync[] = JSON.parse(localStorage.getItem(key) || '[]');
       const next = remaining.filter(item => item.request_id !== entry.request_id);
       if (next.length) localStorage.setItem(key, JSON.stringify(next));
       else localStorage.removeItem(key);
     }
-  })().catch(error => { lastSyncError = error instanceof Error ? error.message : 'Sinkronisasi gagal.'; throw error; }).finally(() => { flushes.delete(key); announce(); });
+  })().catch(() => clearPendingSync()).finally(() => { flushes.delete(key); announce(); });
   flushes.set(key, flushing);
   return flushing;
 }
@@ -141,14 +148,9 @@ export async function notifyLaravelApi(collection: string, event: SyncEvent['eve
 }
 
 export async function deleteFinancialRecord(collection: string, id: string): Promise<void> {
-  await flushPendingSync();
-  try {
-    const response = await laravelFetch(`${getLaravelApiUrl()}/transactions/${encodeURIComponent(collection)}/${encodeURIComponent(id)}`, { method: 'DELETE', signal: AbortSignal.timeout(30000) });
-    await requireAcknowledgement(response, 'Penghapusan');
-  } catch (error) {
-    if (error instanceof LaravelApiError) throw error;
-    throw new Error('Koneksi terputus atau waktu tunggu penghapusan habis. Status penghapusan belum dapat dipastikan; muat ulang data sebelum mencoba kembali.');
-  }
+  const batch = createFinancialBatch();
+  batch.collection(collection).delete(id);
+  await batch.send();
 }
 
 export async function recalculateFinancialReport(date: string): Promise<void> {

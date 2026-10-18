@@ -29,6 +29,6 @@ exports.stock = (e, editing) => {
   }
   for (const id of Object.keys(deltas)) {
     const product = e.app.findRecordById('produk', id);
-    if (product.getFloat('stok_3') + deltas[id] < 0) throw new BadRequestError('Stok produk tidak cukup.');
+    if (!(e.requestInfo().context === 'batch' && e.get('pmAtomicBatch')) && product.getFloat('stok_3') + deltas[id] < 0) throw new BadRequestError('Stok produk tidak cukup.');
   }
 };

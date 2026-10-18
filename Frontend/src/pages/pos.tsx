@@ -2,7 +2,7 @@ import { isIncomeTransaction, settlementRemaining, matchUnusedStockLog } from '.
 import { createRecordId } from '../lib/ids';
 import type { CheckoutForm } from '../types/pos';
 import { createFinancialBatch } from '../services/api/financialBatch';
-import { syncLaravelEvents, flushPendingSync, deleteFinancialRecord } from '../services/api/laravel';
+import { flushPendingSync, deleteFinancialRecord } from '../services/api/laravel';
 import { useLocation } from 'react-router-dom'; // Ini yang menyebabkan error ReferenceError
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useReactToPrint } from 'react-to-print';
@@ -442,7 +442,7 @@ export default function MenuPage() {
   };
 
   // Edit Session Tracker
-  const [editSession, setEditSession] = useState<{ isEditing: boolean, menuId: string, createdAt: string } | null>(null);
+  const [editSession, setEditSession] = useState<{ isEditing: boolean, menuId: string, createdAt: string, snapshot?: HistoryMenu } | null>(null);
   const [, setEditOldItems] = useState<{ item_baru?: string; item?: string; qty: number; boolean: string }[]>([]);
   const [quickSettleData, setQuickSettleData] = useState<{
     show: boolean;
@@ -738,9 +738,10 @@ export default function MenuPage() {
     setProcessingMsg('Menyiapkan batch slip gaji...');
     try {
       await flushPendingSync();
-      const grandTotal = gajiItemList.reduce((sum, item) => sum + item.netto, 0);
+      const grandTotal = gajiItemList.reduce((sum, item) => sum + calculateItemNetto(item,gajiHeader.qty), 0);
       const isEditMode = gajiEditSession !== null;
       let menuId: string;
+      const existingSalaryIds = new Set<string>();
 
       // Inisialisasi PocketBase Atomic Batch
       const batch = createFinancialBatch();
@@ -763,17 +764,16 @@ export default function MenuPage() {
           filter: `ref = "${menuId}" || ref_baru = "${menuId}"`,
           $autoCancel: false
         });
-        for (const og of oldGajiList) {
-          batch.collection('gaji').delete(og.id);
-        }
+        oldGajiList.forEach(salary => existingSalaryIds.add(salary.id));
 
         // 3. Fetch & Queue Hapus semua record bon lama yang ter-generate dari gaji ini ke batch
         const oldBonList = await pb.collection('bon').getFullList({
           filter: [pb.filter('ref_menu = {:id}', { id: menuId }), ...oldGajiList.map(g => pb.filter('ref_gaji = {:id}', { id: g.id }))].join(' || '),
           $autoCancel: false
         });
-        for (const ob of oldBonList) {
-          batch.collection('bon').delete(ob.id);
+        for (const ob of oldBonList) batch.collection('bon').delete(ob.id);
+        for (const salary of oldGajiList) {
+          if (!gajiItemList.some(item => item.id === salary.id)) batch.collection('gaji').delete(salary.id);
         }
       } else {
         // ============== MODE BARU ==============
@@ -795,7 +795,8 @@ export default function MenuPage() {
 
       // 2. Queue Simpan ulang setiap rincian karyawan ke collection 'gaji' dan 'bon' dalam atomic batch
       for (const item of gajiItemList) {
-        const salaryId = createRecordId();
+        const salaryExists = existingSalaryIds.has(item.id);
+        const salaryId = salaryExists ? item.id : createRecordId();
         const formData = new FormData();
         formData.append('id', salaryId);
         formData.append('ref', menuId);
@@ -822,11 +823,12 @@ export default function MenuPage() {
 
         if (item.files && item.files.length > 0) {
           item.files.forEach(file => {
-            formData.append('file', file);
+            formData.append(salaryExists ? 'file+' : 'file', file);
           });
         }
 
-        batch.collection('gaji').create(formData);
+        if (salaryExists) batch.collection('gaji').update(salaryId,formData);
+        else batch.collection('gaji').create(formData);
 
         // Cari user ID untuk update saldo bon
         const foundUser = allUsers.find(u => u.username === item.person || u.name === item.person || u.id === item.person);
@@ -911,7 +913,7 @@ export default function MenuPage() {
         gajiRecords = await pb.collection('gaji').getFullList({
           filter: `ref = "${menuItem.id}" || ref_baru = "${menuItem.id}"`,
           $autoCancel: false
-        }).catch(() => []);
+        });
       }
 
       // Mapping ke GajiItemForm
@@ -933,7 +935,7 @@ export default function MenuPage() {
         bpjs: Number(g.bpjs) || 0,
         bon_diambil: Number(g.bon_diambil) || 0,
         bon_dibayar: Number(g.bon_dibayar) || 0,
-        netto: Number(g.netto) || 0,
+        netto: calculateItemNetto(g,Number(menuItem.qty) || 0),
         diterima: Number(g.diterima) || 0,
         note: g.note || '',
         files: [],    // File upload baru dikosongkan; file lama tidak perlu dimuat ulang
@@ -1759,6 +1761,7 @@ export default function MenuPage() {
 
       // Pembentukan Dokumen Jurnal Formulir Data Menu Baru
       const menuFormData = new FormData();
+      if (isEditing && editSession?.snapshot) menuFormData.set('atomic_expected',JSON.stringify(editSession.snapshot));
       menuFormData.append('jenis', selectedMenu);
       menuFormData.append('person', formBayar.personIdLama);
       menuFormData.append('person_baru', selectedPersonRecordId);
@@ -1781,16 +1784,14 @@ export default function MenuPage() {
       menuFormData.append('tempo', formBayar.payment === 'Tempo' ? formBayar.tempoDate : '');
 
       if (menuFiles && menuFiles.length > 0) {
-        menuFiles.forEach(file => menuFormData.append('file', file));
+        menuFiles.forEach(file => menuFormData.append(isEditing ? 'file+' : 'file', file));
       }
 
-      const batch = pb.createBatch();
-      const notifyQueue: Array<{ type: 'menu' | 'log_stock' | 'cashflow' | 'ongkos'; action: 'created' | 'updated' | 'deleted'; id: string; oldData?: any; record?: any }> = [];
+      const batch = createFinancialBatch({draftKey:'pos_draft_cart'});
       if (!isEditing) {
         menuRecordId = createRecordId();
         menuFormData.set('id', menuRecordId);
         batch.collection('menu').create(menuFormData);
-        notifyQueue.push({ type: 'menu', action: 'created', id: menuRecordId });
       }
 
       // ========== MODE EDIT: hapus children lama terlebih dahulu (di-queue ke batch) ==========
@@ -1799,7 +1800,6 @@ export default function MenuPage() {
         for (const cf of oldCashflows) {
           if (!newCfIds.includes(cf.id)) {
             batch.collection('cashflow').delete(cf.id);
-            notifyQueue.push({ type: 'cashflow', action: 'deleted', id: cf.id, record: cf });
           }
         }
 
@@ -1809,7 +1809,6 @@ export default function MenuPage() {
         for (const ong of oldOngkos) {
           if (!activeMekanikPersonIds.includes(ong.person)) {
             batch.collection('ongkos').delete(ong.id);
-            notifyQueue.push({ type: 'ongkos', action: 'deleted', id: ong.id, record: ong });
           }
         }
       }
@@ -1868,7 +1867,6 @@ export default function MenuPage() {
               stok_awal: preflightStocks[prodId] ?? qtyAwal,
               stok_akhir: qtyAkhir,
             });
-            notifyQueue.push({ type: 'log_stock', action: 'updated', id: matchedOldLog.id, oldData: matchedOldLog });
           }
         } else {
           // NEW ITEM ADDED TO CART DURING EDIT / NEW TRANSACTION
@@ -1897,7 +1895,6 @@ export default function MenuPage() {
             stok_akhir: qtyAkhir,
           });
           // Webhook notification untuk created log_stock
-          notifyQueue.push({ type: 'log_stock', action: 'created', id: '' });
         }
       }
 
@@ -1913,7 +1910,6 @@ export default function MenuPage() {
               runningStock[log.item_baru] = afterRemoval;
             }
             batch.collection('log_stock').delete(log.id);
-            notifyQueue.push({ type: 'log_stock', action: 'deleted', id: log.id, record: log });
 
 
           }
@@ -1964,15 +1960,12 @@ export default function MenuPage() {
           if (cf.id) {
             // Update exist via Batch
             batch.collection('cashflow').update(cf.id, cfData);
-            const oldCfObj = oldCashflows.find(o => o.id === cf.id);
-            notifyQueue.push({ type: 'cashflow', action: 'updated', id: cf.id, oldData: oldCfObj });
           } else {
             // Create new via Batch
             batch.collection('cashflow').create({
               ...cfData,
               created_at: new Date().toISOString()
             });
-            notifyQueue.push({ type: 'cashflow', action: 'created', id: '' });
           }
         }
       }
@@ -1989,7 +1982,6 @@ export default function MenuPage() {
             if (existingOng) {
               if (existingOng.ongkos !== mek.ongkos) {
                 batch.collection('ongkos').update(existingOng.id, { ongkos: mek.ongkos });
-                notifyQueue.push({ type: 'ongkos', action: 'updated', id: existingOng.id, oldData: existingOng });
               }
             } else {
               batch.collection('ongkos').create({
@@ -2001,38 +1993,24 @@ export default function MenuPage() {
                 ref: '',
                 ref_baru: menuRecordId
               });
-              notifyQueue.push({ type: 'ongkos', action: 'created', id: '' });
             }
           }
         }
       }
 
       // MODE EDIT: queue update menu terakhir (setelah semua children tersusun)
-      let freshOldMenu: any = null;
       if (isEditing) {
-        freshOldMenu = await pb.collection('menu').getOne(menuRecordId, { $autoCancel: false }).catch(() => oldMenuData);
         batch.collection('menu').update(menuRecordId, menuFormData);
-        notifyQueue.push({ type: 'menu', action: 'updated', id: menuRecordId, oldData: freshOldMenu ?? undefined });
       }
 
       // EKSEKUSI POCKETBASE ATOMIC BATCH TRANSACTION
       setProcessingMsg('Mengeksekusi transaksi atomic batch ke PocketBase...');
-      const batchResults = await batch.send();
-      // Every queue entry maps to exactly one PocketBase request.
-      let resultIndex = 0;
-      for (const entry of notifyQueue) {
-        const result = batchResults[resultIndex++];
-        if (!result || result.status >= 400) throw new Error('Respons batch tidak lengkap.');
-        if (entry.action === 'created') entry.id = result.body?.id || '';
-      }
+      await batch.send();
       setIsPaymentFormOpen(false);
       try { localStorage.removeItem('pos_draft_cart'); } catch { /* Draft cleanup must not interrupt financial synchronization. */ }
       setCart([]);
       setEditSession(null);
-      await syncLaravelEvents(notifyQueue.map(entry => ({
-        collection: entry.type, event: entry.action, id: entry.id,
-        old_data: entry.oldData, record: entry.record,
-      })));
+
 
       // Siapkan State Nota Cetak Thermal Printer
       const mechanicsForPrint = formBayar.mekanikList
@@ -2264,7 +2242,7 @@ export default function MenuPage() {
         }));
           
           // Satu kali panggil set state sudah cukup
-          setEditSession({ isEditing: true, menuId: menuItem.id, createdAt: menuItem.created_at });
+          setEditSession({ isEditing: true, menuId: menuItem.id, createdAt: menuItem.created_at, snapshot: menuItem });
           setEditOldItems(logs.map((l: any) => ({ item_baru: l.item_baru || '', item: l.item || '', qty: l.qty, boolean: l.boolean })));
           setShowDetailHistory(null); // Tutup modal
           window.scrollTo(0, 0);
@@ -2397,6 +2375,7 @@ export default function MenuPage() {
         created_at: timestamp
       });
 
+      updateData.set('atomic_expected',JSON.stringify(menu));
       batch.collection('menu').update(menu.id, updateData);
 
       await batch.send([], () => setQuickSettleData(null));

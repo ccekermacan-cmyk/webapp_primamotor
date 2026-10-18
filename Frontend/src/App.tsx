@@ -1,4 +1,5 @@
-import { hasPendingSync, flushPendingSync, getPendingSyncError } from './services/api/laravel';
+import { hasPendingAtomic, recoverPendingAtomic } from './services/api/atomic';
+import { hasPendingSync, flushPendingSync } from './services/api/laravel';
 import React, { useState, lazy, Suspense, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { pb } from './lib/pocketbase';
@@ -38,20 +39,29 @@ const PageLoader = () => (
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(pb.authStore.isValid);
 
-  const [syncPending, setSyncPending] = useState(hasPendingSync);
+  const [atomicPending, setAtomicPending] = useState(hasPendingAtomic);
   const [syncBusy, setSyncBusy] = useState(false);
-  const [syncError, setSyncError] = useState(getPendingSyncError);
+  const [syncError, setSyncError] = useState('');
   const retrySync = async () => {
     setSyncBusy(true);
-    try { await flushPendingSync(); setSyncError(''); } catch (error) { setSyncError(error instanceof Error ? error.message : 'Sinkronisasi gagal.'); }
-    finally { setSyncBusy(false); setSyncPending(hasPendingSync()); }
+    try {
+      await flushPendingSync();
+      if (hasPendingAtomic()) { await recoverPendingAtomic(); window.location.reload(); return; }
+      setSyncError('');
+    } catch (error) { setSyncError(error instanceof Error ? error.message : 'Pemeriksaan transaksi gagal.'); }
+    finally { setSyncBusy(false); setAtomicPending(hasPendingAtomic()); }
   };
   useEffect(() => {
-    const refresh = () => { setSyncPending(hasPendingSync()); setSyncError(getPendingSyncError()); };
+    const refresh = () => setAtomicPending(hasPendingAtomic());
     window.addEventListener('prima:sync-change', refresh);
+    window.addEventListener('prima:atomic-change', refresh);
     const unsubscribe = pb.authStore.onChange(() => { setIsAuthenticated(pb.authStore.isValid); refresh(); });
-    if (pb.authStore.isValid && hasPendingSync()) void retrySync();
-    return () => { window.removeEventListener('prima:sync-change', refresh); unsubscribe(); };
+    if (pb.authStore.isValid) {
+      // Obsolete legacy outbox: drain best-effort in the background, never block the app.
+      if (hasPendingSync()) void flushPendingSync();
+      if (hasPendingAtomic()) void retrySync();
+    }
+    return () => { window.removeEventListener('prima:sync-change', refresh); window.removeEventListener('prima:atomic-change', refresh); unsubscribe(); };
   }, []);
 
   // Auto-reload jika ada versi baru di server (SPA staleness fix)
@@ -84,14 +94,14 @@ export default function App() {
 
   return (
     <Router>
-      {isAuthenticated && syncPending && (
+      {isAuthenticated && atomicPending && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/70 p-6">
           <div className="max-w-md rounded-2xl bg-white p-6 shadow-xl">
-            <h2 className="text-lg font-bold">Sinkronisasi transaksi tertunda</h2>
-            <p className="my-4 text-sm text-slate-600">Data sudah tersimpan. Selesaikan sinkronisasi sebelum membuat transaksi berikutnya agar stok, saldo, dan laporan konsisten. Jangan membuat ulang transaksi yang sama.</p>
+            <h2 className="text-lg font-bold">Status transaksi perlu diperiksa</h2>
+            <p className="my-4 text-sm text-slate-600">Periksa hasil transaksi sebelum melanjutkan. Sistem akan memastikan transaksi sudah tersimpan lengkap atau dibatalkan. Jangan membuat ulang transaksi yang sama selama pemeriksaan belum selesai.</p>
             {syncError && <p role="alert" className="my-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">{syncError}</p>}
             <button disabled={syncBusy} onClick={retrySync} className="rounded-xl bg-red-600 px-5 py-3 font-bold text-white disabled:opacity-50">
-              {syncBusy ? 'Menyinkronkan…' : 'Coba sinkronisasi ulang'}
+              {syncBusy ? 'Memeriksa…' : 'Periksa dan lanjutkan'}
             </button>
           </div>
         </div>

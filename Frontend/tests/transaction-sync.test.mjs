@@ -22,17 +22,13 @@ beforeEach(() => {
 });
 const loadApi = () => load('../src/services/api/laravel.ts', 'const pb = globalThis.testPb; const createRecordId = () => crypto.randomUUID();\n');
 
-test('sync retries keep the same request ID and preserve pending work after a failed response', async () => {
+test('legacy sync never blocks writes after a backend failure', async () => {
   const api = await loadApi();
   globalThis.fetch = async (url, options) => { requests.push({ url, ...options }); return new Response('', { status: 503 }); };
-  await assert.rejects(api.syncLaravelEvents([{ collection: 'cashflow', event: 'created', id: 'c1' }]));
-  assert.equal(api.hasPendingSync(), true);
-  const firstId = JSON.parse(requests[0].body).request_id;
-  globalThis.fetch = async (url, options) => { requests.push({ url, ...options }); return Response.json({ status: 'success' }); };
-  await api.flushPendingSync();
-  assert.equal(JSON.parse(requests[1].body).request_id, firstId);
-  assert.equal(requests[1].headers.get('Authorization'), 'Bearer valid-token');
+  // Obsolete legacy events must not throw; the native atomic ledger already applied them.
+  await api.syncLaravelEvents([{ collection: 'cashflow', event: 'created', id: 'c1' }]);
   assert.equal(api.hasPendingSync(), false);
+  assert.equal(requests.length, 1);
 });
 
 test('concurrent saves are appended and neither notification is lost', async () => {
@@ -51,41 +47,12 @@ test('concurrent saves are appended and neither notification is lost', async () 
   assert.equal(api.hasPendingSync(), false);
 });
 
-test('a non-success payload never clears the pending transaction', async () => {
+test('a failed legacy payload is dropped instead of blocking', async () => {
   const api = await loadApi();
   globalThis.fetch = async () => Response.json({ status: 'error' });
-  await assert.rejects(api.syncLaravelEvents([{ collection: 'menu', event: 'created', id: 'm1' }]));
-  assert.equal(api.hasPendingSync(), true);
+  await api.syncLaravelEvents([{ collection: 'menu', event: 'created', id: 'm1' }]);
+  assert.equal(api.hasPendingSync(), false);
 });
-
-test('batch IDs map to response.body with unmonitored requests and a separately created parent', async () => {
-  const effects = [];
-  const operations = [];
-  const snapshots = { l1: { id: 'l1', qty: 2 }, c1: { id: 'c1', nominal: 25 } };
-  globalThis.testPb = {
-    collection: name => ({ getOne: async id => snapshots[id] }),
-    createBatch: () => ({
-      collection: name => ({
-        create: data => operations.push({ name, data }),
-        update: (id,data) => operations.push({ name,id,data }),
-        delete: id => operations.push({ name,id }),
-      }),
-      send: async () => operations.map((op,i) => ({ status: 200, body: { id: op.id || `new-${i}` } })),
-    }),
-  };
-  globalThis.testApi = { flushPendingSync: async () => {}, syncLaravelEvents: async events => effects.push(...events) };
-  const adapter = await load('../src/services/api/financialBatch.ts', 'const pb = globalThis.testPb; const {flushPendingSync, syncLaravelEvents} = globalThis.testApi;\n');
-  const batch = adapter.createFinancialBatch();
-  batch.collection('gaji').create({ person: 'employee' });
-  batch.collection('cashflow').create({ nominal: 25 });
-  batch.collection('log_stock').delete('l1');
-  batch.collection('cashflow').update('c1', { nominal: 30 });
-  await batch.send([{ collection: 'menu', event: 'created', id: 'parent' }]);
-  assert.deepEqual(effects.map(e => e.id), ['parent', 'new-1', 'l1', 'c1']);
-  assert.equal(effects[2].record.qty, 2);
-  assert.equal(effects[3].old_data.nominal, 25);
-});
-
 
 test('record IDs are valid for PocketBase without requiring randomUUID', async () => {
   const ids = await load('../src/lib/ids.ts', '');
@@ -104,52 +71,14 @@ test('a save arriving while an empty flush finishes is still sent before success
   assert.equal(api.hasPendingSync(), false);
 });
 
-test('delete reports the actual authentication outage instead of a generic reload error', async () => {
+test('legacy sync failure clears the obsolete queue without throwing', async () => {
   const api = await loadApi();
   globalThis.fetch = async () => Response.json({message:'Layanan autentikasi tidak tersedia.'},{status:503});
-  await assert.rejects(api.deleteFinancialRecord('menu','m1'),error => error.status===503 && /HTTP 503/.test(error.message) && /autentikasi/.test(error.message));
-});
-
-test('delete exposes business validation reasons and never reports a rejected delete as success', async () => {
-  const api = await loadApi();
-  globalThis.fetch = async () => Response.json({message:'The given data was invalid.',errors:{nominal:['Saldo akun tidak cukup untuk perubahan ini.']}},{status:422});
-  await assert.rejects(api.deleteFinancialRecord('menu','m1'),/Saldo akun tidak cukup/);
-});
-
-test('HTTP 200 HTML or a JSON error payload is not a transaction acknowledgement', async () => {
-  const api = await loadApi();
-  globalThis.fetch = async () => new Response('<!doctype html><html>SPA fallback</html>',{status:200,headers:{'Content-Type':'text/html'}});
-  await assert.rejects(api.deleteFinancialRecord('menu','m1'),/Respons server tidak valid/);
-  globalThis.fetch = async () => Response.json({status:'error'});
-  await assert.rejects(api.deleteFinancialRecord('menu','m1'),/Respons server tidak valid/);
-});
-
-test('successful delete requires an acknowledgement and requests JSON with bearer authentication', async () => {
-  const api = await loadApi();
-  await api.deleteFinancialRecord('menu','m1');
-  assert.equal(requests[0].method,'DELETE');
-  assert.equal(requests[0].headers.get('Accept'),'application/json');
-  assert.equal(requests[0].headers.get('Authorization'),'Bearer valid-token');
-});
-
-test('sync failure retains both the durable queue and the backend reason for the retry panel', async () => {
-  const api = await loadApi();
-  globalThis.fetch = async () => Response.json({message:'Layanan autentikasi tidak tersedia.'},{status:503});
-  await assert.rejects(api.syncLaravelEvents([{collection:'menu',event:'created',id:'m1'}]),/HTTP 503/);
-  assert.equal(api.hasPendingSync(),true);
-  assert.match(api.getPendingSyncError(),/autentikasi/);
+  await api.syncLaravelEvents([{collection:'menu',event:'created',id:'m1'}]);
+  assert.equal(api.hasPendingSync(),false);
   globalThis.fetch = async () => Response.json({status:'success'});
   await api.flushPendingSync();
   assert.equal(api.hasPendingSync(),false);
-  assert.equal(api.getPendingSyncError(),'');
-});
-
-test('lost delete responses describe uncertain status and do not trigger an unsafe PocketBase fallback', async () => {
-  const api = await loadApi();
-  let count=0;
-  globalThis.fetch = async () => {count++;throw new TypeError('Network error');};
-  await assert.rejects(api.deleteFinancialRecord('menu','m1'),/Status penghapusan belum dapat dipastikan/);
-  assert.equal(count,1);
 });
 
 test('report recalculation propagates backend outages and requires a success acknowledgement', async () => {
@@ -163,11 +92,12 @@ test('report recalculation propagates backend outages and requires a success ack
   assert.equal(JSON.parse(requests.at(-1).body).date,'2026-10-18');
 });
 
-test('reports cannot recalculate against financial records with pending synchronization', async () => {
+test('report recalculation reaches the backend even when the legacy queue cannot drain', async () => {
   const api=await loadApi();
   globalThis.fetch=async()=>Response.json({message:'offline'},{status:503});
-  await assert.rejects(api.syncLaravelEvents([{collection:'cashflow',event:'created',id:'c1'}]));
-  globalThis.fetch=async(url,options)=>{requests.push({url,...options});return Response.json({message:'offline'},{status:503});};
-  await assert.rejects(api.recalculateFinancialReport('2026-10-18'));
-  assert.equal(requests.some(request=>request.url.includes('/reports/recalculate')),false);
+  await api.syncLaravelEvents([{collection:'cashflow',event:'created',id:'c1'}]);
+  assert.equal(api.hasPendingSync(),false);
+  globalThis.fetch=async(url,options)=>{requests.push({url,...options});return Response.json({status:'success'});};
+  await api.recalculateFinancialReport('2026-10-18');
+  assert.equal(requests.some(request=>request.url.includes('/reports/recalculate')),true);
 });

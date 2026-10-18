@@ -521,7 +521,7 @@ const fetchRelatedProducts = async (sp: Produk) => {
     try {
       await flushPendingSync();
       // Eksekusi Hapus Produk via PocketBase Atomic Batch
-      const batch = pb.createBatch();
+      const batch = createFinancialBatch();
       batch.collection('produk').delete(selectedProduct.id);
       await batch.send();
 
@@ -685,6 +685,7 @@ const fetchRelatedProducts = async (sp: Produk) => {
         // INCREMENTAL DIFF LOG STOK: Jika stok berubah saat edit, queue pencatatan log_stock
         if (stockDiff !== 0) {
           batch.collection('log_stock').create({
+            expected_stock: oldStok,
             id_lama: '',
             created_at: timestamp,
             operator: operatorName,

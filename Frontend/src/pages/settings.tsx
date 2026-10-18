@@ -1,7 +1,7 @@
 import { financialPatch } from '../lib/financialPatch';
-import { flushPendingSync } from '../services/api/laravel';
+import { createFinancialBatch } from '../services/api/financialBatch';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { pb, notifyLaravelApi } from '../lib/pocketbase';
+import { pb } from '../lib/pocketbase';
 import Modal from '../components/modal';
 import { 
   Settings as SettingsIcon, 
@@ -358,23 +358,19 @@ export default function Settings() {
       };
 
       const isEditMode = selectedItem?.id && modalType === 'form';
-      const batch = pb.createBatch();
+      const batch = createFinancialBatch();
 
-      await flushPendingSync();
       if (isEditMode && selectedItem) {
-        const current = await pb.collection('dropdown').getOne(selectedItem.id, {$autoCancel:false});
+        // Level 1 is the super admin: allow any correction without the stale-balance guard.
+        const isLevel1 = localStorage.getItem('user_level') === '1';
+        const current = isLevel1 ? undefined : await pb.collection('dropdown').getOne(selectedItem.id, {$autoCancel:false});
         payload = financialPatch(payload, {...selectedItem}, ['number_1','number_2','number_3','number_4','number_5'], current);
         batch.collection('dropdown').update(selectedItem.id, payload);
       } else {
         batch.collection('dropdown').create(payload);
       }
 
-      const batchResults: any = await batch.send();
-      const resId = (batchResults && batchResults[0]?.body?.id) ? batchResults[0].body.id : (selectedItem?.id || '');
-
-      if (resId) {
-        await notifyLaravelApi('dropdown', isEditMode ? 'updated' : 'created', resId, payload).catch(() => null);
-      }
+      await batch.send();
 
       setModalType(null);
       await fetchDropdowns();
@@ -405,12 +401,10 @@ export default function Settings() {
     mutationLockRef.current = true;
     setIsProcessing(true);
     try {
-      const batch = pb.createBatch();
-      await flushPendingSync();
+      const batch = createFinancialBatch();
       batch.collection('dropdown').delete(selectedItem.id);
       await batch.send();
 
-      await notifyLaravelApi('dropdown', 'deleted', selectedItem.id).catch(() => null);
       setModalType(null);
       await fetchDropdowns();
 

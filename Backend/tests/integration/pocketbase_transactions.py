@@ -21,7 +21,7 @@ source.close()
 for p in (root/'Backend/pb_hooks').glob('*.js'):
  (tmp/'hooks'/p.name).write_text(p.read_text().replace('http://pm-nginx','http://127.0.0.1:18080'))
 shutil.copytree(root/'Backend/pb_hooks/lib',tmp/'hooks/lib')
-pbflags=['--dir',str(data),'--migrationsDir',str(tmp/'migrations'),'--hooksDir',str(tmp/'hooks')]
+pbflags=['--dev','--dir',str(data),'--migrationsDir',str(tmp/'migrations'),'--hooksDir',str(tmp/'hooks')]
 subprocess.run([str(root/'Backend/pocketbase'),'superuser','create','integration@example.test','Local-Test-Only-Password-429!',*pbflags],check=True,stdout=subprocess.DEVNULL)
 processes=[];logs=[];passed=False;smtp_server=None
 def api(base,path,method='GET',body=None,token=None):
@@ -49,6 +49,8 @@ try:
  shutil.copy(root/'Backend/pb_migrations/1792271000_protect_employee_history.js',tmp/'migrations')
  shutil.copy(root/'Backend/pb_migrations/1792271100_scope_salary_reads.js',tmp/'migrations')
  shutil.copy(root/'Backend/pb_migrations/1792271200_protect_product_stock.js',tmp/'migrations')
+ shutil.copy(root/'Backend/pb_migrations/1792271300_atomic_ledger.js',tmp/'migrations')
+ shutil.copy(root/'Backend/pb_migrations/1792271400_atomic_receipts.js',tmp/'migrations')
  subprocess.run([str(root/'Backend/pocketbase'),'migrate','up',*pbflags],check=True,stdout=subprocess.DEVNULL)
  processes[0]=subprocess.Popen([str(root/'Backend/pocketbase'),'serve','--http','127.0.0.1:18090',*pbflags],stdout=f,stderr=subprocess.STDOUT);wait(pb+'/api/health')
  # Enable atomic batch requests in the isolated PocketBase instance.
@@ -225,6 +227,147 @@ try:
  _,unusedProduct=api(pb,'/api/collections/produk/records','POST',{'id_lama':'UNUSD','kategori':'Sparepart','stok_3':0},token)
  api(pb,'/api/collections/produk/records/'+unusedProduct['id'],'DELETE',token=token)
  print('PASS: atomic product/opening stock, duplicate rollback, stock/price guards, role checks, selective photos and deletion history')
+ # No webhook call is allowed between a native mutation and these assertions.
+ def record(table, id): return api(pb,'/api/collections/'+table+'/records/'+id,token=token)[1]
+ def operation(table, body=None, id=None, method='POST'):
+  return {'method':method,'url':'/api/collections/'+table+'/records'+('/'+id if id else ''),**({'body':body} if body is not None else {})}
+ _,atomicWallet=api(pb,'/api/collections/dropdown/records','POST',{'id_lama':'atomic-wallet','text_1':'atomic-wallet','number_1':100},admin)
+ _,atomicItem=api(pb,'/api/collections/produk/records','POST',{'id_lama':'ATMC','kategori':'Sparepart','stok_3':0},admin)
+ api(pb,'/api/collections/log_stock/records','POST',{'item_baru':atomicItem['id'],'qty':5,'boolean':'in','created_at':'2026-10-18 04:00:00.000Z'},token)
+ assert record('produk',atomicItem['id'])['stok_3']==5
+ # Individually valid debits become invalid together; the final guard must roll back all rows.
+ for table,bodies in [
+  ('cashflow',[{'account_1':atomicWallet['id'],'nominal':60,'mutasi':'out','jenis':'operasional'}]*2),
+  ('log_stock',[{'item_baru':atomicItem['id'],'qty':3,'boolean':'out'}]*2)]:
+  fixture_ids=['atomicfail00001','atomicfail00002']
+  denied('/api/batch','POST',{'requests':[operation(table,dict(body,id=id)) for body,id in zip(bodies,fixture_ids)]},token)
+  for id in fixture_ids: denied('/api/collections/'+table+'/records/'+id,auth_token=token)
+  assert record('produk',atomicItem['id'])['stok_3']==5
+  assert record('dropdown',atomicWallet['id'])['number_1']==100
+ # Create -> edit -> delete restores both affected wallets, without notification or snapshots from a browser.
+ _,targetWallet=api(pb,'/api/collections/dropdown/records','POST',{'id_lama':'atomic-target','text_1':'atomic-target','number_1':20},admin)
+ _,transfer=api(pb,'/api/collections/cashflow/records','POST',{'account_1':atomicWallet['id'],'account_2':targetWallet['id'],'nominal':40,'mutasi':'out','jenis':'transfer'},token)
+ assert record('dropdown',atomicWallet['id'])['number_1']==60
+ assert record('dropdown',targetWallet['id'])['number_1']==60
+ api(pb,'/api/collections/cashflow/records/'+transfer['id'],'PATCH',{'nominal':25},token)
+ assert record('dropdown',atomicWallet['id'])['number_1']==75
+ assert record('dropdown',targetWallet['id'])['number_1']==45
+ api(pb,'/api/collections/cashflow/records/'+transfer['id'],'DELETE',token=token)
+ assert record('dropdown',atomicWallet['id'])['number_1']==100
+ assert record('dropdown',targetWallet['id'])['number_1']==20
+ # A delete that would undo already spent income must leave both parent and children intact.
+ _,blockedMenu=api(pb,'/api/collections/menu/records','POST',{'jenis':'penjualan','total':200,'created_at':'2026-10-18 04:00:00.000Z'},token)
+ _,blockedCf=api(pb,'/api/collections/cashflow/records','POST',{'account_1':atomicWallet['id'],'nominal':200,'mutasi':'in','ref_baru':blockedMenu['id'],'jenis':'penjualan'},token)
+ _,spend=api(pb,'/api/collections/cashflow/records','POST',{'account_1':atomicWallet['id'],'nominal':250,'mutasi':'out','jenis':'operasional'},token)
+ denied('/api/collections/menu/records/'+blockedMenu['id'],'DELETE',auth_token=token)
+ assert record('menu',blockedMenu['id'])['dibayar']==200
+ assert record('cashflow',blockedCf['id'])['nominal']==200
+ assert record('dropdown',atomicWallet['id'])['number_1']==50
+ # Replacing an equivalent payment is valid even if the first delete temporarily goes negative.
+ _,replaced=api(pb,'/api/batch','POST',{'requests':[
+  operation('cashflow',id=blockedCf['id'],method='DELETE'),
+  operation('cashflow',{'account_1':atomicWallet['id'],'nominal':200,'mutasi':'in','ref_baru':blockedMenu['id'],'jenis':'penjualan'})]},token)
+ assert record('dropdown',atomicWallet['id'])['number_1']==50
+ assert record('menu',blockedMenu['id'])['dibayar']==200
+ api(pb,'/api/collections/cashflow/records/'+spend['id'],'DELETE',token=token)
+ api(pb,'/api/collections/menu/records/'+blockedMenu['id'],'DELETE',token=token)
+ assert record('dropdown',atomicWallet['id'])['number_1']==100
+ print('PASS: native atomic CRUD, cumulative overdraft/stock rollback, exact transfer reversal and failed cascade rollback without Laravel sync')
+ # Durable receipts make lost-response retries exactly once, and resolution fences late requests.
+ receiptId='integration-receipt-001'
+ receiptBody={'requests':[operation('cashflow',{'id':'receiptcash0001','account_1':atomicWallet['id'],'nominal':12,'mutasi':'in','jenis':'pemasukanlain','created_at':'2026-10-18 04:00:00.000Z'})]}
+ _,receiptFirst=api(pb,'/api/batch?atomic_request_id='+receiptId,'POST',receiptBody,token)
+ _,receiptRetry=api(pb,'/api/batch?atomic_request_id='+receiptId,'POST',receiptBody,token)
+ assert receiptFirst[0]['body']['id']==receiptRetry[0]['body']['id']
+ assert record('dropdown',atomicWallet['id'])['number_1']==112
+ _,resolution=api(pb,'/api/financial/requests/'+receiptId+'/resolve','POST',{},token)
+ assert resolution['status']=='committed' and resolution['results'][-1]['body']['atomic']
+ cancelledId='integration-cancel-001'
+ assert api(pb,'/api/financial/requests/'+cancelledId+'/resolve','POST',{},token)[1]['status']=='cancelled'
+ denied('/api/batch?atomic_request_id='+cancelledId,'POST',{'requests':[operation('cashflow',{'id':'cancelcash00001','account_1':atomicWallet['id'],'nominal':99,'mutasi':'in'})]},token)
+ denied('/api/collections/cashflow/records/cancelcash00001',auth_token=token)
+ assert record('dropdown',atomicWallet['id'])['number_1']==112
+ # Another authenticated user cannot retrieve the owner's receipt.
+ assert api(pb,'/api/financial/requests/'+receiptId+'/resolve','POST',{},staff_auth['token'])[1]['status']=='cancelled'
+ print('PASS: exactly-once receipts, lost response resolution, late request cancellation and receipt owner isolation')
+ # One stock edit may move a transaction between products; delete must undo the new product only.
+ _,secondItem=api(pb,'/api/collections/produk/records','POST',{'id_lama':'ATMC2','kategori':'Sparepart','stok_3':0},admin)
+ api(pb,'/api/collections/log_stock/records','POST',{'item_baru':secondItem['id'],'qty':4,'boolean':'in'},token)
+ _,movedLog=api(pb,'/api/collections/log_stock/records','POST',{'item_baru':atomicItem['id'],'qty':3,'boolean':'out'},token)
+ assert record('produk',atomicItem['id'])['stok_3']==2
+ api(pb,'/api/collections/log_stock/records/'+movedLog['id'],'PATCH',{'item_baru':secondItem['id'],'qty':2},token)
+ assert record('produk',atomicItem['id'])['stok_3']==5
+ assert record('produk',secondItem['id'])['stok_3']==2
+ api(pb,'/api/collections/log_stock/records/'+movedLog['id'],'DELETE',token=token)
+ assert record('produk',secondItem['id'])['stok_3']==4
+ # A mixed batch may temporarily overdraw an account, but the NET transfer must be valid.
+ _,netTransfers=api(pb,'/api/batch','POST',{'requests':[
+  operation('cashflow',{'account_1':atomicWallet['id'],'account_2':targetWallet['id'],'nominal':150,'mutasi':'out','jenis':'transfer'}),
+  operation('cashflow',{'account_1':targetWallet['id'],'account_2':atomicWallet['id'],'nominal':100,'mutasi':'out','jenis':'transfer'})]},token)
+ assert record('dropdown',atomicWallet['id'])['number_1']==62
+ assert record('dropdown',targetWallet['id'])['number_1']==70
+ api(pb,'/api/batch','POST',{'requests':[operation('cashflow',id=r['body']['id'],method='DELETE') for r in netTransfers[:-1]]},token)
+ assert record('dropdown',atomicWallet['id'])['number_1']==112
+ assert record('dropdown',targetWallet['id'])['number_1']==20
+ # Native daily totals must match the report service used by the report page.
+ reportFilter=urllib.parse.urlencode({'filter':'created_at >= "2026-10-18 00:00:00.000Z" && created_at < "2026-10-19 00:00:00.000Z"'})
+ beforeReport=api(pb,'/api/collections/report/records?'+reportFilter,token=token)[1]['items'][0]
+ api(pb,'/api/reports/recalculate','POST',{'date':'2026-10-18'},token)
+ afterReport=api(pb,'/api/collections/report/records/'+beforeReport['id'],token=token)[1]
+ for field in ['omset_toko','omset_servis','omset_minuman','laba_penjualan','laba_service','laba_minuman','piutang','hutang','kasir_toko','pemasukan_lain','pengeluaran_lain','operasional_toko']:
+  assert beforeReport[field]==afterReport[field],(field,beforeReport[field],afterReport[field])
+ print('PASS: cross-product stock edit/delete, net transfer validation and native/Laravel report parity')
+ # Cross-session contention must not overspend or apply a duplicate request twice.
+ from concurrent.futures import ThreadPoolExecutor
+ def concurrent_call(body,request_id):
+  try: return api(pb,'/api/batch?atomic_request_id='+request_id,'POST',body,token)[0]
+  except RuntimeError: return 400
+ duplicateBody={'requests':[operation('cashflow',{'id':'concurrentcf001','account_1':atomicWallet['id'],'nominal':2,'mutasi':'in'})]}
+ with ThreadPoolExecutor(max_workers=2) as pool:
+  statuses=list(pool.map(lambda _:concurrent_call(duplicateBody,'concurrent-same-001'),range(2)))
+ assert 200 in statuses
+ assert record('dropdown',atomicWallet['id'])['number_1']==114
+ assert api(pb,'/api/financial/requests/concurrent-same-001/resolve','POST',{},token)[1]['status']=='committed'
+ with ThreadPoolExecutor(max_workers=2) as pool:
+  statuses=list(pool.map(lambda i:concurrent_call({'requests':[operation('cashflow',{'id':f'concurrentout0{i}','account_1':atomicWallet['id'],'nominal':70,'mutasi':'out','jenis':'operasional'})]},f'concurrent-out-00{i}'),range(2)))
+ assert statuses.count(200)==1,statuses
+ assert record('dropdown',atomicWallet['id'])['number_1']==44
+ # Reject stale financial edits and absolute stock corrections INSIDE the transaction.
+ denied('/api/collections/cashflow/records/receiptcash0001','PATCH',{'nominal':999,'atomic_expected':json.dumps({'nominal':11})},token)
+ assert record('cashflow','receiptcash0001')['nominal']==12
+ denied('/api/batch','POST',{'requests':[operation('log_stock',{'id':'stalestock00001','item_baru':atomicItem['id'],'qty':2,'boolean':'in','expected_stock':4})]},token)
+ assert record('produk',atomicItem['id'])['stok_3']==5
+ print('PASS: concurrent same-key retries, competing debits, stale edits and stale stock corrections')
+ # Laravel can be unavailable without leaving a native CRUD half-applied.
+ processes[1].terminate();processes[1].wait(timeout=5)
+ _,independent=api(pb,'/api/batch?atomic_request_id=without-laravel-001','POST',{'requests':[operation('cashflow',{'id':'independentcf01','account_1':atomicWallet['id'],'nominal':3,'mutasi':'in'})]},token)
+ assert record('dropdown',atomicWallet['id'])['number_1']==47
+ api(pb,'/api/collections/cashflow/records/independentcf01','DELETE',token=token)
+ assert record('dropdown',atomicWallet['id'])['number_1']==44
+ processes[1]=subprocess.Popen(['php8.3','-S','127.0.0.1:18080','-t',str(root/'Backend/public')],cwd=root/'Backend',env=env,stdout=logs[1],stderr=subprocess.STDOUT)
+ wait('http://127.0.0.1:18080/up')
+ print('PASS: financial create/delete commits correctly while Laravel is stopped')
+ # Customer debt is recalculated from the same committed menu/payment state.
+ _,customerA=api(pb,'/api/collections/dropdown/records','POST',{'id_lama':'CSTA','text_1':'Customer A','kategori':'person','jenis':'customer','number_1':0},admin)
+ _,customerB=api(pb,'/api/collections/dropdown/records','POST',{'id_lama':'CSTB','text_1':'Customer B','kategori':'person','jenis':'customer','number_1':0},admin)
+ _,creditMenu=api(pb,'/api/collections/menu/records','POST',{'jenis':'penjualan','total':500,'person_baru':customerA['id'],'created_at':'2026-10-18 04:00:00.000Z'},token)
+ assert record('dropdown',customerA['id'])['number_1']==500
+ _,creditPayment=api(pb,'/api/collections/cashflow/records','POST',{'account_1':atomicWallet['id'],'ref_baru':creditMenu['id'],'nominal':100,'mutasi':'in','jenis':'penjualan','created_at':'2026-10-18 04:00:00.000Z'},token)
+ assert record('dropdown',customerA['id'])['number_1']==400
+ api(pb,'/api/collections/menu/records/'+creditMenu['id'],'PATCH',{'total':600,'person_baru':customerB['id']},token)
+ assert record('dropdown',customerA['id'])['number_1']==0
+ assert record('dropdown',customerB['id'])['number_1']==500
+ api(pb,'/api/collections/cashflow/records/'+creditPayment['id'],'DELETE',token=token)
+ assert record('dropdown',customerB['id'])['number_1']==600
+ api(pb,'/api/collections/menu/records/'+creditMenu['id'],'DELETE',token=token)
+ assert record('dropdown',customerB['id'])['number_1']==0
+ api(pb,'/api/batch','POST',{'requests':[operation('dropdown',{'recalculate_person':True},id=customerB['id'],method='PATCH')]},token)
+ assert record('dropdown',customerB['id'])['number_1']==0
+ print('PASS: customer debt follows create, partial payment, changed person/total, payment delete and parent delete atomically')
+
+
+
+
  # Personal account data is protected by server rules, including direct unfiltered requests.
  _,mechanic=api(pb,'/api/collections/user/records','POST',{'email':'mechanic@example.test','username':'integrationmechanic','name':'Integration Mechanic','status':'Active','level':10,'password':'Local-Mechanic-Old-729!','passwordConfirm':'Local-Mechanic-Old-729!'},admin)
  _,mechanic_auth=api(pb,'/api/collections/user/auth-with-password','POST',{'identity':'integrationmechanic','password':'Local-Mechanic-Old-729!'})
@@ -313,6 +456,20 @@ try:
  _,emailAuth=api(pb,'/api/collections/user/auth-with-password','POST',{'identity':'confirmed-mechanic@example.test','password':'Local-Mechanic-New-729!'})
  assert emailAuth['record']['id']==mechanic['id']
  print('PASS: email changes only after confirming the emailed token with the correct password (local SMTP)')
+ if os.environ.get('PM_SCALE_TEST')=='1':
+  # Synthetic history only, in the disposable database: 200k alternating movements net to zero.
+  fixture=sqlite3.connect(data/'data.db')
+  fixture.executemany('INSERT INTO log_stock(id,item_baru,qty,boolean,created_at) VALUES (?,?,?,?,?)',
+   ((f'perf{i:011d}',atomicItem['id'],1,'in' if i%2==0 else 'out','2020-01-01 00:00:00.000Z') for i in range(200000)))
+  fixture.commit();fixture.close()
+  started=time.monotonic()
+  _,scaleLog=api(pb,'/api/collections/log_stock/records','POST',{'item_baru':atomicItem['id'],'qty':1,'boolean':'out','created_at':'2026-10-18 04:00:00.000Z'},token)
+  assert record('produk',atomicItem['id'])['stok_3']==4
+  api(pb,'/api/collections/log_stock/records/'+scaleLog['id'],'DELETE',token=token)
+  assert record('produk',atomicItem['id'])['stok_3']==5
+  elapsed=time.monotonic()-started
+  assert elapsed<25,elapsed
+  print(f'PASS: create/delete over 200,000 synthetic historical stock rows restored exact stock in {elapsed:.2f}s')
  passed=True
 except Exception:
  print('Isolated logs:',tmp)

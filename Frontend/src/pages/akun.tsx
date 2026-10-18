@@ -248,7 +248,7 @@ export default function AkunPage() {
       }
       setUserData(updated);
       setFormData(updated);
-      localStorage.setItem('user_name', updated.name || updated.username);
+      try { localStorage.setItem('user_name', updated.name || updated.username); } catch { /* Profile is already committed; cache failure must not report a failed save. */ }
       await fetchHistory(updated);
 
       alert("Profil berhasil diperbarui!");

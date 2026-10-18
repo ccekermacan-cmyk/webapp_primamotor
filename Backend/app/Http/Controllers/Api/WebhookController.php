@@ -45,6 +45,7 @@ class WebhookController extends Controller
             if (!$this->idempotency->addMark('batch:' . $data['request_id'])) return;
             $dates = [];
             foreach ($this->orderEffects($data['events']) as $entry) {
+                if (app(\App\Services\NativeAtomicLedger::class)->alreadyApplied($entry)) continue;
                 $class = self::MODELS[$entry['collection']];
                 $model = $class::find($entry['id']);
                 if (!$model && $entry['event'] === 'deleted' && !empty($entry['record'])) {
