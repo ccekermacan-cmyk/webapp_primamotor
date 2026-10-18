@@ -235,7 +235,8 @@ function report(app, date) {
   const start = new Date(date+'T00:00:00+07:00');
   const params = {start:start.toISOString(),end:new Date(start.getTime()+86400000).toISOString()};
   const aggregate = (query, fields) => {
-    const result = new DynamicModel(Object.fromEntries(fields.map(field => [field,0])));
+    // Seed with a non-integral float: goja maps integral JS numbers to int64, but report sums are REAL.
+    const result = new DynamicModel(Object.fromEntries(fields.map(field => [field,0.5])));
     app.db().newQuery(query).bind(params).one(result);
     for (const field of fields) totals[field] = Number(result[field] || 0);
   };
@@ -275,7 +276,8 @@ exports.personBalance = (app, person) => {
   const kind = lower(person,'jenis');
   const supplier = kind.includes('supplier');
   if (!supplier && !kind.includes('customer')) fail('Hitung ulang hanya tersedia untuk pelanggan atau supplier.');
-  const result = new DynamicModel({balance:0});
+  // goja exports integral JS numbers as int64; balance is a REAL sum, so seed with a non-integral float.
+  const result = new DynamicModel({balance:0.5});
   const category = supplier ? "LOWER(jenis) LIKE '%pembelian%'" : "(LOWER(jenis) LIKE '%penjualan%' OR LOWER(jenis) LIKE '%service%' OR LOWER(jenis) LIKE '%servis%')";
   app.db().newQuery(`SELECT COALESCE(SUM(MAX(0,total-dibayar)),0) AS balance FROM menu
     WHERE (person_baru={:id} OR (COALESCE(person_baru,'')='' AND person!='' AND (person={:id} OR person={:code}))) AND ${category}`)

@@ -364,6 +364,12 @@ try:
  api(pb,'/api/batch','POST',{'requests':[operation('dropdown',{'recalculate_person':True},id=customerB['id'],method='PATCH')]},token)
  assert record('dropdown',customerB['id'])['number_1']==0
  print('PASS: customer debt follows create, partial payment, changed person/total, payment delete and parent delete atomically')
+ # Decimal money must not fail the balance scan with a float64 -> int64 conversion.
+ _,decimalMenu=api(pb,'/api/collections/menu/records','POST',{'jenis':'penjualan','total':500.5,'person_baru':customerA['id'],'created_at':'2026-10-18 04:00:00.000Z'},token)
+ assert record('dropdown',customerA['id'])['number_1']==500.5
+ api(pb,'/api/collections/menu/records/'+decimalMenu['id'],'DELETE',token=token)
+ assert record('dropdown',customerA['id'])['number_1']==0
+ print('PASS: decimal customer balance is scanned without a float64/int64 conversion error')
 
 
 
