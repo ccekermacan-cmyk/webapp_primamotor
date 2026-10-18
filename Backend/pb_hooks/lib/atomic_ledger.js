@@ -209,9 +209,9 @@ function rebuildAccount(app, id) {
     SELECT id,source,delta,SUM(delta) OVER () AS total,
       SUM(delta) OVER (ORDER BY datetime(created_at),id ROWS UNBOUNDED PRECEDING) AS running FROM movement
   ) UPDATE cashflow SET
-    saldo_awal = {:balance} - (SELECT total-running+delta FROM ledger WHERE ledger.id=cashflow.id),
-    saldo_akhir = {:balance} - (SELECT total-running FROM ledger WHERE ledger.id=cashflow.id)
-    WHERE id IN (SELECT id FROM ledger WHERE source)`, {id,code:text(account,'id_lama'),balance});
+    saldo_awal = {:balance} - (l.total-l.running+l.delta),
+    saldo_akhir = {:balance} - (l.total-l.running)
+    FROM ledger l WHERE l.id=cashflow.id AND l.source`, {id,code:text(account,'id_lama'),balance});
 }
 function rebuildStock(app, id, priceChanged) {
   const product = find(app,'produk',id);
@@ -224,9 +224,9 @@ function rebuildStock(app, id, priceChanged) {
     SELECT id,delta,SUM(delta) OVER () AS total,
       SUM(delta) OVER (ORDER BY datetime(created_at),id ROWS UNBOUNDED PRECEDING) AS running FROM movement
   ) UPDATE log_stock SET
-    stok_awal={:balance}-(SELECT total-running+delta FROM ledger WHERE ledger.id=log_stock.id),
-    stok_akhir={:balance}-(SELECT total-running FROM ledger WHERE ledger.id=log_stock.id)
-    WHERE id IN (SELECT id FROM ledger)`, {id,balance});
+    stok_awal={:balance}-(l.total-l.running+l.delta),
+    stok_akhir={:balance}-(l.total-l.running)
+    FROM ledger l WHERE l.id=log_stock.id`, {id,balance});
   if (priceChanged) sql(app, `UPDATE produk SET beli=COALESCE((SELECT price_1 FROM log_stock
     WHERE item_baru={:id} AND boolean='in' AND price_1>0 ORDER BY datetime(created_at) DESC,id DESC LIMIT 1),0) WHERE id={:id}`,{id});
 }

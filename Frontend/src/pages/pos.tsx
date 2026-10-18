@@ -2309,28 +2309,22 @@ export default function MenuPage() {
     setProcessingMsg('Menyimpan pelunasan atomic batch...');
 
     try {
-      await flushPendingSync();
-      const menu = await pb.collection('menu').getOne<HistoryMenu>(displayedMenu.id, {$autoCancel:false});
+      // Satu round-trip paralel, bukan tiga berurutan; saldo diverifikasi ulang server-side oleh ledger.
+      const [menu, personRec] = await Promise.all([
+        pb.collection('menu').getOne<HistoryMenu>(displayedMenu.id, {$autoCancel:false}),
+        displayedMenu.person && displayedMenu.person !== 'umum1'
+          ? pb.collection('dropdown').getFirstListItem(`id_lama = "${displayedMenu.person}"`, { $autoCancel: false }).catch(() => null)
+          : Promise.resolve(null)
+      ]);
       settlementRemaining(Number(menu.total), Number(menu.dibayar), Number(nominal));
       const selectedAccount = cashflowAccounts.find(acc => acc.id === accountId);
       const accountIdLama = selectedAccount ? selectedAccount.id_lama : '';
       const mutasiValue = isIncomeTransaction(menu.jenis || '') ? 'in' : 'out';
       const timestamp = createdAt ? new Date(createdAt).toISOString() : new Date().toISOString();
+      const personRecordId = personRec ? personRec.id : '';
 
-      let personRecordId = '';
-      if (menu.person && menu.person !== 'umum1') {
-        try {
-          const personRec = await pb.collection('dropdown').getFirstListItem(`id_lama = "${menu.person}"`, { $autoCancel: false });
-          personRecordId = personRec.id;
-        } catch {}
-      }
-
-      // Pre-flight snapshot saldo terbaru dari PocketBase
-      let saldoAwal = 0;
-      try {
-        const freshAcc = await pb.collection('dropdown').getOne(accountId, { $autoCancel: false });
-        saldoAwal = Number(freshAcc.number_1) || 0;
-      } catch { throw new Error('Saldo akun belum dapat diverifikasi. Silakan coba kembali.'); }
+      // Saldo di-rebuild server-side oleh rebuildAccount; nilai ini hanya tampilan awal.
+      const saldoAwal = Number(selectedAccount?.number_1) || 0;
       const saldoAkhir = mutasiValue === 'in' ? (saldoAwal + Number(nominal)) : (saldoAwal - Number(nominal));
 
       if (saldoAkhir < 0) throw new Error('Saldo akun tidak cukup untuk pelunasan ini.');
@@ -5325,11 +5319,12 @@ export default function MenuPage() {
               </div>
               <button
                 type="button"
+                disabled={isProcessing}
                 onClick={() => setQuickSettleData(prev => prev ? {
                   ...prev,
                   nominal: Math.max(0, (prev.menu!.total || 0) - (prev.menu!.dibayar || 0))
                 } : null)}
-                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold uppercase transition-colors"
+                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold uppercase transition-colors disabled:opacity-50"
               >
                 Lunas Penuh
               </button>
@@ -5352,8 +5347,9 @@ export default function MenuPage() {
                 </label>
                 <select
                   value={quickSettleData.accountId}
+                  disabled={isProcessing}
                   onChange={(e) => setQuickSettleData(prev => prev ? { ...prev, accountId: e.target.value } : null)}
-                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50"
                 >
                   <option value="">-- Pilih Akun Kas --</option>
                   {cashflowAccounts.map(acc => (
@@ -5372,8 +5368,9 @@ export default function MenuPage() {
                   type="number"
                   min="1"
                   value={quickSettleData.nominal || ''}
+                  disabled={isProcessing}
                   onChange={(e) => setQuickSettleData(prev => prev ? { ...prev, nominal: Number(e.target.value) } : null)}
-                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-black text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-black text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50"
                   placeholder="Masukkan nominal bayar..."
                 />
               </div>

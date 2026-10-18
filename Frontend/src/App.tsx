@@ -39,7 +39,7 @@ const PageLoader = () => (
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(pb.authStore.isValid);
 
-  const [atomicPending, setAtomicPending] = useState(hasPendingAtomic);
+  const [atomicPending, setAtomicPending] = useState(false);
   const [syncBusy, setSyncBusy] = useState(false);
   const [syncError, setSyncError] = useState('');
   const retrySync = async () => {
