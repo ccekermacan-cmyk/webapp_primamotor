@@ -2462,6 +2462,7 @@ export default function MenuPage() {
   }, [historyMenu]);
 
   return (
+    <fieldset disabled={isProcessing} className="h-screen min-w-0 border-0 m-0 p-0">
     <div className="flex h-screen bg-slate-50 overflow-hidden font-sans text-slate-800">
       <div className="flex-1 flex flex-col p-3 md:p-6 lg:p-8 pt-20 md:pt-6 overflow-hidden w-full transition-colors duration-500">
          
@@ -5502,5 +5503,6 @@ export default function MenuPage() {
       )}
 
     </div> 
+    </fieldset>
   );
 }

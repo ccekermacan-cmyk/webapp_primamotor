@@ -993,6 +993,7 @@ import { flushPendingSync, deleteFinancialRecord } from '../services/api/laravel
     const scrollContainerAccountsRef = useRef<HTMLDivElement>(null);
 
     return (
+      <fieldset disabled={isProcessing} className="h-full min-w-0 border-0 m-0 p-0">
       <div className="p-4 sm:p-6 lg:p-8 pt-16 md:pt-8 h-full bg-slate-50 flex flex-col overflow-hidden font-sans">
         {/* PEMBUNGKUS UTAMA */}
         <div className="max-w-6xl mx-auto w-full h-full flex flex-col relative">
@@ -2931,5 +2932,6 @@ import { flushPendingSync, deleteFinancialRecord } from '../services/api/laravel
           confirmBg={systemAlert.type === 'confirm' ? "bg-blue-600 hover:bg-blue-500 shadow-blue-200" : "bg-slate-900 hover:bg-slate-800 shadow-slate-200"}
         />
       </div>
+      </fieldset>
     );
   }
