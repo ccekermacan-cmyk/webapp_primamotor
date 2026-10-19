@@ -3,8 +3,20 @@ import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 
 import fs from 'fs';
+import { fileURLToPath } from 'url';
+const datasource = Object.fromEntries(fs.readFileSync(fileURLToPath(new URL('../datasource', import.meta.url)), 'utf8')
+  .split(/\r?\n/).filter(line => line.trim() && !line.trim().startsWith('#')).map(line => {
+    const index = line.indexOf('=');
+    if (index < 1) throw new Error('Format datasource tidak valid');
+    return [line.slice(0, index).trim(), line.slice(index + 1).trim()];
+  }));
+for (const key of ['PB_HOST_PORT', 'API_HOST_PORT', 'PB_PUBLIC_URL', 'API_PUBLIC_URL']) {
+  if (!datasource[key]) throw new Error(`datasource: ${key} wajib diisi`);
+}
+
 
 export default defineConfig({
+  define: { __DATASOURCE__: JSON.stringify({ pbPort: datasource.PB_HOST_PORT, apiPort: datasource.API_HOST_PORT, pbUrl: datasource.PB_PUBLIC_URL, apiUrl: datasource.API_PUBLIC_URL }) },
   plugins: [
     react(), 
     tailwindcss(),

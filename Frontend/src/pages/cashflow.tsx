@@ -1,4 +1,4 @@
-import { businessDate, businessDateBoundary, csvIncludes, editableBalance } from '../lib/cashflow';
+import { businessDate, businessDateBoundary, editableBalance } from '../lib/cashflow';
 import { createRecordId } from '../lib/ids';
 import { createFinancialBatch } from '../services/api/financialBatch';
 import { flushPendingSync, deleteFinancialRecord } from '../services/api/laravel';
@@ -253,9 +253,8 @@ import { flushPendingSync, deleteFinancialRecord } from '../services/api/laravel
     useEffect(() => {
       const checkConfigVisibility = async () => {
         try {
-          const userLvl = localStorage.getItem('user_level') || '';
           const configs = await pb.collection('dropdown').getFullList<DropdownItem>({
-            filter: `(id_lama="addbon") && visibilitas ~ "${userLvl}"`,
+            filter: `id_lama="addbon"`,
             $autoCancel: false
           });
           setConfigBon(configs.find(c => c.id_lama === 'addbon') || null);
@@ -438,20 +437,19 @@ import { flushPendingSync, deleteFinancialRecord } from '../services/api/laravel
 
     const fetchDropdowns = async () => {
       try {
-        const userLevel = String(pb.authStore.record?.level || localStorage.getItem('user_level') || '');
         const records = await pb.collection('dropdown').getFullList<DropdownItem>({
           filter: `kategori ~ "Cashflow" && (jenis ~ "jenis" || jenis ~ "account") `,
           $autoCancel: false
         });
         // Pisahkan berdasarkan jenis
-        const visibleRecords = records.filter(r => userLevel === '1' || csvIncludes(r.visibilitas, userLevel));
+        const visibleRecords = records;
         const jenisRecords = visibleRecords.filter(r => String(r.jenis).toLowerCase().includes('jenis'));
         const accountRecords = visibleRecords.filter(r => String(r.jenis).toLowerCase().includes('account'));
         
         // Filter jenis berdasarkan text_2 (in / out)
         setJenisOptionsIn(jenisRecords.filter(r => r.text_2?.toLowerCase() === 'in'));
         setJenisOptionsOut(jenisRecords.filter(r => r.text_2?.toLowerCase() === 'out'));
-        setAccountOptions(accountRecords.filter(r => userLevel === '1' || csvIncludes(r.enum_1, String(pb.authStore.record?.username || ''))));
+        setAccountOptions(accountRecords);
       } catch (error) {
         console.error("Gagal memuat dropdown:", error);
       }
@@ -462,13 +460,9 @@ import { flushPendingSync, deleteFinancialRecord } from '../services/api/laravel
       try {
         const currentUser = pb.authStore.model;
         const userLevel = String(pb.authStore.record?.level || localStorage.getItem('user_level') || '');
-        const userName = currentUser?.username || '';
 
         // 1. Kondisi untuk Akun Kas (Cashflow)
         let cashflowCond = `(kategori ~ "cashflow" && jenis ~ "cashflow account"`;
-        if (userLevel !== '1') {
-          cashflowCond += ` && enum_1 ~ "${userName}" `;
-        }
         cashflowCond += `)`;
 
         // 2. Kondisi untuk Person (Customer, Supplier)
@@ -500,7 +494,7 @@ import { flushPendingSync, deleteFinancialRecord } from '../services/api/laravel
           enum_4: u.level || ''
         } as unknown as DropdownItem));
 
-        setWallets([...records.filter(r => !(r.jenis || '').toLowerCase().includes('account') || userLevel === '1' || (csvIncludes(r.enum_1, userName) && csvIncludes(r.visibilitas, userLevel))), ...userAsDropdown]);
+        setWallets([...records, ...userAsDropdown]);
       } catch (error) {
         console.error("Gagal memuat dompet:", error);
       } finally {

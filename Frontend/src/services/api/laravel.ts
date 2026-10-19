@@ -2,13 +2,8 @@ import { createFinancialBatch } from './financialBatch';
 import { createRecordId } from '../../lib/ids';
 import { pb } from '../pocketbase/client';
 
-export const getLaravelApiUrl = (): string => {
-  if (import.meta.env.VITE_LARAVEL_API_URL) return import.meta.env.VITE_LARAVEL_API_URL;
-  if (typeof window !== 'undefined' && window.location.hostname.includes('primamotorgladag')) {
-    return 'https://api.primamotorgladag.my.id/api';
-  }
-  return 'http://127.0.0.1:8000/api';
-};
+import { datasource } from '../datasource';
+export const getLaravelApiUrl = (): string => datasource.laravel;
 export const LARAVEL_API_URL = getLaravelApiUrl();
 
 export function laravelFetch(url: string, options: RequestInit = {}) {

@@ -31,12 +31,6 @@ exports.validate = (e, editing) => {
   }
   for (const id of Object.keys(deltas)) {
     const account = e.app.findRecordById('dropdown', id);
-    if (e.auth && e.auth.collection().name === 'user' && e.auth.getInt('level') !== 1) {
-      const contains = (value, token) => value.split(',').map(part => part.trim()).includes(token);
-      if (!contains(account.getString('visibilitas'), String(e.auth.getInt('level'))) || !contains(account.getString('enum_1'), e.auth.getString('username'))) {
-        throw new ForbiddenError('Anda tidak memiliki akses ke akun ini.');
-      }
-    }
     if (!(e.requestInfo().context === 'batch' && e.get('pmAtomicBatch')) && account.getFloat('number_1') + deltas[id] < -0.00001) throw new BadRequestError('Saldo akun tidak cukup untuk perubahan ini.');
   }
 };

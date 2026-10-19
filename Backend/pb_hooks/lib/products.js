@@ -3,7 +3,6 @@ exports.product = (e, editing) => {
     const value = e.record.getFloat(field);
     if (!Number.isSafeInteger(value) || value < 0) throw new BadRequestError(`${field} harus bilangan bulat nol atau lebih.`);
   }
-  if (!editing && e.auth && e.auth.collection().name === 'user' && e.auth.getInt('level') !== 1 && e.record.getFloat('beli') !== 0) throw new ForbiddenError('Hanya administrator dapat mengatur harga beli.');
   if (!editing && e.record.getFloat('stok_3') !== 0) throw new BadRequestError('Stok awal harus dicatat melalui log_stock dalam batch produk.');
   if (editing && e.record.getFloat('stok_3') !== e.record.original().getFloat('stok_3')) throw new BadRequestError('Stok realtime hanya dapat diubah melalui log_stock.');
 };

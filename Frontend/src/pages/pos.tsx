@@ -1037,8 +1037,8 @@ export default function MenuPage() {
         try {
           const [persons, menus, accounts, mechs, usersList] = await Promise.all([
             pb.collection('dropdown').getFullList<DropdownItem>({ filter: `kategori ~ "person"`, $autoCancel: false }),
-            pb.collection('dropdown').getFullList<DropdownItem>({ filter: `kategori ~ "menu" && jenis ~ "jenis menu" && visibilitas ~ "${userLevel}"`, sort: 'text_1', $autoCancel: false }),
-            pb.collection('dropdown').getFullList<DropdownItem>({ filter: `jenis ~ "cashflow account" && visibilitas ~ "${userLevel}"`, sort: 'text_1', $autoCancel: false }),
+            pb.collection('dropdown').getFullList<DropdownItem>({ filter: `kategori ~ "menu" && jenis ~ "jenis menu"`, sort: 'text_1', $autoCancel: false }),
+            pb.collection('dropdown').getFullList<DropdownItem>({ filter: `jenis ~ "cashflow account"`, sort: 'text_1', $autoCancel: false }),
             pb.collection('user').getFullList<UserKaryawan>({ filter: `level = 10 && status = "Active"`, $autoCancel: false }),
             pb.collection('user').getFullList({ sort: 'name', $autoCancel: false }),
           ]);
@@ -2271,7 +2271,7 @@ export default function MenuPage() {
     let currentAccounts = cashflowAccounts;
     try {
       currentAccounts = await pb.collection('dropdown').getFullList<DropdownItem>({
-        filter: `jenis ~ "cashflow account" && visibilitas ~ "${userLevel}"`,
+        filter: `jenis ~ "cashflow account"`,
         sort: 'text_1',
         $autoCancel: false
       });
@@ -2380,7 +2380,7 @@ export default function MenuPage() {
       // Refresh akun kas lokal
       try {
         const freshAccounts = await pb.collection('dropdown').getFullList<DropdownItem>({
-          filter: `jenis ~ "cashflow account" && visibilitas ~ "${userLevel}"`,
+          filter: `jenis ~ "cashflow account"`,
           sort: 'text_1',
           $autoCancel: false
         });
@@ -2967,10 +2967,7 @@ export default function MenuPage() {
                   </div>
                 )}
                 {cartWithTierPrice.map(item => {
-                  const canEditPrice =
-                    userLevel === '1' ||
-                    isOnlinePerson ||
-                    selectedMenu.toLowerCase().includes('pembelian');
+                  const canEditPrice = pb.authStore.isValid;
                   return (
                     <div key={item.id} className={`bg-slate-50/70 hover:bg-white border ${activeTheme.border} rounded-2xl p-3 sm:p-3.5 relative group transition-all shadow-sm`}>
                       
@@ -4507,7 +4504,7 @@ export default function MenuPage() {
                   </button>
                 )}
 
-                {['1','2','3','4','5','6','7'].includes(userLevel) && (
+                {pb.authStore.isValid && (
                   <button
                     onClick={() => {
                       if (isDeleting || !showDetailHistory) return;

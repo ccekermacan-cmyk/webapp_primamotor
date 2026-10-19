@@ -203,9 +203,9 @@ export default function Layout({ setAuth }: { setAuth: (status: boolean) => void
 
   const allMenus = [
     { name: 'Kasir', path: '/', icon: ShoppingCart, color: 'text-blue-500', activeBg: 'bg-blue-50 border-blue-200', show: true },
-    { name: 'Produk', path: '/produk', icon: Package, color: 'text-orange-500', activeBg: 'bg-orange-50 border-orange-200', show: !isLevel10 },
-    { name: 'Person', path: '/person', icon: Users, color: 'text-cyan-500', activeBg: 'bg-cyan-50 border-cyan-200', show: isUserLoggedIn && userLevel !== null && !isLevel10 && ['1','2','3','4','5','6','7'].includes(userLevel) },
-    { name: 'Cashflow', path: '/cashflow', icon: Wallet, color: 'text-green-500', activeBg: 'bg-green-50 border-green-200', show: !isLevel10 },
+    { name: 'Produk', path: '/produk', icon: Package, color: 'text-orange-500', activeBg: 'bg-orange-50 border-orange-200', show: isUserLoggedIn },
+    { name: 'Person', path: '/person', icon: Users, color: 'text-cyan-500', activeBg: 'bg-cyan-50 border-cyan-200', show: isUserLoggedIn },
+    { name: 'Cashflow', path: '/cashflow', icon: Wallet, color: 'text-green-500', activeBg: 'bg-green-50 border-green-200', show: isUserLoggedIn },
     { name: 'Report', path: '/report', icon: FileText, color: 'text-purple-500', activeBg: 'bg-purple-50 border-purple-200', show: isUserLoggedIn && userLevel !== null && !isLevel10 && ['1','2','3','4','5','6'].includes(userLevel) },
     { name: 'Akun', path: '/akun', icon: UserCircle, color: 'text-pink-500', activeBg: 'bg-pink-50 border-pink-200', show: isUserLoggedIn },
     { name: 'Settings', path: '/settings', icon: Settings, color: 'text-slate-500', activeBg: 'bg-gray-100 border-gray-300', show: isUserLoggedIn && userLevel === "1" },

@@ -104,7 +104,7 @@ export default function Produk() {
   // ==========================================
   // FUNGSI PEMBANTU (HELPERS)
   // ==========================================
-  const isReadOnly = userLevel !== '1';
+  const isReadOnly = false;
 
   const generateRawRandomId = () => {
     return String(Math.floor(Math.random() * 100000));
@@ -472,7 +472,6 @@ const fetchRelatedProducts = async (sp: Produk) => {
     // Reset stok ke 0 saat membuat salinan baru
     copyData.stok_1 = 0; 
     copyData.stok_3 = 0;
-    if (userLevel !== '1') copyData.beli = 0;
     
     setSelectedProduct(null); 
     setFormData(copyData);
@@ -539,7 +538,7 @@ const fetchRelatedProducts = async (sp: Produk) => {
 
   // Helper Penyesuaian Stok Cepat Atomic Batch (+ / - stok_3)
   const handleQuickStockChange = async (prod: Produk, delta: number) => {
-    if (mutationLockRef.current || userLevel !== '1' || ![-1,1].includes(delta)) return;
+    if (mutationLockRef.current || ![-1,1].includes(delta)) return;
     mutationLockRef.current = true;
     setIsProcessing(true);
     try {
@@ -1067,7 +1066,7 @@ const fetchRelatedProducts = async (sp: Produk) => {
                           </button>
                           )}
                         </div>
-                        {userLevel === '1' && (
+                        {!isReadOnly && (
                         <div className="flex items-center gap-0.5" onClick={e => e.stopPropagation()}>
                           <button disabled={isProcessing} onClick={async () => { await handleQuickStockChange(prod, -1); }} className="w-6 h-6 flex items-center justify-center rounded-md bg-red-50 hover:bg-red-100 text-red-600 text-xs font-black">−</button>
                           <span className="text-[9px] font-bold text-gray-400 w-4 text-center">{prod.stok_3}</span>
@@ -1652,8 +1651,6 @@ const fetchRelatedProducts = async (sp: Produk) => {
             <div className="bg-green-50/50 p-4 rounded-xl border border-green-100 space-y-4">
               <h4 className="font-bold text-green-700 text-sm border-b border-green-200 pb-2">
                 Manajemen Stok
-                {isReadOnly && !['5','6','7','10'].includes(userLevel) && <span className="text-[10px] text-gray-400 ml-2">(Read-Only)</span>}
-                {['6','7','10'].includes(userLevel) && <span className="text-[10px] text-amber-500 ml-2">(Edit hanya stok menipis)</span>}
               </h4>
               <div className="grid grid-cols-3 gap-4">
                 <div>
@@ -1661,10 +1658,10 @@ const fetchRelatedProducts = async (sp: Produk) => {
                   <input
                     type="number" min="0" step="1"
                     name="stok_1"
-                    disabled={!(userLevel === '1' || userLevel === '5' || !isEditMode)}
+                    disabled={isReadOnly}
                     value={formData.stok_1 ?? ''}
                     onChange={handleInputChange}
-                    className={`w-full p-2 border rounded-lg outline-none ${!(userLevel === '1' || userLevel === '5' || !isEditMode) ? 'bg-gray-100 text-gray-500' : 'bg-white focus:ring-2 focus:ring-green-400'}`}
+                    className={`w-full p-2 border rounded-lg outline-none ${isReadOnly ? 'bg-gray-100 text-gray-500' : 'bg-white focus:ring-2 focus:ring-green-400'}`}
                   />
                 </div>
                 <div>
@@ -1672,10 +1669,10 @@ const fetchRelatedProducts = async (sp: Produk) => {
                   <input
                     type="number" min="0" step="1"
                     name="stok_2"
-                    disabled={!['1','6','7','10'].includes(userLevel)}
+                    disabled={isReadOnly}
                     value={formData.stok_2 ?? ''}
                     onChange={handleInputChange}
-                    className={`w-full p-2 border rounded-lg outline-none font-bold ${!['1','6','7','10'].includes(userLevel) ? 'bg-gray-100 text-gray-500' : 'bg-white text-amber-700 focus:ring-2 focus:ring-amber-400'}`}
+                    className={`w-full p-2 border rounded-lg outline-none font-bold ${isReadOnly ? 'bg-gray-100 text-gray-500' : 'bg-white text-amber-700 focus:ring-2 focus:ring-amber-400'}`}
                   />
                 </div>
                 <div>
@@ -1683,10 +1680,10 @@ const fetchRelatedProducts = async (sp: Produk) => {
                   <input
                     type="number" min="0" step="1"
                     name="stok_3"
-                    disabled={!(userLevel === '1' || userLevel === '5' || !isEditMode)}
+                    disabled={isReadOnly}
                     value={formData.stok_3 ?? ''}
                     onChange={handleInputChange}
-                    className={`w-full p-2 border rounded-lg outline-none font-bold ${!(userLevel === '1' || userLevel === '5' || !isEditMode) ? 'bg-gray-100 text-gray-500' : 'bg-green-50 focus:ring-2 focus:ring-green-400'}`}
+                    className={`w-full p-2 border rounded-lg outline-none font-bold ${isReadOnly ? 'bg-gray-100 text-gray-500' : 'bg-green-50 focus:ring-2 focus:ring-green-400'}`}
                   />
                 </div>
               </div>

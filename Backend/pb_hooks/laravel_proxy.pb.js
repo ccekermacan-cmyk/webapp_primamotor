@@ -2,8 +2,7 @@
 
 /**
  * Forwarding routes to Laravel API
- * Because Cloudflare only tunnels port 8090 (PocketBase),
- * we need PocketBase to proxy webhook & report requests to Laravel (port 8000).
+ * Docker injects PM_API_INTERNAL_URL from the root datasource file.
  */
 
 routerAdd("POST", "/api/webhook/{collection}/{event}/{id}", (c) => {
@@ -15,7 +14,7 @@ routerAdd("POST", "/api/webhook/{collection}/{event}/{id}", (c) => {
     try {
         const body = c.requestInfo().body;
         const res = $http.send({
-            url: `http://pm-nginx/api/webhook/${collection}/${event}/${id}`,
+            url: `${$os.getenv("PM_API_INTERNAL_URL")}/webhook/${collection}/${event}/${id}`,
             method: "POST",
             body: JSON.stringify(body),
             headers: { "Content-Type": "application/json", "Accept": "application/json", "Authorization": c.request.header.get("Authorization") }
@@ -31,7 +30,7 @@ routerAdd("POST", "/api/reports/recalculate", (c) => {
     try {
         const body = c.requestInfo().body;
         const res = $http.send({
-            url: `http://pm-nginx/api/reports/recalculate`,
+            url: `${$os.getenv("PM_API_INTERNAL_URL")}/reports/recalculate`,
             method: "POST",
             body: JSON.stringify(body),
             headers: { "Content-Type": "application/json", "Accept": "application/json", "Authorization": c.request.header.get("Authorization") }
@@ -51,7 +50,7 @@ routerAdd("OPTIONS", "/api/reports/recalculate", (c) => {
 routerAdd("POST", "/api/webhooks/batch", (c) => {
     try {
         const res = $http.send({
-            url: "http://pm-nginx/api/webhooks/batch",
+            url: `${$os.getenv("PM_API_INTERNAL_URL")}/webhooks/batch`,
             method: "POST", body: JSON.stringify(c.requestInfo().body),
             headers: { "Content-Type": "application/json", "Accept": "application/json", "Authorization": c.request.header.get("Authorization") }
         });
@@ -62,7 +61,7 @@ routerAdd("POST", "/api/webhooks/batch", (c) => {
 routerAdd("DELETE", "/api/transactions/{collection}/{id}", (c) => {
     try {
         const res = $http.send({
-            url: `http://pm-nginx/api/transactions/${c.request.pathValue("collection")}/${c.request.pathValue("id")}`,
+            url: `${$os.getenv("PM_API_INTERNAL_URL")}/transactions/${c.request.pathValue("collection")}/${c.request.pathValue("id")}`,
             method: "DELETE", headers: { "Accept": "application/json", "Authorization": c.request.header.get("Authorization") }
         });
         return c.json(res.statusCode, res.json);

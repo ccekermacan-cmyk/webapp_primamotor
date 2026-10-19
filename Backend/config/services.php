@@ -1,9 +1,7 @@
 <?php
 
 return [
-    // Older containers may not yet have the Compose POCKETBASE_URL environment variable.
-    // Loopback inside PHP-FPM points to PHP-FPM itself, not the PocketBase service.
-    'pocketbase' => ['url' => env('POCKETBASE_URL', is_file('/.dockerenv') ? 'http://pm-pocketbase:8090' : 'http://127.0.0.1:8090')],
+    'pocketbase' => ['url' => env('POCKETBASE_URL', env('PM_PB_INTERNAL_URL', config('datasource.pocketbase_url')))],
 
     /*
     |--------------------------------------------------------------------------

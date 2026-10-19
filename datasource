@@ -1,0 +1,14 @@
+# Satu sumber konfigurasi koneksi. Tidak boleh berisi password/token.
+# Port host: sesuaikan tujuan tunnel Cloudflare setelah mengubahnya.
+PB_HOST_PORT=8090
+API_HOST_PORT=8000
+WEB_HOST_PORT=8080
+PB_PUBLIC_URL=https://backend.primamotorgladag.my.id
+API_PUBLIC_URL=https://api.primamotorgladag.my.id/api
+WEB_PUBLIC_URL=https://webapp.primamotorgladag.my.id
+# Alamat jaringan Docker; port internal tetap walau port host diganti.
+PM_PB_INTERNAL_URL=http://pm-pocketbase:8090
+PM_API_INTERNAL_URL=http://pm-nginx/api
+PB_DATA_DIR=./Backend/pb_data
+DB_CONNECTION=sqlite
+DB_DATABASE=/var/www/html/pb_data/data.db

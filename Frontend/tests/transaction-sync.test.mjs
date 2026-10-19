@@ -20,7 +20,7 @@ beforeEach(() => {
   requests = [];
   globalThis.fetch = async (url, options) => { requests.push({ url, ...options }); return Response.json({ status: 'success' }); };
 });
-const loadApi = () => load('../src/services/api/laravel.ts', 'const pb = globalThis.testPb; const createRecordId = () => crypto.randomUUID();\n');
+const loadApi = () => load('../src/services/api/laravel.ts', 'const datasource = { laravel: "http://localhost:18080/api" }; const pb = globalThis.testPb; const createRecordId = () => crypto.randomUUID();\n');
 
 test('legacy sync never blocks writes after a backend failure', async () => {
   const api = await loadApi();

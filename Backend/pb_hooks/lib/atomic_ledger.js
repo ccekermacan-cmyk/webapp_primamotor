@@ -133,7 +133,7 @@ function prepare(app, collection, r) {
 exports.authorize = (e, deleting) => {
   const name = e.record.collection().name;
   if (name === 'bon' && text(e.record,'ref_cashflow') && deleting) fail('Hapus bon melalui transaksi cashflow terkait agar saldo kas ikut dikembalikan.');
-  if (!e.auth || e.auth.collection().name !== 'user' || e.auth.getInt('level') === 1) return;
+  if (!deleting || !e.auth || e.auth.collection().name !== 'user' || e.auth.getInt('level') === 1) return;
   const cash = name === 'cashflow' ? [e.record] : name === 'menu' && deleting
     ? rows(e.app,'cashflow','ref_baru = {:id} || ref = {:id}',{id:e.record.id}) : [];
   for (const record of cash) for (const id of Object.keys(cashDeltas(e.app,record,false))) {

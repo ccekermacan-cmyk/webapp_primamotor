@@ -23,6 +23,7 @@ for p in (root/'Backend/pb_hooks').glob('*.js'):
 shutil.copytree(root/'Backend/pb_hooks/lib',tmp/'hooks/lib')
 pbflags=['--dev','--dir',str(data),'--migrationsDir',str(tmp/'migrations'),'--hooksDir',str(tmp/'hooks')]
 subprocess.run([str(root/'Backend/pocketbase'),'superuser','create','integration@example.test','Local-Test-Only-Password-429!',*pbflags],check=True,stdout=subprocess.DEVNULL)
+os.environ['PM_API_INTERNAL_URL']='http://127.0.0.1:18080/api'
 processes=[];logs=[];passed=False;smtp_server=None
 def api(base,path,method='GET',body=None,token=None):
  headers={'Content-Type':'application/json'}
@@ -51,6 +52,9 @@ try:
  shutil.copy(root/'Backend/pb_migrations/1792271200_protect_product_stock.js',tmp/'migrations')
  shutil.copy(root/'Backend/pb_migrations/1792271300_atomic_ledger.js',tmp/'migrations')
  shutil.copy(root/'Backend/pb_migrations/1792271400_atomic_receipts.js',tmp/'migrations')
+ shutil.copy(root/'Backend/pb_migrations/1792358000_open_operational_entry.js',tmp/'migrations')
+ shutil.copy(root/'Backend/pb_migrations/1792358100_protect_derived_balance.js',tmp/'migrations')
+ shutil.copy(root/'Backend/pb_migrations/1792358200_preserve_admin_balance_correction.js',tmp/'migrations')
  subprocess.run([str(root/'Backend/pocketbase'),'migrate','up',*pbflags],check=True,stdout=subprocess.DEVNULL)
  processes[0]=subprocess.Popen([str(root/'Backend/pocketbase'),'serve','--http','127.0.0.1:18090',*pbflags],stdout=f,stderr=subprocess.STDOUT);wait(pb+'/api/health')
  # Enable atomic batch requests in the isolated PocketBase instance.
@@ -80,7 +84,10 @@ try:
  denied('/api/collections/dropdown/records/'+wallet['id'],'PATCH',{'number_1':99999},None)
  # Exact token permissions prevent staff from writing another account.
  denied('/api/collections/dropdown/records/'+wallet['id'],'PATCH',{'number_1':99999},staff_auth['token'])
- denied('/api/collections/cashflow/records','POST',{'account_1':wallet['id'],'nominal':1,'mutasi':'out'},staff_auth['token'])
+ _,staffEntry=api(pb,'/api/collections/cashflow/records','POST',{'account_1':wallet['id'],'nominal':1,'mutasi':'out'},staff_auth['token'])
+ api(pb,'/api/collections/cashflow/records/'+staffEntry['id'],'PATCH',{'nominal':2},staff_auth['token'])
+ denied('/api/collections/cashflow/records/'+staffEntry['id'],'DELETE',auth_token=staff_auth['token'])
+ api(pb,'/api/collections/cashflow/records/'+staffEntry['id'],'DELETE',token=admin)
  denied('/api/collections/cashflow/records','POST',{'account_1':wallet['id'],'nominal':1001,'mutasi':'out'},token)
  denied('/api/collections/cashflow/records','POST',{'account_1':wallet['id'],'account_2':wallet['id'],'jenis':'transfer','nominal':1,'mutasi':'out'},token)
  print('PASS: unauthorized balance writes, overdrafts and same-account transfers are rejected')
@@ -150,7 +157,9 @@ try:
  assert removed['file']==[]
  # Staff can use an explicitly assigned wallet through both PocketBase and Laravel.
  api(pb,'/api/collections/dropdown/records/'+wallet['id'],'PATCH',{'enum_1':'integrationstaffx','visibilitas':'2'},admin)
- denied('/api/collections/cashflow/records','POST',{'account_1':wallet['id'],'nominal':1,'mutasi':'in'},staff_auth['token'])
+ _,unassignedCf=api(pb,'/api/collections/cashflow/records','POST',{'account_1':wallet['id'],'nominal':1,'mutasi':'in'},staff_auth['token'])
+ denied('/api/collections/cashflow/records/'+unassignedCf['id'],'DELETE',auth_token=staff_auth['token'])
+ api(pb,'/api/collections/cashflow/records/'+unassignedCf['id'],'DELETE',token=admin)
  api(pb,'/api/collections/dropdown/records/'+wallet['id'],'PATCH',{'enum_1':'integrationstaff','visibilitas':'2'},admin)
  _,staffCf=api(pb,'/api/collections/cashflow/records','POST',{'account_1':wallet['id'],'nominal':1,'mutasi':'in','created_at':'2026-10-18 04:00:00.000Z'},staff_auth['token'])
  api(pb,'/api/webhooks/batch','POST',{'request_id':'staff-assigned-wallet','events':[{'collection':'cashflow','event':'created','id':staffCf['id']}]},staff_auth['token'])
@@ -201,8 +210,8 @@ try:
   denied('/api/collections/log_stock/records','POST',{'item_baru':atomicProduct,'qty':quantity,'boolean':'out'},token)
  denied('/api/collections/produk/records/'+atomicProduct,'PATCH',{'stok_3':999},token)
  denied('/api/collections/produk/records/'+atomicProduct,'PATCH',{'beli':-1},token)
- denied('/api/collections/produk/records/'+atomicProduct,'PATCH',{'beli':999},staff_auth['token'])
- denied('/api/collections/produk/records/'+atomicProduct,'PATCH',{'stok_1':999},staff_auth['token'])
+ api(pb,'/api/collections/produk/records/'+atomicProduct,'PATCH',{'beli':999},staff_auth['token'])
+ api(pb,'/api/collections/produk/records/'+atomicProduct,'PATCH',{'stok_1':999},staff_auth['token'])
  denied('/api/collections/produk/records/'+atomicProduct,'DELETE',auth_token=staff_auth['token'])
  api(pb,'/api/collections/produk/records/'+atomicProduct,'PATCH',{'keterangan':'Metadata edit allowed'},staff_auth['token'])
  try:
@@ -392,7 +401,9 @@ try:
  denied('/api/collections/gaji/records/'+otherSalary['id'],auth_token=mechanicToken)
  denied('/api/collections/bon/records/'+otherLoan['id'],auth_token=mechanicToken)
  denied('/api/collections/bon/records/'+ownLoan['id'],'PATCH',{'nominal':0},mechanicToken)
- denied('/api/collections/gaji/records','POST',{'person':'integrationmechanic','pokok':10000000},mechanicToken)
+ _,entrySalary=api(pb,'/api/collections/gaji/records','POST',{'person':'integrationmechanic','pokok':10000000},mechanicToken)
+ api(pb,'/api/collections/gaji/records/'+entrySalary['id'],'PATCH',{'pokok':11000000},mechanicToken)
+ denied('/api/collections/gaji/records/'+entrySalary['id'],'DELETE',auth_token=mechanicToken)
  try:
   api('http://127.0.0.1:18080','/api/bons',token=mechanicToken)
   raise AssertionError('Laravel exposed all employee loan records')
@@ -403,16 +414,16 @@ try:
  _,personalBon=api(pb,'/api/collections/bon/records?'+urllib.parse.urlencode({'filter':personalFilter}),token=admin)
  assert {row['id'] for row in personalBon['items']}=={ownLoan['id'],legacyLoan['id']}
  _,personalSalary=api(pb,'/api/collections/gaji/records?'+urllib.parse.urlencode({'filter':'person = "integrationmechanic"','expand':'ref_baru'}),token=admin)
- assert {row['id'] for row in personalSalary['items']}=={ownSalary['id']}
+ assert {row['id'] for row in personalSalary['items']}=={ownSalary['id'],entrySalary['id']}
  # Level 1 sees all salaries; level 2 must not read other employees' salaries.
  _,allSalary=api(pb,'/api/collections/gaji/records',token=token)
- assert {row['id'] for row in allSalary['items']}=={ownSalary['id'],otherSalary['id']}
+ assert {row['id'] for row in allSalary['items']}=={ownSalary['id'],otherSalary['id'],entrySalary['id']}
  _,staffSalary=api(pb,'/api/collections/gaji/records','POST',{'person':'integrationstaff','ref_baru':period['id'],'pokok':2000000},admin)
  _,staffVisible=api(pb,'/api/collections/gaji/records',token=staff_auth['token'])
  assert {row['id'] for row in staffVisible['items']}=={staffSalary['id']}
  denied('/api/collections/gaji/records/'+otherSalary['id'],auth_token=staff_auth['token'])
  print('PASS: level 1 lists all salaries; level 2 and level 10 only read their own salaries')
- print('PASS: personal salary/loan reads and parent period relation; other employee data and writes are denied')
+ print('PASS: personal salary/loan reads and parent period relation; other employee reads and restricted deletes remain denied')
  # Editing a profile preserves protected fields; passwords require the correct old password.
  api(pb,'/api/collections/user/records/'+mechanic['id'],'PATCH',{'name':'Updated Mechanic','link_image':'https://example.test/avatar.png'},mechanicToken)
  denied('/api/collections/user/records/'+mechanic['id'],'PATCH',{'number':9999},mechanicToken)
