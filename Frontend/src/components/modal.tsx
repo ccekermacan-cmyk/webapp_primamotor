@@ -41,6 +41,40 @@ export default function Modal({
   showCancel = true              
 }: ModalProps) {
   
+  // Focus trap: fokus tetap di dalam dialog dan kembali ke pemicu saat ditutup.
+  const dialogRef = React.useRef<HTMLDivElement>(null);
+  const previouslyFocused = React.useRef<HTMLElement | null>(null);
+
+  React.useEffect(() => {
+    if (!isOpen) return;
+    previouslyFocused.current = document.activeElement as HTMLElement;
+    const node = dialogRef.current;
+    const first = node?.querySelector<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+    (first || node)?.focus();
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Tab' || !dialogRef.current) return;
+      const focusables = Array.from(dialogRef.current.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      )).filter(el => el.offsetParent !== null);
+      if (focusables.length === 0) return;
+      const firstEl = focusables[0];
+      const lastEl = focusables[focusables.length - 1];
+      if (event.shiftKey && document.activeElement === firstEl) {
+        event.preventDefault();
+        lastEl.focus();
+      } else if (!event.shiftKey && document.activeElement === lastEl) {
+        event.preventDefault();
+        firstEl.focus();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      previouslyFocused.current?.focus?.();
+    };
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
   // Deteksi jenis status secara otomatis dari judul/deskripsi jika prop type tidak diisi
@@ -96,9 +130,11 @@ export default function Modal({
       onClick={onClose} 
     >
       <div 
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label={title || 'Dialog'}
+        tabIndex={-1}
         // Desain kontainer dinamis tergantung mode (Default vs Alert)
         className={`bg-white shadow-2xl transform scale-100 animate-in zoom-in-95 duration-200 overflow-hidden w-full ${
           isAlert 
