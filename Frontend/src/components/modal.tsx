@@ -7,6 +7,7 @@ interface ModalProps {
   title?: string;
   children?: React.ReactNode;
   maxWidth?: string;             // Kontrol lebar dinamis untuk modal standard
+  compact?: boolean;
   
   // --- PROPS REUSABLE DARI LAYOUT.TSX (ALERT/CONFIRM DIALOG) ---
   isAlert?: boolean;             // Aktifkan mode alert/konfirmasi
@@ -27,6 +28,7 @@ export default function Modal({
   title, 
   children,
   maxWidth = 'max-w-md',         
+  compact = false,
   isAlert = false,
   type,
   alertIcon,
@@ -94,6 +96,9 @@ export default function Modal({
       onClick={onClose} 
     >
       <div 
+        role="dialog"
+        aria-modal="true"
+        aria-label={title || 'Dialog'}
         // Desain kontainer dinamis tergantung mode (Default vs Alert)
         className={`bg-white shadow-2xl transform scale-100 animate-in zoom-in-95 duration-200 overflow-hidden w-full ${
           isAlert 
@@ -137,16 +142,18 @@ export default function Modal({
         /* RENDER MODE MODAL STANDARD                */
         /* ========================================= */
           <>
-            <div className="flex justify-between items-center p-5 px-6 border-b border-slate-200 bg-gradient-to-r from-slate-50 via-white to-slate-50">
+            <div className={`flex justify-between items-center gap-3 border-b border-slate-200 ${compact ? 'px-4 py-3 bg-white' : 'p-5 px-6 bg-gradient-to-r from-slate-50 via-white to-slate-50'}`}>
               <h3 className="text-lg font-black text-slate-800 tracking-tight">{title}</h3>
               <button 
                 onClick={onClose} 
-                className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all duration-200"
+                aria-label="Tutup dialog"
+                className="p-1.5 flex items-center gap-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all duration-200"
               >
                 <X size={18} />
+                {compact && <span className="text-xs">Tutup</span>}
               </button>
             </div>
-            <div className="p-5 overflow-y-auto max-h-[80vh]">
+            <div className={compact ? 'pos-compact-modal' : 'p-5 overflow-y-auto max-h-[80vh]'}>
               {children}
             </div>
           </>

@@ -1,6 +1,6 @@
 import type { CheckoutForm } from '../../types/pos';
 import React from 'react';
-import { Wrench, Trash2 } from 'lucide-react';
+import { Wrench, Trash2, Plus, Scale } from 'lucide-react';
 
 interface MekanikItem {
   idLama: string;
@@ -56,7 +56,7 @@ export const MechanicSection: React.FC<MechanicSectionProps> = React.memo(({
               className={`text-[10px] font-black bg-white ${activeTheme.text} px-3 py-2 rounded-xl shadow-sm hover:scale-105 active:scale-95 transition-all border border-transparent hover:${activeTheme.border} flex items-center gap-1`}
               title="Bagi rata ongkos ke semua mekanik"
             >
-              ⚖️ Bagi Rata
+              <Scale size={14}/> Bagi rata
             </button>
           )}
           <button
@@ -69,7 +69,7 @@ export const MechanicSection: React.FC<MechanicSectionProps> = React.memo(({
             }}
             className={`text-[10px] font-black bg-white ${activeTheme.text} px-4 py-2 rounded-xl shadow-sm hover:scale-105 active:scale-95 transition-all border border-transparent hover:${activeTheme.border}`}
           >
-            + Tambah Mekanik
+            <Plus size={14}/> Tambah mekanik
           </button>
         </div>
       </div>
@@ -90,7 +90,7 @@ export const MechanicSection: React.FC<MechanicSectionProps> = React.memo(({
               className="p-2 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors self-end sm:self-auto order-1 sm:order-none"
               title="Hapus mekanik"
             >
-              <Trash2 size={16} />
+              <Trash2 size={16} /> Hapus
             </button>
           )}
           <select

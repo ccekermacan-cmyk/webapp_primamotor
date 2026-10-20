@@ -1,0 +1,34 @@
+.pos-compact-modal {
+  /* Header is outside this area; footer and tabs must never scroll away. */
+  max-height: min(560px, calc(100dvh - 120px));
+  display: flex;
+  flex-direction: column;
+}
+.pos-modal-layout { display: flex; flex-direction: column; min-height: 0; width: 100%; }
+.pos-modal-scroll { overflow-y: auto; overscroll-behavior: contain; min-height: 0; padding: 16px; }
+.pos-modal-tabs { display: flex; flex-shrink: 0; padding: 10px 16px; gap: 4px; border-bottom: 1px solid #e2e8f0; }
+.pos-modal-tabs button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; flex: 1; min-width: 0; padding: 10px 6px; border-radius: 10px; font-size: 12px; font-weight: 600; }
+.pos-modal-footer { flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; padding: 12px 16px; border-top: 1px solid #e2e8f0; background: white; }
+.pos-action, .pos-modal-footer button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 36px; padding: 8px 12px; border-radius: 10px; font-size: 12px; font-weight: 600; text-transform: none; letter-spacing: normal; }
+.pos-action:disabled, .pos-modal-footer button:disabled { opacity: .5; }
+.pos-modal-layout button > svg { flex-shrink: 0; width: 16px; height: 16px; }
+.pos-form-fields button:has(> svg), .pos-form-fields label:has(> input[type="file"]) { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.pos-modal-layout [hidden] { display: none !important; }
+.pos-form-fields :is(.font-black, .font-extrabold), .pos-detail-fields .font-black { font-weight: 600; }
+.pos-form-fields .uppercase, .pos-detail-fields .uppercase { text-transform: none; letter-spacing: normal; }
+.pos-form-fields :is(.border-2, .border-t-2, .border-b-2), .pos-detail-fields :is(.border-2, .border-t-2, .border-b-2) { border-width: 1px; }
+.pos-form-fields :is(.rounded-3xl, .rounded-\[1\.5rem\], .rounded-\[2rem\]), .pos-detail-fields :is(.rounded-3xl, .rounded-\[1\.5rem\], .rounded-\[2rem\]) { border-radius: 14px; }
+.pos-form-fields :is(.shadow-xl, .shadow-2xl, .shadow-sm, .shadow-md), .pos-detail-fields :is(.shadow-xl, .shadow-2xl, .shadow-sm, .shadow-md) { box-shadow: none; }
+.pos-form-fields :is(.p-5, .p-6, .p-8), .pos-detail-fields :is(.p-5, .p-6, .p-8) { padding: 12px; }
+.pos-form-fields :is(.text-\[9px\], .text-\[10px\]), .pos-detail-fields :is(.text-\[9px\], .text-\[10px\]) { font-size: 11px; }
+.pos-form-fields :is(input, select, textarea) { max-width: 100%; }
+.pos-form-fields textarea { resize: vertical; }
+.pos-detail-fields .pos-modal-footer button { height: auto; min-width: auto; flex: none; }
+.pos-detail-fields .pos-modal-footer > div { width: 100%; gap: 8px; flex-wrap: wrap; }
+@media (max-width: 640px) {
+  .pos-modal-scroll { padding: 12px; }
+  .pos-modal-tabs { padding: 8px; }
+  .pos-modal-tabs button { font-size: 11px; gap: 4px; }
+  .pos-form-fields :is(input, select, textarea) { font-size: 16px; }
+  .pos-action, .pos-modal-footer button { min-height: 44px; }
+}
