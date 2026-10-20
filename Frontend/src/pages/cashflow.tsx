@@ -2678,6 +2678,7 @@ import { flushPendingSync, deleteFinancialRecord } from '../services/api/laravel
                       {selectedTx.account_2 && <p className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1"><span className="text-slate-400 font-bold">Akun Tujuan:</span> <span className="font-bold text-blue-600 sm:text-right">{getAccountName(selectedTx.account_2)}</span></p>}
                       <p className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1"><span className="text-slate-400 font-bold">Pihak Terkait:</span> <span className="font-bold text-slate-700 sm:text-right">{getPersonName(selectedTx.person)}</span></p>
                       {selectedTx.ref_baru && <p className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1 mt-2 pt-2 border-t border-dashed border-slate-200"><span className="text-slate-400 font-bold">Ref Transaksi POS:</span> <Link to={`/?ref=${encodeURIComponent(selectedTx.ref_baru)}`} title="Buka detail transaksi di POS" className="inline-flex items-center gap-1.5 font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded border border-blue-100 self-start sm:self-auto hover:bg-blue-100 hover:underline focus-visible:outline-2 focus-visible:outline-blue-500">{selectedTx.ref_baru}<ExternalLink size={13} aria-hidden="true" /></Link></p>}
+                      {(userLevel === '1' || userLevel === '2' || userLevel === '5') && (selectedTx.saldo_awal != null || selectedTx.saldo_akhir != null) && (
                       <div className="mt-2 pt-3 border-t border-dashed border-slate-200 space-y-2">
                         <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Saldo akun sumber</p>
                         <p className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1">
@@ -2689,6 +2690,7 @@ import { flushPendingSync, deleteFinancialRecord } from '../services/api/laravel
                           <span className="font-bold text-emerald-700 sm:text-right">{selectedTx.saldo_akhir == null ? 'Belum tersedia' : formatRupiah(selectedTx.saldo_akhir)}</span>
                         </p>
                       </div>
+                      )}
                     </div>
 
                     <div className="bg-slate-50 p-5 rounded-[1.5rem] border-2 border-slate-100 shadow-sm flex flex-col">
