@@ -2,7 +2,9 @@ import DeleteAccess from '../components/delete-access';
 import { isIncomeTransaction, settlementRemaining, matchUnusedStockLog } from '../lib/posTransactions';
 import { createRecordId } from '../lib/ids';
 import type { CheckoutForm } from '../types/pos';
+import { POS_DRAFT_KEY, readPosDraft, type PosDraft } from '../lib/posDraft';
 import { createFinancialBatch } from '../services/api/financialBatch';
+import { hasPendingAtomic } from '../services/api/atomic';
 import { flushPendingSync, deleteFinancialRecord } from '../services/api/laravel';
 import { useLocation } from 'react-router-dom'; // Ini yang menyebabkan error ReferenceError
 import { useState, useEffect, useMemo, useRef } from 'react';
@@ -22,6 +24,11 @@ import { PosNavbar } from '../components/pos/PosNavbar';
 import { PosFilterBar } from '../components/pos/PosFilterBar';
 import { MechanicSection } from '../components/pos/MechanicSection';
 import { ReceiptPrintModal } from '../components/pos/ReceiptPrintModal';
+
+// --- DRAFT KERANJANG (cache lokal sementara) ---
+// Dipulihkan saat halaman dibuka kembali supaya keranjang/form tidak hilang
+// ketika pengguna tidak sengaja berpindah halaman. Hanya lokal, kedaluwarsa 24 jam.
+// Logika parse/validasi ada di ../lib/posDraft.ts (diuji terpisah).
 
 // --- INTERFACES ---
 interface Produk {
@@ -131,8 +138,10 @@ export default function MenuPage() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingMsg, setProcessingMsg] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
-  const [selectedMenu, setSelectedMenu] = useState<string>('Overview');
-  const [cart, setCart] = useState<CartItem[]>([]);
+  const [initialDraft] = useState<PosDraft | null>(() => readPosDraft(key => localStorage.getItem(key), Date.now(), hasPendingAtomic()));
+  const initialBayar = initialDraft?.formBayar as Partial<CheckoutForm> | undefined;
+  const [selectedMenu, setSelectedMenu] = useState<string>(initialDraft?.selectedMenu ?? 'Overview');
+  const [cart, setCart] = useState<CartItem[]>(initialDraft?.cart as CartItem[] ?? []);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [perPage, setPerPage] = useState(12);
@@ -456,19 +465,36 @@ export default function MenuPage() {
   } | null>(null);
 
   const [formBayar, setFormBayar] = useState<CheckoutForm>({
-      personIdLama: 'umum1',
-      payment: 'Tunai',
-      nominalBayar: 0,
-      cashflowList: [{ accountId: '', nominal: 0 }], // Multi cashflow
-      mekanikList: [{ idLama: '', ongkos: 0 }],
-      note: '',
-      noteMenu: '',
-      tempoDate: '', // 🟢 Pisahkan state khusus untuk Tanggal Tempo
-      marketplace: '',
-      adminFee: 0,
-      cashback: 0,
-      createdAt: getLocalDatetimeInput(), 
+      personIdLama: initialBayar?.personIdLama ?? 'umum1',
+      payment: initialBayar?.payment ?? 'Tunai',
+      nominalBayar: initialBayar?.nominalBayar ?? 0,
+      cashflowList: initialBayar?.cashflowList ?? [{ accountId: '', nominal: 0 }], // Multi cashflow
+      mekanikList: initialBayar?.mekanikList ?? [{ idLama: '', ongkos: 0 }],
+      note: initialBayar?.note ?? '',
+      noteMenu: initialBayar?.noteMenu ?? '',
+      tempoDate: initialBayar?.tempoDate ?? '', // 🟢 Pisahkan state khusus untuk Tanggal Tempo
+      marketplace: initialBayar?.marketplace ?? '',
+      adminFee: initialBayar?.adminFee ?? 0,
+      cashback: initialBayar?.cashback ?? 0,
+      createdAt: initialBayar?.createdAt ?? getLocalDatetimeInput(), 
 });
+
+  // Simpan draft lokal setiap keranjang/form berubah; hapus saat keranjang kosong.
+  const draftReadyRef = useRef(false);
+  useEffect(() => {
+    // Jangan sentuh draft selama transaksi atomic masih menunggu resolusi.
+    if (hasPendingAtomic()) return;
+    const firstRun = !draftReadyRef.current;
+    draftReadyRef.current = true;
+    try {
+      if (cart.length > 0) {
+        localStorage.setItem(POS_DRAFT_KEY, JSON.stringify({ cart, selectedMenu, formBayar, savedAt: Date.now() }));
+      } else if (!firstRun) {
+        // Hapus hanya saat keranjang betul-betul dikosongkan, bukan saat mount.
+        localStorage.removeItem(POS_DRAFT_KEY);
+      }
+    } catch { /* cache lokal bersifat best-effort */ }
+  }, [cart, selectedMenu, formBayar]);
 
   const isOnlinePerson = useMemo(() => {
   const selectedPerson = personOptions.find(p => p.id_lama === formBayar.personIdLama);
