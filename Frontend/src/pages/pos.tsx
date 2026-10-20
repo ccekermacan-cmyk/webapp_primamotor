@@ -3595,6 +3595,7 @@ export default function MenuPage() {
         isProcessing={isProcessing}
         processingMsg={processingMsg}
         attachmentCount={existingMenuFiles.length + menuFiles.length}
+        hasMedia={menuFiles.length > 0 || (!!editSession?.isEditing && existingMenuFiles.length > 0)}
         showDetails={showReviewDetails}
         activeTheme={activeTheme}
         getPersonDisplayText={getPersonDisplayText}

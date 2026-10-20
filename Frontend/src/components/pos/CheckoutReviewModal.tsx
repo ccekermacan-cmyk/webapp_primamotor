@@ -31,6 +31,8 @@ interface CheckoutReviewModalProps {
   isProcessing: boolean;
   processingMsg: string;
   attachmentCount: number;
+  /** Media sudah tersedia: file baru, atau file lama saat mode edit. */
+  hasMedia: boolean;
   showDetails: boolean;
   activeTheme: { text: string; main: string };
   getPersonDisplayText: (personId?: string | null, fallback?: string) => string;
@@ -55,6 +57,7 @@ export const CheckoutReviewModal: React.FC<CheckoutReviewModalProps> = ({
   isProcessing,
   processingMsg,
   attachmentCount,
+  hasMedia,
   showDetails,
   activeTheme,
   getPersonDisplayText,
@@ -68,10 +71,10 @@ export const CheckoutReviewModal: React.FC<CheckoutReviewModalProps> = ({
   const selisih = grandTotal - totalDibayar;
   const isPembelian = selectedMenu.toLowerCase().includes('pembelian');
   const isLunas = totalDibayar >= grandTotal;
-  const statusText = isPembelian && attachmentCount === 0
+  const statusText = isPembelian && !hasMedia
     ? 'BELUM (Menunggu Bukti Media)'
     : (isLunas ? 'LUNAS' : 'BELUM LUNAS');
-  const statusClass = isPembelian && attachmentCount === 0
+  const statusClass = isPembelian && !hasMedia
     ? 'bg-amber-50 border-amber-100 text-amber-700'
     : (isLunas ? 'bg-emerald-50 border-emerald-100 text-emerald-700' : 'bg-rose-50 border-rose-100 text-rose-700');
   const paymentRows = formBayar.cashflowList.filter(cf => cf.accountId || cf.nominal);
@@ -104,7 +107,7 @@ export const CheckoutReviewModal: React.FC<CheckoutReviewModalProps> = ({
                 <p className="text-xs font-bold">{statusText}</p>
               </div>
             </div>
-            {isPembelian && attachmentCount === 0 && (
+            {isPembelian && !hasMedia && (
               <p className="text-[11px] text-amber-600 mt-2">Upload bukti nota agar bisa berstatus LUNAS</p>
             )}
           </section>
