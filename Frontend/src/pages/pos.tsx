@@ -14,7 +14,7 @@ import Modal from '../components/modal';
 import '../components/pos/pos-modal.css';
 import { 
   Search, ShoppingCart, ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
-  Trash2, Plus, Layers, Printer, Share2, X,
+  Trash2, Plus, Printer, Share2, X,
   Calendar, History, Sparkles, DollarSign, Wallet, AlertTriangle, AlertCircle, Info, Wrench, Edit, Edit2, Filter, Zap,
   // Tambahan ikon baru untuk UI yang diperbarui:
   ListOrdered, Users, CreditCard, ShoppingBag, FileText, EyeOff, ImagePlus, Save, CheckCircle2, Box, User, ExternalLink,
@@ -5125,213 +5125,195 @@ export default function MenuPage() {
           isOpen={quickSettleData.show}
           onClose={() => !isProcessing && setQuickSettleData(null)}
           title="Pelunasan Pembayaran Cepat"
+          maxWidth="max-w-2xl"
+          compact
         >
-          <div className="space-y-5 p-2">
-            {/* Banner Ringkasan Nota */}
-            <div className="bg-gradient-to-br from-slate-900 to-slate-800 text-white p-5 rounded-3xl shadow-lg border border-slate-700 relative overflow-hidden">
-              <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500 rounded-full blur-3xl opacity-20 pointer-events-none" />
-              <div className="flex justify-between items-start mb-3">
-                <div>
-                  <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest block">
-                    {quickSettleData.menu.jenis || 'Nota Transaksi'}
-                  </span>
-                  <h4 className="text-lg font-black tracking-tight">
-                    {getPersonDisplayText(quickSettleData.menu.person, 'PELANGGAN UMUM')}
-                  </h4>
-                </div>
-                <span className="text-xs font-mono bg-white/10 px-2.5 py-1 rounded-lg">
-                  {quickSettleData.menu.ref || quickSettleData.menu.id.slice(0, 8)}
-                </span>
-              </div>
-              <div className="grid grid-cols-2 gap-4 border-t border-white/10 pt-3">
-                <div>
-                  <span className="text-[10px] text-slate-400 font-bold block">Total Invoice</span>
-                  <span className="text-sm font-black">
-                    Rp {Number(quickSettleData.menu.total || 0).toLocaleString('id-ID')}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-[10px] text-emerald-400 font-bold block">Telah Dibayar</span>
-                  <span className="text-sm font-black text-emerald-400">
-                    Rp {Number(quickSettleData.menu.dibayar || 0).toLocaleString('id-ID')}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* Sisa Piutang / Tagihan Highlight */}
-            <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-2xl flex justify-between items-center">
-              <div>
-                <span className="text-[11px] font-black text-emerald-800 uppercase tracking-wider block">
-                  Sisa Belum Dibayar
-                </span>
-                <p className="text-xl font-black text-emerald-700">
-                  Rp {Math.max(0, (quickSettleData.menu.total || 0) - (quickSettleData.menu.dibayar || 0)).toLocaleString('id-ID')}
-                </p>
-              </div>
-              <button
-                type="button"
-                disabled={isProcessing}
-                onClick={() => setQuickSettleData(prev => prev ? {
-                  ...prev,
-                  nominal: Math.max(0, (prev.menu!.total || 0) - (prev.menu!.dibayar || 0))
-                } : null)}
-                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold uppercase transition-colors disabled:opacity-50"
-              >
-                Lunas Penuh
-              </button>
-            </div>
-
-            {/* Form Input Pelunasan */}
-            <div className="space-y-4">
-              <div>
-                <label className="text-xs font-bold text-slate-700 mb-1.5 flex justify-between items-center">
-                  <span>Akun Kas Penerima Pembayaran <span className="text-red-500">*</span></span>
-                  {quickSettleData.accountId && (() => {
-                    const selectedAcc = cashflowAccounts.find(a => a.id === quickSettleData.accountId);
-                    const bal = Number(selectedAcc?.number_1 || 0);
-                    return (
-                      <span className="text-[11px] font-black text-emerald-700 bg-emerald-100/90 border border-emerald-300 px-2.5 py-0.5 rounded-lg flex items-center gap-1 shadow-sm">
-                        <Wallet size={12} /> Saldo Aktif: Rp {bal.toLocaleString('id-ID')}
-                      </span>
-                    );
-                  })()}
-                </label>
-                <select
-                  value={quickSettleData.accountId}
-                  disabled={isProcessing}
-                  onChange={(e) => setQuickSettleData(prev => prev ? { ...prev, accountId: e.target.value } : null)}
-                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50"
-                >
-                  <option value="">-- Pilih Akun Kas --</option>
-                  {cashflowAccounts.map(acc => (
-                    <option key={acc.id} value={acc.id}>
-                      {acc.text_1} {acc.id_lama ? `(${acc.id_lama})` : ''} - Saldo: Rp {Number(acc.number_1 || 0).toLocaleString('id-ID')}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="text-xs font-bold text-slate-700 mb-1.5 block">
-                  Nominal Pelunasan (Rp) <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="number"
-                  min="1"
-                  value={quickSettleData.nominal || ''}
-                  disabled={isProcessing}
-                  onChange={(e) => setQuickSettleData(prev => prev ? { ...prev, nominal: Number(e.target.value) } : null)}
-                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-black text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50"
-                  placeholder="Masukkan nominal bayar..."
-                />
-              </div>
-
-              <div>
-                <label className="text-xs font-bold text-slate-700 mb-1.5 block">
-                  Waktu Pembayaran
-                </label>
-                <input
-                  type="datetime-local"
-                  value={quickSettleData.createdAt}
-                  disabled={isProcessing}
-                  onChange={(e) => setQuickSettleData(prev => prev ? { ...prev, createdAt: e.target.value } : null)}
-                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50"
-                />
-              </div>
-
-              <div>
-                <label className="text-xs font-bold text-slate-700 mb-1.5 block">
-                  Catatan Pelunasan (Opsional)
-                </label>
-                <input
-                  type="text"
-                  value={quickSettleData.note}
-                  disabled={isProcessing}
-                  onChange={(e) => setQuickSettleData(prev => prev ? { ...prev, note: e.target.value } : null)}
-                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50"
-                  placeholder="Contoh: Pelunasan Transfer BCA"
-                />
-              </div>
-
-              {/* Upload Media / Bukti Transfer */}
-              <div>
-                <label className="text-xs font-bold text-slate-700 mb-1.5 flex items-center justify-between">
-                  <span>Upload Media / Bukti Transfer (Opsional)</span>
-                  {quickSettleData.menu.file && quickSettleData.menu.file.length > 0 && (
-                    <span className="text-[10px] text-blue-600 font-medium">
-                      ({quickSettleData.menu.file.length} file terdahulu)
-                    </span>
-                  )}
-                </label>
-                <div className="border-2 border-dashed border-slate-200 rounded-2xl p-4 bg-slate-50/50 hover:bg-slate-50 transition-colors">
-                  <input
-                    type="file"
-                    accept="image/*"
-                    multiple
+          <div className="pos-modal-layout">
+            <div className="pos-modal-scroll pos-form-fields space-y-4">
+              {/* Ringkasan nota */}
+              <section className="rounded-2xl border border-slate-200 bg-white p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-xs text-slate-500">{quickSettleData.menu.jenis || 'Nota Transaksi'}</p>
+                    <p className="text-base font-semibold text-slate-800 mt-0.5 break-words">{getPersonDisplayText(quickSettleData.menu.person, 'Pelanggan umum')}</p>
+                    <p className="text-[11px] text-slate-500 mt-1 font-mono">{quickSettleData.menu.ref || quickSettleData.menu.id.slice(0, 8)}</p>
+                  </div>
+                  <button
+                    type="button"
                     disabled={isProcessing}
-                    id="quick-settle-file-input"
-                    className="hidden"
-                    onChange={(e) => {
-                      if (e.target.files && e.target.files.length > 0) {
-                        const filesArray = Array.from(e.target.files);
-                        setQuickSettleData(prev => prev ? {
-                          ...prev,
-                          settleFiles: [...(prev.settleFiles || []), ...filesArray]
-                        } : null);
-                      }
-                    }}
-                  />
-                  <label
-                    htmlFor="quick-settle-file-input"
-                    className="flex flex-col items-center justify-center cursor-pointer gap-2 py-2"
+                    onClick={() => setQuickSettleData(prev => prev ? {
+                      ...prev,
+                      nominal: Math.max(0, (prev.menu!.total || 0) - (prev.menu!.dibayar || 0))
+                    } : null)}
+                    className="pos-action bg-emerald-600 text-white shrink-0"
                   >
-                    <div className="p-3 bg-white rounded-full shadow-sm text-emerald-600">
-                      <Upload size={20} />
-                    </div>
-                    <div className="text-center">
-                      <p className="text-xs font-bold text-slate-700">Klik untuk Pilih Foto Bukti Transfer</p>
-                      <p className="text-[10px] text-slate-400 mt-0.5">Format: JPG, PNG, WEBP</p>
-                    </div>
-                  </label>
+                    Lunas penuh
+                  </button>
+                </div>
+                <dl className="grid grid-cols-3 gap-3 mt-4 text-slate-700 tabular-nums">
+                  <div>
+                    <dt className="text-xs">Total invoice</dt>
+                    <dd className="font-semibold">Rp {Number(quickSettleData.menu.total || 0).toLocaleString('id-ID')}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs">Sudah dibayar</dt>
+                    <dd className="font-semibold text-emerald-700">Rp {Number(quickSettleData.menu.dibayar || 0).toLocaleString('id-ID')}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs">Sisa tagihan</dt>
+                    <dd className="font-semibold text-emerald-700">Rp {Math.max(0, (quickSettleData.menu.total || 0) - (quickSettleData.menu.dibayar || 0)).toLocaleString('id-ID')}</dd>
+                  </div>
+                </dl>
+              </section>
 
-                  {/* Thumbnail Preview File Baru */}
-                  {quickSettleData.settleFiles && quickSettleData.settleFiles.length > 0 && (
-                    <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 mt-3 pt-3 border-t border-slate-200">
-                      {quickSettleData.settleFiles.map((file, idx) => {
-                        const previewUrl = URL.createObjectURL(file);
-                        return (
-                          <div key={idx} className="relative group rounded-xl overflow-hidden border border-slate-200 aspect-square bg-white">
-                            <img src={previewUrl} alt={file.name} className="w-full h-full object-cover" />
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setQuickSettleData(prev => prev ? {
-                                  ...prev,
-                                  settleFiles: prev.settleFiles.filter((_, i) => i !== idx)
-                                } : null);
-                              }}
-                              className="absolute top-1 right-1 p-1 bg-rose-500 text-white rounded-full opacity-80 hover:opacity-100 transition-opacity"
-                              title="Hapus foto ini"
-                            >
-                              <X size={12} />
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
+              {/* Form pelunasan */}
+              <div className="space-y-4">
+                <div>
+                  <label className="text-xs font-bold text-slate-700 mb-1.5 flex justify-between items-center gap-2">
+                    <span>Akun kas penerima pembayaran <span className="text-rose-500">*</span></span>
+                    {quickSettleData.accountId && (() => {
+                      const selectedAcc = cashflowAccounts.find(a => a.id === quickSettleData.accountId);
+                      const bal = Number(selectedAcc?.number_1 || 0);
+                      return (
+                        <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-lg flex items-center gap-1 shrink-0">
+                          <Wallet size={12} /> Saldo: Rp {bal.toLocaleString('id-ID')}
+                        </span>
+                      );
+                    })()}
+                  </label>
+                  <select
+                    value={quickSettleData.accountId}
+                    disabled={isProcessing}
+                    onChange={(e) => setQuickSettleData(prev => prev ? { ...prev, accountId: e.target.value } : null)}
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50"
+                  >
+                    <option value="">-- Pilih akun kas --</option>
+                    {cashflowAccounts.map(acc => (
+                      <option key={acc.id} value={acc.id}>
+                        {acc.text_1} {acc.id_lama ? `(${acc.id_lama})` : ''} - Saldo: Rp {Number(acc.number_1 || 0).toLocaleString('id-ID')}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-700 mb-1.5 block">
+                    Nominal pelunasan (Rp) <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={quickSettleData.nominal || ''}
+                    disabled={isProcessing}
+                    onChange={(e) => setQuickSettleData(prev => prev ? { ...prev, nominal: Number(e.target.value) } : null)}
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50"
+                    placeholder="Masukkan nominal bayar..."
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-700 mb-1.5 block">
+                    Waktu pembayaran
+                  </label>
+                  <input
+                    type="datetime-local"
+                    value={quickSettleData.createdAt}
+                    disabled={isProcessing}
+                    onChange={(e) => setQuickSettleData(prev => prev ? { ...prev, createdAt: e.target.value } : null)}
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-700 mb-1.5 block">
+                    Catatan pelunasan (opsional)
+                  </label>
+                  <input
+                    type="text"
+                    value={quickSettleData.note}
+                    disabled={isProcessing}
+                    onChange={(e) => setQuickSettleData(prev => prev ? { ...prev, note: e.target.value } : null)}
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50"
+                    placeholder="Contoh: Pelunasan Transfer BCA"
+                  />
+                </div>
+
+                {/* Lampiran bukti transfer */}
+                <div>
+                  <label className="text-xs font-bold text-slate-700 mb-1.5 flex items-center justify-between gap-2">
+                    <span>Upload media / bukti transfer (opsional)</span>
+                    {quickSettleData.menu.file && quickSettleData.menu.file.length > 0 && (
+                      <span className="text-[10px] text-blue-600 font-medium">
+                        ({quickSettleData.menu.file.length} file terdahulu)
+                      </span>
+                    )}
+                  </label>
+                  <div className="border border-dashed border-slate-200 rounded-xl p-4 bg-slate-50/50 hover:bg-slate-50 transition-colors">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      disabled={isProcessing}
+                      id="quick-settle-file-input"
+                      className="hidden"
+                      onChange={(e) => {
+                        if (e.target.files && e.target.files.length > 0) {
+                          const filesArray = Array.from(e.target.files);
+                          setQuickSettleData(prev => prev ? {
+                            ...prev,
+                            settleFiles: [...(prev.settleFiles || []), ...filesArray]
+                          } : null);
+                        }
+                      }}
+                    />
+                    <label
+                      htmlFor="quick-settle-file-input"
+                      className="flex flex-col items-center justify-center cursor-pointer gap-2 py-2"
+                    >
+                      <div className="p-3 bg-white rounded-full shadow-sm text-emerald-600">
+                        <Upload size={20} />
+                      </div>
+                      <div className="text-center">
+                        <p className="text-xs font-bold text-slate-700">Klik untuk pilih foto bukti transfer</p>
+                        <p className="text-[10px] text-slate-400 mt-0.5">Format: JPG, PNG, WEBP</p>
+                      </div>
+                    </label>
+
+                    {quickSettleData.settleFiles && quickSettleData.settleFiles.length > 0 && (
+                      <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 mt-3 pt-3 border-t border-slate-200">
+                        {quickSettleData.settleFiles.map((file, idx) => {
+                          const previewUrl = URL.createObjectURL(file);
+                          return (
+                            <div key={idx} className="relative group rounded-xl overflow-hidden border border-slate-200 aspect-square bg-white">
+                              <img src={previewUrl} alt={file.name} className="w-full h-full object-cover" />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setQuickSettleData(prev => prev ? {
+                                    ...prev,
+                                    settleFiles: prev.settleFiles.filter((_, i) => i !== idx)
+                                  } : null);
+                                }}
+                                className="absolute top-1 right-1 p-1 bg-rose-500 text-white rounded-full opacity-80 hover:opacity-100 transition-opacity"
+                                title="Hapus foto ini"
+                              >
+                                <X size={12} />
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
-
-            {/* Buttons */}
-            <div className="flex gap-3 pt-3">
+            <div className="pos-modal-footer">
               <button
                 type="button"
                 onClick={() => setQuickSettleData(null)}
                 disabled={isProcessing}
-                className="flex-1 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl font-bold text-xs uppercase tracking-wider transition-colors"
+                className="flex-1 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-xs tracking-wider transition-colors"
               >
                 Batal
               </button>
@@ -5339,12 +5321,12 @@ export default function MenuPage() {
                 type="button"
                 onClick={executeQuickSettle}
                 disabled={isProcessing}
-                className="flex-[2] py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-black text-xs uppercase tracking-wider shadow-lg shadow-emerald-600/30 transition-all active:scale-95 flex items-center justify-center gap-2"
+                className="flex-[2] py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs tracking-wider shadow-sm transition-all active:scale-95 flex items-center justify-center gap-2"
               >
                 {isProcessing ? 'Menyimpan...' : (
                   <>
                     <CheckCircle2 size={16} />
-                    <span>Simpan Pelunasan</span>
+                    <span>Simpan pelunasan</span>
                   </>
                 )}
               </button>
