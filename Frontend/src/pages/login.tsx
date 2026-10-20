@@ -1,18 +1,28 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { pb } from '../lib/pocketbase';
 import Modal from '../components/modal';
+import { loginErrorMessage } from '../lib/login';
 import { Wrench, Lock, User, AlertCircle } from 'lucide-react';
 
 export default function Login({ setAuth }: { setAuth: (status: boolean) => void }) {
   const [identity, setIdentity] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [capsLock, setCapsLock] = useState(false);
+  const loginLock = useRef(false);
   const [errorModal, setErrorModal] = useState<{ show: boolean; message: string }>({ show: false, message: '' });
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loginLock.current) return;
+    if (!identity.trim() || !password) {
+      setErrorModal({ show: true, message: 'Isi username/email dan password terlebih dahulu.' });
+      return;
+    }
+    loginLock.current = true;
     setLoading(true);
 
     try {
@@ -46,15 +56,15 @@ export default function Login({ setAuth }: { setAuth: (status: boolean) => void 
       setAuth(true);
       navigate('/');
 
-    } catch (err: any) {
-      console.error("Login Error:", err);
+    } catch (err: unknown) {
       pb.authStore.clear();
       
       setErrorModal({ 
         show: true, 
-        message: 'Username, Email, atau Password yang Anda masukkan salah.' 
+        message: loginErrorMessage(err)
       });
     } finally {
+      loginLock.current = false;
       setLoading(false);
     }
   };
@@ -90,7 +100,11 @@ export default function Login({ setAuth }: { setAuth: (status: boolean) => void 
               <div className="relative group">
                 <User className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-red-500 transition-colors" size={20} />
                 <input 
-                  type="text" 
+                  type="text"
+                  autoComplete="username"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                  disabled={loading}
                   className="w-full pl-12 pr-4 py-4 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-red-500/20 outline-none font-bold text-slate-700 transition-all"
                   placeholder="Ketik username..."
                   value={identity}
@@ -105,7 +119,12 @@ export default function Login({ setAuth }: { setAuth: (status: boolean) => void 
               <div className="relative group">
                 <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-red-500 transition-colors" size={20} />
                 <input 
-                  type="password" 
+                  type={showPassword ? 'text' : 'password'}
+                  autoComplete="current-password"
+                  disabled={loading}
+                  onKeyDown={e => setCapsLock(e.getModifierState('CapsLock'))}
+                  onKeyUp={e => setCapsLock(e.getModifierState('CapsLock'))}
+                  onBlur={() => setCapsLock(false)}
                   className="w-full pl-12 pr-4 py-4 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-red-500/20 outline-none font-bold text-slate-700 transition-all"
                   placeholder="••••••••"
                   value={password}
@@ -113,6 +132,14 @@ export default function Login({ setAuth }: { setAuth: (status: boolean) => void 
                   required
                 />
               </div>
+            </div>
+
+            <div className="flex items-center justify-between gap-3 text-sm">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={showPassword} disabled={loading} onChange={e => setShowPassword(e.target.checked)} />
+                Tampilkan password
+              </label>
+              {capsLock && <span role="status" className="text-amber-700">Caps Lock aktif</span>}
             </div>
 
             <button 
