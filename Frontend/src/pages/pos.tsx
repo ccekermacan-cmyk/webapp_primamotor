@@ -2,6 +2,7 @@ import DeleteAccess from '../components/delete-access';
 import { isIncomeTransaction, settlementRemaining, matchUnusedStockLog } from '../lib/posTransactions';
 import { createRecordId } from '../lib/ids';
 import { formatRupiah, formatAmount } from '../lib/money';
+import { validateCheckout, FIELD_TAB, type FieldKey } from '../lib/posValidation';
 import type { CheckoutForm } from '../types/pos';
 import { POS_DRAFT_KEY, readPosDraft, type PosDraft } from '../lib/posDraft';
 import { createFinancialBatch } from '../services/api/financialBatch';
@@ -25,6 +26,7 @@ import {
 import { PosNavbar } from '../components/pos/PosNavbar';
 import { PosFilterBar } from '../components/pos/PosFilterBar';
 import { MechanicSection } from '../components/pos/MechanicSection';
+import { FieldError } from '../components/pos/FieldError';
 import { ReceiptPrintModal } from '../components/pos/ReceiptPrintModal';
 
 // --- DRAFT KERANJANG (cache lokal sementara) ---
@@ -191,6 +193,7 @@ export default function MenuPage() {
   
   const [showCheckoutReview, setShowCheckoutReview] = useState(false);
   const [showReviewDetails, setShowReviewDetails] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<FieldKey, string>>>({});
   const [showReceiptPrint, setShowReceiptPrint] = useState<any>(null);
 
   // Helper Hitung Hari Kerja (Total Hari dlm Bulan - Jumlah Hari Minggu)
@@ -1459,91 +1462,59 @@ export default function MenuPage() {
   }, [isPaymentFormOpen, isCartModalOpen, showCheckoutReview, cartTab, cart, cashflowAccounts, formBayar.cashflowList, grandTotal]);
 
   // --- CHECKOUT SAFETY GUARD ---
+  const clearFieldError = (field: FieldKey) => setFieldErrors(prev => {
+    if (!prev[field]) return prev;
+    const next = { ...prev };
+    delete next[field];
+    return next;
+  });
+
+  const focusFieldError = (field: FieldKey) => {
+    window.setTimeout(() => {
+      const el = document.querySelector<HTMLElement>(`[data-field="${field}"]`);
+      el?.focus();
+      el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }, 80);
+  };
+
   const handleCheckoutValidation = () => {
     const menuLower = selectedMenu.toLowerCase();
+    const errors = validateCheckout({
+      menu: selectedMenu,
+      cartCount: cart.length,
+      mekanik: formBayar.mekanikList,
+      cashflow: formBayar.cashflowList,
+      isOnline: isOnlinePerson,
+      marketplace: formBayar.marketplace,
+      adminFee: formBayar.adminFee,
+      noteMenu: formBayar.noteMenu,
+      payment: formBayar.payment,
+      tempoDate: formBayar.tempoDate,
+    });
 
-    // 1. Validasi keranjang tidak boleh kosong (KECUALI menu Service)
-    if (cart.length === 0 && !menuLower.includes('service')) {
-      setDialog({ show: true, title: 'Validasi Gagal', message: 'Isi keranjang dengan item terlebih dahulu!', type: 'alert' });
+    // Tampilkan pesan tepat di bawah field yang bermasalah dan fokuskan error pertama.
+    if (errors.length > 0) {
+      const map: Partial<Record<FieldKey, string>> = {};
+      errors.forEach(error => { if (!map[error.field]) map[error.field] = error.message; });
+      setFieldErrors(map);
+      const first = errors[0];
+      setCartTab(FIELD_TAB[first.field]);
+      focusFieldError(first.field);
       return;
     }
+    setFieldErrors({});
 
-    // --- VALIDASI KHUSUS SERVICE ---
-    if (menuLower.includes('service')) {
-      // Minimal 1 mekanik harus diisi dengan ongkos > 0
-      const mekanikValid = formBayar.mekanikList.filter(m => m.idLama && m.ongkos > 0);
-      if (mekanikValid.length === 0) {
-        setCartTab('items');
-        setDialog({
-          show: true,
-          title: 'Validasi Gagal',
-          message: 'Untuk menu SERVICE, minimal 1 mekanik harus diisi dengan ongkos yang valid (> 0).',
-          type: 'alert'
-        });
-        return;
-      }
-
-      // Jika ada mekanik yang idLama diisi tapi ongkos = 0
-      const mekanikTanpaOngkos = formBayar.mekanikList.some(m => m.idLama && m.ongkos === 0);
-      if (mekanikTanpaOngkos) {
-        setCartTab('items');
-        setDialog({
-          show: true,
-          title: 'Ongkos Mekanik Kosong',
-          message: 'Mekanik yang dipilih harus memiliki ongkos kerja yang valid (harus > 0). Silakan isi ongkos untuk semua mekanik.',
-          type: 'alert'
-        });
-        return;
-      }
-    }
-
-    // --- VALIDASI CASHFLOW (account_1 diisi tapi nominal 0) ---
-    const cashflowInvalid = formBayar.cashflowList.some(cf => cf.accountId && cf.nominal === 0);
-    if (cashflowInvalid) {
-      setCartTab('payment');
-      setDialog({
-        show: true,
-        title: 'Nominal Pembayaran Kosong',
-        message: 'Akun kas yang dipilih harus memiliki nominal pembayaran yang valid (harus > 0).',
-        type: 'alert'
-      });
-      return;
-    }
-
-    // --- VALIDASI CASHFLOW (nominal > 0 tapi account_1 kosong) ---
-    const cashflowTanpaAkun = formBayar.cashflowList.some(cf => !cf.accountId && cf.nominal > 0);
-    if (cashflowTanpaAkun) {
-      setCartTab('payment');
-      setDialog({
-        show: true,
-        title: 'Akun Kas Belum Dipilih',
-        message: 'Nominal pembayaran dimasukkan tetapi akun kas belum dipilih. Silakan pilih akun kas terlebih dahulu.',
-        type: 'alert'
-      });
-      return;
-    }
-
-    // --- CEK STATUS LUNAS / BELUM (konfirmasi) ---
+    // --- CEK STATUS LUNAS / BELUM (keputusan penting, tetap pakai dialog) ---
     const totalDibayar = formBayar.cashflowList.reduce((sum, cf) => sum + (cf.nominal || 0), 0);
-    let perluKonfirmasiLunas = false;
-    let pesanKonfirmasi = '';
-
     const isCashflowKosong = formBayar.cashflowList.length === 0 ||
       formBayar.cashflowList.every(cf => !cf.accountId && cf.nominal === 0);
-    const adaCashflowBelumLengkap = formBayar.cashflowList.some(cf => (!cf.accountId && cf.nominal > 0) || (cf.accountId && cf.nominal <= 0));
     const totalKurang = totalDibayar < grandTotal;
 
-    if (isCashflowKosong || adaCashflowBelumLengkap || totalKurang) {
-      perluKonfirmasiLunas = true;
-      pesanKonfirmasi = `Apakah Anda yakin ingin melanjutkan simpan menu ${selectedMenu} ini dalam keadaan BELUM LUNAS?`;
-    }
-
-    // Jika perlu konfirmasi, tampilkan dialog
-    if (perluKonfirmasiLunas) {
+    if (isCashflowKosong || totalKurang) {
       setDialog({
         show: true,
         title: 'Konfirmasi Status Belum Lunas',
-        message: pesanKonfirmasi,
+        message: `Apakah Anda yakin ingin melanjutkan simpan menu ${selectedMenu} ini dalam keadaan BELUM LUNAS?`,
         type: 'confirm',
         onConfirm: () => {
           setDialog(prev => ({ ...prev, show: false }));
@@ -1553,82 +1524,23 @@ export default function MenuPage() {
       return;
     }
 
-    // Jika tidak perlu konfirmasi (sudah lunas), langsung lanjut
     lanjutkanValidasiMandatory();
 
-    // Fungsi untuk melanjutkan validasi mandatory (setelah konfirmasi atau langsung)
+    // Lanjut ke review: catatan tempo untuk pembelian diisi otomatis oleh sistem.
     function lanjutkanValidasiMandatory() {
-      // Validasi untuk online person
-      if (isOnlinePerson) {
-        if (!formBayar.marketplace.trim()) {
-          setCartTab('payment');
-          setDialog({ show: true, title: 'Validasi Gagal', message: 'Marketplace wajib diisi untuk pelanggan online.', type: 'alert' });
-          return;
-        }
-        if (formBayar.adminFee < 0) {
-          setDialog({ show: true, title: 'Validasi Gagal', message: 'Admin fee tidak boleh bernilai negatif.', type: 'alert' });
-          return;
-        }
+      if (menuLower.includes('pembelian') && formBayar.payment === 'Tempo' && !formBayar.noteMenu.trim()) {
+        const tglTransaksi = formBayar.createdAt ? new Date(formBayar.createdAt) : new Date();
+        const tglJatuhTempo = new Date(formBayar.tempoDate);
+        const diffTime = tglJatuhTempo.getTime() - tglTransaksi.getTime();
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        const options: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short', year: '2-digit' };
+        const formattedDate = tglJatuhTempo.toLocaleDateString('id-ID', options);
+        setFormBayar(prev => ({ ...prev, noteMenu: `Tempo: ${formattedDate} (${diffDays} hari)` }));
       }
-
-      // Validasi Catatan (Service & Pembelian)
-      if (menuLower.includes('service') && !formBayar.noteMenu.trim()) {
-        setCartTab('notes');
-        setDialog({ show: true, title: 'Catatan Kosong', message: 'Isi jenis motor service pada catatan nota!', type: 'alert' });
-        return;
-      }
-
-      // ===== BLOK KHUSUS PEMBELIAN =====
-      if (menuLower.includes('pembelian')) {
-        let noteMenu = formBayar.noteMenu;
-
-        // 1. Jika payment = Tempo, tanggal jatuh tempo wajib
-        if (formBayar.payment === 'Tempo') {
-          if (!formBayar.tempoDate) {
-            setCartTab('payment'); // 🟢 Perbaikan: cek formBayar.tempoDate
-            setDialog({
-              show: true,
-              title: 'Validasi Gagal',
-              message: 'Tanggal jatuh tempo wajib diisi untuk pembelian dengan pembayaran Tempo.',
-              type: 'alert'
-            });
-            return;
-          }
-
-          // 2. Jika noteMenu kosong, isi otomatis dengan keterangan tempo
-          if (!noteMenu.trim()) {
-            const tglTransaksi = formBayar.createdAt ? new Date(formBayar.createdAt) : new Date();
-            const tglJatuhTempo = new Date(formBayar.tempoDate); // 🟢 Perbaikan: gunakan tempoDate
-            const diffTime = tglJatuhTempo.getTime() - tglTransaksi.getTime();
-            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-            const options: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short', year: '2-digit' };
-            const formattedDate = tglJatuhTempo.toLocaleDateString('id-ID', options);
-            noteMenu = `Tempo: ${formattedDate} (${diffDays} hari)`;
-            // Update state agar UI tercermin
-            setFormBayar(prev => ({ ...prev, noteMenu }));
-          }
-        }
-
-        // Validasi noteMenu (jika masih kosong setelah auto-fill)
-        if (!noteMenu.trim()) {
-          setCartTab('notes');
-          setDialog({ show: true, title: 'Catatan Kosong', message: 'Isi nota dari customer pada catatan nota!', type: 'alert' });
-          return;
-        }
-
-        // Validasi Media Bukti (Pembelian) - TIDAK WAJIB lagi, tapi akan memengaruhi status
-        // (hanya beri peringatan, tidak block)
-        if (menuFiles.length === 0 && !editSession?.menuId && menuLower.includes('pembelian')) {
-          console.warn("Pembelian tanpa lampiran media - status akan tetap 'belum' meski lunas");
-        }
-      }
-
-      // Jika lolos semua validasi, buka modal review
       setShowReviewDetails(false);
       setShowCheckoutReview(true);
     }
   };
-
   const handleMenuChange = (menuName: string) => {
     if (cart.length > 0 && selectedMenu !== menuName) {
       setDialog({
@@ -1677,8 +1589,9 @@ export default function MenuPage() {
       setDialog({ show: true, title: 'Batas Stok Realtime', message: `Sisa pasokan fisik untuk barang ini hanya tersisa ${prod.stok_3} ${prod.unit}.`, type: 'alert' });
       return;
     }
-    if (existing) { setCart(cart.map(c => c.id === prod.id ? { ...c, qty: c.qty + 1 } : c)); } 
+    if (existing) { setCart(cart.map(c => c.id === prod.id ? { ...c, qty: c.qty + 1 } : c)); }
     else { setCart([...cart, { ...prod, qty: 1, priceSelected: prod.sell_6, isTiered: false, basePriceDefault: prod.sell_6 }]); }
+    clearFieldError('cart');
   };
 
   const updateQty = (id: string, delta: number, maxStok: number) => {
@@ -2952,6 +2865,9 @@ export default function MenuPage() {
           )}
 
             <section hidden={cartTab !== 'items'} className="space-y-4">
+              <div data-field="cart" tabIndex={-1} className="outline-none">
+                <FieldError message={fieldErrors.cart} />
+              </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {/* 🆕 Tanggal Transaksi */}
                 <div className="grid grid-cols-1 gap-4">
@@ -3177,6 +3093,8 @@ export default function MenuPage() {
                   grandTotal={grandTotal}
                   mechanics={mechanics}
                   setDialog={setDialog}
+                  error={fieldErrors.mechanic || fieldErrors.mechanicOngkos}
+                  onChange={() => { clearFieldError('mechanic'); clearFieldError('mechanicOngkos'); }}
                 />
 
 
@@ -3246,10 +3164,12 @@ export default function MenuPage() {
                     <div className="flex-1 min-w-0">
                       <select
                         value={cf.accountId}
+                        data-field="paymentAccount"
                         onChange={e => {
                           const newList = [...formBayar.cashflowList];
                           newList[idx].accountId = e.target.value;
                           setFormBayar({ ...formBayar, cashflowList: newList });
+                          clearFieldError('paymentAccount');
                         }}
                         className="w-full p-3 text-xs md:text-sm font-bold text-slate-700 border-none bg-slate-50 hover:bg-slate-100 rounded-xl outline-none cursor-pointer"
                       >
@@ -3267,16 +3187,22 @@ export default function MenuPage() {
                         type="number"
                         placeholder="Nominal"
                         value={cf.nominal || ''}
+                        data-field="paymentNominal"
                         onChange={e => {
                           const newList = [...formBayar.cashflowList];
                           newList[idx].nominal = Number(e.target.value);
                           setFormBayar({ ...formBayar, cashflowList: newList });
+                          clearFieldError('paymentNominal');
                         }}
                         className="w-full pl-9 pr-3 py-3 text-xs md:text-sm font-black text-slate-800 border-none bg-slate-50 hover:bg-slate-100 focus:bg-white rounded-xl outline-none focus:ring-2 focus:ring-slate-200"
                       />
                     </div>
                   </div>
                   ))}
+                  </div>
+
+                  <div data-field="paymentRows" tabIndex={-1} className="outline-none">
+                    <FieldError message={fieldErrors.paymentAccount || fieldErrors.paymentNominal} />
                   </div>
 
                   {/* Total Dibayar & Tombol Uang Pas (Auto Lunas) ditaruh dibawahnya */}
@@ -3357,9 +3283,11 @@ export default function MenuPage() {
                     <input
                       type="date"
                       value={formBayar.tempoDate} // 🟢 Menggunakan state tempoDate
-                      onChange={e => setFormBayar({ ...formBayar, tempoDate: e.target.value })}
+                      data-field="tempoDate"
+                      onChange={e => { setFormBayar({ ...formBayar, tempoDate: e.target.value }); clearFieldError('tempoDate'); }}
                       className="w-full mt-2 p-3 text-sm font-bold text-slate-700 bg-white border-2 border-rose-100 rounded-xl focus:border-rose-400 focus:ring-2 focus:ring-rose-200 outline-none transition-all shadow-sm"
                     />
+                    <FieldError message={fieldErrors.tempoDate} />
                   </div>
                 )}
 
@@ -3372,9 +3300,11 @@ export default function MenuPage() {
                         list="marketplaceOptions"
                         placeholder="Shopee/Tokped"
                         value={formBayar.marketplace}
-                        onChange={e => setFormBayar({ ...formBayar, marketplace: e.target.value })}
+                        data-field="marketplace"
+                        onChange={e => { setFormBayar({ ...formBayar, marketplace: e.target.value }); clearFieldError('marketplace'); }}
                         className="w-full mt-2 p-3 text-xs md:text-sm font-bold bg-white border-2 border-amber-100 focus:border-amber-400 rounded-xl outline-none shadow-sm"
                       />
+                      <FieldError message={fieldErrors.marketplace} />
                     </div>
                     <div>
                       <label className="text-[10px] font-black text-amber-600 uppercase ml-1">Biaya admin (−)</label>
@@ -3382,9 +3312,11 @@ export default function MenuPage() {
                         type="number"
                         placeholder="0"
                         value={formBayar.adminFee}
-                        onChange={e => setFormBayar({ ...formBayar, adminFee: Number(e.target.value) })}
+                        data-field="adminFee"
+                        onChange={e => { setFormBayar({ ...formBayar, adminFee: Number(e.target.value) }); clearFieldError('adminFee'); }}
                         className="w-full mt-2 p-3 text-xs md:text-sm font-bold bg-white border-2 border-amber-100 focus:border-amber-400 rounded-xl outline-none shadow-sm"
                       />
+                      <FieldError message={fieldErrors.adminFee} />
                     </div>
                     <div>
                       <label className="text-[10px] font-black text-amber-600 uppercase ml-1">Cashback (+)</label>
@@ -3410,9 +3342,11 @@ export default function MenuPage() {
                       rows={3}
                       placeholder="Contoh: Garansi 1 Minggu..."
                       value={formBayar.noteMenu}
-                      onChange={e => setFormBayar({ ...formBayar, noteMenu: e.target.value })}
+                      data-field="note"
+                      onChange={e => { setFormBayar({ ...formBayar, noteMenu: e.target.value }); clearFieldError('note'); }}
                       className={`w-full mt-2 p-3 text-xs md:text-sm font-medium text-slate-700 bg-white border-2 ${activeTheme.border} rounded-xl ${activeTheme.focusRing} outline-none transition-all shadow-sm`}
                     />
+                    <FieldError message={fieldErrors.note} />
                   </div>
                   <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
                     <label className={`text-[10px] md:text-[11px] font-black ${activeTheme.text} uppercase tracking-wider ml-1 flex items-center gap-1.5`}><EyeOff size={14}/> Catatan kas (internal)</label>

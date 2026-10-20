@@ -1,6 +1,7 @@
 import type { CheckoutForm } from '../../types/pos';
 import React from 'react';
 import { Wrench, Trash2, Plus, Scale } from 'lucide-react';
+import FieldError from './FieldError';
 
 interface MekanikItem {
   idLama: string;
@@ -18,6 +19,10 @@ interface MechanicSectionProps {
   grandTotal: number;
   mechanics: any[];
   setDialog: (dialog: any) => void;
+  /** Pesan validasi inline (mis. ongkos mekanik belum diisi). */
+  error?: string;
+  /** Dipanggil saat user mengubah data, supaya error terkait dihapus. */
+  onChange?: () => void;
 }
 
 export const MechanicSection: React.FC<MechanicSectionProps> = React.memo(({
@@ -28,11 +33,13 @@ export const MechanicSection: React.FC<MechanicSectionProps> = React.memo(({
   grandTotal,
   mechanics,
   setDialog,
+  error,
+  onChange,
 }) => {
   if (!selectedMenu.toLowerCase().includes('service')) return null;
 
   return (
-    <div className={`${activeTheme.light} p-5 rounded-3xl border-2 ${activeTheme.border} space-y-4 shadow-sm`}>
+    <div data-field="mechanic" tabIndex={-1} className={`${activeTheme.light} p-5 rounded-3xl border-2 ${activeTheme.border} space-y-4 shadow-sm`}>
       <div className="flex justify-between items-center flex-wrap gap-2">
         <span className={`text-[11px] md:text-xs font-black ${activeTheme.text} uppercase tracking-wider flex items-center gap-2`}>
           <Wrench size={16}/> Alokasi Mekanik & Ongkos
@@ -52,6 +59,7 @@ export const MechanicSection: React.FC<MechanicSectionProps> = React.memo(({
                   ongkos: idx === 0 ? divided + remainder : divided
                 }));
                 setFormBayar(prev => ({ ...prev, mekanikList: newList }));
+                onChange?.();
               }}
               className={`text-[10px] font-black bg-white ${activeTheme.text} px-3 py-2 rounded-xl shadow-sm hover:scale-105 active:scale-95 transition-all border border-transparent hover:${activeTheme.border} flex items-center gap-1`}
               title="Bagi rata ongkos ke semua mekanik"
@@ -66,6 +74,7 @@ export const MechanicSection: React.FC<MechanicSectionProps> = React.memo(({
                 ...prev,
                 mekanikList: [...prev.mekanikList, { idLama: '', ongkos: 0 }]
               }));
+              onChange?.();
             }}
             className={`text-[10px] font-black bg-white ${activeTheme.text} px-4 py-2 rounded-xl shadow-sm hover:scale-105 active:scale-95 transition-all border border-transparent hover:${activeTheme.border}`}
           >
@@ -86,6 +95,7 @@ export const MechanicSection: React.FC<MechanicSectionProps> = React.memo(({
                   ...prev,
                   mekanikList: prev.mekanikList.filter((_, i) => i !== idx)
                 }));
+                onChange?.();
               }}
               className="p-2 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors self-end sm:self-auto order-1 sm:order-none"
               title="Hapus mekanik"
@@ -105,6 +115,7 @@ export const MechanicSection: React.FC<MechanicSectionProps> = React.memo(({
               const newList = [...formBayar.mekanikList];
               newList[idx].idLama = selectedMekanik;
               setFormBayar(prev => ({ ...prev, mekanikList: newList }));
+              onChange?.();
             }}
             className="flex-1 p-3 text-xs md:text-sm font-bold text-slate-700 border-none bg-slate-50 hover:bg-slate-100 rounded-xl outline-none cursor-pointer w-full"
           >
@@ -128,6 +139,7 @@ export const MechanicSection: React.FC<MechanicSectionProps> = React.memo(({
                 const newList = [...formBayar.mekanikList];
                 newList[idx].ongkos = Number(e.target.value);
                 setFormBayar(prev => ({ ...prev, mekanikList: newList }));
+                onChange?.();
               }}
               className="w-full sm:w-40 pl-9 pr-3 py-3 text-xs md:text-sm font-black text-slate-800 border-none bg-slate-50 hover:bg-slate-100 focus:bg-white rounded-xl outline-none focus:ring-2 focus:ring-slate-200"
             />
@@ -135,6 +147,7 @@ export const MechanicSection: React.FC<MechanicSectionProps> = React.memo(({
         </div>
       ))}
       </div>
+      <FieldError message={error} />
     </div>
   );
 });
