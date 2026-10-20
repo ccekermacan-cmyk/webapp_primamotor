@@ -1,6 +1,7 @@
 import DeleteAccess from '../components/delete-access';
 import { isIncomeTransaction, settlementRemaining, matchUnusedStockLog } from '../lib/posTransactions';
 import { createRecordId } from '../lib/ids';
+import { formatRupiah, formatAmount } from '../lib/money';
 import type { CheckoutForm } from '../types/pos';
 import { POS_DRAFT_KEY, readPosDraft, type PosDraft } from '../lib/posDraft';
 import { createFinancialBatch } from '../services/api/financialBatch';
@@ -620,14 +621,13 @@ export default function MenuPage() {
     return { t1, total1, t2, total2, t3, total3, grandTotal, qty, note, date };
   };
 
-  // Helper Formatter Tampilan Nominal Netto (Koma/Desimal dikecilkan agar jelas)
+  // Helper Formatter Tampilan Nominal Netto (pakai format uang seragam)
   const renderFormattedNetto = (amount: number, mainTextSize: string = "text-xl sm:text-2xl", textColor: string = "text-emerald-300", rpColor: string = "text-emerald-400") => {
-    const formatted = Math.round(amount).toLocaleString('id-ID');
+    const formatted = formatAmount(amount);
     return (
       <span className="inline-flex items-baseline font-black">
         <span className={`text-[10px] sm:text-xs font-extrabold ${rpColor} mr-1 uppercase`}>Rp</span>
         <span className={`${mainTextSize} ${textColor}`}>{formatted}</span>
-        <span className={`text-[9px] sm:text-[11px] font-bold ${textColor} opacity-75 font-mono ml-0.5`}>,00</span>
       </span>
     );
   };
@@ -2446,7 +2446,7 @@ export default function MenuPage() {
       setDialog({
         show: true,
         title: 'Pelunasan Sukses!',
-        message: `Pembayaran sebesar Rp ${Number(nominal).toLocaleString('id-ID')} berhasil dicatat. Status nota saat ini: ${String(finalStatus).toUpperCase()}`,
+        message: `Pembayaran sebesar Rp ${formatAmount(nominal)} berhasil dicatat. Status nota saat ini: ${String(finalStatus).toUpperCase()}`,
         type: 'alert'
       });
     } catch (err: any) {
@@ -2646,7 +2646,7 @@ export default function MenuPage() {
                         viewMode === 'grid' ? 'p-4 mt-4' : 'p-3 px-5 min-w-[200px]'
                       }`}> 
                         <p className={`font-black ${activeTheme.text} group-hover:text-white text-base md:text-lg tracking-tighter transition-colors`}>
-                          Rp {(p.sell_6 || 0).toLocaleString('id-ID')}
+                          {formatRupiah((p.sell_6 || 0))}
                         </p> 
                         <div className={`w-10 h-10 bg-white rounded-xl flex items-center justify-center ${activeTheme.text} shadow-sm group-hover:scale-110 transition-transform`}>
                           <Plus size={20} strokeWidth={3}/>
@@ -2715,11 +2715,11 @@ export default function MenuPage() {
                             <div className="flex flex-col gap-1">
                               <span className="text-[10px] font-black text-slate-400 flex items-center gap-1.5"><Calendar size={12} /> {formatLocalDateTime ? formatLocalDateTime(h.created_at) : h.created_at}</span>
                               {h.status === 'lunas' ? (
-                                <span className="text-xs font-black text-emerald-600">Total: Rp {(h.total || 0).toLocaleString('id-ID')}</span>
+                                <span className="text-xs font-black text-emerald-600">Total: {formatRupiah((h.total || 0))}</span>
                               ) : (
                                 <div className="flex flex-col gap-1">
-                                  <span className="text-[10px] font-black text-slate-500 line-through">Rp {(h.total || 0).toLocaleString('id-ID')}</span>
-                                  <span className="text-xs font-black text-rose-600">Sisa: Rp {Math.max(0, (h.total || 0) - (h.dibayar || 0)).toLocaleString('id-ID')}</span>
+                                  <span className="text-[10px] font-black text-slate-500 line-through">{formatRupiah((h.total || 0))}</span>
+                                  <span className="text-xs font-black text-rose-600">Sisa: {formatRupiah(Math.max(0, (h.total || 0) - (h.dibayar || 0)))}</span>
                                   <button
                                     type="button"
                                     onClick={(e) => openQuickSettle(h, e)}
@@ -2844,7 +2844,7 @@ export default function MenuPage() {
                               <div>
                                 <span className="text-[9px] font-black text-teal-600 group-hover:text-teal-100 uppercase tracking-widest block">Total Bersih</span>
                                 <p className="font-black text-teal-700 group-hover:text-white text-base md:text-lg tracking-tight transition-colors">
-                                  Rp {(item.total || 0).toLocaleString('id-ID')}
+                                  {formatRupiah((item.total || 0))}
                                 </p>
                               </div>
                               <div className="w-9 h-9 bg-white rounded-xl flex items-center justify-center text-teal-600 shadow-sm group-hover:scale-110 transition-transform">
@@ -3067,7 +3067,7 @@ export default function MenuPage() {
                             )}
                             {item.priceSelected !== item.sell_6 && !selectedMenu.toLowerCase().includes('pembelian') && (
                               <span className="text-[10px] text-slate-400 line-through font-bold">
-                                Rp {item.sell_6.toLocaleString('id-ID')}
+                                {formatRupiah(item.sell_6)}
                               </span>
                             )}
                           </div>
@@ -3091,10 +3091,10 @@ export default function MenuPage() {
                       </div>
                       <details className="mt-2 text-xs text-slate-600"><summary className="cursor-pointer">Aturan harga barang ini</summary>
                         <dl className="grid grid-cols-2 gap-2 pt-2">
-                          {selectedMenu.toLowerCase().includes('pembelian') ? <><dt>Beli lama</dt><dd>Rp {Number(item.beli).toLocaleString('id-ID')}</dd></> : <>
-                            <dt>Eceran</dt><dd>Rp {Number(item.sell_6).toLocaleString('id-ID')}</dd>
-                            <dt>Pelanggan</dt><dd>Rp {Number(item.sell_5).toLocaleString('id-ID')}</dd>
-                            {([[item.min_3,item.sell_3,'Grosir kecil'],[item.min_2,item.sell_2,'Grosir sedang'],[item.min_1,item.sell_1,'Grosir besar']] as const).filter(([min]) => min > 0).map(([min, price, label]) => <div className="contents" key={label}><dt>{label} · ≥ {min}</dt><dd>Rp {Number(price).toLocaleString('id-ID')}</dd></div>)}
+                          {selectedMenu.toLowerCase().includes('pembelian') ? <><dt>Beli lama</dt><dd>{formatRupiah(Number(item.beli))}</dd></> : <>
+                            <dt>Eceran</dt><dd>{formatRupiah(Number(item.sell_6))}</dd>
+                            <dt>Pelanggan</dt><dd>{formatRupiah(Number(item.sell_5))}</dd>
+                            {([[item.min_3,item.sell_3,'Grosir kecil'],[item.min_2,item.sell_2,'Grosir sedang'],[item.min_1,item.sell_1,'Grosir besar']] as const).filter(([min]) => min > 0).map(([min, price, label]) => <div className="contents" key={label}><dt>{label} · ≥ {min}</dt><dd>{formatRupiah(Number(price))}</dd></div>)}
                           </>}
                         </dl>
                       </details>
@@ -3151,13 +3151,13 @@ export default function MenuPage() {
                               </div>
                             ) : (
                               <span className={`text-xs font-bold ${activeTheme.text} px-1 truncate max-w-[90px]`}>
-                                {item.priceSelected.toLocaleString('id-ID')}
+                                {formatAmount(item.priceSelected)}
                               </span>
                             )}
                           </div>
 
                           <div className={`text-xs md:text-sm font-black text-white ${activeTheme.main} px-3 py-1.5 rounded-lg shadow-sm text-right min-w-[90px]`}>
-                            Rp {(item.qty * item.priceSelected).toLocaleString('id-ID')}
+                            {formatRupiah((item.qty * item.priceSelected))}
                           </div>
                         </div>
 
@@ -3283,7 +3283,7 @@ export default function MenuPage() {
                   <div className="flex justify-between items-center pt-3 border-t border-black/5">
                     <span className={`text-[11px] md:text-xs font-black ${activeTheme.text} uppercase`}>Total Dibayar:</span>
                     <span className="text-base md:text-lg font-black text-slate-800 bg-white px-4 py-1.5 rounded-xl shadow-sm border border-slate-100">
-                      Rp {formBayar.cashflowList.reduce((sum, cf) => sum + (cf.nominal || 0), 0).toLocaleString('id-ID')}
+                      {formatRupiah(formBayar.cashflowList.reduce((sum, cf) => sum + (cf.nominal || 0), 0))}
                     </span>
                   </div>
 
@@ -3295,14 +3295,14 @@ export default function MenuPage() {
                       return (
                         <div className="p-3 bg-emerald-50/90 border border-emerald-200 rounded-2xl flex justify-between items-center text-xs font-bold text-emerald-800 shadow-sm animate-in fade-in">
                           <span className="flex items-center gap-1.5"><Sparkles size={14} className="text-emerald-500"/> Kembalian:</span>
-                          <span className="font-black text-emerald-700 text-sm md:text-base">Rp {selisih.toLocaleString('id-ID')}</span>
+                          <span className="font-black text-emerald-700 text-sm md:text-base">{formatRupiah(selisih)}</span>
                         </div>
                       );
                     } else if (selisih < 0) {
                       return (
                         <div className="p-3 bg-rose-50/90 border border-rose-200 rounded-2xl flex justify-between items-center text-xs font-bold text-rose-800 shadow-sm animate-in fade-in">
                           <span className="flex items-center gap-1.5"><AlertCircle size={14} className="text-rose-500"/> Sisa Kurang (Piutang):</span>
-                          <span className="font-black text-rose-700 text-sm md:text-base">Rp {Math.abs(selisih).toLocaleString('id-ID')}</span>
+                          <span className="font-black text-rose-700 text-sm md:text-base">{formatRupiah(Math.abs(selisih))}</span>
                         </div>
                       );
                     } else if (totalDibayarCalc > 0) {
@@ -3574,7 +3574,7 @@ export default function MenuPage() {
             </section>
           </div>
           <footer className="pos-modal-footer">
-            <div><span className="text-xs text-slate-500">Total tagihan</span><p className={`text-xl font-bold tabular-nums ${activeTheme.text}`}>Rp {grandTotal.toLocaleString('id-ID')}</p><small className="text-slate-500">{cart.length} item · Dibayar Rp {formBayar.cashflowList.reduce((sum,cf) => sum+(cf.nominal||0),0).toLocaleString('id-ID')}</small></div>
+            <div><span className="text-xs text-slate-500">Total tagihan</span><p className={`text-xl font-bold tabular-nums ${activeTheme.text}`}>{formatRupiah(grandTotal)}</p><small className="text-slate-500">{cart.length} item · Dibayar {formatRupiah(formBayar.cashflowList.reduce((sum,cf) => sum+(cf.nominal||0),0))}</small></div>
             <button type="button" disabled={isProcessing} onClick={handleCheckoutValidation} className={`pos-action ${activeTheme.main} text-white`}><CheckCircle2 size={16}/>{isProcessing ? 'Menyimpan…' : 'Periksa transaksi'}</button>
           </footer>
         </div>
@@ -3630,15 +3630,15 @@ export default function MenuPage() {
                   <dl className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-slate-700 tabular-nums">
                     <div className="col-span-2 sm:col-span-1">
                       <dt className="text-xs">Total tagihan</dt>
-                      <dd className={`text-xl font-semibold ${activeTheme.text}`}>Rp {grandTotal.toLocaleString('id-ID')}</dd>
+                      <dd className={`text-xl font-semibold ${activeTheme.text}`}>{formatRupiah(grandTotal)}</dd>
                     </div>
                     <div>
                       <dt className="text-xs">Dibayar</dt>
-                      <dd className="font-semibold">Rp {totalDibayar.toLocaleString('id-ID')}</dd>
+                      <dd className="font-semibold">{formatRupiah(totalDibayar)}</dd>
                     </div>
                     <div>
                       <dt className="text-xs">{selisih < 0 ? 'Kembalian' : 'Sisa tagihan'}</dt>
-                      <dd className="font-semibold">Rp {Math.abs(selisih).toLocaleString('id-ID')}</dd>
+                      <dd className="font-semibold">{formatRupiah(Math.abs(selisih))}</dd>
                     </div>
                   </dl>
 
@@ -3662,14 +3662,14 @@ export default function MenuPage() {
                             <div key={item.id} className="p-3 flex justify-between items-start gap-3">
                               <div className="min-w-0 flex-1">
                                 <p className="font-semibold text-slate-800 break-words">{getFullLabel(item)}</p>
-                                <p className="text-[11px] text-slate-500 mt-0.5">{item.qty} {item.unit} x Rp {item.priceSelected.toLocaleString('id-ID')}</p>
-                                {selectedMenu.toLowerCase() !== 'pembelian' && <p className="text-[11px] text-slate-400">Normal: Rp {(item.sell_6 * item.qty).toLocaleString('id-ID')}</p>}
+                                <p className="text-[11px] text-slate-500 mt-0.5">{item.qty} {item.unit} x {formatRupiah(item.priceSelected)}</p>
+                                {selectedMenu.toLowerCase() !== 'pembelian' && <p className="text-[11px] text-slate-400">Normal: {formatRupiah((item.sell_6 * item.qty))}</p>}
                               </div>
-                              <p className="font-semibold text-slate-900 shrink-0">Rp {(item.priceSelected * item.qty).toLocaleString('id-ID')}</p>
+                              <p className="font-semibold text-slate-900 shrink-0">{formatRupiah((item.priceSelected * item.qty))}</p>
                             </div>
                           ))}
                         </div>
-                        <p className="text-xs text-slate-500">Total produk: Rp {totalBelanja.toLocaleString('id-ID')}</p>
+                        <p className="text-xs text-slate-500">Total produk: {formatRupiah(totalBelanja)}</p>
                       </section>
 
                       {/* Pembayaran per akun */}
@@ -3682,7 +3682,7 @@ export default function MenuPage() {
                             return (
                               <div key={idx} className="p-3 flex justify-between items-center gap-3">
                                 <span className="font-semibold text-slate-600 truncate">#{idx + 1} {accName}</span>
-                                <span className="font-semibold text-slate-900 shrink-0">Rp {(cf.nominal || 0).toLocaleString('id-ID')}</span>
+                                <span className="font-semibold text-slate-900 shrink-0">{formatRupiah((cf.nominal || 0))}</span>
                               </div>
                             );
                           })}
@@ -3697,7 +3697,7 @@ export default function MenuPage() {
                             {mechanicRows.map((mek, idx) => (
                               <div key={idx} className="p-3 flex justify-between items-center gap-3">
                                 <span className="font-semibold text-slate-600">{mek.idLama}</span>
-                                <span className="font-semibold text-slate-900">Rp {(mek.ongkos || 0).toLocaleString('id-ID')}</span>
+                                <span className="font-semibold text-slate-900">{formatRupiah((mek.ongkos || 0))}</span>
                               </div>
                             ))}
                           </div>
@@ -3710,8 +3710,8 @@ export default function MenuPage() {
                           <p className="text-xs font-semibold text-slate-600">Detail marketplace online</p>
                           <dl className="text-xs text-slate-700 space-y-1">
                             <div className="flex justify-between gap-3"><dt className="text-slate-500">Platform</dt><dd className="font-semibold">{formBayar.marketplace || '-'}</dd></div>
-                            <div className="flex justify-between gap-3"><dt className="text-slate-500">Potongan admin</dt><dd className="font-semibold text-rose-600">- Rp {(formBayar.adminFee || 0).toLocaleString('id-ID')}</dd></div>
-                            <div className="flex justify-between gap-3"><dt className="text-slate-500">Cashback</dt><dd className="font-semibold text-emerald-600">+ Rp {(formBayar.cashback || 0).toLocaleString('id-ID')}</dd></div>
+                            <div className="flex justify-between gap-3"><dt className="text-slate-500">Potongan admin</dt><dd className="font-semibold text-rose-600">- {formatRupiah((formBayar.adminFee || 0))}</dd></div>
+                            <div className="flex justify-between gap-3"><dt className="text-slate-500">Cashback</dt><dd className="font-semibold text-emerald-600">+ {formatRupiah((formBayar.cashback || 0))}</dd></div>
                           </dl>
                         </section>
                       )}
@@ -3761,8 +3761,8 @@ export default function MenuPage() {
                   <div key={i} style={{marginBottom:'4px'}}>
                     <p style={{fontWeight:700,margin:'1px 0',fontSize:'10px',textTransform:'uppercase'}}>{getFullLabel(item.expand?.item_baru)}</p>
                     <p style={{margin:'1px 0',display:'flex',justifyContent:'space-between',color:'#475569'}}>
-                      <span>{item.qty} x Rp {Number(item.price_1).toLocaleString('id-ID')}</span>
-                      <b style={{color:'#1e293b'}}>Rp {Number(item.price_1 * item.qty).toLocaleString('id-ID')}</b>
+                      <span>{item.qty} x {formatRupiah(Number(item.price_1))}</span>
+                      <b style={{color:'#1e293b'}}>{formatRupiah(Number(item.price_1 * item.qty))}</b>
                     </p>
                   </div>
                 ))}
@@ -3774,7 +3774,7 @@ export default function MenuPage() {
                 {historyCashflow.map((cf, i) => (
                   <p key={i} style={{margin:'2px 0',display:'flex',justifyContent:'space-between'}}>
                     <span>{cf.mutasi === 'in' ? 'Masuk' : 'Keluar'} ({cashflowAccounts.find(a => a.id === cf.account_1)?.text_1 || 'Acc'})</span>
-                    <b>Rp {Number(cf.nominal).toLocaleString('id-ID')}</b>
+                    <b>{formatRupiah(Number(cf.nominal))}</b>
                   </p>
                 ))}
               </div>
@@ -3785,17 +3785,17 @@ export default function MenuPage() {
                 {historyOngkos.map((o, i) => (
                   <p key={i} style={{margin:'2px 0',display:'flex',justifyContent:'space-between'}}>
                     <span>Mek: {o.person}</span>
-                    <b>Rp {Number(o.ongkos).toLocaleString('id-ID')}</b>
+                    <b>{formatRupiah(Number(o.ongkos))}</b>
                   </p>
                 ))}
               </div>
             )}
             <div style={{padding:'8px',backgroundColor:'#f8fafc',borderBottom:'2px dashed #cbd5e1'}}>
               <p style={{margin:'2px 0',display:'flex',justifyContent:'space-between',fontSize:'12px',fontWeight:900}}>
-                <span>TOTAL:</span><span>Rp {Number(showDetailHistory.total).toLocaleString('id-ID')}</span>
+                <span>TOTAL:</span><span>{formatRupiah(Number(showDetailHistory.total))}</span>
               </p>
               <p style={{margin:'2px 0',display:'flex',justifyContent:'space-between',color:'#475569',fontSize:'10px'}}>
-                <span>DIBAYAR:</span><span>Rp {Number(showDetailHistory.dibayar).toLocaleString('id-ID')}</span>
+                <span>DIBAYAR:</span><span>{formatRupiah(Number(showDetailHistory.dibayar))}</span>
               </p>
             </div>
             <div style={{textAlign:'center',padding:'12px 8px'}}>
@@ -3909,7 +3909,7 @@ export default function MenuPage() {
                                       <div className="flex items-center gap-2">
                                         <span className="text-xs font-bold text-slate-500">Diterima Karyawan:</span>
                                         <span className="text-base sm:text-lg font-black text-teal-600">
-                                          Rp {Number(gRec.diterima).toLocaleString('id-ID')},00
+                                          {formatRupiah(Number(gRec.diterima))},00
                                         </span>
                                       </div>
                                     )}
@@ -3923,18 +3923,18 @@ export default function MenuPage() {
                                           <DollarSign size={13} className="text-emerald-600" /> 1. Pendapatan (+)
                                         </span>
                                         <span className="text-xs font-black text-emerald-700">
-                                          Rp {gSal.total1.toLocaleString('id-ID')}
+                                          {formatRupiah(gSal.total1)}
                                         </span>
                                       </div>
                                       <div className="space-y-1 text-[11px]">
-                                        <div className="flex justify-between text-slate-600"><span>Gaji Pokok:</span><strong className="text-slate-800">Rp {(gSal.t1.pokok || 0).toLocaleString('id-ID')}</strong></div>
-                                        <div className="flex justify-between text-slate-600"><span>Tunjangan:</span><strong className="text-slate-800">Rp {(gSal.t1.tunjangan || 0).toLocaleString('id-ID')}</strong></div>
-                                        {gSal.t1.bonus_1 > 0 && <div className="flex justify-between text-slate-600"><span>Bonus 1:</span><strong className="text-slate-800">Rp {gSal.t1.bonus_1.toLocaleString('id-ID')}</strong></div>}
-                                        {gSal.t1.bonus_2 > 0 && <div className="flex justify-between text-slate-600"><span>Bonus 2:</span><strong className="text-slate-800">Rp {gSal.t1.bonus_2.toLocaleString('id-ID')}</strong></div>}
-                                        {gSal.t1.bonus_3 > 0 && <div className="flex justify-between text-slate-600"><span>Bonus 3:</span><strong className="text-slate-800">Rp {gSal.t1.bonus_3.toLocaleString('id-ID')}</strong></div>}
-                                        {gSal.t1.bonus_4 > 0 && <div className="flex justify-between text-slate-600"><span>Bonus 4:</span><strong className="text-slate-800">Rp {gSal.t1.bonus_4.toLocaleString('id-ID')}</strong></div>}
-                                        {gSal.t1.program > 0 && <div className="flex justify-between text-slate-600"><span>Program:</span><strong className="text-slate-800">Rp {gSal.t1.program.toLocaleString('id-ID')}</strong></div>}
-                                        {gSal.t1.lembur > 0 && <div className="flex justify-between text-slate-600"><span>Lembur:</span><strong className="text-slate-800">Rp {gSal.t1.lembur.toLocaleString('id-ID')}</strong></div>}
+                                        <div className="flex justify-between text-slate-600"><span>Gaji Pokok:</span><strong className="text-slate-800">{formatRupiah((gSal.t1.pokok || 0))}</strong></div>
+                                        <div className="flex justify-between text-slate-600"><span>Tunjangan:</span><strong className="text-slate-800">{formatRupiah((gSal.t1.tunjangan || 0))}</strong></div>
+                                        {gSal.t1.bonus_1 > 0 && <div className="flex justify-between text-slate-600"><span>Bonus 1:</span><strong className="text-slate-800">{formatRupiah(gSal.t1.bonus_1)}</strong></div>}
+                                        {gSal.t1.bonus_2 > 0 && <div className="flex justify-between text-slate-600"><span>Bonus 2:</span><strong className="text-slate-800">{formatRupiah(gSal.t1.bonus_2)}</strong></div>}
+                                        {gSal.t1.bonus_3 > 0 && <div className="flex justify-between text-slate-600"><span>Bonus 3:</span><strong className="text-slate-800">{formatRupiah(gSal.t1.bonus_3)}</strong></div>}
+                                        {gSal.t1.bonus_4 > 0 && <div className="flex justify-between text-slate-600"><span>Bonus 4:</span><strong className="text-slate-800">{formatRupiah(gSal.t1.bonus_4)}</strong></div>}
+                                        {gSal.t1.program > 0 && <div className="flex justify-between text-slate-600"><span>Program:</span><strong className="text-slate-800">{formatRupiah(gSal.t1.program)}</strong></div>}
+                                        {gSal.t1.lembur > 0 && <div className="flex justify-between text-slate-600"><span>Lembur:</span><strong className="text-slate-800">{formatRupiah(gSal.t1.lembur)}</strong></div>}
                                       </div>
                                     </div>
 
@@ -3945,17 +3945,17 @@ export default function MenuPage() {
                                           <AlertCircle size={13} className="text-rose-600" /> 2 & 3. Potongan (-)
                                         </span>
                                         <span className="text-xs font-black text-rose-700">
-                                          -Rp {(gSal.total2 + gSal.total3).toLocaleString('id-ID')}
+                                          -{formatRupiah((gSal.total2 + gSal.total3))}
                                         </span>
                                       </div>
                                       <div className="space-y-1 text-[11px]">
-                                        {gSal.t2.alfa > 0 && <div className="flex justify-between text-slate-600"><span>Alfa ({gRec.alfa} hr):</span><strong className="text-rose-700">-Rp {Math.round(gSal.t2.alfa).toLocaleString('id-ID')}</strong></div>}
-                                        {gSal.t2.setengah_hari > 0 && <div className="flex justify-between text-slate-600"><span>1/2 Hari ({gRec.setengah_hari} hr):</span><strong className="text-rose-700">-Rp {Math.round(gSal.t2.setengah_hari).toLocaleString('id-ID')}</strong></div>}
-                                        {gSal.t2.sakit > 0 && <div className="flex justify-between text-slate-600"><span>Sakit ({gRec.sakit} hr):</span><strong className="text-rose-700">-Rp {Math.round(gSal.t2.sakit).toLocaleString('id-ID')}</strong></div>}
-                                        {gSal.t2.telat > 0 && <div className="flex justify-between text-slate-600"><span>Telat ({gRec.telat} mnt):</span><strong className="text-rose-700">-Rp {Math.round(gSal.t2.telat).toLocaleString('id-ID')}</strong></div>}
-                                        {gSal.t3.bpjs > 0 && <div className="flex justify-between text-slate-600"><span>BPJS:</span><strong className="text-rose-700">-Rp {gSal.t3.bpjs.toLocaleString('id-ID')}</strong></div>}
-                                        {gSal.t3.bon_dibayar > 0 && <div className="flex justify-between text-slate-600"><span>Bayar Bon:</span><strong className="text-rose-700">-Rp {gSal.t3.bon_dibayar.toLocaleString('id-ID')}</strong></div>}
-                                        {gSal.t3.bon_diambil > 0 && <div className="flex justify-between text-slate-600"><span>Ambil Bon (Pinjaman):</span><strong className="text-amber-700">+Rp {gSal.t3.bon_diambil.toLocaleString('id-ID')}</strong></div>}
+                                        {gSal.t2.alfa > 0 && <div className="flex justify-between text-slate-600"><span>Alfa ({gRec.alfa} hr):</span><strong className="text-rose-700">-{formatRupiah(Math.round(gSal.t2.alfa))}</strong></div>}
+                                        {gSal.t2.setengah_hari > 0 && <div className="flex justify-between text-slate-600"><span>1/2 Hari ({gRec.setengah_hari} hr):</span><strong className="text-rose-700">-{formatRupiah(Math.round(gSal.t2.setengah_hari))}</strong></div>}
+                                        {gSal.t2.sakit > 0 && <div className="flex justify-between text-slate-600"><span>Sakit ({gRec.sakit} hr):</span><strong className="text-rose-700">-{formatRupiah(Math.round(gSal.t2.sakit))}</strong></div>}
+                                        {gSal.t2.telat > 0 && <div className="flex justify-between text-slate-600"><span>Telat ({gRec.telat} mnt):</span><strong className="text-rose-700">-{formatRupiah(Math.round(gSal.t2.telat))}</strong></div>}
+                                        {gSal.t3.bpjs > 0 && <div className="flex justify-between text-slate-600"><span>BPJS:</span><strong className="text-rose-700">-{formatRupiah(gSal.t3.bpjs)}</strong></div>}
+                                        {gSal.t3.bon_dibayar > 0 && <div className="flex justify-between text-slate-600"><span>Bayar Bon:</span><strong className="text-rose-700">-{formatRupiah(gSal.t3.bon_dibayar)}</strong></div>}
+                                        {gSal.t3.bon_diambil > 0 && <div className="flex justify-between text-slate-600"><span>Ambil Bon (Pinjaman):</span><strong className="text-amber-700">+{formatRupiah(gSal.t3.bon_diambil)}</strong></div>}
                                       </div>
                                     </div>
                                   </div>
@@ -4040,9 +4040,9 @@ export default function MenuPage() {
                       <h3 className="text-lg font-semibold text-slate-800 mt-3">{getPersonDisplayText(showDetailHistory.person, 'Pelanggan umum')}</h3>
                       <div className="flex flex-wrap gap-3 mt-2 text-xs text-slate-500"><span className="flex items-center gap-1"><User size={14}/>{showDetailHistory.operator || 'System'}</span><span className="flex items-center gap-1"><Calendar size={14}/>{formatLocalDateTime(showDetailHistory.created_at)}</span></div>
                       <dl className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-4 text-slate-700 tabular-nums">
-                        <div className="col-span-2 sm:col-span-1"><dt className="text-xs">Total tagihan</dt><dd className={`text-xl font-semibold ${getThemeConfig(showDetailHistory.jenis).text}`}>Rp {Number(showDetailHistory.total || 0).toLocaleString('id-ID')}</dd></div>
-                        <div><dt className="text-xs">Dibayar</dt><dd className="font-semibold">Rp {Number(showDetailHistory.dibayar || 0).toLocaleString('id-ID')}</dd></div>
-                        <div><dt className="text-xs">{(showDetailHistory.dibayar || 0) > (showDetailHistory.total || 0) ? 'Kembalian' : 'Sisa tagihan'}</dt><dd className="font-semibold">Rp {Math.abs((showDetailHistory.total || 0) - (showDetailHistory.dibayar || 0)).toLocaleString('id-ID')}</dd></div>
+                        <div className="col-span-2 sm:col-span-1"><dt className="text-xs">Total tagihan</dt><dd className={`text-xl font-semibold ${getThemeConfig(showDetailHistory.jenis).text}`}>{formatRupiah(Number(showDetailHistory.total || 0))}</dd></div>
+                        <div><dt className="text-xs">Dibayar</dt><dd className="font-semibold">{formatRupiah(Number(showDetailHistory.dibayar || 0))}</dd></div>
+                        <div><dt className="text-xs">{(showDetailHistory.dibayar || 0) > (showDetailHistory.total || 0) ? 'Kembalian' : 'Sisa tagihan'}</dt><dd className="font-semibold">{formatRupiah(Math.abs((showDetailHistory.total || 0) - (showDetailHistory.dibayar || 0)))}</dd></div>
                       </dl>
                     </section>
                   )}
@@ -4060,7 +4060,7 @@ export default function MenuPage() {
                         <div className="text-center bg-black/20 flex-1 rounded-l-xl p-2 border-r border-white/10">
                           <p className="text-[10px] font-black text-white/60 uppercase tracking-widest">Total Laba Kotor</p>
                           <p className="font-black text-emerald-300 text-lg md:text-xl drop-shadow-sm mt-1">
-                            Rp {totalLabaKotor.toLocaleString('id-ID')}
+                            {formatRupiah(totalLabaKotor)}
                           </p>
                         </div>
                         <div className="text-center bg-black/20 flex-1 rounded-r-xl p-2">
@@ -4168,11 +4168,11 @@ export default function MenuPage() {
                                         {getFullLabel(item.expand?.item_baru)}
                                       </p>
                                       <p className="text-[11px] font-bold text-slate-500 mt-1.5">
-                                        Qty: {item.qty} @ Rp {item.price_1?.toLocaleString('id-ID')}
+                                        Qty: {item.qty} @ {formatRupiah(item.price_1 ?? 0)}
                                       </p>
                                     </div>
                                     <p className="font-black text-slate-900 text-sm bg-slate-100 px-3 py-1 rounded-lg shrink-0">
-                                      Rp {(item.price_1 * item.qty)?.toLocaleString('id-ID')}
+                                      {formatRupiah(item.price_1 * item.qty)}
                                     </p>
                                   </div>
                                   {userLevel === '1' && (
@@ -4181,8 +4181,8 @@ export default function MenuPage() {
                                       <p className="flex justify-between"><span className="font-bold">Kode:</span> <span className="font-mono text-slate-800">{item.item}</span></p>
                                       <p className="flex justify-between"><span className="font-bold">Qty:</span> <span className="font-black text-slate-800 bg-slate-200 px-1.5 rounded">{item.qty}</span></p>
                                       <p className="flex justify-between"><span className="font-bold">In / Out:</span> <span className="font-black text-slate-800">{item.boolean}</span></p>
-                                      <p className="flex justify-between"><span className="font-bold">Jual:</span> <span className="font-black text-slate-800">Rp {item.price_1?.toLocaleString('id-ID')}</span></p>
-                                      <p className="flex justify-between"><span className="font-bold">Modal:</span> <span className="font-black text-slate-800">Rp {item.price_2?.toLocaleString('id-ID')}</span></p>
+                                      <p className="flex justify-between"><span className="font-bold">Jual:</span> <span className="font-black text-slate-800">{formatRupiah(item.price_1 ?? 0)}</span></p>
+                                      <p className="flex justify-between"><span className="font-bold">Modal:</span> <span className="font-black text-slate-800">{formatRupiah(item.price_2 ?? 0)}</span></p>
                                       {('1' === userLevel || '2' === userLevel || '5' === userLevel) && (
                                         <>
                                           <p className="flex justify-between col-span-2 border-t border-slate-200 pt-2 mt-1"><span className="font-bold">Stok Awal:</span> <span className="font-black text-emerald-700">{item.stok_awal ?? '-'}</span></p>
@@ -4227,8 +4227,8 @@ export default function MenuPage() {
           </p>
           <p className={`font-black text-sm flex items-center gap-2 ${isGreen ? 'text-emerald-600' : 'text-rose-600'}`}>
             {isPembelian 
-              ? (hargaLama > 0 ? (laba >= 0 ? `+Rp ${laba.toLocaleString('id-ID')}` : `Rp ${laba.toLocaleString('id-ID')}`) : 'Harga Awal')
-              : `Rp ${laba.toLocaleString('id-ID')}`
+              ? (hargaLama > 0 ? (laba >= 0 ? `+Rp ${formatAmount(laba)}` : `Rp ${formatAmount(laba)}`) : 'Harga Awal')
+              : `Rp ${formatAmount(laba)}`
             }
             
             {/* Indikator Persentase */}
@@ -4264,7 +4264,7 @@ export default function MenuPage() {
                                   <span className="font-black text-slate-700 uppercase flex items-center gap-2">
                                     <User size={12} className="text-slate-400"/> {fee.person}
                                   </span>
-                                  <span className="font-black text-emerald-600 text-sm tracking-tight">Rp {fee.ongkos?.toLocaleString('id-ID')}</span>
+                                  <span className="font-black text-emerald-600 text-sm tracking-tight">{formatRupiah(fee.ongkos ?? 0)}</span>
                                 </div>
                               ))}
                             </div>
@@ -4287,13 +4287,13 @@ export default function MenuPage() {
                                 const accName = cashflowAccounts.find(a => a.id === cf.account_1)?.text_1 || cf.account_1;
                                 return (
                                   <div key={cf.id || idx} className="space-y-2 font-bold text-slate-600 text-[11px] bg-white p-3 rounded-xl border border-slate-100 shadow-sm">
-                                    <p className="flex justify-between"><span>Nominal:</span> <span className="font-black text-blue-600 text-sm">Rp {cf.nominal?.toLocaleString('id-ID')}</span></p>
+                                    <p className="flex justify-between"><span>Nominal:</span> <span className="font-black text-blue-600 text-sm">{formatRupiah(cf.nominal ?? 0)}</span></p>
                                     <p className="flex justify-between"><span>Mutasi:</span> <span className="uppercase text-slate-800 bg-slate-200 px-2 py-0.5 rounded">{cf.mutasi}</span></p>
                                     <p className="flex justify-between items-center gap-2"><span>Account:</span> <span className="text-slate-800 bg-slate-100 px-2 py-0.5 rounded-lg text-right truncate">{accName}</span></p>
                                     {('1' === userLevel || '2' === userLevel || '5' === userLevel) && (cf.saldo_awal !== undefined || cf.saldo_akhir !== undefined) && (
                                       <div className="mt-2 pt-2 border-t border-slate-100 space-y-1">
-                                        <p className="flex justify-between text-[10px]"><span className="font-bold text-emerald-700">Saldo Awal:</span> <span className="font-black">Rp {Number(cf.saldo_awal || 0).toLocaleString('id-ID')}</span></p>
-                                        <p className="flex justify-between text-[10px]"><span className="font-bold text-emerald-700">Saldo Akhir:</span> <span className="font-black">Rp {Number(cf.saldo_akhir || 0).toLocaleString('id-ID')}</span></p>
+                                        <p className="flex justify-between text-[10px]"><span className="font-bold text-emerald-700">Saldo Awal:</span> <span className="font-black">{formatRupiah(Number(cf.saldo_awal || 0))}</span></p>
+                                        <p className="flex justify-between text-[10px]"><span className="font-bold text-emerald-700">Saldo Akhir:</span> <span className="font-black">{formatRupiah(Number(cf.saldo_akhir || 0))}</span></p>
                                       </div>
                                     )}
                                     {cf.note && (
@@ -4400,9 +4400,9 @@ export default function MenuPage() {
                         const detail = showDetailHistory;
                         if (!detail) return;
                         const items = historyItems.map(h => 
-                          `${getFullLabel(h.expand?.item_baru)} | Qty: ${h.qty} @ ${Number(h.price_1).toLocaleString('id-ID')} = ${Number(h.price_1 * h.qty).toLocaleString('id-ID')}`
+                          `${getFullLabel(h.expand?.item_baru)} | Qty: ${h.qty} @ Rp ${formatAmount(h.price_1)} = Rp ${formatAmount(Number(h.price_1) * h.qty)}`
                         ).join('\n');
-                        const text = `*${detail.jenis?.toUpperCase()}*\nID: ${detail.ref || detail.id}\n${formatLocalDateTime(detail.created_at)}\nPelanggan: ${getPersonDisplayText(detail.person, 'Umum')}\nTotal: Rp ${Number(detail.total).toLocaleString('id-ID')}\nDibayar: Rp ${Number(detail.dibayar).toLocaleString('id-ID')}\n\nItems:\n${items}`;
+                        const text = `*${detail.jenis?.toUpperCase()}*\nID: ${detail.ref || detail.id}\n${formatLocalDateTime(detail.created_at)}\nPelanggan: ${getPersonDisplayText(detail.person, 'Umum')}\nTotal: Rp ${formatAmount(detail.total)}\nDibayar: Rp ${formatAmount(detail.dibayar)}\n\nItems:\n${items}`;
                         navigator.clipboard.writeText(text).then(() => {
                           setDialog({ show: true, title: 'Berhasil', message: 'Detail transaksi disalin ke clipboard!', type: 'alert' });
                         }).catch(() => alert('Gagal menyalin ke clipboard'));
@@ -4497,7 +4497,7 @@ export default function MenuPage() {
             </div>
             <div>
               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total ({selectedMenu})</p>
-              <p className="text-base font-black text-white tracking-tight">Rp {grandTotal.toLocaleString('id-ID')}</p>
+              <p className="text-base font-black text-white tracking-tight">{formatRupiah(grandTotal)}</p>
             </div>
           </div>
           <button
@@ -4654,11 +4654,11 @@ export default function MenuPage() {
                               <h5 className="font-extrabold text-slate-800 text-sm uppercase">👤 {item.person}</h5>
                             </div>
                             <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-500 font-medium">
-                              <span>Pendapatan: <strong className="text-emerald-600">Rp {(item.pokok + item.tunjangan + item.bonus_1 + item.bonus_2 + item.bonus_3 + item.bonus_4 + item.program + item.lembur).toLocaleString('id-ID')}</strong></span>
+                              <span>Pendapatan: <strong className="text-emerald-600">{formatRupiah((item.pokok + item.tunjangan + item.bonus_1 + item.bonus_2 + item.bonus_3 + item.bonus_4 + item.program + item.lembur))}</strong></span>
                               <span>|</span>
                               <span>Netto: {renderFormattedNetto(item.netto, "text-xs sm:text-sm", "text-emerald-700", "text-emerald-700")}</span>
                               <span>|</span>
-                              <span>Diterima: <strong className="text-teal-600">Rp {(item.diterima || 0).toLocaleString('id-ID')}</strong></span>
+                              <span>Diterima: <strong className="text-teal-600">{formatRupiah((item.diterima || 0))}</strong></span>
                               {item.note && <span className="bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded text-[10px] font-bold">📝 Note</span>}
                               {item.files && item.files.length > 0 && <span className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded text-[10px] font-bold">📎 {item.files.length} File</span>}
                             </div>
@@ -4810,7 +4810,7 @@ export default function MenuPage() {
                           <DollarSign size={15} /> 1. Pendapatan (+)
                         </span>
                         <span className="font-black text-xs text-emerald-100">
-                          Subtotal: Rp {(
+                          Subtotal: {formatRupiah((
                             (Number(gajiItemSubData.pokok)||0) + 
                             (Number(gajiItemSubData.tunjangan)||0) + 
                             (Number(gajiItemSubData.bonus_1)||0) + 
@@ -4819,7 +4819,7 @@ export default function MenuPage() {
                             (Number(gajiItemSubData.bonus_4)||0) + 
                             (Number(gajiItemSubData.program)||0) + 
                             (Number(gajiItemSubData.lembur)||0)
-                          ).toLocaleString('id-ID')}
+                          ))}
                         </span>
                       </div>
                       <div className="p-4 bg-white grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -4892,7 +4892,7 @@ export default function MenuPage() {
                                 <Calendar size={15} /> 2. Potongan Kehadiran (-)
                               </span>
                               <span className="font-black text-xs text-amber-100">
-                                Subtotal: -Rp {Math.round(subtotalKehadiran).toLocaleString('id-ID')}
+                                Subtotal: -{formatRupiah(Math.round(subtotalKehadiran))}
                               </span>
                             </div>
                             <div className="p-4 bg-white grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
@@ -4901,7 +4901,7 @@ export default function MenuPage() {
                                 <input type="number" value={gajiItemSubData.alfa || ''} onChange={e => setGajiItemSubData({...gajiItemSubData, alfa: Number(e.target.value)})} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-rose-600 focus:bg-white focus:ring-2 focus:ring-rose-500 outline-none" placeholder="0" />
                                 {alfaVal > 0 && (
                                   <span className="text-[9px] font-bold text-amber-700 block mt-1">
-                                    → Potongan: {alfaVal} hari × Rp {Math.round(nilaiDasar).toLocaleString('id-ID')} = -Rp {Math.round(potAlfa).toLocaleString('id-ID')}
+                                    → Potongan: {alfaVal} hari × {formatRupiah(Math.round(nilaiDasar))} = -{formatRupiah(Math.round(potAlfa))}
                                   </span>
                                 )}
                               </div>
@@ -4910,7 +4910,7 @@ export default function MenuPage() {
                                 <input type="number" value={gajiItemSubData.setengah_hari || ''} onChange={e => setGajiItemSubData({...gajiItemSubData, setengah_hari: Number(e.target.value)})} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-rose-600 focus:bg-white focus:ring-2 focus:ring-rose-500 outline-none" placeholder="0" />
                                 {setengahHariVal > 0 && (
                                   <span className="text-[9px] font-bold text-amber-700 block mt-1">
-                                    → Potongan: {setengahHariVal} hari × Rp {Math.round(nilaiDasar / 2).toLocaleString('id-ID')} = -Rp {Math.round(potSetengahHari).toLocaleString('id-ID')}
+                                    → Potongan: {setengahHariVal} hari × {formatRupiah(Math.round(nilaiDasar / 2))} = -{formatRupiah(Math.round(potSetengahHari))}
                                   </span>
                                 )}
                               </div>
@@ -4919,7 +4919,7 @@ export default function MenuPage() {
                                 <input type="number" value={gajiItemSubData.sakit || ''} onChange={e => setGajiItemSubData({...gajiItemSubData, sakit: Number(e.target.value)})} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-rose-600 focus:bg-white focus:ring-2 focus:ring-rose-500 outline-none" placeholder="0" />
                                 {sakitVal > 0 && (
                                   <span className="text-[9px] font-bold text-amber-700 block mt-1">
-                                    → Potongan: {sakitVal} hari × Rp {Math.round(nilaiDasar * 0.9).toLocaleString('id-ID')} (90%) = -Rp {Math.round(potSakit).toLocaleString('id-ID')}
+                                    → Potongan: {sakitVal} hari × {formatRupiah(Math.round(nilaiDasar * 0.9))} (90%) = -{formatRupiah(Math.round(potSakit))}
                                   </span>
                                 )}
                               </div>
@@ -4928,7 +4928,7 @@ export default function MenuPage() {
                                 <input type="number" value={gajiItemSubData.telat || ''} onChange={e => setGajiItemSubData({...gajiItemSubData, telat: Number(e.target.value)})} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-rose-600 focus:bg-white focus:ring-2 focus:ring-rose-500 outline-none" placeholder="0" />
                                 {telatVal > 0 && (
                                   <span className="text-[9px] font-bold text-amber-700 block mt-1">
-                                    → Potongan: {telatVal} kali/menit × Rp 1.000 = -Rp {Math.round(potTelat).toLocaleString('id-ID')}
+                                    → Potongan: {telatVal} kali/menit × Rp 1.000 = -{formatRupiah(Math.round(potTelat))}
                                   </span>
                                 )}
                               </div>
@@ -4942,7 +4942,7 @@ export default function MenuPage() {
                                 <FileText size={15} /> 3. Potongan Lain & Bon (-)
                               </span>
                               <span className="font-black text-xs text-rose-100">
-                                Subtotal: -Rp {subtotalPotonganLain.toLocaleString('id-ID')}
+                                Subtotal: -{formatRupiah(subtotalPotonganLain)}
                               </span>
                             </div>
                             <div className="p-4 bg-white grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -4966,7 +4966,7 @@ export default function MenuPage() {
                                 <input type="number" value={gajiItemSubData.bon_dibayar || ''} onChange={e => setGajiItemSubData({...gajiItemSubData, bon_dibayar: Number(e.target.value)})} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-rose-600 focus:bg-white focus:ring-2 focus:ring-rose-500 outline-none" placeholder="0" />
                                 {employeeActiveBon > 0 ? (
                                   <span className="text-[9px] font-bold text-emerald-700 block mt-1">
-                                    💳 Sisa Bon Aktif: Rp {employeeActiveBon.toLocaleString('id-ID')}
+                                    💳 Sisa Bon Aktif: {formatRupiah(employeeActiveBon)}
                                   </span>
                                 ) : (
                                   <span className="text-[9px] font-medium text-slate-400 block mt-1">
@@ -4978,7 +4978,7 @@ export default function MenuPage() {
                                 <label className="text-[10px] font-black text-slate-600 uppercase block mb-1">Ambil Bon (Rp)</label>
                                 <input type="number" value={gajiItemSubData.bon_diambil || ''} onChange={e => setGajiItemSubData({...gajiItemSubData, bon_diambil: Number(e.target.value)})} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-rose-600 focus:bg-white focus:ring-2 focus:ring-rose-500 outline-none" placeholder="0" />
                                 <span className="text-[9px] font-bold text-slate-500 block mt-1">
-                                  Total Bon (Saat Ini): Rp {employeeActiveBon.toLocaleString('id-ID')}
+                                  Total Bon (Saat Ini): {formatRupiah(employeeActiveBon)}
                                 </span>
                               </div>
                             </div>
@@ -4991,7 +4991,7 @@ export default function MenuPage() {
                                 <Wallet size={15} /> 4. Diterima
                               </span>
                               <span className="font-black text-xs text-teal-100">
-                                Rp {(Number(gajiItemSubData.diterima) || 0).toLocaleString('id-ID')}
+                                {formatRupiah((Number(gajiItemSubData.diterima) || 0))}
                               </span>
                             </div>
                             <div className="p-4 bg-white">
@@ -5153,15 +5153,15 @@ export default function MenuPage() {
                 <dl className="grid grid-cols-3 gap-3 mt-4 text-slate-700 tabular-nums">
                   <div>
                     <dt className="text-xs">Total invoice</dt>
-                    <dd className="font-semibold">Rp {Number(quickSettleData.menu.total || 0).toLocaleString('id-ID')}</dd>
+                    <dd className="font-semibold">{formatRupiah(Number(quickSettleData.menu.total || 0))}</dd>
                   </div>
                   <div>
                     <dt className="text-xs">Sudah dibayar</dt>
-                    <dd className="font-semibold text-emerald-700">Rp {Number(quickSettleData.menu.dibayar || 0).toLocaleString('id-ID')}</dd>
+                    <dd className="font-semibold text-emerald-700">{formatRupiah(Number(quickSettleData.menu.dibayar || 0))}</dd>
                   </div>
                   <div>
                     <dt className="text-xs">Sisa tagihan</dt>
-                    <dd className="font-semibold text-emerald-700">Rp {Math.max(0, (quickSettleData.menu.total || 0) - (quickSettleData.menu.dibayar || 0)).toLocaleString('id-ID')}</dd>
+                    <dd className="font-semibold text-emerald-700">{formatRupiah(Math.max(0, (quickSettleData.menu.total || 0) - (quickSettleData.menu.dibayar || 0)))}</dd>
                   </div>
                 </dl>
               </section>
@@ -5176,7 +5176,7 @@ export default function MenuPage() {
                       const bal = Number(selectedAcc?.number_1 || 0);
                       return (
                         <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-lg flex items-center gap-1 shrink-0">
-                          <Wallet size={12} /> Saldo: Rp {bal.toLocaleString('id-ID')}
+                          <Wallet size={12} /> Saldo: {formatRupiah(bal)}
                         </span>
                       );
                     })()}
@@ -5190,7 +5190,7 @@ export default function MenuPage() {
                     <option value="">-- Pilih akun kas --</option>
                     {cashflowAccounts.map(acc => (
                       <option key={acc.id} value={acc.id}>
-                        {acc.text_1} {acc.id_lama ? `(${acc.id_lama})` : ''} - Saldo: Rp {Number(acc.number_1 || 0).toLocaleString('id-ID')}
+                        {acc.text_1} {acc.id_lama ? `(${acc.id_lama})` : ''} - Saldo: {formatRupiah(Number(acc.number_1 || 0))}
                       </option>
                     ))}
                   </select>
