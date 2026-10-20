@@ -1,3 +1,4 @@
+import DeleteAccess from '../components/delete-access';
 import { businessDate, businessDateBoundary, editableBalance } from '../lib/cashflow';
 import { createRecordId } from '../lib/ids';
 import { createFinancialBatch } from '../services/api/financialBatch';
@@ -2711,7 +2712,7 @@ import { flushPendingSync, deleteFinancialRecord } from '../services/api/laravel
                   <div className="mt-6 pt-4 pb-2 border-t-2 border-slate-100 sticky bottom-0 bg-white z-20">
                     <div className="grid grid-cols-4 md:flex gap-3">
                       {/* Tombol Hapus */}
-                      <button 
+                      <DeleteAccess collection="cashflow" id={selectedTx.id}><button
                         onClick={() => {
                           setSystemAlert({
                             show: true,
@@ -2729,7 +2730,7 @@ import { flushPendingSync, deleteFinancialRecord } from '../services/api/laravel
                         title="Hapus transaksi"
                       >
                         <Trash2 size={20} className="group-hover:scale-110 transition-transform"/>
-                      </button>
+                      </button></DeleteAccess>
                       
                       {/* Tombol Edit */}
                       <button 
@@ -2836,9 +2837,9 @@ import { flushPendingSync, deleteFinancialRecord } from '../services/api/laravel
                           {userLevel === '1' && (
                             <td className="p-3 pr-4 text-right whitespace-nowrap flex justify-end space-x-2">
                               {/* Aksi Hapus */}
-                              <button onClick={() => handleDeleteBon(b.id)} className="w-7 h-7 bg-rose-50 text-rose-500 hover:bg-rose-500 hover:text-white rounded-lg flex items-center justify-center transition-colors" title="Hapus Riwayat">
+                              <DeleteAccess collection="bon" id={b.id}><button onClick={() => handleDeleteBon(b.id)} className="w-7 h-7 bg-rose-50 text-rose-500 hover:bg-rose-500 hover:text-white rounded-lg flex items-center justify-center transition-colors" title="Hapus Riwayat">
                                 <Trash2 size={14} />
-                              </button>
+                              </button></DeleteAccess>
                             </td>
                           )}
                         </tr>

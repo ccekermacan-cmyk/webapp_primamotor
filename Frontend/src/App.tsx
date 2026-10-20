@@ -5,6 +5,8 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { pb } from './lib/pocketbase';
 import Layout from './components/layout';
 import Login from './pages/login';
+import { checkSessionExpiry } from './lib/session';
+import { validateSession } from './services/pocketbase/client';
 
 // Lazy load halaman-halaman berat
 const Pos = lazy(() => import('./pages/pos'));
@@ -62,6 +64,22 @@ export default function App() {
       if (hasPendingAtomic()) void retrySync();
     }
     return () => { window.removeEventListener('prima:sync-change', refresh); window.removeEventListener('prima:atomic-change', refresh); unsubscribe(); };
+  }, []);
+
+  useEffect(() => {
+    const check = () => checkSessionExpiry(pb);
+    check();
+    void validateSession();
+    const validationTimer = window.setInterval(() => void validateSession(), 5 * 60 * 1000);
+    const timer = window.setInterval(check, 1000);
+    window.addEventListener('focus', check);
+    document.addEventListener('visibilitychange', check);
+    return () => {
+      window.clearInterval(timer);
+      window.clearInterval(validationTimer);
+      window.removeEventListener('focus', check);
+      document.removeEventListener('visibilitychange', check);
+    };
   }, []);
 
   // Auto-reload jika ada versi baru di server (SPA staleness fix)

@@ -1,3 +1,4 @@
+import DeleteAccess from '../components/delete-access';
 import { financialPatch } from '../lib/financialPatch';
 import { createFinancialBatch } from '../services/api/financialBatch';
 import React, { useState, useEffect, useRef } from 'react';
@@ -652,7 +653,7 @@ export default function PeoplePage() {
                         <td className="py-4 px-6 whitespace-nowrap">
                           <div className="flex items-center justify-center gap-1.5" onClick={(e) => e.stopPropagation()}>
                             <button className="p-2.5 bg-slate-50 text-slate-400 hover:text-cyan-600 hover:bg-cyan-50 border border-slate-100 rounded-xl transition-all" title="Edit" onClick={() => { setEditUserData(user); setIsEditUserModalOpen(true); }}><Edit size={14} strokeWidth={2.5} /></button>
-                            <button className="p-2.5 bg-slate-50 text-slate-400 hover:text-rose-600 hover:bg-rose-50 border border-slate-100 rounded-xl transition-all" title="Hapus" onClick={() => handleDeleteUser(user.id)}><Trash2 size={14} strokeWidth={2.5} /></button>
+                            <DeleteAccess collection="user" id={user.id}><button className="p-2.5 bg-slate-50 text-slate-400 hover:text-rose-600 hover:bg-rose-50 border border-slate-100 rounded-xl transition-all" title="Hapus" onClick={() => handleDeleteUser(user.id)}><Trash2 size={14} strokeWidth={2.5} /></button></DeleteAccess>
                             <button className="p-2.5 bg-slate-50 text-slate-400 hover:text-blue-600 hover:bg-blue-50 border border-slate-100 rounded-xl transition-all" title="Detail" onClick={() => showUserDetail(user)}><Eye size={14} strokeWidth={2.5} /></button>
                           </div>
                         </td>
@@ -703,13 +704,13 @@ export default function PeoplePage() {
                             >
                               <Edit size={14} strokeWidth={2.5} />
                             </button>
-                            <button
+                            <DeleteAccess collection="dropdown" id={p.id}><button
                               onClick={(e) => { e.stopPropagation(); handleDelete(p.id); }}
                               className="p-2.5 bg-slate-50 text-slate-400 hover:text-rose-600 hover:bg-rose-50 border border-slate-100 rounded-xl transition-all"
                               title="Hapus Data"
                             >
                               <Trash2 size={14} strokeWidth={2.5} />
-                            </button>
+                            </button></DeleteAccess>
                           </div>
                         </td>
                       </tr>

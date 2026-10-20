@@ -6,6 +6,9 @@ import { loginErrorMessage } from '../lib/login';
 import { Wrench, Lock, User, AlertCircle } from 'lucide-react';
 
 export default function Login({ setAuth }: { setAuth: (status: boolean) => void }) {
+  const [sessionMessage] = useState(() => {
+    try { const message = sessionStorage.getItem('prima:login-reason') || ''; sessionStorage.removeItem('prima:login-reason'); return message; } catch { return ''; }
+  });
   const [identity, setIdentity] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -94,6 +97,7 @@ export default function Login({ setAuth }: { setAuth: (status: boolean) => void 
             <p className="text-sm font-bold text-slate-400 mt-1">Silakan masuk menggunakan kredensial Anda.</p>
           </div>
 
+          {sessionMessage && <p role="status" className="mb-4 rounded-xl bg-amber-50 p-3 text-sm text-amber-800">{sessionMessage}</p>}
           <form onSubmit={handleLogin} className="space-y-6">
             <div className="space-y-1">
               <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Username / Email</label>

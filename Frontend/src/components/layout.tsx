@@ -3,6 +3,7 @@ import { Link, useLocation, Outlet, useNavigate } from 'react-router-dom';
 import { ShoppingCart, Package, Wallet, FileText, UserCircle, Settings, LogOut, Users, ShieldAlert, Menu as MenuIcon, X } from 'lucide-react';
 import { pb } from '../lib/pocketbase';
 import Modal from '../components/modal';
+import { endSession } from '../lib/session';
 import TopProgressBar from '../components/top-progress-bar';
 
 const pagePreloaders: Record<string, () => void> = {
@@ -88,9 +89,9 @@ export default function Layout({ setAuth }: { setAuth: (status: boolean) => void
           return;
         }
       } catch (error: any) {
-        // Hanya logout jika server mengembalikan status 401/403 (Sesi kedaluwarsa/ditolak)
+        // Global session guard verifies permission failures before clearing authentication.
         // Jangan logout jika terjadi kesalahan koneksi jaringan / timeout sementara!
-        if (error?.status === 401 || error?.status === 403) {
+        if (error?.status === 401 || !pb.authStore.isValid) {
           console.error("Sesi tidak valid / kedaluwarsa:", error);
           forceLogout();
         } else {
@@ -132,7 +133,7 @@ export default function Layout({ setAuth }: { setAuth: (status: boolean) => void
         try {
           await pb.collection('user').getOne(pb.authStore.model.id, { $autoCancel: false });
         } catch (err: any) {
-          if (err?.status === 401 || err?.status === 403) {
+          if (err?.status === 401 || !pb.authStore.isValid) {
             forceLogout();
           }
         }
@@ -155,15 +156,14 @@ export default function Layout({ setAuth }: { setAuth: (status: boolean) => void
   }, []);
 
   const forceLogout = () => {
-    pb.authStore.clear();
-    localStorage.clear();
+    endSession(pb);
     setAuth(false);
-    navigate('/login');
+    navigate('/login', {replace: true});
   };
 
   const performLogout = () => {
     pb.authStore.clear();
-    localStorage.clear();
+    for (const key of ['user_name', 'user_username', 'user_level']) localStorage.removeItem(key);
     setAuth(false);
     setShowLogoutDialog(false);
     navigate('/login');

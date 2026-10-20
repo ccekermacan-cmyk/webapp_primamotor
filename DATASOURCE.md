@@ -41,6 +41,14 @@ Mengganti PB_DATA_DIR adalah pemindahan data, bukan sekadar perubahan port: sali
 
 Akun login berstatus Active/active boleh menambah dan mengubah data operasional tanpa pembatasan level. Aturan hapus tetap seperti sebelumnya. Pembacaan gaji tetap pribadi, kecuali level 1 dapat membaca semua. Administrasi login (level/status pengguna) tetap dilindungi. Stok realtime dan saldo hasil ledger tetap dilindungi; gunakan transaksi/koreksi stok yang tercatat. Hak koreksi saldo manual administrator yang sudah ada tetap dipertahankan.
 
+## Sesi dan kegagalan transaksi
+
+Session guard mengarahkan sesi kedaluwarsa/tidak sah ke login. Respons 403 dapat berarti izin tindakan ditolak, sehingga guard memeriksa sesi sebelum logout. Kegagalan jaringan/server tidak cukup untuk menyatakan sesi tidak sah. Logout hanya membersihkan data sesi/profil; receipt `prima_atomic_pending:<user>` dan draft tetap disimpan agar transaksi yang belum terkonfirmasi diperiksa setelah login ulang. Jangan menggunakan `localStorage.clear()` untuk logout.
+
+Error batch harus membaca respons bertingkat tiap operasi: HTTP 400 pada batch dapat membungkus 403 izin hapus, validasi saldo/stok, atau kesalahan field. Jangan menganggap setiap HTTP 400 berarti sesi habis dan jangan mengirim ulang transaksi sebelum receipt terkonfirmasi.
+
+Tombol hapus memakai pemeriksaan read-only `POST /api/permissions/delete` untuk aturan koleksi, izin akun kas terkait, dan batasan stok/histori produk. Tombol disembunyikan selama pemeriksaan atau jika gagal. Pemeriksaan UI tidak menggantikan validasi DELETE saat aksi dijalankan; izin dapat berubah setelah halaman dibuka.
+
 ## Verifikasi
 
 ```sh

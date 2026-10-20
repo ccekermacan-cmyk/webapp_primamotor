@@ -1,16 +1,20 @@
 import { createFinancialBatch } from './financialBatch';
 import { createRecordId } from '../../lib/ids';
 import { pb } from '../pocketbase/client';
+import { endSession } from '../../lib/session';
 
 import { datasource } from '../datasource';
 export const getLaravelApiUrl = (): string => datasource.laravel;
 export const LARAVEL_API_URL = getLaravelApiUrl();
 
-export function laravelFetch(url: string, options: RequestInit = {}) {
+export async function laravelFetch(url: string, options: RequestInit = {}) {
   const headers = new Headers(options.headers);
   if (!headers.has('Accept')) headers.set('Accept', 'application/json');
   if (pb.authStore.token) headers.set('Authorization', `Bearer ${pb.authStore.token}`);
-  return fetch(url, { ...options, headers });
+  const token = pb.authStore.token;
+  const response = await fetch(url, { ...options, headers });
+  if (response.status === 401 && token && token === pb.authStore.token) endSession(pb);
+  return response;
 }
 
 export interface SyncEvent {

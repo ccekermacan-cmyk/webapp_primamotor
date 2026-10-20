@@ -1,3 +1,4 @@
+import DeleteAccess from '../components/delete-access';
 import PocketBase, { BaseAuthStore } from 'pocketbase';
 import { createRecordId } from '../lib/ids';
 import { normalizeProductCode, productValidationError, stockAdjustment, isProductCodeConflict, isProductVideo, displayProductCode } from '../lib/products';
@@ -1061,9 +1062,9 @@ const fetchRelatedProducts = async (sp: Produk) => {
                             <Copy size={13} />
                           </button>
                           {userLevel === '1' && (
-                          <button onClick={(e) => handleOpenDelete(prod, e)} className="w-7 h-7 flex items-center justify-center rounded-lg text-red-500 bg-red-50 hover:bg-red-100" title="Hapus">
+                          <DeleteAccess collection="produk" id={prod.id}><button onClick={(e) => handleOpenDelete(prod, e)} className="w-7 h-7 flex items-center justify-center rounded-lg text-red-500 bg-red-50 hover:bg-red-100" title="Hapus">
                             <Trash2 size={13} />
-                          </button>
+                          </button></DeleteAccess>
                           )}
                         </div>
                         {!isReadOnly && (
@@ -1153,9 +1154,9 @@ const fetchRelatedProducts = async (sp: Produk) => {
                               <Copy size={14} />
                             </button>
                             {userLevel === '1' && (
-                            <button onClick={(e) => handleOpenDelete(prod, e)} className="p-1.5 text-red-600 hover:bg-red-50 rounded-md transition" title="Hapus">
+                            <DeleteAccess collection="produk" id={prod.id}><button onClick={(e) => handleOpenDelete(prod, e)} className="p-1.5 text-red-600 hover:bg-red-50 rounded-md transition" title="Hapus">
                               <Trash2 size={14} />
-                            </button>
+                            </button></DeleteAccess>
                             )}
                           </div>
                         </td>
@@ -1271,7 +1272,7 @@ const fetchRelatedProducts = async (sp: Produk) => {
               <button onClick={() => handleOpenEdit(selectedProduct)} className="flex items-center gap-1 px-4 py-2 text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors"><Edit size={16} /> Edit Data</button>
               <button onClick={() => handleOpenCopy(selectedProduct)} className="flex items-center gap-1 px-4 py-2 text-sm font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-xl transition-colors"><Copy size={16} /> Salin</button>
               {userLevel === '1' && (
-              <button onClick={() => handleOpenDelete(selectedProduct)} className="flex items-center gap-1 px-4 py-2 text-sm font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded-xl transition-colors"><Trash2 size={16} /> Hapus</button>
+              <DeleteAccess collection="produk" id={selectedProduct.id}><button onClick={() => handleOpenDelete(selectedProduct)} className="flex items-center gap-1 px-4 py-2 text-sm font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded-xl transition-colors"><Trash2 size={16} /> Hapus</button></DeleteAccess>
               )}
             </div>
 

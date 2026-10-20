@@ -1,3 +1,4 @@
+import DeleteAccess from '../components/delete-access';
 import { financialPatch } from '../lib/financialPatch';
 import { createFinancialBatch } from '../services/api/financialBatch';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
@@ -610,13 +611,13 @@ export default function Settings() {
                                 <Pencil size={14} />
                               </button>
                               {item.id_lama !== 'umum1' && (
-                                <button
+                                <DeleteAccess collection="dropdown" id={item.id}><button
                                   onClick={() => { setSelectedItem(item); setModalType('delete'); }}
                                   className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
                                   title="Hapus"
                                 >
                                   <Trash2 size={14} />
-                                </button>
+                                </button></DeleteAccess>
                               )}
                             </div>
                           </li>
@@ -697,12 +698,12 @@ export default function Settings() {
                 <Pencil size={14} /> Edit Data
               </button>
               {selectedItem.id_lama !== 'umum1' && (
-                <button
+                <DeleteAccess collection="dropdown" id={selectedItem.id}><button
                   onClick={() => setModalType('delete')}
                   className="py-3 px-4 bg-rose-50 text-rose-600 border border-rose-100 rounded-xl font-bold text-xs uppercase tracking-wider hover:bg-rose-100 transition-colors cursor-pointer"
                 >
                   <Trash2 size={14} />
-                </button>
+                </button></DeleteAccess>
               )}
               <button 
                 onClick={() => setModalType(null)} 

@@ -53,14 +53,15 @@ export function createFinancialBatch(options: {draftKey?: string} = {}) {
         } catch (error) {
           // The server resolves under a write lock: committed receipt OR a cancellation
           // that prevents a late request from committing. Never guess based on HTTP status.
+          let recovery;
           try {
-            const recovery = await resolveAtomicRequest(requestId);
-            if (recovery.status === 'committed') results = confirmed(recovery.results!);
-            else { clearAtomicRequest(requestId); throw transactionError(error); }
-          } catch (recoveryError) {
+            recovery = await resolveAtomicRequest(requestId);
+          } catch {
             announcePendingAtomic();
-            throw recoveryError;
+            throw new Error(`${transactionError(error).message} Status transaksi belum dapat dikonfirmasi. Login ulang jika diperlukan, lalu periksa transaksi sebelum mengirim ulang.`);
           }
+          if (recovery.status === 'committed') results = confirmed(recovery.results!);
+          else { clearAtomicRequest(requestId); throw transactionError(error); }
         }
         clearAtomicRequest(requestId);
         onPersisted?.();

@@ -6,20 +6,7 @@ const pendingKey = () => `prima_atomic_pending:${pb.authStore.record?.id || 'ano
 export const hasPendingAtomic = () => !!localStorage.getItem(pendingKey());
 const announce = () => window.dispatchEvent(new Event('prima:atomic-change'));
 
-export function transactionError(error: unknown): Error {
-  const messages: string[] = [];
-  const visit = (value: unknown) => {
-    if (!value || typeof value !== 'object') return;
-    const obj = value as Record<string, unknown>;
-    // Nested PocketBase batch responses contain the actual field/business error.
-    if (obj.data && typeof obj.data === 'object' && Object.keys(obj.data).length) visit(obj.data);
-    else if (obj.response) visit(obj.response);
-    else if (typeof obj.message === 'string') messages.push(obj.message);
-    else Object.values(obj).forEach(visit);
-  };
-  visit(error);
-  return new Error([...new Set(messages)].join(' ') || (error instanceof Error ? error.message : 'Transaksi gagal.'));
-}
+export { transactionError } from '../../lib/transactionError';
 export async function ensureAtomicLedger(): Promise<void> {
   const result = await pb.send<{atomic_ledger?: number}>('/api/financial/health', {method:'GET',requestKey:null});
   if (result.atomic_ledger !== 1) throw new Error('Backend transaksi belum siap. Terapkan migrasi atomic ledger dan muat ulang aplikasi.');

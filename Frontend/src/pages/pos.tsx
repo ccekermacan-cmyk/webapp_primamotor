@@ -1,3 +1,4 @@
+import DeleteAccess from '../components/delete-access';
 import { isIncomeTransaction, settlementRemaining, matchUnusedStockLog } from '../lib/posTransactions';
 import { createRecordId } from '../lib/ids';
 import type { CheckoutForm } from '../types/pos';
@@ -4466,7 +4467,7 @@ export default function MenuPage() {
                   const isStatusBelum = showDetailHistory?.status === 'belum';
                   const bolehDelete = (userLevel === '1' || userLevel === '5') || (isStatusBelum && ['1','2','3','4','5','6','7'].includes(userLevel));
                   return bolehDelete && (
-                    <button
+                    <DeleteAccess collection="menu" id={showDetailHistory!.id}><button
                       onClick={() => !isDeleting && confirmAction('Hapus Permanen', 'Peringatan: Menghapus nota ini akan mengembalikan seluruh stok barang dan menghapus jejak jurnal kas terkait. Lanjutkan?', () => handleDeleteHistory(showDetailHistory!))}
                       disabled={isDeleting}
                       className={`h-14 min-w-[3.5rem] flex-1 rounded-2xl border transition-colors flex justify-center items-center gap-2 group ${
@@ -4487,7 +4488,7 @@ export default function MenuPage() {
                       ) : (
                         <Trash2 size={20} className="group-hover:scale-110 transition-transform"/>
                       )}
-                    </button>
+                    </button></DeleteAccess>
                   );
                 })()}
 

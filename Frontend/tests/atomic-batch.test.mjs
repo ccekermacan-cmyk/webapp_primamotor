@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import ts from 'typescript';
 let serial = 0, operations, sends, calls, id;
 async function load(path, imports) {
-  const source = imports + fs.readFileSync(new URL(path,import.meta.url),'utf8').replace(/^import .*;\n/gm,'');
+  const source = imports + fs.readFileSync(new URL(path,import.meta.url),'utf8').replace(/^import .*;\n/gm,'').replace("export { transactionError } from '../../lib/transactionError';", 'export const transactionError = globalThis.testTransactionError;');
   const js = ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText;
   return import(`data:text/javascript;base64,${Buffer.from(js+`\n//${serial++}`).toString('base64')}`);
 }
@@ -23,6 +23,7 @@ beforeEach(()=>{
   globalThis.testId=()=>`fixture${String(++id).padStart(8,'0')}`;
 });
 async function adapter() {
+  globalThis.testTransactionError=(await load('../src/lib/transactionError.ts','')).transactionError;
   globalThis.testAtomic=await load('../src/services/api/atomic.ts','const pb=globalThis.testPb;\n');
   return load('../src/services/api/financialBatch.ts',`const pb=globalThis.testPb;const flushPendingSync=globalThis.testFlush;const createRecordId=globalThis.testId;
 const {ensureAtomicLedger,rememberAtomicRequest,clearAtomicRequest,resolveAtomicRequest,announcePendingAtomic,transactionError}=globalThis.testAtomic;\n`);
@@ -77,4 +78,13 @@ test('unavailable atomic backend or local persistence fails before any write is 
 test('legacy outbox is drained before submitting a new atomic transaction',async()=>{
   const api=await adapter();globalThis.testFlush=async()=>{throw new Error('legacy sync pending');};
   const fresh=await adapter(),batch=fresh.createFinancialBatch();batch.collection('menu').create({});await assert.rejects(batch.send(),/legacy sync/);assert.equal(sends.length,0);
+});
+
+test('unconfirmed rejection retains the original reason and pending receipt', async () => {
+  const api=await adapter();
+  globalThis.testPb.createBatch=()=>({collection:()=>({create:()=>{}}),send:async()=>{throw {status:400,response:{data:{requests:{0:{response:{status:403,message:'Anda tidak memiliki akses ke akun ini.',data:{}}}}}}};}});
+  globalThis.testPb.send=async(path)=>{if(path.includes('/health'))return {atomic_ledger:1};throw new Error('offline');};
+  const batch=api.createFinancialBatch();batch.collection('menu').create({});
+  await assert.rejects(batch.send(), /izin.*akun kas.*Status transaksi belum dapat dikonfirmasi/);
+  assert.equal(globalThis.testAtomic.hasPendingAtomic(),true);
 });

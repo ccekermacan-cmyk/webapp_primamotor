@@ -139,7 +139,7 @@ exports.authorize = (e, deleting) => {
   for (const record of cash) for (const id of Object.keys(cashDeltas(e.app,record,false))) {
     const account = wallet(e.app,id);
     const contains = (raw,token) => raw.split(',').map(part => part.trim()).includes(token);
-    if (!account || !contains(text(account,'visibilitas'),String(e.auth.getInt('level'))) || !contains(text(account,'enum_1'),e.auth.getString('username'))) throw new ForbiddenError('Anda tidak memiliki akses ke akun ini.');
+    if (!account || !contains(text(account,'visibilitas'),String(e.auth.getInt('level'))) || !contains(text(account,'enum_1'),e.auth.getString('username'))) throw new ForbiddenError('Tidak dapat menghapus transaksi: Anda tidak memiliki izin hapus pada akun kas terkait. Hubungi administrator.');
   }
 };
 exports.mutation = (e, event) => {
