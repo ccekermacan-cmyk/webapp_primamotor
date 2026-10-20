@@ -4,7 +4,7 @@ import { createRecordId } from '../lib/ids';
 import { createFinancialBatch } from '../services/api/financialBatch';
 import { flushPendingSync, deleteFinancialRecord } from '../services/api/laravel';
   import React, { useState, useEffect, useMemo, useRef } from 'react';
-  import { useNavigate } from 'react-router-dom';
+  import { Link, useNavigate } from 'react-router-dom';
   import { pb } from '../lib/pocketbase';
   import Modal from '../components/modal';
   import { 
@@ -2677,13 +2677,18 @@ import { flushPendingSync, deleteFinancialRecord } from '../services/api/laravel
                       <p className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1"><span className="text-slate-400 font-bold">Akun Sumber:</span> <span className="font-bold text-slate-700 sm:text-right">{getAccountName(selectedTx.account_1)}</span></p>
                       {selectedTx.account_2 && <p className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1"><span className="text-slate-400 font-bold">Akun Tujuan:</span> <span className="font-bold text-blue-600 sm:text-right">{getAccountName(selectedTx.account_2)}</span></p>}
                       <p className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1"><span className="text-slate-400 font-bold">Pihak Terkait:</span> <span className="font-bold text-slate-700 sm:text-right">{getPersonName(selectedTx.person)}</span></p>
-                      {selectedTx.ref_baru && <p className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1 mt-2 pt-2 border-t border-dashed border-slate-200"><span className="text-slate-400 font-bold">Ref Transaksi POS:</span> <span className="font-bold text-blue-500 bg-blue-50 px-2 py-0.5 rounded border border-blue-100 self-start sm:self-auto">{selectedTx.ref_baru}</span></p>}
-                      {(userLevel === '1' || userLevel === '2' || userLevel === '5') && (selectedTx.saldo_awal !== undefined || selectedTx.saldo_akhir !== undefined) && (
-                        <div className="mt-2 pt-2 border-t border-dashed border-slate-200 space-y-1">
-                          <p className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1"><span className="text-slate-400 font-bold">Saldo Awal:</span> <span className="font-bold text-emerald-700 sm:text-right">Rp {Number(selectedTx.saldo_awal || 0).toLocaleString('id-ID')}</span></p>
-                          <p className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1"><span className="text-slate-400 font-bold">Saldo Akhir:</span> <span className="font-bold text-emerald-700 sm:text-right">Rp {Number(selectedTx.saldo_akhir || 0).toLocaleString('id-ID')}</span></p>
-                        </div>
-                      )}
+                      {selectedTx.ref_baru && <p className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1 mt-2 pt-2 border-t border-dashed border-slate-200"><span className="text-slate-400 font-bold">Ref Transaksi POS:</span> <Link to={`/?ref=${encodeURIComponent(selectedTx.ref_baru)}`} title="Buka detail transaksi di POS" className="inline-flex items-center gap-1.5 font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded border border-blue-100 self-start sm:self-auto hover:bg-blue-100 hover:underline focus-visible:outline-2 focus-visible:outline-blue-500">{selectedTx.ref_baru}<ExternalLink size={13} aria-hidden="true" /></Link></p>}
+                      <div className="mt-2 pt-3 border-t border-dashed border-slate-200 space-y-2">
+                        <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Saldo akun sumber</p>
+                        <p className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1">
+                          <span className="text-slate-500 font-bold">Saldo Sebelum Transaksi:</span>
+                          <span className="font-bold text-slate-700 sm:text-right">{selectedTx.saldo_awal == null ? 'Belum tersedia' : formatRupiah(selectedTx.saldo_awal)}</span>
+                        </p>
+                        <p className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1">
+                          <span className="text-slate-500 font-bold">Saldo Sesudah Transaksi:</span>
+                          <span className="font-bold text-emerald-700 sm:text-right">{selectedTx.saldo_akhir == null ? 'Belum tersedia' : formatRupiah(selectedTx.saldo_akhir)}</span>
+                        </p>
+                      </div>
                     </div>
 
                     <div className="bg-slate-50 p-5 rounded-[1.5rem] border-2 border-slate-100 shadow-sm flex flex-col">
