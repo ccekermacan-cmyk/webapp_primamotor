@@ -194,6 +194,7 @@ export default function MenuPage() {
   const [showCheckoutReview, setShowCheckoutReview] = useState(false);
   const [showReviewDetails, setShowReviewDetails] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<FieldKey, string>>>({});
+  const [draftRestored, setDraftRestored] = useState(() => !!initialDraft);
   const [showReceiptPrint, setShowReceiptPrint] = useState<any>(null);
 
   // Helper Hitung Hari Kerja (Total Hari dlm Bulan - Jumlah Hari Minggu)
@@ -519,7 +520,7 @@ export default function MenuPage() {
   const [isPaymentFormOpen, setIsPaymentFormOpen] = useState(false);
 
 
-  const [dialog, setDialog] = useState<{show: boolean, title: string, message: string, type: 'alert' | 'confirm', onConfirm?: () => void}>({
+  const [dialog, setDialog] = useState<{show: boolean, title: string, message: string, type: 'alert' | 'confirm', onConfirm?: () => void, confirmLabel?: string}>({
     show: false, title: '', message: '', type: 'alert'
   });
 
@@ -1412,6 +1413,17 @@ export default function MenuPage() {
     : totalBelanja + totalOngkos - (formBayar.adminFee || 0) + (formBayar.cashback || 0),
     [isPembelianMenu, totalBelanja, totalOngkos, formBayar.adminFee, formBayar.cashback]);
 
+  // Cegah tab/ halaman ditutup selagi proses simpan berjalan.
+  useEffect(() => {
+    if (!isProcessing) return;
+    const blockUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', blockUnload);
+    return () => window.removeEventListener('beforeunload', blockUnload);
+  }, [isProcessing]);
+
   // 🟢 Keyboard Shortcuts Listener untuk Web & Tablet Hardware Keyboard
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -1419,6 +1431,7 @@ export default function MenuPage() {
       const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT';
 
       // F2 atau '/' untuk fokus pencarian produk
+      if (isProcessing) return; // tidak ada interaksi lain saat proses simpan berjalan
       if ((e.key === 'F2' || (e.key === '/' && !isInput)) && !e.ctrlKey && !e.metaKey) {
         e.preventDefault();
         searchInputRef.current?.focus();
@@ -1460,7 +1473,7 @@ export default function MenuPage() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isPaymentFormOpen, isCartModalOpen, showCheckoutReview, cartTab, cart, cashflowAccounts, formBayar.cashflowList, grandTotal]);
+  }, [isPaymentFormOpen, isCartModalOpen, showCheckoutReview, cartTab, cart, cashflowAccounts, formBayar.cashflowList, grandTotal, isProcessing]);
 
   // --- CHECKOUT SAFETY GUARD ---
   const clearFieldError = (field: FieldKey) => setFieldErrors(prev => {
@@ -2021,7 +2034,17 @@ export default function MenuPage() {
       console.error(err);
       // Never delete committed records after an uncertain network response. The durable sync queue
       // keeps the same request ID for retries, so server effects cannot be applied twice.
-      setDialog({ show: true, title: 'Sinkronisasi Gagal', message: "Gagal menyimpan data entri: " + (err.message || err), type: 'alert' });
+      setDialog({
+        show: true,
+        title: 'Sinkronisasi Gagal',
+        message: "Gagal menyimpan data entri: " + (err.message || err) + "\n\nKeranjang dan form Anda tetap tersimpan. Anda dapat mencoba menyimpan ulang.",
+        type: 'confirm',
+        confirmLabel: 'COBA LAGI',
+        onConfirm: () => {
+          setDialog(prev => ({ ...prev, show: false }));
+          void executeStoringData();
+        }
+      });
     } finally {
       clearTimeout(watchdog);
       submitLockRef.current = false;
@@ -2421,8 +2444,15 @@ export default function MenuPage() {
   }, [historyMenu]);
 
   return (
-    <fieldset disabled={isProcessing} className="h-screen min-w-0 border-0 m-0 p-0">
-    <div className="flex h-screen bg-slate-50 overflow-hidden font-sans text-slate-800">
+    <fieldset disabled={isProcessing} className="h-dvh min-w-0 border-0 m-0 p-0">
+    <div className="flex h-dvh bg-slate-50 overflow-hidden font-sans text-slate-800">
+      {/* Indikator proses: semua kontrol dinonaktifkan, beri tahu apa yang sedang berjalan */}
+      {isProcessing && (
+        <div role="status" aria-live="polite" className="fixed top-3 left-1/2 -translate-x-1/2 z-[70] flex items-center gap-2 rounded-full bg-slate-900/95 px-4 py-2 text-xs font-bold text-white shadow-xl">
+          <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" aria-hidden="true" />
+          <span>{processingMsg || 'Memproses...'}</span>
+        </div>
+      )}
       <div className="flex-1 flex flex-col p-3 md:p-6 lg:p-8 pt-20 md:pt-6 overflow-hidden w-full transition-colors duration-500">
          
         {/* Nav Tabs */}
@@ -2522,6 +2552,21 @@ export default function MenuPage() {
           </div>
         )}
             <div className="space-y-10">
+                {draftRestored && (
+                  <div className="flex items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-2.5">
+                    <p className="flex items-center gap-2 text-xs font-bold text-amber-800">
+                      <Sparkles size={14} className="text-amber-500 shrink-0" aria-hidden="true" />
+                      Keranjang dan form sebelumnya dipulihkan dari draft lokal ({cart.length} item).
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => { try { localStorage.removeItem(POS_DRAFT_KEY); } catch { /* abaikan */ } setDraftRestored(false); }}
+                      className="shrink-0 text-[10px] font-black uppercase tracking-wider text-amber-700 hover:text-amber-900 bg-white border border-amber-200 rounded-lg px-2 py-1"
+                    >
+                      Hapus draft
+                    </button>
+                  </div>
+                )}
                 
               {/* 1. LIST PRODUK (PENJUALAN/SERVICE/PEMBELIAN) */} 
               {selectedMenu && 
@@ -2548,7 +2593,7 @@ export default function MenuPage() {
                             #{formatIdLamaDisplay ? formatIdLamaDisplay(p.id_lama) : p.id_lama}
                           </span>
                           <div className={`px-3 py-1.5 rounded-xl font-black text-[10px] uppercase shadow-sm ${p.stok_3 > 5 ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' : 'bg-rose-50 text-rose-600 border border-rose-100 animate-pulse'}`}> 
-                            SISA: {p.stok_3} {p.unit} 
+                            {p.stok_3 > 0 ? <>SISA: {p.stok_3} {p.unit}</> : 'STOK HABIS'} 
                           </div> 
                         </div> 
                         <h3 className={`font-black text-slate-800 text-sm md:text-base uppercase leading-snug ${activeTheme.groupHoverText} line-clamp-2 md:line-clamp-3 tracking-tight transition-colors`}>
@@ -2793,7 +2838,7 @@ export default function MenuPage() {
         <button 
           aria-label="Buka keranjang"
           onClick={() => setIsCartModalOpen(true)}
-          className={`fixed bottom-24 right-6 md:bottom-30 md:right-10 z-50 p-4 md:p-5 ${activeTheme.main} text-white rounded-full shadow-2xl shadow-${activeTheme.main.replace('bg-', '')}/50 flex items-center justify-center hover:scale-110 active:scale-95 transition-all duration-300 border-2 border-white`}
+          className={`fixed bottom-[calc(6rem_+_env(safe-area-inset-bottom))] right-6 md:bottom-30 md:right-10 z-50 p-4 md:p-5 ${activeTheme.main} text-white rounded-full shadow-2xl shadow-${activeTheme.main.replace('bg-', '')}/50 flex items-center justify-center hover:scale-110 active:scale-95 transition-all duration-300 border-2 border-white`}
         >
           <div className="relative">
             <ShoppingCart size={28} />
@@ -2807,7 +2852,7 @@ export default function MenuPage() {
       ) : (
         <button 
           onClick={() => setIsGajiFormOpen(true)}
-          className="fixed bottom-24 right-6 md:bottom-30 md:right-10 z-50 px-5 py-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-full shadow-2xl shadow-emerald-600/50 flex items-center gap-2 hover:scale-105 active:scale-95 transition-all duration-300 border-2 border-white font-black text-xs uppercase tracking-wider"
+          className="fixed bottom-[calc(6rem_+_env(safe-area-inset-bottom))] right-6 md:bottom-30 md:right-10 z-50 px-5 py-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-full shadow-2xl shadow-emerald-600/50 flex items-center gap-2 hover:scale-105 active:scale-95 transition-all duration-300 border-2 border-white font-black text-xs uppercase tracking-wider"
         >
           <Plus size={22} />
           <span className="hidden sm:inline">Buat Slip Gaji</span>
@@ -2956,7 +3001,21 @@ export default function MenuPage() {
               <div className="flex items-center justify-between gap-2"><h3 className="font-semibold text-sm">Item transaksi ({cart.length})</h3><button type="button" className={`pos-action ${activeTheme.light} ${activeTheme.text}`} onClick={() => setShowCartCatalog(v => !v)}><Plus size={16}/> Tambah item</button></div>
               {showCartCatalog && <div className="p-3 border border-slate-200 rounded-xl space-y-2">
                 <label className="text-xs font-medium block">Cari barang di katalog<input aria-label="Cari barang di katalog" value={searchInput} onChange={e => {setSearchInput(e.target.value);setPage(1);}} className="w-full mt-2 p-2 border border-slate-200 rounded-lg" placeholder="Nama / kode barang"/></label>
-                {loading ? <p role="status" className="text-xs">Memuat barang…</p> : products.length === 0 ? <p className="text-xs">Barang tidak ditemukan.</p> : products.map(product => <button type="button" key={product.id} onClick={() => addToCart(product)} className="flex w-full items-center justify-between gap-2 border-b border-slate-100 py-2 text-left text-xs"><span>{getFullLabel(product)}<small className="block text-slate-500">Stok: {product.stok_3} {product.unit}</small></span><span className="pos-action"><Plus size={14}/> Tambah</span></button>)}
+                {loading ? <p role="status" className="text-xs">Memuat barang…</p> : products.length === 0 ? <p className="text-xs">Barang tidak ditemukan.</p> : products.map(product => {
+                const stokHabis = !selectedMenu.toLowerCase().includes('pembelian') && Number(product.stok_3) <= 0;
+                return (
+                  <button
+                    type="button"
+                    key={product.id}
+                    disabled={stokHabis}
+                    onClick={() => addToCart(product)}
+                    className="flex w-full items-center justify-between gap-2 border-b border-slate-100 py-2 text-left text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <span>{getFullLabel(product)}<small className={`block ${stokHabis ? 'text-rose-500 font-bold' : 'text-slate-500'}`}>{stokHabis ? 'Stok habis' : `Stok: ${product.stok_3} ${product.unit}`}</small></span>
+                    <span className="pos-action"><Plus size={14}/> {stokHabis ? 'Kosong' : 'Tambah'}</span>
+                  </button>
+                );
+              })}
                 <div className="flex justify-between items-center text-xs"><button type="button" className="pos-action" disabled={page<=1 || loading} onClick={() => setPage(p => p-1)}><ChevronLeft size={14}/> Sebelumnya</button><span>{page} / {Math.max(1,totalPages)}</span><button type="button" className="pos-action" disabled={page>=totalPages || loading} onClick={() => setPage(p => p+1)}>Berikutnya <ChevronRight size={14}/></button></div>
               </div>}
               <div className="space-y-3">
@@ -3077,6 +3136,13 @@ export default function MenuPage() {
                             {formatRupiah((item.qty * item.priceSelected))}
                           </div>
                         </div>
+
+                        {item.beli > 0 && (item.manualPrice !== undefined ? item.manualPrice : item.priceSelected) < item.beli && (
+                          <p className="mt-1.5 flex items-center gap-1 text-[10px] font-bold text-amber-600">
+                            <AlertTriangle size={11} aria-hidden="true" />
+                            Harga di bawah harga beli ({formatRupiah(item.beli)})
+                          </p>
+                        )}
 
                       </div>
 
@@ -4398,7 +4464,7 @@ export default function MenuPage() {
                   onClick={dialog.onConfirm || (() => setDialog(prev => ({ ...prev, show: false })))} 
                   className={`flex-[2] py-4 text-white rounded-2xl font-black text-xs shadow-xl bg-${themeColor}-500 shadow-${themeColor}-500/40 hover:bg-${themeColor}-600 active:scale-95 transition-all tracking-widest`}
                 >
-                  {dialog.type === 'confirm' ? 'YA, LANJUTKAN PROSES' : 'MENGERTI'}
+                  {dialog.confirmLabel || (dialog.type === 'confirm' ? 'YA, LANJUTKAN PROSES' : 'MENGERTI')}
                 </button> 
               </div> 
             </div> 
