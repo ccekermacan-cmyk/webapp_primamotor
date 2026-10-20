@@ -260,6 +260,7 @@ export default function MenuPage() {
   const [isGajiItemSubModalOpen, setIsGajiItemSubModalOpen] = useState(false);
   const [editingGajiItemIndex, setEditingGajiItemIndex] = useState<number | null>(null);
 
+  const [showGajiBonus, setShowGajiBonus] = useState(false);
   const [gajiItemSubData, setGajiItemSubData] = useState<GajiItemForm>({
     id: '',
     person: '',
@@ -3418,8 +3419,10 @@ export default function MenuPage() {
                             </button>
                           </div>
 
+                          <span className="absolute top-1.5 left-1.5 text-[9px] font-black uppercase tracking-wider bg-emerald-600 text-white px-1.5 py-0.5 rounded-md">Tersimpan</span>
+
                           <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent pt-4 pb-2 px-2 text-white text-[9px] truncate font-bold">
-                            {file.name} <span className="text-emerald-400">(tersimpan)</span>
+                            {file.name}
                           </div>
                         </div>
                       ))}
@@ -3458,6 +3461,8 @@ export default function MenuPage() {
                             </button>
                           </div>
 
+                          <span className="absolute top-1.5 left-1.5 text-[9px] font-black uppercase tracking-wider bg-amber-500 text-white px-1.5 py-0.5 rounded-md">Belum disimpan</span>
+
                           {/* Nama file */}
                           <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent pt-4 pb-2 px-2 text-white text-[9px] truncate font-bold">
                             {menuFiles[idx]?.name}
@@ -3485,22 +3490,6 @@ export default function MenuPage() {
                       </button>
                     </div>
                   )}
-
-                  {/* Tampilkan file lama (jika ada) saat edit */}
-                  {existingMenuFiles.length > 0 && !editSession?.isEditing && (
-                  <div className="mt-4 pt-2 border-t border-emerald-200">
-                    <p className="text-[10px] font-black text-emerald-600 mb-2">📎 File yang sudah ada (akan dipertahankan):</p>
-                    <div className="flex flex-wrap gap-2">
-                      {existingMenuFiles.map((file, idx) => (
-                        <div key={idx} className="flex items-center gap-1 bg-white px-2 py-1 rounded-full text-xs shadow-sm">
-                          <span className="w-4 h-4 bg-slate-200 rounded-full flex items-center justify-center text-[8px]">📄</span>
-                          <span className="truncate max-w-[150px]">{file.name}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
 
                 </div>
 
@@ -4756,38 +4745,63 @@ export default function MenuPage() {
                           ))}
                         </span>
                       </div>
-                      <div className="p-4 bg-white grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                        <div>
-                          <label className="text-[10px] font-black text-slate-600 uppercase block mb-1">Gaji Pokok</label>
-                          <input type="number" value={gajiItemSubData.pokok || ''} onChange={e => setGajiItemSubData({...gajiItemSubData, pokok: Number(e.target.value)})} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="0" />
+                      <div className="p-4 bg-white space-y-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                          <div>
+                            <label className="text-[10px] font-black text-slate-600 uppercase block mb-1">Gaji Pokok</label>
+                            <input type="number" value={gajiItemSubData.pokok || ''} onChange={e => setGajiItemSubData({...gajiItemSubData, pokok: Number(e.target.value)})} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="0" />
+                            <span className="text-[9px] font-medium text-slate-400 block mt-1">Nominal per bulan (Rp)</span>
+                          </div>
+                          <div>
+                            <label className="text-[10px] font-black text-slate-600 uppercase block mb-1">Tunjangan</label>
+                            <input type="number" value={gajiItemSubData.tunjangan || ''} onChange={e => setGajiItemSubData({...gajiItemSubData, tunjangan: Number(e.target.value)})} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="0" />
+                            <span className="text-[9px] font-medium text-slate-400 block mt-1">Nominal per bulan (Rp)</span>
+                          </div>
+                          <div>
+                            <label className="text-[10px] font-black text-slate-600 uppercase block mb-1">Program</label>
+                            <input type="number" value={gajiItemSubData.program || ''} onChange={e => setGajiItemSubData({...gajiItemSubData, program: Number(e.target.value)})} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="0" />
+                            <span className="text-[9px] font-medium text-slate-400 block mt-1">Nominal program (Rp)</span>
+                          </div>
+                          <div>
+                            <label className="text-[10px] font-black text-slate-600 uppercase block mb-1">Lembur</label>
+                            <input type="number" value={gajiItemSubData.lembur || ''} onChange={e => setGajiItemSubData({...gajiItemSubData, lembur: Number(e.target.value)})} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="0" />
+                            <span className="text-[9px] font-medium text-slate-400 block mt-1">Total lembur dibayar (Rp)</span>
+                          </div>
                         </div>
-                        <div>
-                          <label className="text-[10px] font-black text-slate-600 uppercase block mb-1">Tunjangan</label>
-                          <input type="number" value={gajiItemSubData.tunjangan || ''} onChange={e => setGajiItemSubData({...gajiItemSubData, tunjangan: Number(e.target.value)})} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="0" />
-                        </div>
-                        <div>
-                          <label className="text-[10px] font-black text-slate-600 uppercase block mb-1">Bonus 1</label>
-                          <input type="number" value={gajiItemSubData.bonus_1 || ''} onChange={e => setGajiItemSubData({...gajiItemSubData, bonus_1: Number(e.target.value)})} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="0" />
-                        </div>
-                        <div>
-                          <label className="text-[10px] font-black text-slate-600 uppercase block mb-1">Bonus 2</label>
-                          <input type="number" value={gajiItemSubData.bonus_2 || ''} onChange={e => setGajiItemSubData({...gajiItemSubData, bonus_2: Number(e.target.value)})} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="0" />
-                        </div>
-                        <div>
-                          <label className="text-[10px] font-black text-slate-600 uppercase block mb-1">Bonus 3</label>
-                          <input type="number" value={gajiItemSubData.bonus_3 || ''} onChange={e => setGajiItemSubData({...gajiItemSubData, bonus_3: Number(e.target.value)})} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="0" />
-                        </div>
-                        <div>
-                          <label className="text-[10px] font-black text-slate-600 uppercase block mb-1">Bonus 4</label>
-                          <input type="number" value={gajiItemSubData.bonus_4 || ''} onChange={e => setGajiItemSubData({...gajiItemSubData, bonus_4: Number(e.target.value)})} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="0" />
-                        </div>
-                        <div>
-                          <label className="text-[10px] font-black text-slate-600 uppercase block mb-1">Program</label>
-                          <input type="number" value={gajiItemSubData.program || ''} onChange={e => setGajiItemSubData({...gajiItemSubData, program: Number(e.target.value)})} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="0" />
-                        </div>
-                        <div>
-                          <label className="text-[10px] font-black text-slate-600 uppercase block mb-1">Lembur</label>
-                          <input type="number" value={gajiItemSubData.lembur || ''} onChange={e => setGajiItemSubData({...gajiItemSubData, lembur: Number(e.target.value)})} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="0" />
+
+                        {/* Bonus 1-4 dilipat; otomatis terbuka bila sudah berisi nilai */}
+                        <div className="border-t border-slate-100 pt-3">
+                          <div className="flex items-center justify-between gap-2 mb-2">
+                            <span className="text-[10px] font-black text-slate-600 uppercase">Bonus 1&ndash;4</span>
+                            <button
+                              type="button"
+                              onClick={() => setShowGajiBonus(prev => !prev)}
+                              aria-expanded={showGajiBonus}
+                              className="text-[9px] font-black text-slate-600 hover:text-slate-800 bg-slate-100 px-2 py-1 rounded-md uppercase tracking-wider transition-colors"
+                            >
+                              {showGajiBonus ? 'Sembunyikan bonus' : 'Tampilkan bonus'}
+                            </button>
+                          </div>
+                          {(showGajiBonus || [gajiItemSubData.bonus_1, gajiItemSubData.bonus_2, gajiItemSubData.bonus_3, gajiItemSubData.bonus_4].some(v => Number(v) > 0)) && (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                              <div>
+                                <label className="text-[10px] font-black text-slate-600 uppercase block mb-1">Bonus 1</label>
+                                <input type="number" value={gajiItemSubData.bonus_1 || ''} onChange={e => setGajiItemSubData({...gajiItemSubData, bonus_1: Number(e.target.value)})} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="0" />
+                              </div>
+                              <div>
+                                <label className="text-[10px] font-black text-slate-600 uppercase block mb-1">Bonus 2</label>
+                                <input type="number" value={gajiItemSubData.bonus_2 || ''} onChange={e => setGajiItemSubData({...gajiItemSubData, bonus_2: Number(e.target.value)})} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="0" />
+                              </div>
+                              <div>
+                                <label className="text-[10px] font-black text-slate-600 uppercase block mb-1">Bonus 3</label>
+                                <input type="number" value={gajiItemSubData.bonus_3 || ''} onChange={e => setGajiItemSubData({...gajiItemSubData, bonus_3: Number(e.target.value)})} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="0" />
+                              </div>
+                              <div>
+                                <label className="text-[10px] font-black text-slate-600 uppercase block mb-1">Bonus 4</label>
+                                <input type="number" value={gajiItemSubData.bonus_4 || ''} onChange={e => setGajiItemSubData({...gajiItemSubData, bonus_4: Number(e.target.value)})} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="0" />
+                              </div>
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -4873,7 +4887,7 @@ export default function MenuPage() {
                           <div className="border-2 border-rose-200 rounded-2xl overflow-hidden shadow-xs">
                             <div className="bg-gradient-to-r from-rose-600 to-pink-600 px-4 py-2.5 text-white flex justify-between items-center">
                               <span className="font-black text-xs uppercase tracking-wider flex items-center gap-1.5">
-                                <FileText size={15} /> 3. Potongan Lain & Bon (-)
+                                <FileText size={15} /> 3. Bon / Potongan Lain (-)
                               </span>
                               <span className="font-black text-xs text-rose-100">
                                 Subtotal: -{formatRupiah(subtotalPotonganLain)}
@@ -4918,11 +4932,11 @@ export default function MenuPage() {
                             </div>
                           </div>
 
-                          {/* SECTION 4: DITERIMA (JUMLAH YANG DITERIMA KARYAWAN) */}
+                          {/* SECTION 4: NETTO (JUMLAH YANG DITERIMA KARYAWAN) */}
                           <div className="border-2 border-teal-200 rounded-2xl overflow-hidden shadow-xs">
                             <div className="bg-gradient-to-r from-teal-600 to-cyan-600 px-4 py-2.5 text-white flex justify-between items-center">
                               <span className="font-black text-xs uppercase tracking-wider flex items-center gap-1.5">
-                                <Wallet size={15} /> 4. Diterima
+                                <Wallet size={15} /> 4. Netto
                               </span>
                               <span className="font-black text-xs text-teal-100">
                                 {formatRupiah((Number(gajiItemSubData.diterima) || 0))}
