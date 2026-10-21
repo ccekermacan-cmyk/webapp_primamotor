@@ -18,6 +18,7 @@ export interface ReviewAccount {
 }
 
 interface CheckoutReviewModalProps {
+  isOpen: boolean;
   formBayar: CheckoutForm;
   selectedMenu: string;
   isEditing: boolean;
@@ -44,6 +45,7 @@ interface CheckoutReviewModalProps {
 }
 
 export const CheckoutReviewModal: React.FC<CheckoutReviewModalProps> = ({
+  isOpen,
   formBayar,
   selectedMenu,
   isEditing,
@@ -81,7 +83,7 @@ export const CheckoutReviewModal: React.FC<CheckoutReviewModalProps> = ({
   const mechanicRows = formBayar.mekanikList.filter(m => m.idLama && m.ongkos > 0);
 
   return (
-    <Modal isOpen onClose={() => !isProcessing && onBack()} title="Periksa transaksi" maxWidth="max-w-2xl" compact>
+    <Modal isOpen={isOpen} onClose={() => !isProcessing && onBack()} title="Periksa transaksi" maxWidth="max-w-2xl" compact>
       <div className="pos-modal-layout">
         <div className="pos-modal-scroll pos-form-fields space-y-4">
           {/* Identitas transaksi + status */}

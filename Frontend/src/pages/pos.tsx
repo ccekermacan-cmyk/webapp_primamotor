@@ -3581,7 +3581,8 @@ export default function MenuPage() {
       {/* ========================================================= */} 
       {/* 1. MODAL OVERVIEW RE-CHECK SEBELUM EXECUTE STORING DATA */} 
       {/* ========================================================= */} 
-      <CheckoutReviewModal
+      {showCheckoutReview && <CheckoutReviewModal
+        isOpen={showCheckoutReview}
         formBayar={formBayar}
         selectedMenu={selectedMenu}
         isEditing={!!editSession?.isEditing}
@@ -3604,7 +3605,7 @@ export default function MenuPage() {
         onGoToTab={tab => { setShowCheckoutReview(false); setCartTab(tab); }}
         onBack={() => setShowCheckoutReview(false)}
         onSave={executeStoringData}
-      />
+      />}
 
       {/* Hidden printable thermal 58mm for detail transaction */}
       <div ref={detailPrintRef} className="hidden">
