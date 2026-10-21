@@ -12,9 +12,13 @@ Form periode dan editor slip berada di `Frontend/src/pages/pos.tsx`, bukan `menu
 
 ## Validasi
 
+Pemeriksaan ulang 21 Oktober 2026 terhadap source terbaru.
+
 - TypeScript: lulus.
 - Suite frontend: 68 tes lulus.
 - Browser dengan API tiruan dan semua mutasi bisnis diblokir: tinggi field, perhitungan ulang setelah perubahan hari kerja, preservasi isian/catatan antar-tab, konfirmasi lokal, satu dialog aktif, dan lebar ponsel 390px lulus.
+- Browser Akun dengan API tiruan: detail tetap meminta verifikasi password; potongan, diterima manual, selisih, catatan, tautan lampiran, dan tampilan ponsel 390px lulus.
+- Browser Person dengan API tiruan: halaman kedua mengambil record dari server, menampilkan netto, dan membuka detail slip yang sesuai; lulus.
 - Pengujian tidak menulis record bisnis operasional.
 
 ## Penerapan
