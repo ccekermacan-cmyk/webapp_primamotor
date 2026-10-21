@@ -1,3 +1,6 @@
+import SalaryDetail from '../components/salary/SalaryDetail';
+import { salaryDetails } from '../lib/account';
+import { formatRupiah } from '../lib/money';
 import DeleteAccess from '../components/delete-access';
 import { financialPatch } from '../lib/financialPatch';
 import { createFinancialBatch } from '../services/api/financialBatch';
@@ -42,6 +45,9 @@ export default function PeoplePage() {
   // Data dummy gaji dan bon untuk user (karyawan)
   // Data dummy gaji dan bon untuk user (karyawan)
   const [dummySalaryList, setDummySalaryList] = useState<any[]>([]);
+  const [selectedSalary, setSelectedSalary] = useState<any>(null);
+  const [salaryLoading, setSalaryLoading] = useState(false);
+  const salaryRequest = useRef(0);
   const [salaryPage, setSalaryPage] = useState(1);
   const [salaryTotalPages, setSalaryTotalPages] = useState(1);
   const [dummyBonList, setDummyBonList] = useState<any[]>([]);
@@ -231,31 +237,29 @@ export default function PeoplePage() {
   }, [isUserDetailModalOpen, selectedUserForDetail, personDetailTab]);
 
   const fetchUserGaji = async (username: string, pageNum: number = 1) => {
+    const request = ++salaryRequest.current;
+    setSalaryLoading(true);
+    setDummySalaryList([]);
     try {
       if (!username) return;
-      // Mencocokkan field person dari koleksi gaji dengan field username user
       const res = await pb.collection('gaji').getList(pageNum, 5, {
-        filter: `person = "${username}"`,
-        sort: '-created_at',
-        $autoCancel: false
+        filter: pb.filter('person = {:username}', { username }),
+        sort: '-created_at', expand: 'ref_baru', $autoCancel: false
       });
-      if (res.items.length > 0) {
-        const formatted = res.items.map(item => ({
-          id: item.id,
-          created_at: formatLocalDateTime(item.created_at || item.created),
-          nominal: (item.pokok || 0) + (item.tunjangan || 0) + (item.bonus_1 || 0) + (item.bonus_2 || 0) + (item.bonus_3 || 0) + (item.bonus_4 || 0) + (item.program || 0) + (item.lembur || 0),
-          operator: item.operator || item.persontext || 'Admin',
-          ref: item.ref || ''
-        }));
-        setDummySalaryList(formatted);
-        setSalaryTotalPages(res.totalPages);
-      } else {
-        setDummySalaryList([]);
-        setSalaryTotalPages(1);
-      }
+      if (request !== salaryRequest.current) return;
+      setDummySalaryList(res.items.map(item => ({
+        ...item, record: item,
+        created_at: formatLocalDateTime(item.created_at || item.created),
+        nominal: salaryDetails(item).grandTotal,
+        operator: item.operator || item.persontext || 'Admin'
+      })));
+      setSalaryPage(pageNum);
+      setSalaryTotalPages(Math.max(1, res.totalPages));
     } catch (err) {
-      console.warn("Gagal memuat data gaji real:", err);
-      setDummySalaryList([]);
+      if (request === salaryRequest.current) setDummySalaryList([]);
+      console.warn('Gagal memuat riwayat gaji:', err);
+    } finally {
+      if (request === salaryRequest.current) setSalaryLoading(false);
     }
   };
 
@@ -1088,7 +1092,7 @@ export default function PeoplePage() {
         </Modal>
 
       {/* MODAL DETAIL (TABS & DINAMIS) */}
-      {isUserDetailModalOpen && selectedUserForDetail && (
+      {isUserDetailModalOpen && selectedUserForDetail && !selectedSalary && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm transition-opacity duration-300">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl transform scale-100 animate-in zoom-in-95 duration-200 overflow-hidden border border-slate-200 flex flex-col max-h-[90vh]">
             
@@ -1438,30 +1442,30 @@ export default function PeoplePage() {
                     <div className="space-y-3 animate-in fade-in duration-300">
                       {dummySalaryList.length === 0 ? (
                         <div className="py-12 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-200">
-                          <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Belum ada riwayat penerimaan gaji</p>
+                          <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">{salaryLoading ? 'Memuat riwayat gaji…' : 'Belum ada riwayat penerimaan gaji'}</p>
                         </div>
                       ) : (
-                        dummySalaryList.slice((salaryPage-1)*5, salaryPage*5).map((gaji, idx) => (
-                          <div key={idx} className="bg-white border border-indigo-100 rounded-2xl p-4 shadow-xs hover:border-indigo-300 transition-all">
+                        dummySalaryList.map((gaji, idx) => (
+                          <div key={idx} className="bg-white border border-slate-200 rounded-xl p-3.5 hover:border-indigo-300 transition-colors">
                             <div className="flex justify-between items-center border-b border-slate-100 pb-2.5">
                               <span className="text-[10px] font-black text-slate-400 flex items-center gap-1.5">
                                 <Calendar size={13} /> {gaji.created_at}
                               </span>
-                              <span className="text-xs font-black text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-100">
-                                Rp {gaji.nominal?.toLocaleString('id-ID')}
+                              <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-100 tabular-nums">
+                                {formatRupiah(gaji.nominal)}
                               </span>
                             </div>
                             <div className="flex justify-between items-center mt-2.5 text-[11px]">
                               <span className="font-bold text-slate-500">Operator: <strong className="text-slate-700">{gaji.operator || '-'}</strong></span>
-                              <span className="text-[10px] font-black uppercase text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-100">Slip Gaji</span>
+                              <button type="button" onClick={() => setSelectedSalary(gaji.record)} className="pos-action text-teal-700 bg-teal-50"><FileText size={14} /> Detail slip</button>
                             </div>
                           </div>
                         ))
                       )}
                       <div className="flex justify-between items-center mt-4 pt-3 border-t border-slate-100">
-                        <button disabled={salaryPage === 1} onClick={() => setSalaryPage(p => p-1)} className="py-2 px-4 bg-white border border-slate-200 text-slate-700 rounded-xl text-xs font-black disabled:opacity-40 hover:bg-slate-50 transition-colors shadow-2xs">Prev</button>
+                        <button disabled={salaryLoading || salaryPage === 1} onClick={() => fetchUserGaji(selectedUserForDetail.username || selectedUserForDetail.id_lama || selectedUserForDetail.name || '', salaryPage - 1)} className="py-2 px-4 bg-white border border-slate-200 text-slate-700 rounded-xl text-xs font-black disabled:opacity-40 hover:bg-slate-50 transition-colors shadow-2xs">Prev</button>
                         <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Hal {salaryPage} / {salaryTotalPages}</span>
-                        <button disabled={salaryPage === salaryTotalPages} onClick={() => setSalaryPage(p => p+1)} className="py-2 px-4 bg-white border border-slate-200 text-slate-700 rounded-xl text-xs font-black disabled:opacity-40 hover:bg-slate-50 transition-colors shadow-2xs">Next</button>
+                        <button disabled={salaryLoading || salaryPage >= salaryTotalPages} onClick={() => fetchUserGaji(selectedUserForDetail.username || selectedUserForDetail.id_lama || selectedUserForDetail.name || '', salaryPage + 1)} className="py-2 px-4 bg-white border border-slate-200 text-slate-700 rounded-xl text-xs font-black disabled:opacity-40 hover:bg-slate-50 transition-colors shadow-2xs">Next</button>
                       </div>
                     </div>
                   )}
@@ -1469,13 +1473,10 @@ export default function PeoplePage() {
                     <div className="space-y-3 animate-in fade-in duration-300">
                       
                       {/* 🟢 SUMMARY CARD BON KARYAWAN */}
-                      <div className="bg-gradient-to-br from-rose-500 to-orange-500 p-4 rounded-2xl text-white shadow-lg shadow-rose-500/30 relative overflow-hidden flex flex-col justify-center min-h-[5rem] mb-4">
-                        <div className="absolute -right-4 -bottom-4 w-16 h-16 bg-white/20 rounded-full blur-xl pointer-events-none"></div>
-                        <p className="text-[10px] font-black uppercase tracking-widest text-rose-100 mb-0.5 relative z-10">
-                          Total Sisa Bon Berjalan
-                        </p>
-                        <p className="text-xl md:text-2xl font-black tracking-tight relative z-10">
-                          Rp {(selectedUserForDetail.number || 0).toLocaleString('id-ID')}
+                      <div className="rounded-2xl border border-slate-200 bg-white p-4 mb-4">
+                        <p className="text-xs text-slate-500">Total sisa bon berjalan</p>
+                        <p className="text-xl md:text-2xl font-semibold text-rose-700 tabular-nums">
+                          {formatRupiah(selectedUserForDetail.number || 0)}
                         </p>
                       </div>
 
@@ -1485,13 +1486,13 @@ export default function PeoplePage() {
                         </div>
                       ) : (
                         dummyBonList.slice((bonPage-1)*5, bonPage*5).map((bon, idx) => (
-                          <div key={idx} className="bg-white border border-indigo-100 rounded-2xl p-4 shadow-xs hover:border-purple-300 transition-all">
+                          <div key={idx} className="bg-white border border-slate-200 rounded-xl p-3.5 hover:border-purple-300 transition-colors">
                             <div className="flex justify-between items-center border-b border-slate-100 pb-2.5">
                               <span className="text-[10px] font-black text-slate-400 flex items-center gap-1.5">
                                 <Calendar size={13} /> {bon.created_at}
                               </span>
                               <span className="text-xs font-black text-purple-600 bg-purple-50 px-2.5 py-1 rounded-lg border border-purple-100">
-                                Nominal: Rp {bon.cicilan?.toLocaleString('id-ID')}
+                                Nominal: {formatRupiah(bon.cicilan)}
                               </span>
                             </div>
                             <div className="flex justify-between items-center mt-2.5 text-[11px]">
@@ -1560,6 +1561,9 @@ export default function PeoplePage() {
         <Plus size={26} strokeWidth={2.5} />
       </button>
       )}
+      <Modal isOpen={!!selectedSalary && isUserDetailModalOpen} onClose={() => setSelectedSalary(null)} title="Slip rincian gaji" compact maxWidth="max-w-2xl">
+        {selectedSalary && <SalaryDetail key={selectedSalary.id} record={selectedSalary} fileUrl={name => pb.files.getUrl(selectedSalary, name)} />}
+      </Modal>
     </div>
   );
 }

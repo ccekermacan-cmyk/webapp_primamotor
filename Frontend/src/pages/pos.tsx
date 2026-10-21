@@ -1,3 +1,4 @@
+import SalaryDetail, { SalaryTabs } from '../components/salary/SalaryDetail';
 import DeleteAccess from '../components/delete-access';
 import { isIncomeTransaction, settlementRemaining, matchUnusedStockLog } from '../lib/posTransactions';
 import { createRecordId } from '../lib/ids';
@@ -223,6 +224,9 @@ export default function MenuPage() {
   };
 
   // State Khusus System Gaji (Perangkum & List Item)
+  const [salaryTab, setSalaryTab] = useState('income');
+  const [salaryPeriodTab, setSalaryPeriodTab] = useState('period');
+  const [salaryReview, setSalaryReview] = useState(false);
   const [isGajiFormOpen, setIsGajiFormOpen] = useState(false);
   const [gajiEditSession, setGajiEditSession] = useState<{ menuId: string } | null>(null);
   const [gajiHeader, setGajiHeader] = useState(() => {
@@ -697,6 +701,7 @@ export default function MenuPage() {
       setGajiItemList([...gajiItemList, { ...itemToSave, id: 'tmp_' + Date.now() }]);
     }
 
+    setSalaryPeriodTab('employees');
     setIsGajiItemSubModalOpen(false);
     setEditingGajiItemIndex(null);
     setGajiItemSubData({
@@ -710,6 +715,7 @@ export default function MenuPage() {
     setEditingGajiItemIndex(index);
     const item = gajiItemList[index];
     setGajiItemSubData({ ...item });
+    setSalaryTab('income');
     setIsGajiItemSubModalOpen(true);
     handleSelectPerson(item.person, true);
   };
@@ -938,6 +944,7 @@ export default function MenuPage() {
       setGajiItemList(mappedItems);
       setGajiEditSession({ menuId: menuItem.id });
       setShowDetailHistory(null); // Tutup modal detail
+      setSalaryReview(false);
       setIsGajiFormOpen(true);
     } catch (err: any) {
       console.error('Gagal memuat data gaji untuk diedit:', err);
@@ -2736,7 +2743,7 @@ export default function MenuPage() {
                       </div>
                     </div>
                     <button
-                      onClick={() => setIsGajiFormOpen(true)}
+                      onClick={() => { setSalaryPeriodTab('period'); setSalaryReview(false); setIsGajiFormOpen(true); }}
                       className="w-full sm:w-auto px-5 py-3 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white font-black text-xs uppercase tracking-wider rounded-2xl shadow-lg shadow-emerald-500/30 flex items-center justify-center gap-2 active:scale-95 transition-all shrink-0"
                     >
                       <Plus size={18} /> Buat Slip Gaji Baru
@@ -2860,7 +2867,7 @@ export default function MenuPage() {
         </button>
       ) : (
         <button 
-          onClick={() => setIsGajiFormOpen(true)}
+          onClick={() => { setSalaryPeriodTab('period'); setSalaryReview(false); setIsGajiFormOpen(true); }}
           className="fixed bottom-[calc(6rem_+_env(safe-area-inset-bottom))] right-6 md:bottom-30 md:right-10 z-50 px-5 py-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-full shadow-2xl shadow-emerald-600/50 flex items-center gap-2 hover:scale-105 active:scale-95 transition-all duration-300 border-2 border-white font-black text-xs uppercase tracking-wider"
         >
           <Plus size={22} />
@@ -3758,118 +3765,7 @@ export default function MenuPage() {
 
                           {historyGajiSubItems.length > 0 ? (
                             historyGajiSubItems.map((gRec, gIdx) => {
-                              const gSal = getSalaryDetails({ ...gRec, qty: showDetailHistory.qty || gRec.qty });
-                              return (
-                                <div key={gRec.id || gIdx} className="p-5 bg-white border-2 border-emerald-100 hover:border-emerald-300 rounded-2xl space-y-4 shadow-sm transition-all">
-                                  {/* Header Card Karyawan */}
-                                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-emerald-100 pb-3">
-                                    <div className="flex items-center gap-2">
-                                      <span className="px-2.5 py-0.5 bg-emerald-100 text-emerald-800 rounded-lg text-[10px] font-black">
-                                        #{gIdx + 1}
-                                      </span>
-                                      <h5 className="font-extrabold text-slate-900 text-base uppercase">👤 {gRec.person}</h5>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-xs font-bold text-slate-500">Netto Slip:</span>
-                                      {renderFormattedNetto(gSal.grandTotal, "text-base sm:text-lg", "text-emerald-700", "text-emerald-700")}
-                                    </div>
-                                    {gRec.diterima > 0 && (
-                                      <div className="flex items-center gap-2">
-                                        <span className="text-xs font-bold text-slate-500">Diterima Karyawan:</span>
-                                        <span className="text-base sm:text-lg font-black text-teal-600">
-                                          {formatRupiah(Number(gRec.diterima))},00
-                                        </span>
-                                      </div>
-                                    )}
-                                    </div>
-
-                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-                                    {/* Card 1: Pendapatan (+) */}
-                                    <div className="p-3.5 bg-emerald-50/70 border border-emerald-200/80 rounded-xl space-y-2">
-                                      <div className="flex justify-between items-center border-b border-emerald-200/60 pb-1.5">
-                                        <span className="text-[11px] font-black text-emerald-900 uppercase tracking-wider flex items-center gap-1">
-                                          <DollarSign size={13} className="text-emerald-600" /> 1. Pendapatan (+)
-                                        </span>
-                                        <span className="text-xs font-black text-emerald-700">
-                                          {formatRupiah(gSal.total1)}
-                                        </span>
-                                      </div>
-                                      <div className="space-y-1 text-[11px]">
-                                        <div className="flex justify-between text-slate-600"><span>Gaji Pokok:</span><strong className="text-slate-800">{formatRupiah((gSal.t1.pokok || 0))}</strong></div>
-                                        <div className="flex justify-between text-slate-600"><span>Tunjangan:</span><strong className="text-slate-800">{formatRupiah((gSal.t1.tunjangan || 0))}</strong></div>
-                                        {gSal.t1.bonus_1 > 0 && <div className="flex justify-between text-slate-600"><span>Bonus 1:</span><strong className="text-slate-800">{formatRupiah(gSal.t1.bonus_1)}</strong></div>}
-                                        {gSal.t1.bonus_2 > 0 && <div className="flex justify-between text-slate-600"><span>Bonus 2:</span><strong className="text-slate-800">{formatRupiah(gSal.t1.bonus_2)}</strong></div>}
-                                        {gSal.t1.bonus_3 > 0 && <div className="flex justify-between text-slate-600"><span>Bonus 3:</span><strong className="text-slate-800">{formatRupiah(gSal.t1.bonus_3)}</strong></div>}
-                                        {gSal.t1.bonus_4 > 0 && <div className="flex justify-between text-slate-600"><span>Bonus 4:</span><strong className="text-slate-800">{formatRupiah(gSal.t1.bonus_4)}</strong></div>}
-                                        {gSal.t1.program > 0 && <div className="flex justify-between text-slate-600"><span>Program:</span><strong className="text-slate-800">{formatRupiah(gSal.t1.program)}</strong></div>}
-                                        {gSal.t1.lembur > 0 && <div className="flex justify-between text-slate-600"><span>Lembur:</span><strong className="text-slate-800">{formatRupiah(gSal.t1.lembur)}</strong></div>}
-                                      </div>
-                                    </div>
-
-                                    {/* Card 2 & 3: Potongan (-) */}
-                                    <div className="p-3.5 bg-rose-50/70 border border-rose-200/80 rounded-xl space-y-2">
-                                      <div className="flex justify-between items-center border-b border-rose-200/60 pb-1.5">
-                                        <span className="text-[11px] font-black text-rose-900 uppercase tracking-wider flex items-center gap-1">
-                                          <AlertCircle size={13} className="text-rose-600" /> 2 & 3. Potongan (-)
-                                        </span>
-                                        <span className="text-xs font-black text-rose-700">
-                                          -{formatRupiah((gSal.total2 + gSal.total3))}
-                                        </span>
-                                      </div>
-                                      <div className="space-y-1 text-[11px]">
-                                        {gSal.t2.alfa > 0 && <div className="flex justify-between text-slate-600"><span>Alfa ({gRec.alfa} hr):</span><strong className="text-rose-700">-{formatRupiah(Math.round(gSal.t2.alfa))}</strong></div>}
-                                        {gSal.t2.setengah_hari > 0 && <div className="flex justify-between text-slate-600"><span>1/2 Hari ({gRec.setengah_hari} hr):</span><strong className="text-rose-700">-{formatRupiah(Math.round(gSal.t2.setengah_hari))}</strong></div>}
-                                        {gSal.t2.sakit > 0 && <div className="flex justify-between text-slate-600"><span>Sakit ({gRec.sakit} hr):</span><strong className="text-rose-700">-{formatRupiah(Math.round(gSal.t2.sakit))}</strong></div>}
-                                        {gSal.t2.telat > 0 && <div className="flex justify-between text-slate-600"><span>Telat ({gRec.telat} mnt):</span><strong className="text-rose-700">-{formatRupiah(Math.round(gSal.t2.telat))}</strong></div>}
-                                        {gSal.t3.bpjs > 0 && <div className="flex justify-between text-slate-600"><span>BPJS:</span><strong className="text-rose-700">-{formatRupiah(gSal.t3.bpjs)}</strong></div>}
-                                        {gSal.t3.bon_dibayar > 0 && <div className="flex justify-between text-slate-600"><span>Bayar Bon:</span><strong className="text-rose-700">-{formatRupiah(gSal.t3.bon_dibayar)}</strong></div>}
-                                        {gSal.t3.bon_diambil > 0 && <div className="flex justify-between text-slate-600"><span>Ambil Bon (Pinjaman):</span><strong className="text-amber-700">+{formatRupiah(gSal.t3.bon_diambil)}</strong></div>}
-                                      </div>
-                                    </div>
-                                  </div>
-
-                                  {/* Catatan & Lampiran Bukti Transfer File */}
-                                  {(gRec.note || (gRec.file && gRec.file.length > 0)) && (
-                                    <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
-                                      {gRec.note && (
-                                        <div className="text-[11px] font-medium text-slate-700">
-                                          <strong className="font-black text-slate-800 uppercase">📝 Catatan:</strong> {gRec.note}
-                                        </div>
-                                      )}
-                                      {gRec.file && gRec.file.length > 0 && (
-                                        <div className="space-y-1">
-                                          <span className="text-[10px] font-black text-slate-600 uppercase tracking-wider block">
-                                            📎 Lampiran Bukti Transfer / File ({gRec.file.length}):
-                                          </span>
-                                          <div className="flex flex-wrap gap-2 pt-1">
-                                            {gRec.file.map((fName: string, fIdx: number) => {
-                                              const fileUrl = pb.files.getUrl(gRec, fName);
-                                              const isImg = fName.match(/\.(jpg|jpeg|png|gif|webp)$/i);
-                                              return (
-                                                <a
-                                                  key={fIdx}
-                                                  href={fileUrl}
-                                                  target="_blank"
-                                                  rel="noopener noreferrer"
-                                                  className="flex items-center gap-1.5 p-1.5 bg-white border border-slate-200 hover:border-emerald-400 rounded-lg text-xs text-indigo-600 font-bold transition-all shadow-2xs"
-                                                >
-                                                  {isImg ? (
-                                                    <img src={fileUrl} alt={fName} className="w-8 h-8 object-cover rounded" />
-                                                  ) : (
-                                                    <FileText size={16} className="text-indigo-500" />
-                                                  )}
-                                                  <span className="truncate max-w-[120px] text-[10px]">{fName}</span>
-                                                  <ExternalLink size={12} className="text-slate-400" />
-                                                </a>
-                                              );
-                                            })}
-                                          </div>
-                                        </div>
-                                      )}
-                                    </div>
-                                  )}
-                                </div>
-                              );
+                              return <SalaryDetail key={gRec.id || gIdx} record={{ ...gRec, qty: showDetailHistory.qty || gRec.qty }} fileUrl={name => pb.files.getUrl(gRec, name)} />;
                             })
                           ) : (
                             /* Fallback untuk setiap karyawan yang terdaftar di string person */
@@ -4384,7 +4280,7 @@ export default function MenuPage() {
 
       {/* ===== 1. MODAL FORM PERANGKUM GAJI UTAMA (HEADER + DAFTAR LIST KARYAWAN) ===== */}
       <Modal
-        isOpen={isGajiFormOpen}
+        isOpen={isGajiFormOpen && !isGajiItemSubModalOpen && !salaryReview}
         onClose={() => {
           setIsGajiFormOpen(false);
           setGajiEditSession(null);
@@ -4395,10 +4291,10 @@ export default function MenuPage() {
         title="Slip Gaji"
       >
         {(() => {
-          const grandTotalBatch = gajiItemList.reduce((sum, item) => sum + item.netto, 0);
+          const grandTotalBatch = gajiItemList.reduce((sum, item) => sum + calculateItemNetto(item, gajiHeader.qty), 0);
 
           return (
-            <div className="flex flex-col max-h-[85vh] bg-white rounded-3xl overflow-hidden">
+            <div className="pos-modal-layout pos-form-fields bg-white">
               {/* HEADER MODAL */}
               <div className="p-4 sm:p-5 bg-gradient-to-r from-slate-900 via-teal-950 to-emerald-950 text-white shrink-0 border-b border-emerald-500/30 flex items-center justify-between gap-3">
                 <div>
@@ -4421,19 +4317,23 @@ export default function MenuPage() {
                 </div>
               </div>
 
+              <nav className="pos-modal-tabs" aria-label="Bagian periode gaji">
+                <button type="button" aria-pressed={salaryPeriodTab === 'period'} className={salaryPeriodTab === 'period' ? 'bg-teal-100 text-teal-800' : 'text-slate-500'} onClick={() => setSalaryPeriodTab('period')}><Calendar size={15} /> Periode</button>
+                <button type="button" aria-pressed={salaryPeriodTab === 'employees'} className={salaryPeriodTab === 'employees' ? 'bg-teal-100 text-teal-800' : 'text-slate-500'} onClick={() => setSalaryPeriodTab('employees')}><Users size={15} /> Karyawan ({gajiItemList.length})</button>
+              </nav>
               {/* BODY SCROLLABLE */}
-              <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-5 custom-scrollbar">
+              <div className="pos-modal-scroll space-y-4 custom-scrollbar">
                 {/* SECTION HEADER PERANGKUM: PERIODE, QTY, NOTE */}
-                <div className="p-4 bg-amber-50/70 border-2 border-amber-200/80 rounded-2xl space-y-3">
+                <div hidden={salaryPeriodTab !== "period"} className="p-4 bg-teal-50/60 border border-teal-100 rounded-2xl space-y-3">
                   <h4 className="text-xs font-black text-amber-900 uppercase tracking-wider flex items-center gap-1.5">
-                    <Calendar size={15} className="text-amber-600" /> Header Periode Gaji
+                    <Calendar size={15} className="text-amber-600" /> Periode gaji
                   </h4>
                   
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {/* Tanggal Periode Gaji */}
                     <div>
-                      <label className="text-[10px] font-black text-slate-700 uppercase tracking-wider block mb-1">
-                        Tanggal Periode *
+                      <label className="text-[10px] font-black text-slate-700 uppercase tracking-wider flex items-center gap-1 min-h-8 mb-1">
+                        Tanggal periode *
                       </label>
                       <input
                         type="date"
@@ -4443,38 +4343,36 @@ export default function MenuPage() {
                           const autoQty = calculateWorkingDays(newDate);
                           setGajiHeader({ ...gajiHeader, date: newDate, qty: autoQty });
                         }}
-                        className="w-full p-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:ring-2 focus:ring-emerald-500 outline-none"
+                        className="w-full h-11 p-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:ring-2 focus:ring-emerald-500 outline-none"
                       />
                     </div>
 
                     {/* Qty Periode */}
                     <div>
-                      <label className="text-[10px] font-black text-slate-700 uppercase tracking-wider block mb-1">
-                        Qty Pembantu (Hari Kerja / Bulan) *
+                      <label className="text-[10px] font-black text-slate-700 uppercase tracking-wider flex items-center gap-1 min-h-8 mb-1">
+                        Hari kerja * <span className="normal-case font-normal text-slate-500" title="Total hari dikurangi hari Minggu; dapat diubah manual.">(otomatis {calculateWorkingDays(gajiHeader.date)})</span>
                       </label>
                       <input
                         type="number"
                         min="1"
                         value={gajiHeader.qty}
                         onChange={e => setGajiHeader({ ...gajiHeader, qty: Math.max(1, Number(e.target.value)) })}
-                        className="w-full p-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:ring-2 focus:ring-emerald-500 outline-none"
+                        className="w-full h-11 p-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:ring-2 focus:ring-emerald-500 outline-none"
                         placeholder="26"
                       />
-                      <span className="text-[9px] font-bold text-emerald-700 block mt-1">
-                        💡 Otomatis: {calculateWorkingDays(gajiHeader.date)} hari kerja (total hari - hari Minggu). Dapat diubah manual.
-                      </span>
+
                     </div>
 
                     {/* Note / Keterangan Periode */}
-                    <div>
-                      <label className="text-[10px] font-black text-slate-700 uppercase tracking-wider block mb-1">
+                    <div className="sm:col-span-2">
+                      <label className="text-[10px] font-black text-slate-700 uppercase tracking-wider flex items-center gap-1 min-h-8 mb-1">
                         Catatan Periode Gaji
                       </label>
                       <input
                         type="text"
                         value={gajiHeader.note}
                         onChange={e => setGajiHeader({ ...gajiHeader, note: e.target.value })}
-                        className="w-full p-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:ring-2 focus:ring-emerald-500 outline-none"
+                        className="w-full h-11 p-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:ring-2 focus:ring-emerald-500 outline-none"
                         placeholder="Contoh: Gaji Periode 1 - 15 Agustus 2026"
                       />
                     </div>
@@ -4482,13 +4380,13 @@ export default function MenuPage() {
                 </div>
 
                 {/* SECTION DAFTAR KARYAWAN PENERIMA GAJI */}
-                <div className="space-y-3">
+                <div hidden={salaryPeriodTab !== "employees"} className="space-y-3">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-200">
                     <div>
                       <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
                         <Users size={15} className="text-emerald-600" /> Daftar Penerima Gaji ({gajiItemList.length} Karyawan)
                       </h4>
-                      <p className="text-[10px] text-slate-500 mt-0.5">Tambahkan rincian gaji karyawan dari koleksi users.</p>
+                      <p className="text-[10px] text-slate-500 mt-0.5">Susun slip setiap karyawan sebelum menyimpan periode.</p>
                     </div>
                     <button
                       onClick={() => {
@@ -4497,7 +4395,8 @@ export default function MenuPage() {
                           id: '', person: '', pokok: 0, tunjangan: 0, bonus_1: 0, bonus_2: 0, bonus_3: 0, bonus_4: 0,
                           program: 0, lembur: 0, alfa: 0, setengah_hari: 0, sakit: 0, telat: 0, bpjs: 0, bon_diambil: 0, bon_dibayar: 0, netto: 0, diterima: 0
                         });
-                        setIsGajiItemSubModalOpen(true);
+                        setSalaryTab('income');
+    setIsGajiItemSubModalOpen(true);
                       }}
                       className="px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-md flex items-center justify-center gap-1.5 active:scale-95 transition-all shrink-0"
                     >
@@ -4524,7 +4423,7 @@ export default function MenuPage() {
                             <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-500 font-medium">
                               <span>Pendapatan: <strong className="text-emerald-600">{formatRupiah((item.pokok + item.tunjangan + item.bonus_1 + item.bonus_2 + item.bonus_3 + item.bonus_4 + item.program + item.lembur))}</strong></span>
                               <span>|</span>
-                              <span>Netto: {renderFormattedNetto(item.netto, "text-xs sm:text-sm", "text-emerald-700", "text-emerald-700")}</span>
+                              <span>Netto: {renderFormattedNetto(calculateItemNetto(item, gajiHeader.qty), "text-xs sm:text-sm", "text-emerald-700", "text-emerald-700")}</span>
                               <span>|</span>
                               <span>Diterima: <strong className="text-teal-600">{formatRupiah((item.diterima || 0))}</strong></span>
                               {item.note && <span className="bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded text-[10px] font-bold">📝 Note</span>}
@@ -4553,11 +4452,11 @@ export default function MenuPage() {
               </div>
 
               {/* FOOTER LIVE SUMMARY & ACTION */}
-              <div className="p-4 sm:p-5 bg-slate-900 text-white shrink-0 flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-slate-800">
+              <div className="pos-modal-footer">
                 <div>
                   <p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">Total Gaji Batch</p>
                   <div>
-                    {renderFormattedNetto(grandTotalBatch, "text-xl sm:text-2xl", "text-emerald-300", "text-emerald-400")}
+                    {renderFormattedNetto(grandTotalBatch, "text-xl sm:text-2xl", "text-teal-800", "text-teal-700")}
                   </div>
                 </div>
                 <div className="flex items-center gap-2.5 w-full sm:w-auto">
@@ -4570,14 +4469,14 @@ export default function MenuPage() {
                     }}
                     className="flex-1 sm:flex-none px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-white text-xs font-black rounded-xl uppercase tracking-wider transition-colors"
                   >
-                    Batal
+                    <X size={15} /> Batal
                   </button>
                   <button
-                    onClick={handleSaveGaji}
-                    disabled={isProcessing}
+                    onClick={() => setSalaryReview(true)}
+                    disabled={isProcessing || gajiItemList.length === 0 || !gajiHeader.date}
                     className="flex-1 sm:flex-none px-6 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-white text-xs font-black rounded-xl uppercase tracking-wider shadow-lg flex items-center justify-center gap-1.5 transition-all"
                   >
-                    {isProcessing ? 'Menyimpan...' : (gajiEditSession ? 'Perbarui Slip Gaji' : 'Simpan Semua Slip Gaji')}
+                    <CheckCircle2 size={15} /> Tinjau slip gaji
                   </button>
                 </div>
               </div>
@@ -4597,7 +4496,7 @@ export default function MenuPage() {
           const calcNettoItem = calculateItemNetto(gajiItemSubData, gajiHeader.qty);
 
           return (
-            <div className="flex flex-col max-h-[85vh] bg-white rounded-3xl overflow-hidden">
+            <div className="pos-modal-layout pos-form-fields bg-white">
               {/* HEADER SUB-MODAL */}
               <div className="p-4 sm:p-5 bg-gradient-to-r from-slate-900 via-teal-950 to-emerald-950 text-white shrink-0 border-b border-emerald-500/30 flex items-center justify-between gap-3">
                 <div>
@@ -4609,12 +4508,13 @@ export default function MenuPage() {
                   </h3>
                 </div>
                 <span className="px-3 py-1 bg-amber-500/20 text-amber-300 rounded-xl text-[10px] font-black border border-amber-500/30 shrink-0">
-                  Pembagi Qty: {gajiHeader.qty} Bln
+                  {gajiHeader.qty} hari kerja
                 </span>
               </div>
 
+              <SalaryTabs value={salaryTab} onChange={setSalaryTab} />
               {/* BODY SCROLLABLE */}
-              <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-5 custom-scrollbar">
+              <div className="pos-modal-scroll space-y-4 custom-scrollbar">
                 {/* PILIH KARYAWAN (USER COLLECTION) */}
                 <div className="p-4 bg-emerald-50/60 border border-emerald-200/80 rounded-2xl space-y-1">
                   <label className="text-[11px] font-black text-emerald-900 uppercase tracking-wider block">
@@ -4672,7 +4572,7 @@ export default function MenuPage() {
                     {/* === 3 SECTION TERBAGI SEPERTI HALAMAN AKUN === */}
                     
                     {/* SECTION 1: PENDAPATAN */}
-                    <div className="border-2 border-emerald-200 rounded-2xl overflow-hidden shadow-xs">
+                    <div hidden={salaryTab !== "income"} className="border-2 border-emerald-200 rounded-2xl overflow-hidden shadow-xs">
                       <div className="bg-gradient-to-r from-emerald-600 to-teal-600 px-4 py-2.5 text-white flex justify-between items-center">
                         <span className="font-black text-xs uppercase tracking-wider flex items-center gap-1.5">
                           <DollarSign size={15} /> 1. Pendapatan (+)
@@ -4779,7 +4679,7 @@ export default function MenuPage() {
                       return (
                         <>
                           {/* SECTION 2: POTONGAN KEHADIRAN */}
-                          <div className="border-2 border-amber-200 rounded-2xl overflow-hidden shadow-xs">
+                          <div hidden={salaryTab !== "deductions"} className="border-2 border-amber-200 rounded-2xl overflow-hidden shadow-xs">
                             <div className="bg-gradient-to-r from-amber-500 to-orange-500 px-4 py-2.5 text-white flex justify-between items-center">
                               <span className="font-black text-xs uppercase tracking-wider flex items-center gap-1.5">
                                 <Calendar size={15} /> 2. Potongan Kehadiran (-)
@@ -4829,7 +4729,7 @@ export default function MenuPage() {
                           </div>
 
                           {/* SECTION 3: POTONGAN LAINNYA & BON */}
-                          <div className="border-2 border-rose-200 rounded-2xl overflow-hidden shadow-xs">
+                          <div hidden={salaryTab !== "deductions"} className="border-2 border-rose-200 rounded-2xl overflow-hidden shadow-xs">
                             <div className="bg-gradient-to-r from-rose-600 to-pink-600 px-4 py-2.5 text-white flex justify-between items-center">
                               <span className="font-black text-xs uppercase tracking-wider flex items-center gap-1.5">
                                 <FileText size={15} /> 3. Bon / Potongan Lain (-)
@@ -4878,10 +4778,10 @@ export default function MenuPage() {
                           </div>
 
                           {/* SECTION 4: NETTO (JUMLAH YANG DITERIMA KARYAWAN) */}
-                          <div className="border-2 border-teal-200 rounded-2xl overflow-hidden shadow-xs">
+                          <div hidden={salaryTab !== "received"} className="border-2 border-teal-200 rounded-2xl overflow-hidden shadow-xs">
                             <div className="bg-gradient-to-r from-teal-600 to-cyan-600 px-4 py-2.5 text-white flex justify-between items-center">
                               <span className="font-black text-xs uppercase tracking-wider flex items-center gap-1.5">
-                                <Wallet size={15} /> 4. Netto
+                                <Wallet size={15} /> Penerimaan manual
                               </span>
                               <span className="font-black text-xs text-teal-100">
                                 {formatRupiah((Number(gajiItemSubData.diterima) || 0))}
@@ -4891,16 +4791,16 @@ export default function MenuPage() {
                               <label className="text-[10px] font-black text-slate-600 uppercase block mb-1">Jumlah Diterima Karyawan (Rp)</label>
                               <input type="number" value={gajiItemSubData.diterima || ''} onChange={e => setGajiItemSubData({...gajiItemSubData, diterima: Number(e.target.value)})} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-teal-600 focus:bg-white focus:ring-2 focus:ring-teal-500 outline-none" placeholder="0" />
                               <span className="text-[9px] font-medium text-slate-400 block mt-1">
-                                Isi manual jumlah uang yang diterima/ditransfer ke karyawan (optional).
+                                Isi manual jumlah uang yang diterima/ditransfer ke karyawan (opsional). Netto: {formatRupiah(calcNettoItem)}. Selisih diterima − netto: {formatRupiah((Number(gajiItemSubData.diterima) || 0) - calcNettoItem)}.
                               </span>
                             </div>
                           </div>
 
                           {/* SECTION 5: CATATAN & BUKTI TRANSFER (NOTE & FILE) */}
-                          <div className="border-2 border-indigo-200 rounded-2xl overflow-hidden shadow-xs">
+                          <div hidden={salaryTab !== "notes"} className="border-2 border-indigo-200 rounded-2xl overflow-hidden shadow-xs">
                             <div className="bg-gradient-to-r from-indigo-600 to-blue-600 px-4 py-2.5 text-white flex justify-between items-center">
                               <span className="font-black text-xs uppercase tracking-wider flex items-center gap-1.5">
-                                <FileText size={15} /> 5. Catatan & Bukti Transfer
+                                <FileText size={15} /> Catatan & Bukti Transfer
                               </span>
                               {gajiItemSubData.files && gajiItemSubData.files.length > 0 && (
                                 <span className="font-black text-[10px] text-indigo-100 bg-indigo-500/30 px-2 py-0.5 rounded-lg border border-indigo-400/30">
@@ -4985,11 +4885,11 @@ export default function MenuPage() {
               </div>
 
               {/* FOOTER SUB-MODAL ACTION */}
-              <div className="p-4 sm:p-5 bg-slate-900 text-white shrink-0 flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-slate-800">
+              <div className="pos-modal-footer">
                 <div>
                   <p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">Netto Karyawan Ini</p>
                   <div>
-                    {renderFormattedNetto(calcNettoItem, "text-xl sm:text-2xl", "text-emerald-300", "text-emerald-400")}
+                    {renderFormattedNetto(calcNettoItem, "text-xl sm:text-2xl", "text-teal-800", "text-teal-700")}
                   </div>
                 </div>
                 <div className="flex items-center gap-2.5 w-full sm:w-auto">
@@ -4997,19 +4897,37 @@ export default function MenuPage() {
                     onClick={() => setIsGajiItemSubModalOpen(false)}
                     className="flex-1 sm:flex-none px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-white text-xs font-black rounded-xl uppercase tracking-wider transition-colors"
                   >
-                    Batal
+                    <ChevronLeft size={15} /> Kembali
                   </button>
                   <button
                     onClick={handleSaveSubGajiItem}
+                    disabled={isFetchingEmployeeData || !gajiItemSubData.person}
                     className="flex-1 sm:flex-none px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-white text-xs font-black rounded-xl uppercase tracking-wider shadow-lg flex items-center justify-center gap-1.5 transition-all"
                   >
-                    {editingGajiItemIndex !== null ? 'Simpan Perubahan' : 'Tambahkan Karyawan Ini'}
+                    <CheckCircle2 size={15} /> Masukkan ke periode
                   </button>
                 </div>
               </div>
             </div>
           );
         })()}
+      </Modal>
+
+      <Modal isOpen={salaryReview && isGajiFormOpen} onClose={() => !isProcessing && setSalaryReview(false)} title="Konfirmasi periode gaji" maxWidth="max-w-2xl" compact>
+        <div className="pos-modal-layout">
+          <div className="pos-modal-scroll space-y-3">
+            <p className="text-sm text-slate-600">{gajiHeader.date} • {gajiHeader.qty} hari kerja • {gajiItemList.length} karyawan</p>
+            {gajiHeader.note && <p className="text-sm">{gajiHeader.note}</p>}
+            {gajiItemList.map((item, index) => <div key={item.id || index} className="p-3 rounded-xl border border-teal-100 space-y-2 text-sm">
+              <div className="flex justify-between gap-2"><strong>{item.person}</strong><button type="button" className="pos-action text-teal-700" onClick={() => { setSalaryReview(false); handleEditGajiItem(index); }}><Edit size={14} /> Ubah</button></div>
+              <p>Netto: <strong>{formatRupiah(calculateItemNetto(item, gajiHeader.qty))}</strong></p>
+              <p>Diterima (manual): {formatRupiah(Number(item.diterima) || 0)}</p>
+              <p className="text-xs text-slate-500">Bon diambil: {formatRupiah(Number(item.bon_diambil) || 0)} • Bon dibayar: {formatRupiah(Number(item.bon_dibayar) || 0)}</p>
+            </div>)}
+            <p className="text-xs text-slate-500">Slip baru tersimpan setelah Anda menekan Simpan. Perubahan slip dan bon diproses bersama.</p>
+          </div>
+          <div className="pos-modal-footer"><strong className="text-teal-800">{formatRupiah(gajiItemList.reduce((sum, item) => sum + calculateItemNetto(item, gajiHeader.qty), 0))}</strong><button disabled={isProcessing} onClick={() => setSalaryReview(false)}><ChevronLeft size={15} /> Kembali</button><button disabled={isProcessing} className="bg-teal-700 text-white" onClick={async () => { await handleSaveGaji(); setSalaryReview(false); }}><CheckCircle2 size={15} /> {isProcessing ? 'Menyimpan…' : 'Simpan semua slip'}</button></div>
+        </div>
       </Modal>
 
       {/* ===== MODAL PELUNASAN PEMBAYARAN CEPAT ===== */}

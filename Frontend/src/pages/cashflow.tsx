@@ -3,6 +3,7 @@ import { businessDate, businessDateBoundary, editableBalance } from '../lib/cash
 import { createRecordId } from '../lib/ids';
 import { createFinancialBatch } from '../services/api/financialBatch';
 import { flushPendingSync, deleteFinancialRecord } from '../services/api/laravel';
+import { formatRupiah } from '../lib/money';
   import React, { useState, useEffect, useMemo, useRef } from 'react';
   import { Link, useNavigate } from 'react-router-dom';
   import { pb } from '../lib/pocketbase';
@@ -407,10 +408,6 @@ import { flushPendingSync, deleteFinancialRecord } from '../services/api/laravel
 
     const checkFormDirty = () => {
       return !!(formData.jenis || formData.account_1 || formData.nominal || formData.note);
-    };
-
-    const formatRupiah = (angka: number) => {
-      return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(angka || 0);
     };
 
     const getAccountName = (idOrName: string) => {
@@ -856,7 +853,7 @@ import { flushPendingSync, deleteFinancialRecord } from '../services/api/laravel
         try {
           const acc = await pb.collection('dropdown').getOne(formData.account_1, {$autoCancel:false});
           if (editableBalance(Number(acc.number_1) || 0, formData.account_1, isEditMode && selectedTx ? selectedTx : undefined) < Number(formData.nominal || 0)) {
-            showAlert("Validasi Gagal", `Saldo tidak cukup! Saldo saat ini: Rp ${Number(acc.number_1).toLocaleString('id-ID')}, dibutuhkan: Rp ${Number(formData.nominal).toLocaleString('id-ID')}`);
+            showAlert("Validasi Gagal", `Saldo tidak cukup! Saldo saat ini: ${formatRupiah(acc.number_1)}, dibutuhkan: ${formatRupiah(formData.nominal)}`);
             return;
           }
         } catch { showAlert("Validasi Gagal", "Saldo belum dapat diperiksa. Silakan coba kembali."); return; }
@@ -2634,7 +2631,7 @@ import { flushPendingSync, deleteFinancialRecord } from '../services/api/laravel
                       <span className="text-white/80 text-[10px] sm:text-xs font-bold mb-1 uppercase tracking-wider">Total Nominal</span>
                       {/* Menggunakan break-words agar teks membungkus (wrap) jika terlalu panjang di HP, tidak bikin penyet */}
                       <p className="text-3xl sm:text-4xl md:text-5xl font-black tracking-tighter drop-shadow-md break-words text-center px-2 w-full leading-tight">
-                        Rp {selectedTx.nominal?.toLocaleString('id-ID')}
+                        {formatRupiah(selectedTx.nominal)}
                       </p>
                     </div>
 
@@ -2793,10 +2790,10 @@ import { flushPendingSync, deleteFinancialRecord } from '../services/api/laravel
             maxWidth="max-w-4xl"
           >
             <div className="p-4 bg-slate-50 flex flex-col max-h-[80vh] overflow-hidden rounded-b-2xl">
-              <div className="mb-4 bg-purple-100 border border-purple-200 text-purple-800 p-4 rounded-xl flex justify-between items-center shrink-0">
+              <div className="mb-4 rounded-xl border border-slate-200 bg-white p-4 flex justify-between items-center shrink-0">
                 <div>
-                  <p className="text-xs font-bold uppercase tracking-widest text-purple-600 mb-1">Total Saldo Bon Saat Ini</p>
-                  <p className="text-3xl font-black">{formatRupiah(bonHistoryUser?.number_1 || 0)}</p>
+                  <p className="text-xs text-slate-500">Total saldo bon saat ini</p>
+                  <p className="text-2xl font-semibold text-purple-700 tabular-nums">{formatRupiah(bonHistoryUser?.number_1 || 0)}</p>
                 </div>
               </div>
               
@@ -2834,18 +2831,18 @@ import { flushPendingSync, deleteFinancialRecord } from '../services/api/laravel
                               {(b.jenis||'').toLowerCase() === 'in' ? 'BAYAR BON' : 'AMBIL BON'}
                             </span>
                           </td>
-                          <td className="p-3 font-bold text-slate-800 whitespace-nowrap">
-                            Rp {Number(b.nominal || 0).toLocaleString('id-ID')}
+                          <td className="p-3 font-semibold text-slate-800 whitespace-nowrap tabular-nums">
+                            {formatRupiah(b.nominal || 0)}
                           </td>
                           <td className="p-3 text-slate-600 max-w-[200px] truncate" title={b.note}>
                             {b.note}
-                            {b.ref_gaji && <span className="ml-2 px-1.5 py-0.5 bg-slate-200 text-slate-500 rounded text-[9px] font-bold">Via Gaji</span>}
+                            {b.ref_gaji && (b.expand?.ref_gaji?.ref_baru ? <Link to={`/?ref=${encodeURIComponent(b.expand.ref_gaji.ref_baru)}`} className="ml-2 inline-flex items-center gap-1 text-teal-700 text-xs font-semibold" title="Buka slip dan ubah melalui transaksi gaji"><FileText size={13} /> Buka gaji</Link> : <span className="ml-2 text-xs text-slate-500">Via Gaji</span>)}
                           </td>
                           {userLevel === '1' && (
                             <td className="p-3 pr-4 text-right whitespace-nowrap flex justify-end space-x-2">
                               {/* Aksi Hapus */}
-                              <DeleteAccess collection="bon" id={b.id}><button onClick={() => handleDeleteBon(b.id)} className="w-7 h-7 bg-rose-50 text-rose-500 hover:bg-rose-500 hover:text-white rounded-lg flex items-center justify-center transition-colors" title="Hapus Riwayat">
-                                <Trash2 size={14} />
+                              <DeleteAccess collection="bon" id={b.id}><button onClick={() => handleDeleteBon(b.id)} className="inline-flex items-center gap-1 px-2 py-1 bg-rose-50 text-rose-600 hover:bg-rose-500 hover:text-white rounded-lg text-[10px] font-semibold transition-colors" title="Hapus riwayat bon">
+                                <Trash2 size={13} /> Hapus
                               </button></DeleteAccess>
                             </td>
                           )}
