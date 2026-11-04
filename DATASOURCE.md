@@ -39,7 +39,7 @@ Mengganti PB_DATA_DIR adalah pemindahan data, bukan sekadar perubahan port: sali
 
 ## Kebijakan akses
 
-Akun login berstatus Active/active boleh menambah dan mengubah data operasional tanpa pembatasan level. Aturan hapus tetap seperti sebelumnya. Pembacaan gaji tetap pribadi, kecuali level 1 dapat membaca semua. Administrasi login (level/status pengguna) tetap dilindungi. Stok realtime (`stok_3`) boleh ditimpa langsung dari PocketBase maupun API Laravel untuk impor/koreksi, dengan validasi bilangan bulat nol atau lebih; batas `stok_awal`/`stok_akhir` pada riwayat `log_stock` dihitung ulang otomatis setelah perubahan. Saldo hasil ledger tetap dilindungi; gunakan transaksi/koreksi yang tercatat. Hak koreksi saldo manual administrator yang sudah ada tetap dipertahankan.
+Akun login berstatus Active/active boleh menambah dan mengubah data operasional tanpa pembatasan level. Aturan hapus tetap seperti sebelumnya. Pembacaan gaji tetap pribadi, kecuali level 1 dapat membaca semua. Administrasi login (level/status pengguna) tetap dilindungi. Stok realtime (`stok_3`) tetap dilindungi: perubahan normal hanya melalui `log_stock`. Impor/koreksi dari PocketBase maupun API Laravel dapat menimpanya dengan penanda eksplisit `stok_override: true`; nilai tetap divalidasi bilangan bulat nol atau lebih, dan batas `stok_awal`/`stok_akhir` pada riwayat `log_stock` dihitung ulang otomatis setelahnya. Saldo hasil ledger tetap dilindungi; gunakan transaksi/koreksi yang tercatat. Hak koreksi saldo manual administrator yang sudah ada tetap dipertahankan.
 
 ## Sesi dan kegagalan transaksi
 

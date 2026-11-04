@@ -19,14 +19,22 @@ class ProductIntegrityTest extends TestCase
         $this->getJson('/api/produks')->assertOk()->assertJsonPath('0.id','product');
     }
 
-    public function test_direct_stock_overwrite_is_allowed_and_reanchors_history(): void
+    public function test_direct_stock_overwrite_is_rejected_without_override(): void
+    {
+        $this->withoutMiddleware(AuthenticatePocketBase::class);
+        Produk::create(['id'=>'product','stok_3'=>5]);
+        $this->putJson('/api/produks/product',['stok_3'=>99])->assertUnprocessable();
+        $this->assertEquals(5,Produk::find('product')->stok_3);
+    }
+
+    public function test_stock_override_via_api_reanchors_history(): void
     {
         $this->withoutMiddleware(AuthenticatePocketBase::class);
         $product = Produk::create(['id'=>'product','stok_3'=>5]);
         $log = LogStock::create(['item_baru'=>'product','qty'=>2,'boolean'=>'in']);
         $this->assertEquals(7, $product->fresh()->stok_3);
 
-        $this->putJson('/api/produks/product',['stok_3'=>99])->assertOk();
+        $this->putJson('/api/produks/product',['stok_3'=>99,'stok_override'=>true])->assertOk();
 
         $this->assertEquals(99, Produk::find('product')->stok_3);
         $this->assertEquals(99, (float) DB::table('log_stock')->where('id', $log->id)->value('stok_akhir'));

@@ -3,14 +3,13 @@ exports.product = (e, editing) => {
     const value = e.record.getFloat(field);
     if (!Number.isSafeInteger(value) || value < 0) throw new BadRequestError(`${field} harus bilangan bulat nol atau lebih.`);
   }
-  // Stok realtime (stok_3) boleh ditimpa langsung dari luar, termasuk saat impor
-  // atau koreksi massal, tanpa harus membuat log_stock lebih dulu.
-  // Setelah record tersimpan, batas stok_awal/stok_akhir pada riwayat log_stock
-  // produk ini dihitung ulang (lihat product_validation.pb.js) sehingga angka
-  // riwayat tetap konsisten dengan saldo stok terbaru.
-  //
-  // `editing` tetap dipertahankan agar pemanggil lama tidak berubah.
-  void editing;
+  // Default tetap seperti semula: stok realtime hanya berubah lewat log_stock.
+  // Impor/koreksi dari luar dapat menimpa stok dengan mengirim `stok_override: true`
+  // pada body; setelah tersimpan, batas stok_awal/stok_akhir pada log_stock
+  // dihitung ulang (lihat product_validation.pb.js) agar riwayat tetap konsisten.
+  const stockOverride = e.requestInfo().body.stok_override === true;
+  if (!editing && !stockOverride && e.record.getFloat('stok_3') !== 0) throw new BadRequestError('Stok awal harus dicatat melalui log_stock dalam batch produk.');
+  if (editing && !stockOverride && e.record.getFloat('stok_3') !== e.record.original().getFloat('stok_3')) throw new BadRequestError('Stok realtime hanya dapat diubah melalui log_stock.');
 };
 exports.deletion = (e) => {
   const linked = e.app.findRecordsByFilter('log_stock', 'item_baru = {:id} || (item != "" && item = {:code})', '', 1, 0, {id:e.record.id,code:e.record.getString('id_lama')});

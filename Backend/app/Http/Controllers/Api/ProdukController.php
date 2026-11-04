@@ -27,7 +27,7 @@ class ProdukController extends Controller
     public function store(Request $request): JsonResponse
     {
         $this->validateStockWrites($request);
-        $produk = Produk::create($request->all());
+        $produk = Produk::create($request->except('stok_override'));
         return response()->json($produk, 201);
     }
 
@@ -35,14 +35,20 @@ class ProdukController extends Controller
     {
         $produk = Produk::findOrFail($id);
         $this->validateStockWrites($request, $produk);
-        $produk->update($request->all());
+        $produk->update($request->except('stok_override'));
         return response()->json($produk);
     }
 
     private function validateStockWrites(Request $request, ?Produk $product = null): void
     {
-        // stok_3 boleh ditimpa langsung dari API (impor/koreksi). Riwayat
-        // log_stock di-anchor ulang oleh ProdukObserver::saved().
+        // Default: stok hanya berubah lewat log_stock. Impor/koreksi boleh
+        // menimpa dengan mengirim stok_override=true; riwayat log_stock
+        // di-anchor ulang oleh ProdukObserver::saved().
+        if (! $request->boolean('stok_override')
+            && $request->has('stok_3')
+            && (float) $request->input('stok_3') !== (float) ($product?->stok_3 ?? 0)) {
+            throw \Illuminate\Validation\ValidationException::withMessages(['stok_3' => 'Gunakan log_stock untuk perubahan stok.']);
+        }
         $user = $request->attributes->get('pocketbase_user');
         if (!$user) return;
         $level = (int) ($user['level'] ?? 0);
