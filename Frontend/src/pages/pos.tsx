@@ -1330,6 +1330,26 @@ export default function MenuPage() {
 
   useEffect(() => { fetchData(); }, [page, searchTerm, selectedMenu, filterStatus, selectedMenuFilters, perPage, filterPerson]);
 
+  // Sinkronisasi realtime stok produk saat kasir lain melakukan transaksi
+  useEffect(() => {
+    let active = true;
+    pb.collection('produk').subscribe<Produk>('*', (e) => {
+      if (!active) return;
+      if (e.action === 'update' && e.record) {
+        const updated = e.record;
+        // Update stok pada catalog view jika ada di halaman aktif
+        setProducts(prev => prev.map(p => p.id === updated.id ? { ...p, stok_3: updated.stok_3, beli: updated.beli } : p));
+        // Update stok pada item di keranjang belanja
+        setCart(prev => prev.map(item => item.id === updated.id ? { ...item, stok_3: updated.stok_3 } : item));
+      }
+    }).catch(() => { /* Realtime fallback: preflight check tetap menjaga konsistensi */ });
+
+    return () => {
+      active = false;
+      pb.collection('produk').unsubscribe('*').catch(() => {});
+    };
+  }, []);
+
   useEffect(() => {
     const container = scrollContainerRef.current;
     if (!container) return;
@@ -1845,6 +1865,7 @@ export default function MenuPage() {
             runningStock[prodId] = qtyAkhir;
 
             batch.collection('log_stock').update(matchedOldLog.id, {
+              expected_stock: preflightStocks[prodId],
               qty: logQty,
               price_1: Number(item.priceSelected || 0),
               price_2: Number(price2Value || 0),
@@ -1863,6 +1884,7 @@ export default function MenuPage() {
           // Dalam batch mode, jika item baru dibuat, buat id sementara atau serahkan ke PB batch
           // Catatan: PocketBase batch membuat entri baru secara otomatis
           batch.collection('log_stock').create({
+            expected_stock: preflightStocks[prodId],
             id_lama: '',
             created_at: timestamp,
             operator: operatorName || pb.authStore.model?.username || 'Kasir',
