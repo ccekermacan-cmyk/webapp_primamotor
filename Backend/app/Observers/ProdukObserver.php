@@ -17,6 +17,39 @@ class ProdukObserver
         }
     }
 
+    /**
+     * Setelah stok_3 ditimpa langsung, hitung ulang batas stok_awal/stok_akhir
+     * pada seluruh log_stock produk ini supaya riwayat tetap konsisten.
+     */
+    public function saved(Produk $product): void
+    {
+        if (! $product->wasChanged('stok_3')) {
+            return;
+        }
+
+        $balance = (float) $product->stok_3;
+        if ($balance < 0) {
+            throw ValidationException::withMessages(['stok_3' => 'Stok tidak boleh negatif.']);
+        }
+
+        DB::statement(
+            "WITH movement AS (
+                SELECT id, created_at,
+                    CASE WHEN LOWER(boolean) = 'in' THEN qty ELSE -qty END AS delta
+                FROM log_stock WHERE item_baru = ?
+            ), ledger AS (
+                SELECT id, delta, SUM(delta) OVER () AS total,
+                    SUM(delta) OVER (ORDER BY datetime(created_at), id ROWS UNBOUNDED PRECEDING) AS running
+                FROM movement
+            )
+            UPDATE log_stock SET
+                stok_awal = ? - (l.total - l.running + l.delta),
+                stok_akhir = ? - (l.total - l.running)
+            FROM ledger l WHERE l.id = log_stock.id",
+            [$product->id, $balance, $balance]
+        );
+    }
+
     public function deleting(Produk $product): void
     {
         $linked = DB::table('log_stock')->where('item_baru', $product->id)

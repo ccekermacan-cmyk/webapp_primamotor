@@ -213,11 +213,7 @@ function rebuildAccount(app, id) {
     saldo_akhir = {:balance} - (l.total-l.running)
     FROM ledger l WHERE l.id=cashflow.id AND l.source`, {id,code:text(account,'id_lama'),balance});
 }
-function rebuildStock(app, id, priceChanged) {
-  const product = find(app,'produk',id);
-  if (!product) fail('Produk tidak ditemukan.');
-  const balance = number(product,'stok_3');
-  if (balance < 0) fail('Stok produk tidak cukup untuk perubahan ini. Seluruh batch dibatalkan.');
+function anchorStock(app, id, balance) {
   sql(app, `WITH movement AS (
     SELECT id,created_at,CASE WHEN LOWER(boolean)='in' THEN qty ELSE -qty END AS delta FROM log_stock WHERE item_baru={:id}
   ), ledger AS (
@@ -227,6 +223,13 @@ function rebuildStock(app, id, priceChanged) {
     stok_awal={:balance}-(l.total-l.running+l.delta),
     stok_akhir={:balance}-(l.total-l.running)
     FROM ledger l WHERE l.id=log_stock.id`, {id,balance});
+}
+function rebuildStock(app, id, priceChanged) {
+  const product = find(app,'produk',id);
+  if (!product) fail('Produk tidak ditemukan.');
+  const balance = number(product,'stok_3');
+  if (balance < 0) fail('Stok produk tidak cukup untuk perubahan ini. Seluruh batch dibatalkan.');
+  anchorStock(app, id, balance);
   if (priceChanged) sql(app, `UPDATE produk SET beli=COALESCE((SELECT price_1 FROM log_stock
     WHERE item_baru={:id} AND boolean='in' AND price_1>0 ORDER BY datetime(created_at) DESC,id DESC LIMIT 1),0) WHERE id={:id}`,{id});
 }
@@ -272,6 +275,14 @@ function report(app, date) {
   for (const [key,val] of Object.entries(totals)) r.set(key,val);
   app.save(r);
 }
+// Hitung ulang batas stok_awal/stok_akhir seluruh log_stock produk agar sesuai
+// dengan saldo stok yang diberikan. Dipakai saat stok_3 ditimpa langsung
+// (impor/koreksi) di dalam transaksi update produk.
+exports.reanchorStock = (app, id, balance) => {
+  const value = Number(balance);
+  if (!Number.isFinite(value) || value < 0) fail('Stok tidak boleh negatif.');
+  anchorStock(app, id, value);
+};
 exports.personBalance = (app, person) => {
   const kind = lower(person,'jenis');
   const supplier = kind.includes('supplier');

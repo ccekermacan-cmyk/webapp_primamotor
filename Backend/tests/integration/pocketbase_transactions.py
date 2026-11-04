@@ -55,6 +55,8 @@ try:
  shutil.copy(root/'Backend/pb_migrations/1792358000_open_operational_entry.js',tmp/'migrations')
  shutil.copy(root/'Backend/pb_migrations/1792358100_protect_derived_balance.js',tmp/'migrations')
  shutil.copy(root/'Backend/pb_migrations/1792358200_preserve_admin_balance_correction.js',tmp/'migrations')
+ shutil.copy(root/'Backend/pb_migrations/1792400000_allow_direct_product_stock.js',tmp/'migrations')
+ shutil.copy(root/'Backend/pb_migrations/1792400100_align_product_update_rule.js',tmp/'migrations')
  subprocess.run([str(root/'Backend/pocketbase'),'migrate','up',*pbflags],check=True,stdout=subprocess.DEVNULL)
  processes[0]=subprocess.Popen([str(root/'Backend/pocketbase'),'serve','--http','127.0.0.1:18090',*pbflags],stdout=f,stderr=subprocess.STDOUT);wait(pb+'/api/health')
  # Enable atomic batch requests in the isolated PocketBase instance.
@@ -225,16 +227,19 @@ try:
  denied('/api/collections/produk/records/'+duplicateId,auth_token=token)
  for quantity in [-1,0,0.5,8]:
   denied('/api/collections/log_stock/records','POST',{'item_baru':atomicProduct,'qty':quantity,'boolean':'out'},token)
- denied('/api/collections/produk/records/'+atomicProduct,'PATCH',{'stok_3':999},token)
+ # stok_3 boleh ditimpa langsung; riwayat log_stock ikut di-anchor ulang.
+ api(pb,'/api/collections/produk/records/'+atomicProduct,'PATCH',{'stok_3':9},token)
+ assert api(pb,'/api/collections/produk/records/'+atomicProduct,token=token)[1]['stok_3']==9
+ _,openingAnchored=api(pb,'/api/collections/log_stock/records/'+newProductBatch[1]['body']['id'],token=token)
+ assert openingAnchored['stok_akhir']==9,openingAnchored
  denied('/api/collections/produk/records/'+atomicProduct,'PATCH',{'beli':-1},token)
  api(pb,'/api/collections/produk/records/'+atomicProduct,'PATCH',{'beli':999},staff_auth['token'])
  api(pb,'/api/collections/produk/records/'+atomicProduct,'PATCH',{'stok_1':999},staff_auth['token'])
  denied('/api/collections/produk/records/'+atomicProduct,'DELETE',auth_token=staff_auth['token'])
  api(pb,'/api/collections/produk/records/'+atomicProduct,'PATCH',{'keterangan':'Metadata edit allowed'},staff_auth['token'])
- try:
-  api('http://127.0.0.1:18080','/api/produks/'+atomicProduct,'PATCH',{'stok_3':999},token)
-  raise AssertionError('Laravel accepted direct stock overwrite')
- except RuntimeError as error:assert ': 422 ' in str(error)
+ # Laravel juga menerima stok_3 langsung (impor). Kembalikan ke 7 untuk tes berikutnya.
+ api('http://127.0.0.1:18080','/api/produks/'+atomicProduct,'PATCH',{'stok_3':7},token)
+ assert api(pb,'/api/collections/produk/records/'+atomicProduct,token=token)[1]['stok_3']==7
  # Retain one photo while appending another, then remove only the selected photo.
  def uploadProductPhoto(field,filename):
   payload=(f'--{boundary}\r\nContent-Disposition: form-data; name="{field}"; filename="{filename}"\r\nContent-Type: image/png\r\n\r\n'.encode()+image+f'\r\n--{boundary}--\r\n'.encode())

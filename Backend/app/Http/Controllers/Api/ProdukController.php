@@ -41,9 +41,8 @@ class ProdukController extends Controller
 
     private function validateStockWrites(Request $request, ?Produk $product = null): void
     {
-        if ($request->has('stok_3') && (float) $request->input('stok_3') !== (float) ($product?->stok_3 ?? 0)) {
-            throw \Illuminate\Validation\ValidationException::withMessages(['stok_3' => 'Gunakan log_stock untuk perubahan stok.']);
-        }
+        // stok_3 boleh ditimpa langsung dari API (impor/koreksi). Riwayat
+        // log_stock di-anchor ulang oleh ProdukObserver::saved().
         $user = $request->attributes->get('pocketbase_user');
         if (!$user) return;
         $level = (int) ($user['level'] ?? 0);
