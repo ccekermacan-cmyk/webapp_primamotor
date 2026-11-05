@@ -6,3 +6,8 @@
 pb_data/
 dist/
 .env
+.obsidian/workspace*.json
+.obsidian/graph.json
+obsidian/.obsidian/workspace*.json
+obsidian/.obsidian/graph.json
+

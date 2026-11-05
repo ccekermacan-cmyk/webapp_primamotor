@@ -305,14 +305,6 @@ import { formatRupiah } from '../lib/money';
           cfData.append("nominal", String(formDataBon.nominal));
           cfData.append("note", formDataBon.note);
           
-          let saldoAwalCf = 0;
-          try {
-            const acc = await pb.collection('dropdown').getOne(formDataBon.akun_asal, { $autoCancel: false });
-            saldoAwalCf = Number(acc.number_1) || 0;
-          } catch { console.warn('Could not fetch account balance for saldo_awal'); }
-          cfData.append("saldo_awal", String(saldoAwalCf));
-          cfData.append("saldo_akhir", String(saldoAwalCf - Number(formDataBon.nominal)));
-          
           files.forEach(f => { if (!f.isOld) cfData.append("file", f); });
 
           batch.collection('cashflow').create(cfData);

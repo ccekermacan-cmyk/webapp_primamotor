@@ -80,9 +80,23 @@ onRecordUpdate((e) => {
   e.app.runInTransaction(app => {
     e.app = app;
     const fields = JSON.parse(submitted), name = e.record.collection().name;
+    const overridesStock = fields.includes('stok_override');
     const protectedFields = name === 'user' ? ['number','level','status'] : name === 'produk' ? ['stok_3','beli'] : ['number_1','number_2','number_3','number_4','number_5'];
     const current = app.findRecordById(name,e.record.id);
     for (const field of protectedFields) if (!fields.includes(field)) e.record.set(field,current.get(field));
+    // Non-admin (collection rules reject direct number_1/stok_3 changes) still
+    // cannot smuggle a protected value through a crafted body: restore from DB
+    // unless the legitimate correction flag is present.
+    if (name === 'produk' && !overridesStock && fields.includes('stok_3') && Number(current.get('stok_3')) !== Number(e.record.get('stok_3'))) {
+      e.record.set('stok_3',current.get('stok_3'));
+    }
+    if (name === 'dropdown' && fields.includes('number_1') && Number(current.get('number_1')) !== Number(e.record.get('number_1'))) {
+      // Only a level-1 admin can pass the collection rule with a changed
+      // number_1; rebuildAccount re-anchors cashflow snapshots to the new balance.
+      const ledger = require(`${__hooks}/lib/atomic_ledger.js`);
+      const kinds = (String(current.get('jenis') || '') + ' ' + String(current.get('kategori') || '')).toLowerCase();
+      if (kinds.includes('cashflow') || kinds.includes('akun')) ledger.rebuildAccount(app,e.record.id,Number(e.record.get('number_1')));
+    }
     if (name === 'dropdown' && e.record.getBool('_pm_recalculate_person')) {
       e.record.set('number_1',require(`${__hooks}/lib/atomic_ledger.js`).personBalance(app,current));
     }

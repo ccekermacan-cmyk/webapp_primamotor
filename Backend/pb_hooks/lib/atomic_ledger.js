@@ -193,10 +193,11 @@ function syncMenu(app, id) {
   sql(app,'UPDATE menu SET dibayar = {:paid}, status = {:status}, date_lunas = {:date} WHERE id = {:id}',
     {id,paid,status:settled ? 'lunas' : 'belum',date:settled ? (text(menu,'date_lunas') || new Date().toISOString().replace('T',' ')) : ''});
 }
-function rebuildAccount(app, id) {
+function rebuildAccount(app, id, anchor) {
   const account = find(app,'dropdown',id);
   if (!account) fail('Akun tidak ditemukan.');
-  const balance = number(account,'number_1');
+  const balance = anchor === undefined ? number(account,'number_1') : Number(anchor);
+  if (!Number.isFinite(balance)) fail('Saldo akun tidak valid.');
   if (balance < -0.00001) fail('Saldo akun tidak cukup untuk perubahan ini. Seluruh batch dibatalkan.');
   const source = "(account_1 = {:id} OR (COALESCE(account_1,'') = '' AND acc1 != '' AND (acc1 = {:id} OR acc1 = {:code})))";
   const target = "(account_2 = {:id} OR (COALESCE(account_2,'') = '' AND acc2 != '' AND (acc2 = {:id} OR acc2 = {:code})))";
@@ -278,6 +279,7 @@ function report(app, date) {
 // Hitung ulang batas stok_awal/stok_akhir seluruh log_stock produk agar sesuai
 // dengan saldo stok yang diberikan. Dipakai saat stok_3 ditimpa langsung
 // (impor/koreksi) di dalam transaksi update produk.
+exports.rebuildAccount = rebuildAccount;
 exports.reanchorStock = (app, id, balance) => {
   const value = Number(balance);
   if (!Number.isFinite(value) || value < 0) fail('Stok tidak boleh negatif.');

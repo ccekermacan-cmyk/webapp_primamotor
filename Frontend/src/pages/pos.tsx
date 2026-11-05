@@ -1871,8 +1871,6 @@ export default function MenuPage() {
               price_2: Number(price2Value || 0),
               normal: Number(normalValue || 0),
               boolean: booleanValue,
-              stok_awal: preflightStocks[prodId] ?? qtyAwal,
-              stok_akhir: qtyAkhir,
             });
           }
         } else {
@@ -1899,8 +1897,6 @@ export default function MenuPage() {
             ref: menuRecordId || '',
             ref_baru: menuRecordId || '',
             normal: Number(normalValue || 0),
-            stok_awal: qtyAwal,
-            stok_akhir: qtyAkhir,
           });
           // Webhook notification untuk created log_stock
         }
@@ -1961,8 +1957,6 @@ export default function MenuPage() {
             persontext: formBayar.personIdLama || '',
             acc1: accountIdLama,              
             acc2: '',
-            saldo_awal: saldoAwal,
-            saldo_akhir: saldoAkhir,
           };
 
           if (cf.id) {
@@ -2384,8 +2378,6 @@ export default function MenuPage() {
         persontext: menu.person || '',
         acc1: accountIdLama,
         acc2: '',
-        saldo_awal: saldoAwal,
-        saldo_akhir: saldoAkhir,
         created_at: timestamp
       });
 

@@ -85,6 +85,11 @@ try:
  denied('/api/collections/dropdown/records/'+wallet['id'],'PATCH',{'number_1':99999},None)
  # Exact token permissions prevent staff from writing another account.
  denied('/api/collections/dropdown/records/'+wallet['id'],'PATCH',{'number_1':99999},staff_auth['token'])
+ # Level 1 (admin) may manually correct wallet balance, which re-anchors cashflow snapshots.
+ api(pb,'/api/collections/dropdown/records/'+wallet['id'],'PATCH',{'number_1':1200},token)
+ _,updatedWallet=api(pb,'/api/collections/dropdown/records/'+wallet['id'],token=token)
+ assert updatedWallet['number_1']==1200,updatedWallet
+ api(pb,'/api/collections/dropdown/records/'+wallet['id'],'PATCH',{'number_1':1000},admin)
  _,staffEntry=api(pb,'/api/collections/cashflow/records','POST',{'account_1':wallet['id'],'nominal':1,'mutasi':'out'},staff_auth['token'])
  api(pb,'/api/collections/cashflow/records/'+staffEntry['id'],'PATCH',{'nominal':2},staff_auth['token'])
  denied('/api/collections/cashflow/records/'+staffEntry['id'],'DELETE',auth_token=staff_auth['token'])
@@ -504,6 +509,17 @@ try:
  _,emailAuth=api(pb,'/api/collections/user/auth-with-password','POST',{'identity':'confirmed-mechanic@example.test','password':'Local-Mechanic-New-729!'})
  assert emailAuth['record']['id']==mechanic['id']
  print('PASS: email changes only after confirming the emailed token with the correct password (local SMTP)')
+ # Admin balance correction on a cashflow account re-anchors cashflow snapshots.
+ _,corrWallet=api(pb,'/api/collections/dropdown/records','POST',{'id_lama':'corrw1','text_1':'corr-wallet','jenis':'Cashflow Account','kategori':'Cashflow','number_1':1000},admin)
+ _,corrEntry=api(pb,'/api/collections/cashflow/records','POST',{'account_1':corrWallet['id'],'nominal':100,'mutasi':'out','jenis':'operasional'},admin)
+ _,corrFirst=api(pb,'/api/collections/cashflow/records/'+corrEntry['id'],token=admin)
+ assert corrFirst['saldo_awal']==1000 and corrFirst['saldo_akhir']==900,corrFirst
+ api(pb,'/api/collections/dropdown/records/'+corrWallet['id'],'PATCH',{'number_1':5000},token)
+ _,corrReanchored=api(pb,'/api/collections/cashflow/records/'+corrEntry['id'],token=admin)
+ assert corrReanchored['saldo_awal']==5100 and corrReanchored['saldo_akhir']==5000,corrReanchored
+ api(pb,'/api/collections/cashflow/records/'+corrEntry['id'],'DELETE',token=admin)
+ api(pb,'/api/collections/dropdown/records/'+corrWallet['id'],'DELETE',token=admin)
+ print('PASS: admin balance edit re-anchors historical cashflow snapshots')
  if os.environ.get('PM_SCALE_TEST')=='1':
   # Synthetic history only, in the disposable database: 200k alternating movements net to zero.
   fixture=sqlite3.connect(data/'data.db')

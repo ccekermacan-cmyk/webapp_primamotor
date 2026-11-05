@@ -696,8 +696,6 @@ const fetchRelatedProducts = async (sp: Produk) => {
             price_1: 0,
             price_2: 0,
             normal: 0,
-            stok_awal: oldStok,
-            stok_akhir: newStok,
           });
         }
 

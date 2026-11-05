@@ -1,0 +1,165 @@
+{
+  "nodes": [
+    {
+      "id": "hub",
+      "type": "file",
+      "file": "Home.md",
+      "x": -160,
+      "y": 0,
+      "width": 320,
+      "height": 340,
+      "color": "1"
+    },
+    {
+      "id": "arch",
+      "type": "file",
+      "file": "Architecture.md",
+      "x": -520,
+      "y": -420,
+      "width": 300,
+      "height": 300,
+      "color": "4"
+    },
+    {
+      "id": "datasource",
+      "type": "file",
+      "file": "Data Source.md",
+      "x": -180,
+      "y": -420,
+      "width": 280,
+      "height": 260,
+      "color": "4"
+    },
+    {
+      "id": "schema",
+      "type": "file",
+      "file": "Database & Schema.md",
+      "x": 140,
+      "y": -420,
+      "width": 320,
+      "height": 300,
+      "color": "4"
+    },
+    {
+      "id": "api",
+      "type": "file",
+      "file": "API Surface & Integrasi.md",
+      "x": 500,
+      "y": -420,
+      "width": 320,
+      "height": 300,
+      "color": "4"
+    },
+    {
+      "id": "engine",
+      "type": "file",
+      "file": "Engine - Atomic Ledger & Idempotensi.md",
+      "x": -560,
+      "y": 20,
+      "width": 320,
+      "height": 320,
+      "color": "3"
+    },
+    {
+      "id": "frontend",
+      "type": "file",
+      "file": "Frontend Architecture.md",
+      "x": 240,
+      "y": 20,
+      "width": 320,
+      "height": 320,
+      "color": "5"
+    },
+    {
+      "id": "dom_pos",
+      "type": "file",
+      "file": "Domain - POS & Kasir.md",
+      "x": -680,
+      "y": 440,
+      "width": 280,
+      "height": 280,
+      "color": "6"
+    },
+    {
+      "id": "dom_inv",
+      "type": "file",
+      "file": "Domain - Inventaris & Produk.md",
+      "x": -360,
+      "y": 440,
+      "width": 280,
+      "height": 280,
+      "color": "6"
+    },
+    {
+      "id": "dom_cash",
+      "type": "file",
+      "file": "Domain - Keuangan & Cashflow.md",
+      "x": -40,
+      "y": 440,
+      "width": 280,
+      "height": 280,
+      "color": "6"
+    },
+    {
+      "id": "dom_rep",
+      "type": "file",
+      "file": "Domain - Laporan & Akuntansi.md",
+      "x": 280,
+      "y": 440,
+      "width": 280,
+      "height": 280,
+      "color": "6"
+    },
+    {
+      "id": "dom_user",
+      "type": "file",
+      "file": "Domain - User & Hak Akses.md",
+      "x": 600,
+      "y": 440,
+      "width": 280,
+      "height": 280,
+      "color": "6"
+    },
+    {
+      "id": "test",
+      "type": "file",
+      "file": "Testing & Quality Assurance.md",
+      "x": -220,
+      "y": 800,
+      "width": 320,
+      "height": 260,
+      "color": "2"
+    },
+    {
+      "id": "rules",
+      "type": "file",
+      "file": "Agent Rules & Best Practices.md",
+      "x": 160,
+      "y": 800,
+      "width": 320,
+      "height": 260,
+      "color": "2"
+    }
+  ],
+  "edges": [
+    { "id": "e_hub_arch", "fromNode": "hub", "fromSide": "top", "toNode": "arch", "toSide": "bottom" },
+    { "id": "e_hub_data", "fromNode": "hub", "fromSide": "top", "toNode": "datasource", "toSide": "bottom" },
+    { "id": "e_hub_schema", "fromNode": "hub", "fromSide": "top", "toNode": "schema", "toSide": "bottom" },
+    { "id": "e_hub_api", "fromNode": "hub", "fromSide": "top", "toNode": "api", "toSide": "bottom" },
+    { "id": "e_hub_engine", "fromNode": "hub", "fromSide": "left", "toNode": "engine", "toSide": "right" },
+    { "id": "e_hub_frontend", "fromNode": "hub", "fromSide": "right", "toNode": "frontend", "toSide": "left" },
+    { "id": "e_hub_pos", "fromNode": "hub", "fromSide": "bottom", "toNode": "dom_pos", "toSide": "top" },
+    { "id": "e_hub_inv", "fromNode": "hub", "fromSide": "bottom", "toNode": "dom_inv", "toSide": "top" },
+    { "id": "e_hub_cash", "fromNode": "hub", "fromSide": "bottom", "toNode": "dom_cash", "toSide": "top" },
+    { "id": "e_hub_rep", "fromNode": "hub", "fromSide": "bottom", "toNode": "dom_rep", "toSide": "top" },
+    { "id": "e_hub_user", "fromNode": "hub", "fromSide": "bottom", "toNode": "dom_user", "toSide": "top" },
+    { "id": "e_hub_test", "fromNode": "hub", "fromSide": "bottom", "toNode": "test", "toSide": "top" },
+    { "id": "e_hub_rules", "fromNode": "hub", "fromSide": "bottom", "toNode": "rules", "toSide": "top" },
+    { "id": "e_arch_data", "fromNode": "arch", "fromSide": "right", "toNode": "datasource", "toSide": "left" },
+    { "id": "e_schema_engine", "fromNode": "schema", "fromSide": "left", "toNode": "engine", "toSide": "top" },
+    { "id": "e_engine_pos", "fromNode": "engine", "fromSide": "bottom", "toNode": "dom_pos", "toSide": "top" },
+    { "id": "e_engine_cash", "fromNode": "engine", "fromSide": "bottom", "toNode": "dom_cash", "toSide": "top" },
+    { "id": "e_fe_pos", "fromNode": "frontend", "fromSide": "bottom", "toNode": "dom_pos", "toSide": "top" },
+    { "id": "e_test_rules", "fromNode": "test", "fromSide": "right", "toNode": "rules", "toSide": "left" }
+  ]
+}
