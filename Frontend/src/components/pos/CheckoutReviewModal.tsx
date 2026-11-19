@@ -87,15 +87,15 @@ export const CheckoutReviewModal: React.FC<CheckoutReviewModalProps> = ({
       <div className="pos-modal-layout">
         <div className="pos-modal-scroll pos-form-fields space-y-4">
           {/* Identitas transaksi + status */}
-          <section className="rounded-2xl border border-slate-200 bg-white p-4">
+          <section className="rounded-2xl border border-slate-200 bg-white p-3.5 sm:p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="min-w-0">
-                <p className="text-xs text-slate-500">{isEditing ? 'Validasi update nota terakhir' : 'Periksa sebelum menyimpan'}</p>
-                <p className="text-base font-semibold text-slate-800 mt-0.5 break-words">
+              <div className="min-w-0 flex-1">
+                <p className="text-[11px] font-medium text-slate-500">{isEditing ? 'Validasi update nota terakhir' : 'Periksa sebelum menyimpan'}</p>
+                <p className="text-sm sm:text-base font-semibold text-slate-800 mt-0.5 break-words">
                   {getPersonDisplayText(formBayar.personIdLama, 'Umum')}
                 </p>
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1 text-xs text-slate-500">
-                  <span className="font-semibold text-slate-600">{selectedMenu}</span>
+                  <span className="font-semibold text-slate-700">{selectedMenu}</span>
                   <span aria-hidden="true">·</span>
                   <span>{formBayar.payment}</span>
                   <span aria-hidden="true">·</span>
@@ -104,8 +104,8 @@ export const CheckoutReviewModal: React.FC<CheckoutReviewModalProps> = ({
                   <span>Kasir {operatorName}</span>
                 </div>
               </div>
-              <div className={`shrink-0 rounded-xl border px-3 py-2 text-right ${statusClass}`}>
-                <p className="text-[10px] font-semibold uppercase tracking-wide opacity-70">Status nota</p>
+              <div className={`w-full sm:w-auto shrink-0 rounded-xl border px-3 py-2 flex sm:flex-col items-center sm:items-end justify-between sm:justify-center gap-2 sm:gap-0.5 sm:text-right ${statusClass}`}>
+                <p className="text-[10px] font-semibold uppercase tracking-wide opacity-75">Status nota</p>
                 <p className="text-xs font-bold">{statusText}</p>
               </div>
             </div>
@@ -115,18 +115,18 @@ export const CheckoutReviewModal: React.FC<CheckoutReviewModalProps> = ({
           </section>
 
           {/* Angka utama: total, dibayar, sisa */}
-          <dl className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-slate-700 tabular-nums">
-            <div className="col-span-2 sm:col-span-1">
-              <dt className="text-xs">Total tagihan</dt>
-              <dd className={`text-xl font-semibold ${activeTheme.text}`}>{formatRupiah(grandTotal)}</dd>
+          <dl className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 sm:gap-3 text-slate-700 tabular-nums">
+            <div className="col-span-2 sm:col-span-1 rounded-xl border border-slate-100 bg-slate-50 p-3">
+              <dt className="text-[11px] text-slate-500">Total tagihan</dt>
+              <dd className={`text-lg sm:text-xl font-semibold mt-0.5 ${activeTheme.text}`}>{formatRupiah(grandTotal)}</dd>
             </div>
-            <div>
-              <dt className="text-xs">Dibayar</dt>
-              <dd className="font-semibold">{formatRupiah(totalDibayar)}</dd>
+            <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+              <dt className="text-[11px] text-slate-500">Dibayar</dt>
+              <dd className="text-xs sm:text-sm font-semibold mt-0.5">{formatRupiah(totalDibayar)}</dd>
             </div>
-            <div>
-              <dt className="text-xs">{selisih < 0 ? 'Kembalian' : 'Sisa tagihan'}</dt>
-              <dd className="font-semibold">{formatRupiah(Math.abs(selisih))}</dd>
+            <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+              <dt className="text-[11px] text-slate-500">{selisih < 0 ? 'Kembalian' : 'Sisa tagihan'}</dt>
+              <dd className="text-xs sm:text-sm font-semibold mt-0.5">{formatRupiah(Math.abs(selisih))}</dd>
             </div>
           </dl>
 
@@ -137,7 +137,7 @@ export const CheckoutReviewModal: React.FC<CheckoutReviewModalProps> = ({
               { id: 'payment' as const, label: 'Ubah pembayaran', Icon: Wallet },
               { id: 'notes' as const, label: 'Ubah catatan', Icon: FileText },
             ]).map(({ id, label, Icon }) => (
-              <button type="button" className="pos-action bg-slate-100" key={id} onClick={() => onGoToTab(id)}>
+              <button type="button" className="pos-action flex-1 min-w-[9rem] bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200/70 transition-colors" key={id} onClick={() => onGoToTab(id)}>
                 <Icon size={14} />{label}
               </button>
             ))}
@@ -231,14 +231,14 @@ export const CheckoutReviewModal: React.FC<CheckoutReviewModalProps> = ({
           )}
         </div>
         <div className="pos-modal-footer">
-          <button type="button" onClick={onBack} className="flex-1 py-4 bg-slate-100 hover:bg-slate-200 rounded-2xl font-black text-slate-500 text-xs tracking-widest transition-colors">
+          <button type="button" onClick={onBack} className="pos-action flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors">
             <ChevronLeft size={16} /> Kembali
           </button>
           <button
             type="button"
             onClick={onSave}
             disabled={isProcessing}
-            className={`flex-[2] py-4 text-white rounded-2xl font-black text-sm shadow-xl tracking-widest transition-all active:scale-95 ${activeTheme.main} ${isProcessing ? 'opacity-70 cursor-not-allowed' : ''}`}
+            className={`pos-action flex-[2] text-white transition-all active:scale-95 ${activeTheme.main} ${isProcessing ? 'opacity-70 cursor-not-allowed' : ''}`}
           >
             {isProcessing ? (
               <span className="flex items-center justify-center gap-2">

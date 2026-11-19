@@ -352,7 +352,7 @@ export default function MenuPage() {
       setEmployeeActiveBon(activeBon);
 
       // 2. JIKA BUKAN EDIT MODE (isEditMode === false), otomatis ambil data slip gaji periode sebelumnya untuk person ini
-      if (!isEditMode && editingGajiItemIndex === null) {
+      if (!isEditMode && editingGajiItemIndex === null && !gajiItemSubData.id) {
         let foundPrevious = false;
         try {
           const allGajiList = await pb.collection('gaji').getFullList({
@@ -1485,18 +1485,14 @@ export default function MenuPage() {
       if (e.key === 'F9' && isCartModalOpen && !showCheckoutReview && cartTab === 'payment') {
         e.preventDefault();
         const kasirAcc = cashflowAccounts.find(a => a.text_1.toLowerCase().includes('kasir') || a.text_1.toLowerCase().includes('cash')) || cashflowAccounts[0];
-        const newList = [...formBayar.cashflowList];
-        const sumOther = newList.reduce((acc, curr, i) => i !== 0 ? acc + (curr.nominal || 0) : acc, 0);
-        const remaining = Math.max(0, grandTotal - sumOther);
-        if (newList.length > 0) {
-          newList[0].nominal = remaining;
-          if (kasirAcc && !newList[0].accountId) {
-            newList[0].accountId = kasirAcc.id;
-          }
-        } else {
-          newList.push({ id: '', created_at: '', accountId: kasirAcc ? kasirAcc.id : '', nominal: remaining });
-        }
-        setFormBayar(prev => ({ ...prev, payment: 'Tunai', nominalBayar: grandTotal, cashflowList: newList }));
+        setFormBayar(prev => {
+          const sumOther = prev.cashflowList.reduce((acc, curr, i) => i !== 0 ? acc + (curr.nominal || 0) : acc, 0);
+          const remaining = Math.max(0, grandTotal - sumOther);
+          const newList = prev.cashflowList.length > 0
+            ? prev.cashflowList.map((row, i) => i === 0 ? { ...row, nominal: remaining, accountId: row.accountId || (kasirAcc ? kasirAcc.id : '') } : row)
+            : [{ id: '', created_at: '', accountId: kasirAcc ? kasirAcc.id : '', nominal: remaining }];
+          return { ...prev, payment: 'Tunai', nominalBayar: grandTotal, cashflowList: newList };
+        });
       }
 
       // Esc untuk tutup Form Pembayaran
@@ -1811,10 +1807,24 @@ export default function MenuPage() {
 
         // Dynamic Incremental Diff for Ongkos (Service Mechanics)
         const validMekanik = formBayar.mekanikList.filter((m: any) => m.idLama && m.ongkos > 0);
-        const activeMekanikPersonIds = validMekanik.map((m: any) => m.idLama);
+        const keptOngkosIds = new Set<string>();
+        const matchedPersons = new Set<string>();
         for (const ong of oldOngkos) {
-          if (!activeMekanikPersonIds.includes(ong.person)) {
-            batch.collection('ongkos').delete(ong.id);
+          if (validMekanik.some((m: any) => m.idLama === ong.person) && !matchedPersons.has(ong.person)) {
+            matchedPersons.add(ong.person);
+            keptOngkosIds.add(ong.id);
+          }
+        }
+        const unmatchedMekaniks = validMekanik.filter((m: any) => !matchedPersons.has(m.idLama));
+        let replaceIdx = 0;
+        for (const ong of oldOngkos) {
+          if (!keptOngkosIds.has(ong.id)) {
+            if (replaceIdx < unmatchedMekaniks.length) {
+              keptOngkosIds.add(ong.id);
+              replaceIdx++;
+            } else {
+              batch.collection('ongkos').delete(ong.id);
+            }
           }
         }
       }
@@ -1979,11 +1989,14 @@ export default function MenuPage() {
         const mekanikValid = formBayar.mekanikList.filter(m => m.idLama && m.ongkos > 0);
         
         if (mekanikValid.length > 0) {
+          const usedOngkosIds = new Set<string>();
           for (const mek of mekanikValid) {
-            const existingOng = oldOngkos.find(o => o.person === mek.idLama);
+            const existingOng = oldOngkos.find(o => o.person === mek.idLama && !usedOngkosIds.has(o.id)) ||
+                                oldOngkos.find(o => !usedOngkosIds.has(o.id) && !mekanikValid.some(m => m.idLama === o.person));
             if (existingOng) {
-              if (existingOng.ongkos !== mek.ongkos) {
-                batch.collection('ongkos').update(existingOng.id, { ongkos: mek.ongkos });
+              usedOngkosIds.add(existingOng.id);
+              if (existingOng.ongkos !== mek.ongkos || existingOng.person !== mek.idLama) {
+                batch.collection('ongkos').update(existingOng.id, { person: mek.idLama, ongkos: mek.ongkos });
               }
             } else {
               batch.collection('ongkos').create({
@@ -2955,7 +2968,7 @@ export default function MenuPage() {
                       type="datetime-local"
                       value={formBayar.createdAt}
                       onChange={e => setFormBayar({ ...formBayar, createdAt: e.target.value })}
-                      className={`w-full mt-2 p-3 text-xs md:text-sm font-medium text-slate-700 bg-white border-2 ${activeTheme.border} rounded-xl ${activeTheme.focusRing} outline-none transition-all shadow-sm`}
+                      className={`w-full mt-2 p-2.5 text-xs md:text-sm font-semibold text-slate-700 bg-white border ${activeTheme.border} rounded-xl ${activeTheme.focusRing} outline-none transition-all`}
                     />
                   </div>
                 </div>
@@ -2970,12 +2983,12 @@ export default function MenuPage() {
                     <div className="relative mt-2">
                       <div 
                         onClick={() => setIsPersonDropdownOpen(!isPersonDropdownOpen)}
-                        className={`w-full p-3 text-xs md:text-sm font-medium text-slate-700 bg-white border-2 ${activeTheme.border} rounded-xl cursor-pointer flex justify-between items-center shadow-sm hover:border-slate-300 transition-colors`}
+                        className={`w-full p-2.5 text-xs md:text-sm font-semibold text-slate-700 bg-white border ${activeTheme.border} rounded-xl cursor-pointer flex justify-between items-center hover:border-slate-300 transition-colors`}
                       >
                         <span className="truncate">
                           {getPersonDisplayText(formBayar.personIdLama, 'Pilih Pelanggan...')}
                         </span>
-                        {isPersonDropdownOpen ? <ChevronUp size={16} className="text-slate-400" /> : <ChevronDown size={16} className="text-slate-400" />}
+                        {isPersonDropdownOpen ? <ChevronUp size={16} className="text-slate-400 shrink-0" /> : <ChevronDown size={16} className="text-slate-400 shrink-0" />}
                       </div>
 
                       {isPersonDropdownOpen && (
@@ -2983,15 +2996,15 @@ export default function MenuPage() {
                           {/* Overlay gaib untuk menutup dropdown jika diklik di luar area */}
                           <div className="fixed inset-0 z-40" onClick={() => setIsPersonDropdownOpen(false)}></div>
                           
-                          <div className={`absolute z-50 w-full mt-1 bg-white border-2 ${activeTheme.border} rounded-xl shadow-2xl overflow-hidden flex flex-col`}>
+                          <div className={`absolute z-50 w-full mt-1 bg-white border ${activeTheme.border} rounded-xl shadow-xl overflow-hidden flex flex-col`}>
                             {/* Area Input Pencarian */}
-                            <div className="p-3 border-b border-slate-100 bg-slate-50 flex items-center gap-2">
-                              <Search size={14} className="text-slate-400" />
+                            <div className="p-2.5 border-b border-slate-100 bg-slate-50 flex items-center gap-2">
+                              <Search size={14} className="text-slate-400 shrink-0" />
                               <input 
                                 type="text"
                                 autoFocus
                                 placeholder="Cari nama / HP pelanggan..."
-                                className="w-full bg-transparent border-none outline-none text-xs font-bold text-slate-700 placeholder-slate-400"
+                                className="w-full bg-transparent border-none outline-none text-xs font-semibold text-slate-700 placeholder-slate-400"
                                 value={personSearch}
                                 onChange={e => setPersonSearch(e.target.value)}
                               />
@@ -3000,7 +3013,7 @@ export default function MenuPage() {
                             {/* Area List Pelanggan Terfilter */}
                             <div className="max-h-48 overflow-y-auto custom-scrollbar bg-white">
                               {personOptions.filter(p => p.text_1.toLowerCase().includes(personSearch.toLowerCase()) || ((p as any).text_2 && (p as any).text_2.toLowerCase().includes(personSearch.toLowerCase())) || p.id_lama.toLowerCase().includes(personSearch.toLowerCase())).length === 0 ? (
-                                <div className="p-4 text-center text-xs text-slate-400 font-bold">Pelanggan tidak ditemukan</div>
+                                <div className="p-3 text-center text-xs text-slate-400 font-semibold">Pelanggan tidak ditemukan</div>
                               ) : (
                                 personOptions
                                   .filter(p => p.text_1.toLowerCase().includes(personSearch.toLowerCase()) || ((p as any).text_2 && (p as any).text_2.toLowerCase().includes(personSearch.toLowerCase())) || p.id_lama.toLowerCase().includes(personSearch.toLowerCase()))
@@ -3012,10 +3025,10 @@ export default function MenuPage() {
                                         setIsPersonDropdownOpen(false);
                                         setPersonSearch(''); // Bersihkan kolom pencarian setelah dipilih
                                       }}
-                                      className={`p-3 text-xs md:text-sm font-bold cursor-pointer transition-colors border-b border-slate-50 last:border-0 flex flex-col sm:flex-row sm:items-center justify-between gap-1 ${formBayar.personIdLama === p.id_lama ? `${activeTheme.light} ${activeTheme.text}` : 'text-slate-700 hover:bg-slate-50'}`}
+                                      className={`p-2.5 text-xs md:text-sm font-semibold cursor-pointer transition-colors border-b border-slate-50 last:border-0 flex flex-col sm:flex-row sm:items-center justify-between gap-1 ${formBayar.personIdLama === p.id_lama ? `${activeTheme.light} ${activeTheme.text}` : 'text-slate-700 hover:bg-slate-50'}`}
                                     >
                                       <span className="truncate">{p.text_1}{(p as any).text_2 ? ` - ${(p as any).text_2}` : ''}</span>
-                                      <span className="text-[9px] text-slate-400 font-mono tracking-widest">{p.id_lama}</span>
+                                      <span className="text-[11px] text-slate-400 font-mono">{p.id_lama}</span>
                                     </div>
                                   ))
                               )}
@@ -3200,14 +3213,15 @@ export default function MenuPage() {
               <div>
                   <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
                     <label className={`text-[10px] md:text-[11px] font-black ${activeTheme.text} uppercase tracking-wider ml-1 flex items-center gap-1.5`}><CreditCard size={14}/> Tipe Bayar</label>
-                    <div className={`flex bg-white rounded-xl p-1.5 mt-2 border-2 ${activeTheme.border} shadow-sm gap-1`}>
+                    <div className={`flex bg-white rounded-xl p-1 mt-2 border ${activeTheme.border} gap-1`}>
                       {['Tunai', 'Tempo'].map(m => (
                         <button
+                          type="button"
                           key={m}
                           onClick={() => setFormBayar({ ...formBayar, payment: m })}
-                          className={`flex-1 py-2 text-[10px] md:text-[11px] font-black rounded-lg transition-all duration-300 ${
+                          className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-all ${
                             formBayar.payment === m 
-                              ? `${activeTheme.main} text-white shadow-md transform scale-100` 
+                              ? `${activeTheme.main} text-white` 
                               : 'text-slate-500 hover:bg-slate-100'
                           }`}
                         >
@@ -3222,7 +3236,7 @@ export default function MenuPage() {
 
                 {/* 2. Multi Cashflow / Akun Kas */}
                 <div className={`${activeTheme.light} p-5 rounded-3xl border-2 ${activeTheme.border} space-y-4 shadow-sm`}>
-                  <div className="flex justify-between items-center">
+                  <div className="flex flex-wrap justify-between items-center gap-2">
                     <label className={`text-[11px] md:text-xs font-black ${activeTheme.text} uppercase tracking-wider flex items-center gap-2`}>
                       <Wallet size={16} /> Akun Kas & Nominal
                     </label>
@@ -3232,15 +3246,15 @@ export default function MenuPage() {
                         ...prev,
                         cashflowList: [...prev.cashflowList, { id: '', created_at: '', accountId: '', nominal: 0 }]
                       }))}
-                      className={`text-[10px] font-black bg-white ${activeTheme.text} px-4 py-2 rounded-xl shadow-sm hover:scale-105 active:scale-95 transition-all border border-transparent hover:${activeTheme.border}`}
+                      className={`pos-action bg-white ${activeTheme.text} border ${activeTheme.border}`}
                     >
                       <Plus size={14}/> Tambah pembayaran
                     </button>
                   </div>
                   
-                  <div className="space-y-2.5">
+                  <div className="space-y-2">
                   {formBayar.cashflowList.map((cf, idx) => (
-                  <div key={idx} className="flex flex-col sm:flex-row gap-2.5 items-stretch sm:items-center bg-white p-3 rounded-2xl border border-white/80 shadow-sm">
+                  <div key={idx} className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center bg-white p-2.5 rounded-2xl border border-white/80 shadow-sm">
                     {/* Tombol Hapus Baris Kas */}
                     {formBayar.cashflowList.length > 1 && (
                       <button
@@ -3251,7 +3265,7 @@ export default function MenuPage() {
                             cashflowList: prev.cashflowList.filter((_, i) => i !== idx)
                           }));
                         }}
-                        className="p-2 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors shrink-0 self-end sm:self-auto"
+                        className="pos-action text-rose-500 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors shrink-0 self-end sm:self-auto"
                         title="Hapus baris pembayaran"
                       >
                         <Trash2 size={16} /> Hapus
@@ -3263,12 +3277,14 @@ export default function MenuPage() {
                         value={cf.accountId}
                         data-field="paymentAccount"
                         onChange={e => {
-                          const newList = [...formBayar.cashflowList];
-                          newList[idx].accountId = e.target.value;
-                          setFormBayar({ ...formBayar, cashflowList: newList });
+                          const nextAccountId = e.target.value;
+                          setFormBayar(prev => ({
+                            ...prev,
+                            cashflowList: prev.cashflowList.map((row, i) => i === idx ? { ...row, accountId: nextAccountId } : row)
+                          }));
                           clearFieldError('paymentAccount');
                         }}
-                        className="w-full p-3 text-xs md:text-sm font-bold text-slate-700 border-none bg-slate-50 hover:bg-slate-100 rounded-xl outline-none cursor-pointer"
+                        className="w-full p-2.5 text-xs md:text-sm font-semibold text-slate-700 border border-slate-200/70 bg-slate-50 hover:bg-slate-100 rounded-xl outline-none cursor-pointer"
                       >
                         <option value="">Pilih Akun Bank/Tunai...</option>
                         {cashflowAccounts.map(a => (
@@ -3278,20 +3294,22 @@ export default function MenuPage() {
                     </div>
 
                     {/* Input Nominal */}
-                    <div className="relative w-full sm:w-48 shrink-0">
-                      <span className={`absolute left-3 top-1/2 -translate-y-1/2 text-[11px] font-black ${activeTheme.text}`}>Rp</span>
+                    <div className="relative w-full sm:w-44 shrink-0">
+                      <span className={`absolute left-3 top-1/2 -translate-y-1/2 text-[11px] font-semibold ${activeTheme.text}`}>Rp</span>
                       <input
                         type="number"
                         placeholder="Nominal"
                         value={cf.nominal || ''}
                         data-field="paymentNominal"
                         onChange={e => {
-                          const newList = [...formBayar.cashflowList];
-                          newList[idx].nominal = Number(e.target.value);
-                          setFormBayar({ ...formBayar, cashflowList: newList });
+                          const nextNominal = Number(e.target.value);
+                          setFormBayar(prev => ({
+                            ...prev,
+                            cashflowList: prev.cashflowList.map((row, i) => i === idx ? { ...row, nominal: nextNominal } : row)
+                          }));
                           clearFieldError('paymentNominal');
                         }}
-                        className="w-full pl-9 pr-3 py-3 text-xs md:text-sm font-black text-slate-800 border-none bg-slate-50 hover:bg-slate-100 focus:bg-white rounded-xl outline-none focus:ring-2 focus:ring-slate-200"
+                        className="w-full pl-9 pr-3 py-2.5 text-xs md:text-sm font-semibold text-slate-800 border border-slate-200/70 bg-slate-50 hover:bg-slate-100 focus:bg-white rounded-xl outline-none focus:ring-2 focus:ring-slate-200"
                       />
                     </div>
                   </div>
@@ -3303,9 +3321,9 @@ export default function MenuPage() {
                   </div>
 
                   {/* Total Dibayar & Tombol Uang Pas (Auto Lunas) ditaruh dibawahnya */}
-                  <div className="flex justify-between items-center pt-3 border-t border-black/5">
-                    <span className={`text-[11px] md:text-xs font-black ${activeTheme.text} uppercase`}>Total Dibayar:</span>
-                    <span className="text-base md:text-lg font-black text-slate-800 bg-white px-4 py-1.5 rounded-xl shadow-sm border border-slate-100">
+                  <div className="flex justify-between items-center pt-2.5 border-t border-black/5">
+                    <span className={`text-xs font-semibold ${activeTheme.text}`}>Total Dibayar:</span>
+                    <span className="text-sm md:text-base font-semibold text-slate-800 bg-white px-3 py-1.5 rounded-xl border border-slate-200/80 tabular-nums">
                       {formatRupiah(formBayar.cashflowList.reduce((sum, cf) => sum + (cf.nominal || 0), 0))}
                     </span>
                   </div>
@@ -3316,23 +3334,23 @@ export default function MenuPage() {
                     const selisih = totalDibayarCalc - grandTotal;
                     if (selisih > 0) {
                       return (
-                        <div className="p-3 bg-emerald-50/90 border border-emerald-200 rounded-2xl flex justify-between items-center text-xs font-bold text-emerald-800 shadow-sm animate-in fade-in">
+                        <div className="p-2.5 bg-emerald-50/90 border border-emerald-200 rounded-xl flex justify-between items-center text-xs font-semibold text-emerald-800 animate-in fade-in">
                           <span className="flex items-center gap-1.5"><Sparkles size={14} className="text-emerald-500"/> Kembalian:</span>
-                          <span className="font-black text-emerald-700 text-sm md:text-base">{formatRupiah(selisih)}</span>
+                          <span className="font-semibold text-emerald-700 text-xs md:text-sm tabular-nums">{formatRupiah(selisih)}</span>
                         </div>
                       );
                     } else if (selisih < 0) {
                       return (
-                        <div className="p-3 bg-rose-50/90 border border-rose-200 rounded-2xl flex justify-between items-center text-xs font-bold text-rose-800 shadow-sm animate-in fade-in">
+                        <div className="p-2.5 bg-rose-50/90 border border-rose-200 rounded-xl flex justify-between items-center text-xs font-semibold text-rose-800 animate-in fade-in">
                           <span className="flex items-center gap-1.5"><AlertCircle size={14} className="text-rose-500"/> Sisa Kurang (Piutang):</span>
-                          <span className="font-black text-rose-700 text-sm md:text-base">{formatRupiah(Math.abs(selisih))}</span>
+                          <span className="font-semibold text-rose-700 text-xs md:text-sm tabular-nums">{formatRupiah(Math.abs(selisih))}</span>
                         </div>
                       );
                     } else if (totalDibayarCalc > 0) {
                       return (
-                        <div className="p-2.5 bg-white/80 border border-emerald-200/80 rounded-2xl flex justify-between items-center text-xs font-bold text-slate-700 shadow-sm animate-in fade-in">
+                        <div className="p-2.5 bg-white/80 border border-emerald-200/80 rounded-xl flex justify-between items-center text-xs font-semibold text-slate-700 animate-in fade-in">
                           <span className="flex items-center gap-1.5 text-slate-500"><CheckCircle2 size={14} className="text-emerald-500"/> Status Pembayaran:</span>
-                          <span className="font-black text-emerald-600 text-xs uppercase tracking-wider bg-emerald-50 px-3 py-1 rounded-xl border border-emerald-100">Pas / Lunas</span>
+                          <span className="font-semibold text-emerald-700 text-xs bg-emerald-50 px-2.5 py-0.5 rounded-lg border border-emerald-200">Pas / Lunas</span>
                         </div>
                       );
                     }
@@ -3343,30 +3361,21 @@ export default function MenuPage() {
                     type="button"
                     onClick={() => {
                       const kasirAcc = cashflowAccounts.find(a => a.text_1.toLowerCase().includes('kasir') || a.text_1.toLowerCase().includes('cash')) || cashflowAccounts[0];
-                      const newList = [...formBayar.cashflowList];
-                      const sumOther = newList.reduce((acc, curr, i) => i !== 0 ? acc + (curr.nominal || 0) : acc, 0);
-                      const remaining = Math.max(0, grandTotal - sumOther);
-                      if (newList.length > 0) {
-                        newList[0].nominal = remaining;
-                        if (kasirAcc && !newList[0].accountId) {
-                          newList[0].accountId = kasirAcc.id;
-                        }
-                      } else {
-                        newList.push({
-                          id: '',
-                          created_at: '',
-                          accountId: kasirAcc ? kasirAcc.id : '',
-                          nominal: remaining
-                        });
-                      }
-                      setFormBayar(prev => ({
-                        ...prev,
-                        payment: 'Tunai',
-                        nominalBayar: grandTotal,
-                        cashflowList: newList
-                      }));
+                      setFormBayar(prev => {
+                        const sumOther = prev.cashflowList.reduce((acc, curr, i) => i !== 0 ? acc + (curr.nominal || 0) : acc, 0);
+                        const remaining = Math.max(0, grandTotal - sumOther);
+                        const newList = prev.cashflowList.length > 0
+                          ? prev.cashflowList.map((row, i) => i === 0 ? { ...row, nominal: remaining, accountId: row.accountId || (kasirAcc ? kasirAcc.id : '') } : row)
+                          : [{ id: '', created_at: '', accountId: kasirAcc ? kasirAcc.id : '', nominal: remaining }];
+                        return {
+                          ...prev,
+                          payment: 'Tunai',
+                          nominalBayar: grandTotal,
+                          cashflowList: newList
+                        };
+                      });
                     }}
-                    className="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-black uppercase tracking-wider shadow-md shadow-emerald-600/20 transition-all active:scale-[0.99] flex items-center justify-center gap-2 mt-2"
+                    className="pos-action w-full bg-emerald-600 hover:bg-emerald-500 text-white transition-colors"
                     title="Auto Lunas (Isi Uang Pas & Akun Kas Kasir)"
                   >
                     <Zap size={16} fill="currentColor" /> Uang Pas (Auto Lunas)
@@ -3375,14 +3384,14 @@ export default function MenuPage() {
 
                 {/* 3. Jatuh Tempo */}
                 {formBayar.payment === 'Tempo' && (
-                  <div className="animate-in fade-in zoom-in duration-300 bg-rose-50 p-4 rounded-3xl border-2 border-rose-200 shadow-inner">
+                  <div className="animate-in fade-in zoom-in duration-300 bg-rose-50 p-3 rounded-2xl border border-rose-200">
                     <label className="text-[10px] md:text-[11px] font-black text-rose-500 uppercase tracking-wider ml-1 flex items-center gap-1.5"><Calendar size={14}/> Tanggal Jatuh Tempo</label>
                     <input
                       type="date"
                       value={formBayar.tempoDate} // 🟢 Menggunakan state tempoDate
                       data-field="tempoDate"
                       onChange={e => { setFormBayar({ ...formBayar, tempoDate: e.target.value }); clearFieldError('tempoDate'); }}
-                      className="w-full mt-2 p-3 text-sm font-bold text-slate-700 bg-white border-2 border-rose-100 rounded-xl focus:border-rose-400 focus:ring-2 focus:ring-rose-200 outline-none transition-all shadow-sm"
+                      className="w-full mt-2 p-2.5 text-xs md:text-sm font-semibold text-slate-700 bg-white border border-rose-200 rounded-xl focus:border-rose-400 outline-none transition-all"
                     />
                     <FieldError message={fieldErrors.tempoDate} />
                   </div>
@@ -3390,7 +3399,7 @@ export default function MenuPage() {
 
                 {/* 4. Marketplace Online */}
                 {isOnlinePerson && (
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-amber-50 p-5 rounded-3xl border-2 border-amber-200 shadow-sm animate-in fade-in">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-amber-50 p-3 rounded-2xl border border-amber-200 animate-in fade-in">
                     <div>
                       <label className="text-[10px] font-black text-amber-600 uppercase ml-1 flex items-center gap-1.5"><ShoppingBag size={12}/> Platform</label>
                       <input
@@ -3399,7 +3408,7 @@ export default function MenuPage() {
                         value={formBayar.marketplace}
                         data-field="marketplace"
                         onChange={e => { setFormBayar({ ...formBayar, marketplace: e.target.value }); clearFieldError('marketplace'); }}
-                        className="w-full mt-2 p-3 text-xs md:text-sm font-bold bg-white border-2 border-amber-100 focus:border-amber-400 rounded-xl outline-none shadow-sm"
+                        className="w-full mt-2 p-2.5 text-xs md:text-sm font-semibold bg-white border border-amber-200 focus:border-amber-400 rounded-xl outline-none"
                       />
                       <FieldError message={fieldErrors.marketplace} />
                     </div>
@@ -3411,7 +3420,7 @@ export default function MenuPage() {
                         value={formBayar.adminFee}
                         data-field="adminFee"
                         onChange={e => { setFormBayar({ ...formBayar, adminFee: Number(e.target.value) }); clearFieldError('adminFee'); }}
-                        className="w-full mt-2 p-3 text-xs md:text-sm font-bold bg-white border-2 border-amber-100 focus:border-amber-400 rounded-xl outline-none shadow-sm"
+                        className="w-full mt-2 p-2.5 text-xs md:text-sm font-semibold bg-white border border-amber-200 focus:border-amber-400 rounded-xl outline-none"
                       />
                       <FieldError message={fieldErrors.adminFee} />
                     </div>
@@ -3422,7 +3431,7 @@ export default function MenuPage() {
                         placeholder="0"
                         value={formBayar.cashback}
                         onChange={e => setFormBayar({ ...formBayar, cashback: Number(e.target.value) })}
-                        className="w-full mt-2 p-3 text-xs md:text-sm font-bold bg-white border-2 border-amber-100 focus:border-amber-400 rounded-xl outline-none shadow-sm"
+                        className="w-full mt-2 p-2.5 text-xs md:text-sm font-semibold bg-white border border-amber-200 focus:border-amber-400 rounded-xl outline-none"
                       />
                     </div>
                   </div>
@@ -3432,7 +3441,7 @@ export default function MenuPage() {
             </section>
             <section hidden={cartTab !== 'notes'} className="space-y-4">
                 {/* 6. Catatan */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
                     <label className={`text-[10px] md:text-[11px] font-black ${activeTheme.text} uppercase tracking-wider ml-1 flex items-center gap-1.5`}><FileText size={14}/> Catatan nota</label>
                     <textarea
@@ -3441,7 +3450,7 @@ export default function MenuPage() {
                       value={formBayar.noteMenu}
                       data-field="note"
                       onChange={e => { setFormBayar({ ...formBayar, noteMenu: e.target.value }); clearFieldError('note'); }}
-                      className={`w-full mt-2 p-3 text-xs md:text-sm font-medium text-slate-700 bg-white border-2 ${activeTheme.border} rounded-xl ${activeTheme.focusRing} outline-none transition-all shadow-sm`}
+                      className={`w-full mt-2 p-2.5 text-xs md:text-sm font-medium text-slate-700 bg-white border ${activeTheme.border} rounded-xl ${activeTheme.focusRing} outline-none transition-all`}
                     />
                     <FieldError message={fieldErrors.note} />
                   </div>
@@ -3452,14 +3461,14 @@ export default function MenuPage() {
                       placeholder="Informasi kasir (tidak di-print)..."
                       value={formBayar.note}
                       onChange={e => setFormBayar({ ...formBayar, note: e.target.value })}
-                      className={`w-full mt-2 p-3 text-xs md:text-sm font-medium text-slate-700 bg-white border-2 ${activeTheme.border} rounded-xl ${activeTheme.focusRing} outline-none transition-all shadow-sm`}
+                      className={`w-full mt-2 p-2.5 text-xs md:text-sm font-medium text-slate-700 bg-white border ${activeTheme.border} rounded-xl ${activeTheme.focusRing} outline-none transition-all`}
                     />
                   </div>
                 </div>
 
                 {/* 6b. Upload File / Media Bukti */}
                 <div className={`${activeTheme.light} p-5 rounded-3xl border-2 ${activeTheme.border} space-y-4 shadow-sm`}>
-                  <div className="flex justify-between items-center">
+                  <div className="flex flex-wrap justify-between items-center gap-2">
                     <label className={`text-[11px] md:text-xs font-black ${activeTheme.text} uppercase tracking-wider flex items-center gap-2`}>
                       <ImagePlus size={16} />
                       Lampiran Media / Bukti
@@ -3468,7 +3477,7 @@ export default function MenuPage() {
                       )}
                     </label>
 
-                    <label className={`cursor-pointer text-[10px] font-black bg-white ${activeTheme.text} px-4 py-2 rounded-xl shadow-sm hover:scale-105 active:scale-95 transition-all border border-transparent hover:${activeTheme.border}`}>
+                    <label className={`cursor-pointer pos-action bg-white ${activeTheme.text} border ${activeTheme.border}`}>
                       <Upload size={14}/> Tambah file
                       <input
                         type="file"
@@ -3488,13 +3497,13 @@ export default function MenuPage() {
 
                   {/* Preview Area */}
                   {menuPreviewUrls.length === 0 && existingMenuFiles.length === 0 ? (
-                    <div className={`text-center py-6 rounded-2xl border-2 border-dashed ${activeTheme.border} bg-white/50 backdrop-blur-sm`}>
-                      <p className={`text-[11px] font-black ${activeTheme.text} opacity-60`}>
+                    <div className={`text-center py-5 rounded-2xl border border-dashed ${activeTheme.border} bg-white/60`}>
+                      <p className={`text-xs font-semibold ${activeTheme.text} opacity-70`}>
                         Belum ada file media yang dilampirkan
                       </p>
                     </div>
                   ) : (
-                    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                       {/* === FILE LAMA (saat Edit) === */}
                       {editSession?.isEditing && existingMenuFiles.map((file, idx) => (
                         <div key={`existing-${idx}`} className="relative group rounded-2xl overflow-hidden border-2 border-emerald-200 shadow-md aspect-square bg-slate-100">
@@ -4232,26 +4241,55 @@ export default function MenuPage() {
 
       {/* DIALOG BOX POPUP ALERT / CONFIRMATION */} 
       <Modal isOpen={dialog.show} onClose={() => setDialog(prev => ({ ...prev, show: false }))} title={dialog.title}> 
-        {/* Tentukan warna tema berdasarkan type dialog */}
+        {/* Tentukan warna tema berdasarkan status dialog (sukses hijau, gagal merah, pending/konfirmasi kuning) */}
         {(() => {
-          const isAlert = dialog.type === 'alert';
-          const themeColor = isAlert ? 'rose' : 'blue';
-          
+          const titleLower = (dialog.title || '').toLowerCase();
+          const msgLower = (dialog.message || '').toLowerCase();
+          const isSuccess = titleLower.includes('sukses') || titleLower.includes('berhasil') || msgLower.includes('berhasil') || msgLower.includes('sukses');
+          const isError = !isSuccess && (
+            titleLower.includes('gagal') ||
+            titleLower.includes('error') ||
+            titleLower.includes('hapus') ||
+            titleLower.includes('habis') ||
+            titleLower.includes('batas') ||
+            titleLower.includes('ganda') ||
+            msgLower.includes('gagal') ||
+            msgLower.includes('error')
+          );
+
+          const dialogTheme = isSuccess
+            ? {
+                iconWrap: 'bg-emerald-50 text-emerald-600 border-emerald-200',
+                btn: 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-600/30',
+                icon: <CheckCircle2 size={36} className="text-emerald-500" />
+              }
+            : isError
+            ? {
+                iconWrap: 'bg-rose-50 text-rose-600 border-rose-200',
+                btn: 'bg-rose-600 hover:bg-rose-500 shadow-rose-600/30',
+                icon: <AlertTriangle size={36} className="text-rose-500 animate-pulse" />
+              }
+            : {
+                iconWrap: 'bg-amber-50 text-amber-600 border-amber-200',
+                btn: 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/30',
+                icon: <AlertTriangle size={36} className="text-amber-500" />
+              };
+
           return (
-            <div className="text-center p-6"> 
-              <div className={`w-20 h-20 rounded-[2rem] flex items-center justify-center mx-auto mb-6 bg-${themeColor}-50 text-${themeColor}-500 shadow-inner border border-${themeColor}-100 rotate-3`}> 
-                {isAlert ? <AlertTriangle size={40} className="animate-pulse"/> : <Info size={40} />} 
+            <div className="text-center p-4 sm:p-6"> 
+              <div className={`w-16 h-16 sm:w-20 sm:h-20 rounded-2xl sm:rounded-[2rem] flex items-center justify-center mx-auto mb-5 shadow-inner border ${dialogTheme.iconWrap}`}> 
+                {dialogTheme.icon} 
               </div> 
-              <p className="font-black text-slate-700 text-base leading-relaxed mb-8">{dialog.message}</p> 
-              <div className="flex gap-4"> 
+              <p className="font-bold text-slate-700 text-sm sm:text-base leading-relaxed mb-6 whitespace-pre-line">{dialog.message}</p> 
+              <div className="flex gap-3"> 
                 {dialog.type === 'confirm' && (
-                  <button onClick={() => setDialog(prev => ({ ...prev, show: false }))} className="flex-1 py-4 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-2xl font-black text-xs tracking-widest transition-colors">
+                  <button onClick={() => setDialog(prev => ({ ...prev, show: false }))} className="flex-1 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-black text-xs tracking-wider transition-colors">
                     BATALKAN
                   </button>
                 )} 
                 <button 
                   onClick={dialog.onConfirm || (() => setDialog(prev => ({ ...prev, show: false })))} 
-                  className={`flex-[2] py-4 text-white rounded-2xl font-black text-xs shadow-xl bg-${themeColor}-500 shadow-${themeColor}-500/40 hover:bg-${themeColor}-600 active:scale-95 transition-all tracking-widest`}
+                  className={`flex-[2] py-3.5 text-white rounded-xl font-black text-xs shadow-lg active:scale-95 transition-all tracking-wider ${dialogTheme.btn}`}
                 >
                   {dialog.confirmLabel || (dialog.type === 'confirm' ? 'YA, LANJUTKAN PROSES' : 'MENGERTI')}
                 </button> 

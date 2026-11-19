@@ -83,40 +83,78 @@ export default function Modal({
 
   let detectedType: 'success' | 'error' | 'warning' | 'info' = type || 'info';
   if (!type) {
-    if (titleLower.includes('sukses') || titleLower.includes('berhasil') || descLower.includes('berhasil') || descLower.includes('sukses')) {
+    if (
+      titleLower.includes('sukses') ||
+      titleLower.includes('berhasil') ||
+      titleLower.includes('tersimpan') ||
+      descLower.includes('berhasil') ||
+      descLower.includes('sukses')
+    ) {
       detectedType = 'success';
-    } else if (titleLower.includes('gagal') || titleLower.includes('error') || titleLower.includes('hapus') || descLower.includes('gagal') || descLower.includes('batal')) {
+    } else if (
+      titleLower.includes('gagal') ||
+      titleLower.includes('error') ||
+      titleLower.includes('kendala') ||
+      titleLower.includes('hapus') ||
+      titleLower.includes('habis') ||
+      titleLower.includes('batas') ||
+      titleLower.includes('ganda') ||
+      descLower.includes('gagal') ||
+      descLower.includes('error')
+    ) {
       detectedType = 'error';
-    } else if (titleLower.includes('perhatian') || titleLower.includes('yakin') || titleLower.includes('peringatan') || descLower.includes('yakin')) {
+    } else if (
+      titleLower.includes('perhatian') ||
+      titleLower.includes('yakin') ||
+      titleLower.includes('peringatan') ||
+      titleLower.includes('konfirmasi') ||
+      titleLower.includes('pending') ||
+      titleLower.includes('tutup') ||
+      titleLower.includes('batal') ||
+      titleLower.includes('edit') ||
+      titleLower.includes('belum lunas') ||
+      titleLower.includes('terkait') ||
+      descLower.includes('yakin') ||
+      descLower.includes('lanjutkan') ||
+      descLower.includes('pending')
+    ) {
       detectedType = 'warning';
     }
   }
 
-  // Skema warna responsif bertema berdasarkan status
+  // Skema warna responsif bertema berdasarkan status (sukses hijau, gagal merah, pending/konfirmasi kuning)
   const themeConfig = {
     success: {
       iconBg: 'bg-emerald-50 text-emerald-600 border-emerald-200',
       icon: <CheckCircle2 size={28} className="text-emerald-500" />,
       buttonBg: 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-200',
-      cardBorder: 'border-emerald-100',
+      cardBorder: 'border-emerald-200',
+      headerBg: 'bg-gradient-to-r from-emerald-50 via-white to-emerald-50 border-emerald-200',
+      titleColor: 'text-emerald-900',
     },
     error: {
       iconBg: 'bg-rose-50 text-rose-600 border-rose-200',
       icon: <XCircle size={28} className="text-rose-500" />,
       buttonBg: 'bg-rose-600 hover:bg-rose-500 shadow-rose-200',
-      cardBorder: 'border-rose-100',
+      cardBorder: 'border-rose-200',
+      headerBg: 'bg-gradient-to-r from-rose-50 via-white to-rose-50 border-rose-200',
+      titleColor: 'text-rose-900',
     },
     warning: {
       iconBg: 'bg-amber-50 text-amber-600 border-amber-200',
       icon: <AlertTriangle size={28} className="text-amber-500" />,
-      buttonBg: 'bg-amber-600 hover:bg-amber-500 shadow-amber-200',
-      cardBorder: 'border-amber-100',
+      buttonBg: 'bg-amber-500 hover:bg-amber-600 shadow-amber-200',
+      cardBorder: 'border-amber-200',
+      headerBg: 'bg-gradient-to-r from-amber-50 via-white to-amber-50 border-amber-200',
+      titleColor: 'text-amber-900',
     },
     info: {
       iconBg: 'bg-cyan-50 text-cyan-600 border-cyan-200',
       icon: <Info size={28} className="text-cyan-500" />,
       buttonBg: 'bg-cyan-600 hover:bg-cyan-500 shadow-cyan-200',
-      cardBorder: 'border-cyan-100',
+      cardBorder: 'border-slate-200',
+      headerBg: 'bg-gradient-to-r from-slate-50 via-white to-slate-50 border-slate-200',
+      titleColor: 'text-slate-800',
     }
   }[detectedType];
 
@@ -139,7 +177,7 @@ export default function Modal({
         className={`bg-white shadow-2xl transform scale-100 animate-in zoom-in-95 duration-200 overflow-hidden w-full ${
           isAlert 
             ? `p-6 max-w-sm rounded-[2.5rem] text-center space-y-4 border ${themeConfig.cardBorder}` 
-            : `${maxWidth} rounded-2xl border border-slate-200`
+            : `${maxWidth} rounded-2xl border ${maxWidth === 'max-w-md' ? themeConfig.cardBorder : 'border-slate-200'}`
         }`}
         onClick={(e) => e.stopPropagation()} 
       >
@@ -152,7 +190,7 @@ export default function Modal({
               {finalIcon}
             </div>
             <div>
-              {title && <h3 className="font-black text-slate-800 text-lg uppercase tracking-tight">{title}</h3>}
+              {title && <h3 className={`font-black text-lg uppercase tracking-tight ${themeConfig.titleColor}`}>{title}</h3>}
               {alertDescription && <div className="text-xs text-slate-500 font-medium mt-1.5 leading-relaxed">{alertDescription}</div>}
             </div>
             
@@ -178,8 +216,8 @@ export default function Modal({
         /* RENDER MODE MODAL STANDARD                */
         /* ========================================= */
           <>
-            <div className={`flex justify-between items-center gap-3 border-b border-slate-200 ${compact ? 'px-4 py-3 bg-white' : 'p-5 px-6 bg-gradient-to-r from-slate-50 via-white to-slate-50'}`}>
-              <h3 className="text-lg font-black text-slate-800 tracking-tight">{title}</h3>
+            <div className={`flex justify-between items-center gap-3 border-b ${compact ? 'px-4 py-3 bg-white border-slate-200' : `p-4 sm:p-5 px-5 sm:px-6 ${maxWidth === 'max-w-md' ? themeConfig.headerBg : 'bg-gradient-to-r from-slate-50 via-white to-slate-50 border-slate-200'}`}`}>
+              <h3 className={`text-base sm:text-lg font-black tracking-tight ${!compact && maxWidth === 'max-w-md' ? themeConfig.titleColor : 'text-slate-800'}`}>{title}</h3>
               <button 
                 onClick={onClose} 
                 aria-label="Tutup dialog"

@@ -126,7 +126,8 @@ class CashflowObserver
 
         // 2. Bon karyawan
         if (!Bon::where('ref_cashflow', $cashflow->id)->exists() && !$refBaru && $jenis === 'bonkaryawan' && $mutasiRaw === 'out' && $acc1) {
-            $userId = User::find($this->getRelId($cashflow->account_2))?->id ?: User::where('username', (string) $cashflow->persontext)->value('id');
+            $userId = User::find($this->getRelId($cashflow->account_2))?->id
+                ?: User::where('username', (string) $cashflow->persontext)->orWhere('name', (string) $cashflow->persontext)->value('id');
             if ($cfPerson) {
                 $dp = Dropdown::find($cfPerson);
                 if ($dp) {
@@ -228,31 +229,40 @@ class CashflowObserver
 
         app(\App\Services\CashflowLedger::class)->apply($cashflow, 'updated');
 
-        // Manual bon keeps its identity and employee relation when its cashflow is edited.
-        $manualBon = $newJenis === 'bon' && $newMutasiRaw === 'out';
-        foreach (Bon::where('ref_cashflow', $cashflow->id)->get() as $linkedBon) {
-            if ($manualBon) {
-                $linkedBon->update(['created_at' => $newCreated, 'akun_asal' => $newAcc1,
-                    'nominal' => $newNominal, 'note' => $newNote, 'operator' => $newOperator]);
+        // Manual or bonkaryawan keeps its identity and updates employee relation in-place without duplicating bon rows.
+        $isBonOut = in_array($newJenis, ['bon', 'bonkaryawan'], true) && $newMutasiRaw === 'out';
+        $resolvedUserId = User::find($this->getRelId($cashflow->account_2))?->id
+            ?: User::where('username', (string) $cashflow->persontext)->orWhere('name', (string) $cashflow->persontext)->value('id');
+        if ($newPerson) {
+            $dp = Dropdown::find($newPerson);
+            if ($dp) {
+                $uName = strtolower(trim((string) $dp->text_1));
+                $userRec = User::whereRaw('LOWER(TRIM(name)) = ?', [$uName])
+                               ->orWhereRaw('LOWER(TRIM(username)) = ?', [$uName])
+                               ->first();
+                if ($userRec) $resolvedUserId = $userRec->id;
+            }
+        }
+        $linkedBons = Bon::where('ref_cashflow', $cashflow->id)->get();
+        foreach ($linkedBons as $linkedBon) {
+            if ($isBonOut) {
+                $linkedBon->update([
+                    'created_at' => $newCreated,
+                    'akun_asal' => $newAcc1,
+                    'nominal' => $newNominal,
+                    'note' => $newNote,
+                    'operator' => $newOperator,
+                    'person' => $newPerson ?: $linkedBon->person,
+                    'user' => $resolvedUserId ?: $linkedBon->user,
+                    'persontext' => (string) ($cashflow->persontext ?: $linkedBon->persontext),
+                ]);
             } else {
                 $linkedBon->delete();
             }
         }
 
-        // 4. Create new linked bon
-        if (!$newRef && $newJenis === 'bonkaryawan' && $newMutasiRaw === 'out' && $newAcc1) {
-            $newUserId = User::find($this->getRelId($cashflow->account_2))?->id ?: User::where('username', (string) $cashflow->persontext)->value('id');
-            if ($newPerson) {
-                $dp = Dropdown::find($newPerson);
-                if ($dp) {
-                    $uName = strtolower(trim((string) $dp->text_1));
-                    $userRec = User::whereRaw('LOWER(TRIM(name)) = ?', [$uName])
-                                   ->orWhereRaw('LOWER(TRIM(username)) = ?', [$uName])
-                                   ->first();
-                    if ($userRec) $newUserId = $userRec->id;
-                }
-            }
-
+        // 4. Create new linked bon only if none existed yet
+        if ($linkedBons->isEmpty() && !$newRef && $newJenis === 'bonkaryawan' && $newMutasiRaw === 'out' && $newAcc1) {
             Bon::create([
                 'created_at' => $newCreated,
                 'akun_asal' => $newAcc1,
@@ -260,11 +270,11 @@ class CashflowObserver
                 'jenis' => 'out',
                 'ref_cashflow' => $cashflow->id,
                 'person' => $newPerson,
-                'user' => $newUserId ?: '',
+                'user' => $resolvedUserId ?: '',
+                'persontext' => (string) $cashflow->persontext,
                 'note' => $newNote,
                 'operator' => $newOperator,
             ]);
-
         }
 
         // 5. Revert old report (Atomic)

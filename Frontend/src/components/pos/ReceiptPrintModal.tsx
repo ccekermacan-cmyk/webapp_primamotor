@@ -38,10 +38,10 @@ export const ReceiptPrintModal: React.FC<ReceiptPrintModalProps> = ({
 
   return (
     <Modal isOpen={!!showReceiptPrint} onClose={() => setShowReceiptPrint(null)} title="Print Antrian Kasir">
-      <div className="space-y-6 flex flex-col items-center">
-        <div className="bg-slate-100 p-4 w-full rounded-2xl flex justify-center items-center shadow-inner">
+      <div className="space-y-4 flex flex-col items-center">
+        <div className="bg-slate-100 p-3 sm:p-4 w-full rounded-2xl flex justify-center items-center shadow-inner overflow-x-auto">
           {/* Box Putih simulasi kertas thermal */}
-          <div ref={receiptRef} className="border-t-[8px] border-b-[8px] border-t-slate-800 border-b-white bg-white w-[280px] text-slate-900 font-mono text-xs shadow-xl rounded-sm" id="thermal-receipt-58mm"> 
+          <div ref={receiptRef} className="border-t-[8px] border-b-[8px] border-t-slate-800 border-b-white bg-white w-[280px] max-w-full text-slate-900 font-mono text-xs shadow-xl rounded-sm" id="thermal-receipt-58mm"> 
             {/* HEADER TOKO */}
             <div className="text-center space-y-1.5 border-b-2 border-dashed border-slate-300 pb-4 pt-4 px-3"> 
               <h4 className="font-black text-base tracking-wide">PRIMA MOTOR GLADAG</h4> 
@@ -135,8 +135,8 @@ export const ReceiptPrintModal: React.FC<ReceiptPrintModalProps> = ({
                 setDialog({ show: true, title: 'Berhasil', message: 'Detail nota disalin ke clipboard!', type: 'alert' });
               }).catch(() => alert('Gagal menyalin ke clipboard'));
             }}
-            className="flex-1 py-4 bg-amber-500 hover:bg-amber-400 text-white rounded-2xl font-black text-xs md:text-sm shadow-lg shadow-amber-500/30 hover:-translate-y-1 active:translate-y-0 transition-all tracking-widest flex justify-center items-center gap-2">
-            <Share2 size={18}/> SHARE
+            className="pos-action w-full sm:flex-1 py-3 bg-amber-500 hover:bg-amber-400 text-white rounded-xl font-bold text-xs shadow-sm transition-all flex justify-center items-center gap-2">
+            <Share2 size={16}/> SHARE
           </button>
           <button 
             type="button"
@@ -148,8 +148,8 @@ export const ReceiptPrintModal: React.FC<ReceiptPrintModalProps> = ({
                 alert("Konten kertas nota gagal di-render oleh DOM.");
               }
             }} 
-            className={`flex-[2] py-4 ${activeTheme.main} text-white rounded-2xl font-black text-xs md:text-sm shadow-xl shadow-${activeTheme.main.replace('bg-','')}/40 hover:-translate-y-1 hover:brightness-110 active:translate-y-0 transition-all tracking-widest flex justify-center items-center gap-2`}>
-            <Printer size={18}/> PRINT
+            className={`pos-action w-full sm:flex-[2] py-3 ${activeTheme.main} text-white rounded-xl font-bold text-xs shadow-sm hover:brightness-110 transition-all flex justify-center items-center gap-2`}>
+            <Printer size={16}/> PRINT
           </button>
           <button 
             type="button"
@@ -172,7 +172,7 @@ export const ReceiptPrintModal: React.FC<ReceiptPrintModalProps> = ({
                 createdAt: getLocalDatetimeInput()
               });
             }}
-            className="px-6 py-4 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-2xl font-black text-xs md:text-sm transition-all"
+            className="pos-action w-full sm:w-auto px-5 py-3 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl font-bold text-xs transition-all flex justify-center items-center"
           >
             Selesai
           </button>

@@ -2,7 +2,7 @@ import { recalculateFinancialReport, flushPendingSync } from '../services/api/la
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { pb } from '../lib/pocketbase';
 import Modal from '../components/modal'; // PENTING: Jangan dihapus agar Alert UI berjalan
-import { Search, Calendar, ChevronLeft, ChevronRight, ChevronDown, Download, TrendingUp, TrendingDown, DollarSign, Wallet, Filter, RefreshCw, BarChart3, Lightbulb, X, Trash2, AlertTriangle, Info } from 'lucide-react';
+import { Search, Calendar, ChevronLeft, ChevronRight, ChevronDown, Download, TrendingUp, TrendingDown, DollarSign, Wallet, Filter, RefreshCw, BarChart3, Lightbulb, X, Trash2, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Line
 } from 'recharts';
@@ -1612,26 +1612,52 @@ export default function ReportPage() {
 
       {/* DIALOG BOX POPUP ALERT / CONFIRMATION */} 
       <Modal isOpen={dialog.show} onClose={() => setDialog(prev => ({ ...prev, show: false }))} title={dialog.title}> 
-        {/* Tentukan warna tema berdasarkan type dialog */}
+        {/* Tentukan warna tema berdasarkan status dialog (sukses hijau, gagal merah, pending/konfirmasi kuning) */}
         {(() => {
-          const isAlert = dialog.type === 'alert';
-          const themeColor = isAlert ? 'rose' : 'blue';
-          
+          const titleLower = (dialog.title || '').toLowerCase();
+          const msgLower = (dialog.message || '').toLowerCase();
+          const isSuccess = titleLower.includes('sukses') || titleLower.includes('berhasil') || msgLower.includes('berhasil') || msgLower.includes('sukses');
+          const isError = !isSuccess && (
+            titleLower.includes('gagal') ||
+            titleLower.includes('error') ||
+            titleLower.includes('hapus') ||
+            msgLower.includes('gagal') ||
+            msgLower.includes('error')
+          );
+
+          const dialogTheme = isSuccess
+            ? {
+                iconWrap: 'bg-emerald-50 text-emerald-600 border-emerald-200',
+                btn: 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-600/30',
+                icon: <CheckCircle2 size={36} className="text-emerald-500" />
+              }
+            : isError
+            ? {
+                iconWrap: 'bg-rose-50 text-rose-600 border-rose-200',
+                btn: 'bg-rose-600 hover:bg-rose-500 shadow-rose-600/30',
+                icon: <AlertTriangle size={36} className="text-rose-500 animate-pulse" />
+              }
+            : {
+                iconWrap: 'bg-amber-50 text-amber-600 border-amber-200',
+                btn: 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/30',
+                icon: <AlertTriangle size={36} className="text-amber-500" />
+              };
+
           return (
-            <div className="text-center p-6"> 
-              <div className={`w-20 h-20 rounded-[2rem] flex items-center justify-center mx-auto mb-6 bg-${themeColor}-50 text-${themeColor}-500 shadow-inner border border-${themeColor}-100 rotate-3`}> 
-                {isAlert ? <AlertTriangle size={40} className="animate-pulse"/> : <Info size={40} />} 
+            <div className="text-center p-4 sm:p-6"> 
+              <div className={`w-16 h-16 sm:w-20 sm:h-20 rounded-2xl sm:rounded-[2rem] flex items-center justify-center mx-auto mb-5 shadow-inner border ${dialogTheme.iconWrap}`}> 
+                {dialogTheme.icon} 
               </div> 
-              <p className="font-black text-slate-700 text-base leading-relaxed mb-8">{dialog.message}</p> 
-              <div className="flex gap-4"> 
+              <p className="font-bold text-slate-700 text-sm sm:text-base leading-relaxed mb-6">{dialog.message}</p> 
+              <div className="flex gap-3"> 
                 {dialog.type === 'confirm' && (
-                  <button onClick={() => setDialog(prev => ({ ...prev, show: false }))} className="flex-1 py-4 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-2xl font-black text-xs tracking-widest transition-colors">
+                  <button onClick={() => setDialog(prev => ({ ...prev, show: false }))} className="flex-1 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-black text-xs tracking-wider transition-colors">
                     BATALKAN
                   </button>
                 )} 
                 <button 
                   onClick={dialog.onConfirm || (() => setDialog(prev => ({ ...prev, show: false })))} 
-                  className={`flex-[2] py-4 text-white rounded-2xl font-black text-xs shadow-xl bg-${themeColor}-500 shadow-${themeColor}-500/40 hover:bg-${themeColor}-600 active:scale-95 transition-all tracking-widest`}
+                  className={`flex-[2] py-3.5 text-white rounded-xl font-black text-xs shadow-lg active:scale-95 transition-all tracking-wider ${dialogTheme.btn}`}
                 >
                   {dialog.type === 'confirm' ? 'YA, LANJUTKAN PROSES' : 'MENGERTI'}
                 </button> 

@@ -61,7 +61,7 @@ export const MechanicSection: React.FC<MechanicSectionProps> = React.memo(({
                 setFormBayar(prev => ({ ...prev, mekanikList: newList }));
                 onChange?.();
               }}
-              className={`text-[10px] font-black bg-white ${activeTheme.text} px-3 py-2 rounded-xl shadow-sm hover:scale-105 active:scale-95 transition-all border border-transparent hover:${activeTheme.border} flex items-center gap-1`}
+              className={`pos-action bg-white ${activeTheme.text} border ${activeTheme.border}`}
               title="Bagi rata ongkos ke semua mekanik"
             >
               <Scale size={14}/> Bagi rata
@@ -76,7 +76,7 @@ export const MechanicSection: React.FC<MechanicSectionProps> = React.memo(({
               }));
               onChange?.();
             }}
-            className={`text-[10px] font-black bg-white ${activeTheme.text} px-4 py-2 rounded-xl shadow-sm hover:scale-105 active:scale-95 transition-all border border-transparent hover:${activeTheme.border}`}
+            className={`pos-action bg-white ${activeTheme.text} border ${activeTheme.border}`}
           >
             <Plus size={14}/> Tambah mekanik
           </button>
@@ -97,7 +97,7 @@ export const MechanicSection: React.FC<MechanicSectionProps> = React.memo(({
                 }));
                 onChange?.();
               }}
-              className="p-2 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors self-end sm:self-auto order-1 sm:order-none"
+              className="pos-action text-rose-500 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors self-end sm:self-auto order-1 sm:order-none shrink-0"
               title="Hapus mekanik"
             >
               <Trash2 size={16} /> Hapus
@@ -112,12 +112,13 @@ export const MechanicSection: React.FC<MechanicSectionProps> = React.memo(({
                 setDialog({ show: true, title: 'Mekanik Ganda', message: 'Mekanik sudah dipilih di baris lain!', type: 'alert' });
                 return;
               }
-              const newList = [...formBayar.mekanikList];
-              newList[idx].idLama = selectedMekanik;
-              setFormBayar(prev => ({ ...prev, mekanikList: newList }));
+              setFormBayar(prev => ({
+                ...prev,
+                mekanikList: prev.mekanikList.map((row, i) => i === idx ? { ...row, idLama: selectedMekanik } : row)
+              }));
               onChange?.();
             }}
-            className="flex-1 p-3 text-xs md:text-sm font-bold text-slate-700 border-none bg-slate-50 hover:bg-slate-100 rounded-xl outline-none cursor-pointer w-full"
+            className="flex-1 p-2.5 text-xs md:text-sm font-semibold text-slate-700 border border-slate-200/70 bg-slate-50 hover:bg-slate-100 rounded-xl outline-none cursor-pointer w-full min-w-0"
           >
             <option value="">Pilih Nama Mekanik...</option>
             {mechanics.map(m => {
@@ -129,19 +130,21 @@ export const MechanicSection: React.FC<MechanicSectionProps> = React.memo(({
               );
             })}
           </select>
-          <div className="relative w-full sm:w-auto">
-            <span className={`absolute left-3 top-1/2 -translate-y-1/2 text-[11px] font-black ${activeTheme.text}`}>Rp</span>
+          <div className="relative w-full sm:w-44 shrink-0">
+            <span className={`absolute left-3 top-1/2 -translate-y-1/2 text-[11px] font-semibold ${activeTheme.text}`}>Rp</span>
             <input
               type="number"
               placeholder="Ongkos Kerja"
               value={mek.ongkos || ''}
               onChange={e => {
-                const newList = [...formBayar.mekanikList];
-                newList[idx].ongkos = Number(e.target.value);
-                setFormBayar(prev => ({ ...prev, mekanikList: newList }));
+                const nextOngkos = Number(e.target.value);
+                setFormBayar(prev => ({
+                  ...prev,
+                  mekanikList: prev.mekanikList.map((row, i) => i === idx ? { ...row, ongkos: nextOngkos } : row)
+                }));
                 onChange?.();
               }}
-              className="w-full sm:w-40 pl-9 pr-3 py-3 text-xs md:text-sm font-black text-slate-800 border-none bg-slate-50 hover:bg-slate-100 focus:bg-white rounded-xl outline-none focus:ring-2 focus:ring-slate-200"
+              className="w-full pl-9 pr-3 py-2.5 text-xs md:text-sm font-semibold text-slate-800 border border-slate-200/70 bg-slate-50 hover:bg-slate-100 focus:bg-white rounded-xl outline-none focus:ring-2 focus:ring-slate-200"
             />
           </div>
         </div>

@@ -12,7 +12,7 @@ import { formatRupiah } from '../lib/money';
     Wallet, Search, Trash2, ChevronLeft, ChevronRight, ChevronUp,
     ArrowDownRight, ArrowUpRight, Calendar, User,
     ExternalLink, Layers, X, DollarSign, ImagePlus, Save, FileText,
-    ArrowRight, Filter, Plus, ChevronDown, AlertCircle, RefreshCw, AlertTriangle
+    ArrowRight, Filter, Plus, ChevronDown, AlertCircle, RefreshCw
   } from 'lucide-react';
 
   interface Cashflow {
@@ -302,6 +302,9 @@ import { formatRupiah } from '../lib/money';
           cfData.append("jenis", "bon");
           cfData.append("mutasi", "out");
           cfData.append("account_1", formDataBon.akun_asal);
+          cfData.append("account_2", selectedPerson?.source === "user" ? selectedPerson.id : "");
+          cfData.append("person", selectedPerson?.source === "dropdown" ? formDataBon.person : "");
+          cfData.append("persontext", formDataBon.persontext);
           cfData.append("nominal", String(formDataBon.nominal));
           cfData.append("note", formDataBon.note);
           
@@ -893,12 +896,14 @@ import { formatRupiah } from '../lib/money';
         const mutasiValue = (mLower === 'masuk' || mLower === 'in') ? 'in' : 'out';
         formDataObj.append("mutasi", mutasiValue);
         formDataObj.append("account_1", formData.account_1 || "");
-        formDataObj.append("account_2", formData.jenis.toLowerCase().includes("transfer") ? formData.account_2 || "" : "");
+        const selectedPersonObj = personOptions.find(p => p.id === formData.person);
+        const isBonKaryawan = formData.jenis.toLowerCase() === 'bonkaryawan' && mutasiValue === 'out';
+        formDataObj.append("account_2", formData.jenis.toLowerCase().includes("transfer") ? formData.account_2 || "" : (isBonKaryawan && selectedPersonObj?.source === "user" ? selectedPersonObj.id : ""));
         formDataObj.append("nominal", String(formData.nominal || 0));
         formDataObj.append("note", formData.note || "");
         formDataObj.append("created_at", formattedDate);
         formDataObj.append("operator", operatorName);
-        formDataObj.append("person", personOptions.find(p => p.id === formData.person)?.source === "user" ? "" : formData.person || "");
+        formDataObj.append("person", selectedPersonObj?.source === "user" ? "" : formData.person || "");
         formDataObj.append("persontext", formData.persontext || "");
         formDataObj.append("acc1", accountIdLama);
         formDataObj.append("acc2", formData.jenis.toLowerCase().includes("transfer") ? account2IdLama : "");
@@ -2084,14 +2089,14 @@ import { formatRupiah } from '../lib/money';
 
                   return (
                     <>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
-                          <label className={`text-[10px] font-black ${txtColor} uppercase tracking-wider ml-1 flex items-center gap-1.5`}><Calendar size={14}/> Tanggal Waktu</label>
-                          <input type="datetime-local" name="created_at" value={formData.created_at || ''} onChange={handleInputChange} className={`w-full mt-2 p-3 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none transition-all shadow-sm ${focusClass}`} required />
+                          <label className={`text-[10px] md:text-[11px] font-black ${txtColor} uppercase tracking-wider ml-1 flex items-center gap-1.5`}><Calendar size={14}/> Tanggal Waktu</label>
+                          <input type="datetime-local" name="created_at" value={formData.created_at || ''} onChange={handleInputChange} className={`w-full mt-2 p-2.5 text-xs md:text-sm font-semibold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none transition-all shadow-sm ${focusClass}`} required />
                         </div>
                         <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
-                          <label className={`text-[10px] font-black ${txtColor} uppercase tracking-wider ml-1 flex items-center gap-1.5`}><Layers size={14}/> Jenis Cashflow</label>
-                          <select name="jenis" value={formData.jenis || ''} onChange={handleInputChange} className={`w-full mt-2 p-3 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none shadow-sm ${focusClass}`} required>
+                          <label className={`text-[10px] md:text-[11px] font-black ${txtColor} uppercase tracking-wider ml-1 flex items-center gap-1.5`}><Layers size={14}/> Jenis Cashflow</label>
+                          <select name="jenis" value={formData.jenis || ''} onChange={handleInputChange} className={`w-full mt-2 p-2.5 text-xs md:text-sm font-semibold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none shadow-sm ${focusClass}`} required>
                             <option value="" disabled>Pilih Kategori...</option>
                             {/* Mengubah value menjadi id_lama agar saat Edit bisa terbaca, dan label tetap text_1 */}
                             {optionsJenis.map(opt => <option key={opt.id} value={opt.id_lama || opt.id}>{opt.text_1}</option>)}
@@ -2104,20 +2109,20 @@ import { formatRupiah } from '../lib/money';
                       const showPersonSelector = formData.mutasi === 'Keluar' && formData.jenis?.toLowerCase() === 'bonkaryawan';
                       const twoColumns = isTransfer || showPersonSelector;
                       return (
-                        <div className={`grid grid-cols-1 ${twoColumns ? 'sm:grid-cols-2' : ''} gap-4`}>
+                        <div className={`grid grid-cols-1 ${twoColumns ? 'sm:grid-cols-2' : ''} gap-3`}>
                           {/* Kolom 1: Akun Sumber (selalu ada) */}
                           <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
-                            <div className="flex justify-between items-center ml-1">
-                              <label className={`text-[10px] font-black ${txtColor} uppercase tracking-wider flex items-center gap-1.5`}>
+                            <div className="flex flex-wrap justify-between items-center gap-1 ml-1">
+                              <label className={`text-[10px] md:text-[11px] font-black ${txtColor} uppercase tracking-wider flex items-center gap-1.5`}>
                                 <Wallet size={14}/> Akun Sumber
                               </label>
                               {formData.account_1 && (
-                                <span className="text-[9px] font-black text-slate-500 bg-slate-200 px-2 py-0.5 rounded-md shadow-sm">
+                                <span className="text-[10px] font-semibold text-slate-600 bg-slate-200/80 px-2 py-0.5 rounded-md">
                                   Saldo: {formatRupiah(walletsMap.get(formData.account_1)?.number_1 || 0)}
                                 </span>
                               )}
                             </div>
-                            <select name="account_1" value={formData.account_1 || ''} onChange={handleInputChange} className={`w-full mt-2 p-3 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none shadow-sm ${focusClass}`} required>
+                            <select name="account_1" value={formData.account_1 || ''} onChange={handleInputChange} className={`w-full mt-2 p-2.5 text-xs md:text-sm font-semibold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none shadow-sm ${focusClass}`} required>
                               <option value="" disabled>Pilih Dompet...</option>
                               {accountOptions.map(opt => <option key={opt.id} value={opt.id}>{opt.text_1}</option>)}
                             </select>
@@ -2126,17 +2131,17 @@ import { formatRupiah } from '../lib/money';
                           {/* Kolom 2: Tentukan berdasarkan kondisi */}
                           {isTransfer && (
                             <div className="bg-blue-50 p-3 rounded-2xl border border-blue-100 animate-in fade-in zoom-in duration-300">
-                              <div className="flex justify-between items-center ml-1">
-                                <label className="text-[10px] font-black text-blue-600 uppercase tracking-wider flex items-center gap-1.5">
+                              <div className="flex flex-wrap justify-between items-center gap-1 ml-1">
+                                <label className="text-[10px] md:text-[11px] font-black text-blue-600 uppercase tracking-wider flex items-center gap-1.5">
                                   <ArrowRight size={14}/> Akun Tujuan
                                 </label>
                                 {formData.account_2 && (
-                                  <span className="text-[9px] font-black text-blue-600 bg-blue-200/50 px-2 py-0.5 rounded-md shadow-sm">
+                                  <span className="text-[10px] font-semibold text-blue-600 bg-blue-200/50 px-2 py-0.5 rounded-md">
                                     Saldo: {formatRupiah(walletsMap.get(formData.account_2)?.number_1 || 0)}
                                   </span>
                                 )}
                               </div>
-                              <select name="account_2" value={formData.account_2 || ''} onChange={handleInputChange} className="w-full mt-2 p-3 text-xs font-bold text-slate-700 bg-white border border-blue-200 rounded-xl focus:ring-blue-500/20 focus:border-blue-400 outline-none shadow-sm" required>
+                              <select name="account_2" value={formData.account_2 || ''} onChange={handleInputChange} className="w-full mt-2 p-2.5 text-xs md:text-sm font-semibold text-slate-700 bg-white border border-blue-200 rounded-xl focus:ring-blue-500/20 focus:border-blue-400 outline-none shadow-sm" required>
                                 <option value="" disabled>Pilih Tujuan...</option>
                                 {accountOptions.map(opt => <option key={opt.id} value={opt.id}>{opt.text_1}</option>)}
                               </select>
@@ -2145,7 +2150,7 @@ import { formatRupiah } from '../lib/money';
 
                           {showPersonSelector && !isTransfer && (
                             <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 relative">
-                              <label className={`text-[10px] font-black ${txtColor} uppercase tracking-wider ml-1 flex items-center gap-1.5`}>
+                              <label className={`text-[10px] md:text-[11px] font-black ${txtColor} uppercase tracking-wider ml-1 flex items-center gap-1.5`}>
                                 <User size={14}/> Pilih Pihak (Customer / Karyawan)
                               </label>
                               <div className="relative mt-2">
@@ -2157,12 +2162,12 @@ import { formatRupiah } from '../lib/money';
                                     value={searchPerson}
                                     onChange={(e) => setSearchPerson(e.target.value)}
                                     onFocus={() => setIsPersonOpen(true)}
-                                    className="flex-1 p-3 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500/20"
+                                    className="flex-1 min-w-0 p-2.5 text-xs md:text-sm font-semibold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500/20"
                                   />
                                   <button
                                     type="button"
                                     onClick={() => setIsPersonOpen(!isPersonOpen)}
-                                    className="p-3 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition"
+                                    className="p-2.5 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition shrink-0"
                                   >
                                     <ChevronDown size={16} className={`transition-transform duration-200 ${isPersonOpen ? 'rotate-180' : ''}`} />
                                   </button>
@@ -2180,14 +2185,18 @@ import { formatRupiah } from '../lib/money';
                                           <div
                                             key={opt.id}
                                             onClick={() => {
-                                              setFormData(prev => ({ ...prev, person: opt.id, persontext: opt.text_1 }));
+                                              setFormData(prev => ({
+                                                ...prev,
+                                                person: opt.id,
+                                                persontext: opt.source === 'user' ? (opt.id_lama || opt.text_1) : opt.text_1
+                                              }));
                                               setSearchPerson('');
                                               setIsPersonOpen(false);
                                             }}
-                                            className="px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-emerald-50 cursor-pointer border-b border-slate-100 last:border-0 flex justify-between items-center"
+                                            className="px-3 py-2.5 text-xs md:text-sm font-semibold text-slate-700 hover:bg-emerald-50 cursor-pointer border-b border-slate-100 last:border-0 flex justify-between items-center gap-2"
                                           >
-                                            <span>{opt.text_1}</span>
-                                            <span className="text-[9px] font-black text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
+                                            <span className="truncate">{opt.text_1}</span>
+                                            <span className="text-[10px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full shrink-0">
                                               {opt.source === 'user' ? 'Karyawan' : 'Customer'}
                                             </span>
                                           </div>
@@ -2197,9 +2206,9 @@ import { formatRupiah } from '../lib/money';
                                 )}
                               </div>
                               {formData.person && (
-                                <div className="mt-3 text-xs font-bold text-emerald-600 bg-white p-2.5 rounded-lg border border-emerald-100 flex items-center justify-between">
+                                <div className="mt-2.5 text-xs font-semibold text-emerald-600 bg-white p-2.5 rounded-xl border border-emerald-100 flex items-center justify-between gap-2">
                                   <span>Dipilih:</span>
-                                  <span className="text-slate-800">{formData.persontext}</span>
+                                  <span className="text-slate-800 truncate">{formData.persontext}</span>
                                 </div>
                               )}
                             </div>
@@ -2210,17 +2219,17 @@ import { formatRupiah } from '../lib/money';
 
                     {/* (2) Nominal Rupiah DIPINDAH KE BAWAH */}
                     <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
-                      <label className={`text-[10px] font-black ${txtColor} uppercase tracking-wider ml-1 flex items-center gap-1.5`}><DollarSign size={14}/> Nominal Rupiah</label>
+                      <label className={`text-[10px] md:text-[11px] font-black ${txtColor} uppercase tracking-wider ml-1 flex items-center gap-1.5`}><DollarSign size={14}/> Nominal Rupiah</label>
                       <div className="relative mt-2">
-                        <span className={`absolute left-3 top-1/2 -translate-y-1/2 text-xs font-black ${txtColor}`}>Rp</span>
-                        <input type="number" name="nominal" placeholder="0" value={formData.nominal || ''} onChange={handleInputChange} className={`w-full pl-9 pr-3 py-3 text-sm font-black text-slate-800 bg-white border border-slate-200 rounded-xl outline-none shadow-sm ${focusClass}`} required />
+                        <span className={`absolute left-3 top-1/2 -translate-y-1/2 text-xs font-semibold ${txtColor}`}>Rp</span>
+                        <input type="number" name="nominal" placeholder="0" value={formData.nominal || ''} onChange={handleInputChange} className={`w-full pl-9 pr-3 py-2.5 text-xs md:text-sm font-semibold text-slate-800 bg-white border border-slate-200 rounded-xl outline-none shadow-sm ${focusClass}`} required />
                       </div>
                     </div>
 
                       <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
-                        <label className={`text-[10px] font-black ${txtColor} uppercase tracking-wider ml-1 flex items-center gap-1.5`}><FileText size={14}/> Catatan</label>
+                        <label className={`text-[10px] md:text-[11px] font-black ${txtColor} uppercase tracking-wider ml-1 flex items-center gap-1.5`}><FileText size={14}/> Catatan</label>
                         <div className="grid grid-cols-1 gap-2 mt-2">
-                          <input type="text" name="note" placeholder="Deskripsi/Catatan..." value={formData.note || ''} onChange={handleInputChange} className={`w-full p-3 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none shadow-sm ${focusClass}`} required />
+                          <input type="text" name="note" placeholder="Deskripsi/Catatan..." value={formData.note || ''} onChange={handleInputChange} className={`w-full p-2.5 text-xs md:text-sm font-semibold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none shadow-sm ${focusClass}`} required />
                         </div>
                       </div>
 
@@ -2304,30 +2313,30 @@ import { formatRupiah } from '../lib/money';
                 </label>
 
                 {/* Baris 1: Tanggal + Jenis Bon (tetap out) */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
-                    <label className="text-[10px] font-black text-purple-600 uppercase tracking-wider ml-1 flex items-center gap-1.5">
+                    <label className="text-[10px] md:text-[11px] font-black text-purple-600 uppercase tracking-wider ml-1 flex items-center gap-1.5">
                       <Calendar size={14} /> Tanggal Waktu
                     </label>
                     <input
                       type="datetime-local"
                       value={formDataBon.created_at}
                       onChange={e => setFormDataBon({ ...formDataBon, created_at: e.target.value })}
-                      className="w-full mt-2 p-3 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none shadow-sm focus:ring-purple-500/20 focus:border-purple-400"
+                      className="w-full mt-2 p-2.5 text-xs md:text-sm font-semibold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none shadow-sm focus:ring-purple-500/20 focus:border-purple-400"
                       required
                     />
                   </div>
 
                   <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
-                    <label className="text-[10px] font-black text-purple-600 uppercase tracking-wider ml-1 flex items-center gap-1.5">
+                    <label className="text-[10px] md:text-[11px] font-black text-purple-600 uppercase tracking-wider ml-1 flex items-center gap-1.5">
                       <ArrowRight size={14} /> Jenis Bon
                     </label>
-                    <div className="bg-white rounded-xl p-1 mt-2 border border-slate-200 shadow-sm">
-                      <div className="flex items-center justify-center gap-2">
-                        <span className="px-4 py-2 bg-rose-500 text-white rounded-lg text-xs font-black shadow-sm">
+                    <div className="bg-white rounded-xl p-1.5 mt-2 border border-slate-200 shadow-sm">
+                      <div className="flex flex-wrap items-center justify-center gap-2">
+                        <span className="px-3 py-1.5 bg-rose-500 text-white rounded-lg text-xs font-semibold shadow-sm">
                           KELUAR (Bayar)
                         </span>
-                        <span className="text-[10px] text-slate-400 font-medium">(Bon karyawan selalu keluar)</span>
+                        <span className="text-[11px] text-slate-400 font-medium">(Bon karyawan selalu keluar)</span>
                       </div>
                       <input type="hidden" name="jenis" value="out" />
                     </div>
@@ -2336,7 +2345,7 @@ import { formatRupiah } from '../lib/money';
 
                 {/* Pilih Person (dari semua kategori person) */}
                 <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 relative">
-                  <label className="text-[10px] font-black text-purple-600 uppercase tracking-wider ml-1 flex items-center gap-1.5">
+                  <label className="text-[10px] md:text-[11px] font-black text-purple-600 uppercase tracking-wider ml-1 flex items-center gap-1.5">
                     <User size={14} /> Pilih Karyawan (User)
                   </label>
                   <div className="relative mt-2">
@@ -2347,12 +2356,12 @@ import { formatRupiah } from '../lib/money';
                         value={searchPerson}
                         onChange={(e) => setSearchPerson(e.target.value)}
                         onFocus={() => setIsPersonOpen(true)}
-                        className="flex-1 p-3 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-purple-500/20"
+                        className="flex-1 min-w-0 p-2.5 text-xs md:text-sm font-semibold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-purple-500/20"
                       />
                       <button
                         type="button"
                         onClick={() => setIsPersonOpen(!isPersonOpen)}
-                        className="p-3 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition"
+                        className="p-2.5 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition shrink-0"
                       >
                         <ChevronDown size={16} className={`transition-transform duration-200 ${isPersonOpen ? 'rotate-180' : ''}`} />
                       </button>
@@ -2378,10 +2387,10 @@ import { formatRupiah } from '../lib/money';
                                   setSearchPerson('');
                                   setIsPersonOpen(false);
                                 }}
-                                className="px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-purple-50 cursor-pointer border-b border-slate-100 last:border-0 flex justify-between items-center"
+                                className="px-3 py-2.5 text-xs md:text-sm font-semibold text-slate-700 hover:bg-purple-50 cursor-pointer border-b border-slate-100 last:border-0 flex justify-between items-center gap-2"
                               >
-                                <span>{opt.text_1} {opt.text_2 ? `- ${opt.text_2}` : ''}</span>
-                                <span className="text-[9px] font-black text-purple-600 bg-purple-50 px-2 py-0.5 rounded-full border border-purple-100">
+                                <span className="truncate">{opt.text_1} {opt.text_2 ? `- ${opt.text_2}` : ''}</span>
+                                <span className="text-[10px] font-semibold text-purple-600 bg-purple-50 px-2 py-0.5 rounded-full border border-purple-100 shrink-0">
                                   Karyawan
                                 </span>
                               </div>
@@ -2391,9 +2400,9 @@ import { formatRupiah } from '../lib/money';
                     )}
                   </div>
                   {formDataBon.person && (
-                    <div className="mt-3 text-xs font-bold text-purple-700 bg-white p-2.5 rounded-lg border border-purple-100 flex items-center justify-between shadow-sm">
+                    <div className="mt-2.5 text-xs font-semibold text-purple-700 bg-white p-2.5 rounded-xl border border-purple-100 flex items-center justify-between gap-2 shadow-sm">
                       <span>Dipilih:</span>
-                      <span className="text-slate-800">{formDataBon.persontext}</span>
+                      <span className="text-slate-800 truncate">{formDataBon.persontext}</span>
                     </div>
                   )}
                 </div>
@@ -2401,13 +2410,13 @@ import { formatRupiah } from '../lib/money';
                 {/* Akun Asal (hanya jika catat cashflow) */}
                 {formDataBon.catatCashflow && (
                   <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 animate-in fade-in slide-in-from-top-2 duration-300">
-                    <label className="text-[10px] font-black text-purple-600 uppercase tracking-wider ml-1 flex items-center gap-1.5">
+                    <label className="text-[10px] md:text-[11px] font-black text-purple-600 uppercase tracking-wider ml-1 flex items-center gap-1.5">
                       <Wallet size={14} /> Akun Asal (Kas)
                     </label>
                     <select
                       value={formDataBon.akun_asal}
                       onChange={e => setFormDataBon({ ...formDataBon, akun_asal: e.target.value })}
-                      className="w-full mt-2 p-3 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none shadow-sm focus:ring-purple-500/20 focus:border-purple-400"
+                      className="w-full mt-2 p-2.5 text-xs md:text-sm font-semibold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none shadow-sm focus:ring-purple-500/20 focus:border-purple-400"
                       required
                     >
                       <option value="">Pilih Dompet...</option>
@@ -2420,17 +2429,17 @@ import { formatRupiah } from '../lib/money';
 
                 {/* Nominal */}
                 <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
-                  <label className="text-[10px] font-black text-purple-600 uppercase tracking-wider ml-1 flex items-center gap-1.5">
+                  <label className="text-[10px] md:text-[11px] font-black text-purple-600 uppercase tracking-wider ml-1 flex items-center gap-1.5">
                     <DollarSign size={14} /> Nominal
                   </label>
                   <div className="relative mt-2">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-black text-purple-600">Rp</span>
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-purple-600">Rp</span>
                     <input
                       type="number"
                       placeholder="0"
                       value={formDataBon.nominal || ''}
                       onChange={e => setFormDataBon({ ...formDataBon, nominal: Number(e.target.value) })}
-                      className="w-full pl-9 pr-3 py-3 text-sm font-black text-slate-800 bg-white border border-slate-200 rounded-xl outline-none shadow-sm focus:ring-purple-500/20 focus:border-purple-400"
+                      className="w-full pl-9 pr-3 py-2.5 text-xs md:text-sm font-semibold text-slate-800 bg-white border border-slate-200 rounded-xl outline-none shadow-sm focus:ring-purple-500/20 focus:border-purple-400"
                       required
                     />
                   </div>
@@ -2438,7 +2447,7 @@ import { formatRupiah } from '../lib/money';
 
                 {/* Catatan */}
                 <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
-                  <label className="text-[10px] font-black text-purple-600 uppercase tracking-wider ml-1 flex items-center gap-1.5">
+                  <label className="text-[10px] md:text-[11px] font-black text-purple-600 uppercase tracking-wider ml-1 flex items-center gap-1.5">
                     <FileText size={14} /> Catatan / Keterangan
                   </label>
                   <input
@@ -2446,7 +2455,7 @@ import { formatRupiah } from '../lib/money';
                     placeholder="Deskripsi bon..."
                     value={formDataBon.note}
                     onChange={e => setFormDataBon({ ...formDataBon, note: e.target.value })}
-                    className="w-full mt-2 p-3 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none shadow-sm focus:ring-purple-500/20 focus:border-purple-400"
+                    className="w-full mt-2 p-2.5 text-xs md:text-sm font-semibold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none shadow-sm focus:ring-purple-500/20 focus:border-purple-400"
                     required
                   />
                 </div>
@@ -2741,13 +2750,16 @@ import { formatRupiah } from '../lib/money';
                           
                           setFiles(oldFiles); 
                           
+                          const matchedPersonOpt = personOptions.find(
+                            p => p.id === selectedTx.person || (selectedTx.persontext && (p.id_lama === selectedTx.persontext || p.text_1 === selectedTx.persontext))
+                          );
                           setFormData({
                             mutasi: selectedTx.mutasi?.toLowerCase() === 'in' ? 'Masuk' : 'Keluar', 
                             created_at: localCreatedAt, 
                             jenis: selectedTx.jenis, 
                             account_1: selectedTx.account_1, 
                             account_2: selectedTx.account_2 || '', 
-                            person: selectedTx.person || '', 
+                            person: selectedTx.person || matchedPersonOpt?.id || '', 
                             persontext: selectedTx.persontext || '', 
                             nominal: selectedTx.nominal, 
                             note: selectedTx.note 
@@ -2847,24 +2859,6 @@ import { formatRupiah } from '../lib/money';
             </div>
           </Modal>
 
-          {/* SYSTEM ALERT / CONFIRM MODAL */}
-          <Modal isOpen={systemAlert.show} onClose={() => {}} title={systemAlert.title} maxWidth="max-w-md">
-            <div className="p-6 bg-white text-center rounded-b-2xl">
-              <div className="w-16 h-16 bg-amber-100 text-amber-500 rounded-full flex items-center justify-center mx-auto mb-4">
-                <AlertTriangle size={32} />
-              </div>
-              <p className="text-sm font-bold text-slate-600 mb-6 leading-relaxed">{systemAlert.message}</p>
-              <div className="flex gap-3">
-                <button onClick={() => setSystemAlert(prev => ({...prev, show: false}))} className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-black text-xs uppercase tracking-widest transition-colors">
-                  Batal
-                </button>
-                <button onClick={systemAlert.onConfirm} className="flex-1 py-3 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-black text-xs uppercase tracking-widest transition-colors shadow-lg shadow-amber-500/30">
-                  Ya, Lanjutkan
-                </button>
-              </div>
-            </div>
-          </Modal>
-
         </div>
         
         {/* TOMBOL-TOMBOL FLOATING MOBILE */}
@@ -2915,12 +2909,9 @@ import { formatRupiah } from '../lib/money';
           title={systemAlert.title}
           alertDescription={systemAlert.message}
           showCancel={systemAlert.type === 'confirm'}
-          alertIcon={systemAlert.type === 'confirm' ? <Trash2 size={24} /> : <AlertCircle size={24} />}
-          alertIconBg={systemAlert.type === 'confirm' ? "bg-amber-50 text-amber-500 border-amber-100" : "bg-rose-50 text-rose-500 border-rose-100"}
           onConfirm={systemAlert.onConfirm}
           confirmText={systemAlert.type === 'confirm' ? "Ya, Lanjutkan" : "SAYA MENGERTI"}
           cancelText="Batal"
-          confirmBg={systemAlert.type === 'confirm' ? "bg-blue-600 hover:bg-blue-500 shadow-blue-200" : "bg-slate-900 hover:bg-slate-800 shadow-slate-200"}
         />
       </div>
       </fieldset>

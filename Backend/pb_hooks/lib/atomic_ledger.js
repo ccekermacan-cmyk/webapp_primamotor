@@ -98,11 +98,11 @@ function effects(app, token, collection, old, current) {
         derived(app,token,'bon',bon, out && ['bon','bonkaryawan'].includes(kind) ? {
           nominal:number(current,'nominal'), created_at:text(current,'created_at'), akun_asal:text(current,'account_1'),
           note:text(current,'note'), operator:text(current,'operator'),
-          ...(kind === 'bonkaryawan' ? {user:text(current,'account_2'),person:text(current,'person'),persontext:text(current,'persontext')} : {})
+          ...(kind === 'bonkaryawan' || kind === 'bon' ? {user:text(current,'account_2') || (rows(app,'user','username = {:name} || name = {:name}',{name:text(current,'persontext')})[0] || {}).id || text(bon,'user'),person:text(current,'person'),persontext:text(current,'persontext')} : {})
         } : null);
       }
       if (!linked.length && kind === 'bonkaryawan' && out && !parent(current)) {
-        const user = find(app,'user',text(current,'account_2')) || rows(app,'user','username = {:name}',{name:text(current,'persontext')})[0];
+        const user = find(app,'user',text(current,'account_2')) || rows(app,'user','username = {:name} || name = {:name}',{name:text(current,'persontext')})[0];
         derived(app,token,'bon',null,{nominal:number(current,'nominal'),jenis:'out',ref_cashflow:current.id,
           created_at:text(current,'created_at'),akun_asal:text(current,'account_1'),person:text(current,'person'),
           user:user ? user.id : '',persontext:text(current,'persontext'),note:text(current,'note'),operator:text(current,'operator')});
@@ -124,7 +124,7 @@ function prepare(app, collection, r) {
   if (collection === 'bon') {
     if (!Number.isFinite(number(r,'nominal')) || number(r,'nominal') <= 0 || !['in','out'].includes(lower(r,'jenis'))) fail('Nominal dan arah bon tidak valid.');
     let target = loanTargets(app,r);
-    if (!target.user && text(r,'persontext')) target.user = (rows(app,'user','username = {:name}',{name:text(r,'persontext')})[0] || {}).id || '';
+    if (!target.user && text(r,'persontext')) target.user = (rows(app,'user','username = {:name} || name = {:name}',{name:text(r,'persontext')})[0] || {}).id || '';
     if (target.user) r.set('user',target.user);
     if (!target.user && !target.person) fail('Penerima bon tidak ditemukan.');
   }

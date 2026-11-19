@@ -12,7 +12,6 @@ import {
   Eye, 
   Check, 
   AlertTriangle, 
-  Info, 
   Search, 
   FolderTree,
   Layers,
@@ -970,18 +969,36 @@ export default function Settings() {
 
       {/* DIALOG POPUP */}
       <Modal isOpen={dialog.show} onClose={() => setDialog(prev => ({ ...prev, show: false }))} title={dialog.title}>
-        <div className="text-center p-4">
-          <div className={`w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3 ${dialog.title.includes('Gagal') ? 'bg-rose-50 text-rose-500' : 'bg-emerald-50 text-emerald-500'}`}>
-            {dialog.title.includes('Gagal') ? <AlertTriangle size={24} /> : <Info size={24} />}
-          </div>
-          <p className="font-bold text-slate-700 text-xs leading-relaxed mb-5">{dialog.message}</p>
-          <button
-            onClick={() => setDialog(prev => ({ ...prev, show: false }))}
-            className={`w-full py-2.5 text-white rounded-xl font-bold text-xs shadow-xs ${dialog.title.includes('Gagal') ? 'bg-rose-500 shadow-rose-200' : 'bg-emerald-600 shadow-emerald-200'}`}
-          >
-            Oke
-          </button>
-        </div>
+        {(() => {
+          const titleLower = (dialog.title || '').toLowerCase();
+          const msgLower = (dialog.message || '').toLowerCase();
+          const isError = titleLower.includes('gagal') || titleLower.includes('error') || msgLower.includes('gagal');
+          const isPending = !isError && (titleLower.includes('pending') || titleLower.includes('perhatian') || titleLower.includes('konfirmasi'));
+          const iconClass = isError
+            ? 'bg-rose-50 text-rose-500 border-rose-200'
+            : isPending
+            ? 'bg-amber-50 text-amber-500 border-amber-200'
+            : 'bg-emerald-50 text-emerald-500 border-emerald-200';
+          const btnClass = isError
+            ? 'bg-rose-600 hover:bg-rose-500 shadow-rose-200'
+            : isPending
+            ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-200'
+            : 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-200';
+          return (
+            <div className="text-center p-4">
+              <div className={`w-12 h-12 rounded-full border flex items-center justify-center mx-auto mb-3 ${iconClass}`}>
+                {isError || isPending ? <AlertTriangle size={24} /> : <Check size={24} />}
+              </div>
+              <p className="font-bold text-slate-700 text-xs leading-relaxed mb-5">{dialog.message}</p>
+              <button
+                onClick={() => setDialog(prev => ({ ...prev, show: false }))}
+                className={`w-full py-2.5 text-white rounded-xl font-bold text-xs shadow-xs transition-colors ${btnClass}`}
+              >
+                Oke
+              </button>
+            </div>
+          );
+        })()}
       </Modal>
 
     </div>
