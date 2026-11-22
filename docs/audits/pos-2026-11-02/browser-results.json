@@ -1,0 +1,114 @@
+{
+  "errors": [],
+  "blockedWrites": [],
+  "screens": [
+    "form-desktop.png",
+    "form-mobile.png",
+    "payment-mobile.png",
+    "notes-mobile.png"
+  ],
+  "checks": {
+    "formDialogs": 1,
+    "unlabelledInputs": [
+      {
+        "type": "datetime-local",
+        "placeholder": ""
+      },
+      {
+        "type": "select-one",
+        "placeholder": ""
+      },
+      {
+        "type": "number",
+        "placeholder": "Ongkos Kerja"
+      },
+      {
+        "type": "select-one",
+        "placeholder": ""
+      },
+      {
+        "type": "number",
+        "placeholder": "Nominal"
+      },
+      {
+        "type": "textarea",
+        "placeholder": "Contoh: Garansi 1 Minggu..."
+      },
+      {
+        "type": "textarea",
+        "placeholder": "Informasi kasir (tidak di-print)..."
+      }
+    ],
+    "mobileOverflow": false,
+    "escapeClosedCart": false,
+    "editAttachmentText": "Edit Service\nTutup\nBarang & jasa\nPembayaran\nCatatan\nMode Edit Nota (nota0000...)\nBatal edit\nCatatan nota\nCatatan kas (internal)\nLampiran Media / Bukti\nTambah file\nLihat\nTersimpan\nevidence.png\nLihat\nHapus\nBelum disimpan\nevidence.png\n1 file baru dilampirkan\nHapus file baru\nTotal tagihan\n\nRp 85.000\n\n1 item · Dibayar Rp 85.000\nPeriksa transaksi",
+    "persistedEditDraft": {
+      "cart": [
+        {
+          "id": "product00000001",
+          "id_lama": "oil1",
+          "kategori": "Oli",
+          "merk": "MPX",
+          "keterangan": "Oli mesin",
+          "tipe": "Matic",
+          "jenis": "Motor",
+          "varian": "0.8L",
+          "unit": "pcs",
+          "beli": 40000,
+          "sell_1": 45000,
+          "sell_2": 47000,
+          "sell_3": 49000,
+          "sell_4": 50000,
+          "sell_5": 52000,
+          "sell_6": 55000,
+          "min_1": 12,
+          "min_2": 6,
+          "min_3": 3,
+          "stok_3": 50,
+          "qty": 1,
+          "priceSelected": 55000,
+          "manualPrice": 55000,
+          "isTiered": true,
+          "basePriceDefault": 55000
+        }
+      ],
+      "selectedMenu": "Service",
+      "formBayar": {
+        "personIdLama": "umum1",
+        "payment": "Tunai",
+        "nominalBayar": 0,
+        "cashflowList": [
+          {
+            "id": "cashflow0000001",
+            "accountId": "account00000001",
+            "nominal": 85000
+          }
+        ],
+        "mekanikList": [
+          {
+            "idLama": "andi",
+            "ongkos": 30000
+          }
+        ],
+        "note": "Audit",
+        "noteMenu": "Honda Beat",
+        "tempoDate": "",
+        "marketplace": "",
+        "adminFee": 0,
+        "cashback": 0,
+        "createdAt": "2026-11-02T09:30"
+      },
+      "savedAt": 1793581304472
+    },
+    "afterReloadText": "Transaksi Service\nTutup\nBarang & jasa\nPembayaran\nCatatan\nWaktu Transaksi\nPelanggan\nUmum1\nItem transaksi (1)\nTambah item\n#0oil1\nHarga Custom\n\n0oil1 - Oli MPX Motor Oli mesin 0.8L Matic\n\nHapus\nHarga manual tetap saat jumlah berubah\nHarga otomatis\nAturan harga barang ini\n−\n+\n@\nRp\nRp 55.000\nAlokasi Mekanik & Ongkos\nTambah mekanik\nPilih Nama Mekanik...\nAudit User\nAndi\nRp\nTotal tagihan\n\nRp 85.000\n\n1 item · Dibayar Rp 85.000\nPeriksa transaksi",
+    "level10Navigation": [
+      " Log Out",
+      "Overview",
+      "Overview",
+      "Filter",
+      "",
+      "",
+      ""
+    ]
+  }
+}

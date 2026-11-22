@@ -1,0 +1,7 @@
+{
+  "negativePaymentErrors": [],
+  "nanPaymentErrors": [],
+  "grosirIncome": false,
+  "draftWithoutTimestampAccepted": true,
+  "serviceWithoutItemsDraftAccepted": false
+}
