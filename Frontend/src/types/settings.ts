@@ -1,0 +1,33 @@
+export interface DropdownData {
+  id: string;
+  id_lama: string;
+  kategori: string;
+  jenis: string;
+  text_1: string;
+  text_2: string;
+  text_3: string;
+  text_4: string;
+  text_5: string;
+  text_6: string;
+  text_7: string;
+  text_8: string;
+  text_9: string;
+  text_10: string;
+  number_1: number;
+  number_2: number;
+  number_3: number;
+  number_4: number;
+  number_5: number;
+  phone: number;
+  image: string;
+  link_image: string;
+  doc: string;
+  address: string;
+  latlong: string;
+  enum_1: any;
+  enum_2: any;
+  enum_3: any;
+  enum_4: any;
+  visibilitas: any;
+  operator: string;
+}

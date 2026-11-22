@@ -15,135 +15,12 @@ import {
   Search, 
   FolderTree,
   Layers,
-  Tag,
-  Phone,
-  MapPin,
-  Sliders,
-  Shield
+  Tag
 } from 'lucide-react';
-
-interface DropdownData {
-  id: string;
-  id_lama: string;
-  kategori: string;
-  jenis: string;
-  text_1: string;
-  text_2: string;
-  text_3: string;
-  text_4: string;
-  text_5: string;
-  text_6: string;
-  text_7: string;
-  text_8: string;
-  text_9: string;
-  text_10: string;
-  number_1: number;
-  number_2: number;
-  number_3: number;
-  number_4: number;
-  number_5: number;
-  phone: number;
-  image: string;
-  link_image: string;
-  doc: string;
-  address: string;
-  latlong: string;
-  enum_1: any;
-  enum_2: any;
-  enum_3: any;
-  enum_4: any;
-  visibilitas: any;
-  operator: string;
-}
-
-// Helper Field Wrapper (ditarik ke luar agar tidak re-mount dan kehilangan fokus saat mengetik)
-const Field = ({ label, children }: { label: string; children: React.ReactNode }) => (
-  <label className="block text-xs font-semibold text-slate-500 mb-1 space-y-1">
-    <span className="block text-[11px] font-bold uppercase tracking-wider text-slate-400">{label}</span>
-    {children}
-  </label>
-);
-
-// Helper for Smart Contextual Labels
-const getFieldLabel = (field: string, kategori: string, jenis: string) => {
-  const k = (kategori || '').toLowerCase();
-  const j = (jenis || '').toLowerCase();
-
-  if (field === 'text_1') {
-    if (k === 'cashflow' && j.includes('akun')) return 'Nama Akun / Kas *';
-    if (k === 'cashflow') return 'Nama Transaksi *';
-    if (k === 'person') return 'Nama Pihak (Lengkap) *';
-    if (k === 'persenan') return 'Label Persentase *';
-    if (k === 'user') return 'Nama Jabatan / Level *';
-    return 'Label Utama (Text 1) *';
-  }
-  if (field === 'text_2') {
-    if (k === 'cashflow') return 'Tipe (in / out)';
-    if (k === 'person') return 'Nama Bengkel / Toko';
-    return 'Text 2';
-  }
-  if (field === 'number_1') {
-    if (k === 'cashflow' && j.includes('akun')) return 'Saldo Awal (Rp)';
-    if (k === 'person') return 'Limit / Saldo (Rp)';
-    return 'Number 1';
-  }
-  if (field === 'number_2') {
-    if (k === 'person') return 'Tier / Level Harga (1-5)';
-    if (k === 'persenan') return 'Nilai Persentase (%)';
-    if (k === 'user') return 'ID / Kode Level';
-    return 'Number 2';
-  }
-  if (field === 'enum_1') {
-    if (k === 'cashflow' && j.includes('akun')) return 'Akses User (Enum 1)';
-    return 'Enum 1 (User)';
-  }
-  return field;
-};
-
-// Helper Multi-Select Enum
-const BeautifulEnumList = ({ label, options, selectedValues, gridCols = 'grid-cols-2', onChange }: {
-  label: string;
-  options: { label: string; value: any }[];
-  selectedValues: any[];
-  gridCols?: string;
-  onChange: (updated: any[]) => void
-}) => {
-  const currentList = Array.isArray(selectedValues) ? selectedValues : [];
-
-  const toggleSelection = (val: any) => {
-    if (currentList.includes(val)) {
-      onChange(currentList.filter(item => item !== val));
-    } else {
-      onChange([...currentList, val]);
-    }
-  };
-
-  return (
-    <div className="space-y-1.5">
-      <span className="block text-[11px] font-bold uppercase tracking-wider text-slate-400">{label}</span>
-      <div className={`border border-slate-200 bg-slate-50 rounded-2xl p-3 max-h-36 overflow-y-auto grid ${gridCols} gap-2 custom-scrollbar`}>
-        {options.map(opt => {
-          const isChecked = currentList.includes(opt.value);
-          return (
-            <button
-              key={opt.value}
-              type="button"
-              onClick={() => toggleSelection(opt.value)}
-              className={`flex items-center justify-between px-3 py-2 rounded-xl text-left font-bold text-xs transition-all ${
-                isChecked
-                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-100'
-                  : 'bg-white text-slate-600 border border-slate-100 hover:bg-slate-100'
-              }`}
-            >
-              <span className="truncate">{opt.label}</span>
-              {isChecked && <Check size={12} strokeWidth={3} className="shrink-0 ml-1" />}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-};
+import type { DropdownData } from '../types/settings';
+import SettingsDetailModal from '../components/settings/SettingsDetailModal';
+import SettingsFormModal, { getFieldLabel } from '../components/settings/SettingsFormModal';
+import SettingsDeleteModal from '../components/settings/SettingsDeleteModal';
 
 export default function Settings() {
   const [data, setData] = useState<DropdownData[]>([]);
@@ -211,17 +88,6 @@ export default function Settings() {
       setLoading(false);
     }
   };
-
-  const levelUserOptions = [
-    { label: 'Level 1 (Super Admin)', value: 1 },
-    { label: 'Level 2 (Admin)', value: 2 },
-    { label: 'Level 3 (Manager)', value: 3 },
-    { label: 'Level 4 (Supervisor)', value: 4 },
-    { label: 'Level 5 (Kasir)', value: 5 },
-    { label: 'Level 6 (Staff)', value: 6 },
-    { label: 'Level 7 (Mekanik)', value: 7 },
-    { label: 'Level 10 (Mekanik Senior)', value: 10 },
-  ];
 
   // Daftar unik jenis untuk Pill Navigation Tabs
   const uniqueJenisList = useMemo(() => {
@@ -632,340 +498,45 @@ export default function Settings() {
       </div>
 
       {/* MODAL DETAIL DATA */}
-      <Modal isOpen={modalType === 'detail'} onClose={() => setModalType(null)} title="Rincian Master Data">
-        {selectedItem && (
-          <div className="space-y-4">
-            <div className="p-4 bg-indigo-50/70 rounded-2xl border border-indigo-100 text-center">
-              <Tag className="mx-auto text-indigo-600 mb-1" size={24} />
-              <h3 className="text-xl font-black text-indigo-950">{selectedItem.text_1}</h3>
-              <p className="text-[11px] font-bold text-indigo-500 uppercase tracking-widest mt-0.5">
-                {selectedItem.jenis} &bull; {selectedItem.kategori}
-              </p>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2.5 text-xs">
-              <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                <p className="text-[10px] font-black text-slate-400 uppercase">{getFieldLabel('text_2', selectedItem.kategori, selectedItem.jenis)}</p>
-                <p className="mt-0.5 font-bold text-slate-700">{selectedItem.text_2 || '-'}</p>
-              </div>
-              <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                <p className="text-[10px] font-black text-slate-400 uppercase">{getFieldLabel('number_1', selectedItem.kategori, selectedItem.jenis)}</p>
-                <p className="mt-0.5 font-mono font-bold text-slate-700">
-                  {selectedItem.kategori?.toLowerCase() === 'cashflow' || selectedItem.jenis?.toLowerCase().includes('akun') 
-                    ? `Rp ${selectedItem.number_1?.toLocaleString('id-ID')}` 
-                    : selectedItem.number_1 ?? '0'}
-                </p>
-              </div>
-
-              {selectedItem.address && (
-                <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 col-span-2 flex items-start gap-2">
-                  <MapPin size={14} className="text-slate-400 mt-0.5 shrink-0" />
-                  <div>
-                    <p className="text-[10px] font-black text-slate-400 uppercase">Alamat</p>
-                    <p className="mt-0.5 font-bold text-slate-700">{selectedItem.address}</p>
-                  </div>
-                </div>
-              )}
-
-              {selectedItem.phone !== 0 && selectedItem.phone && (
-                <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 flex items-center gap-2">
-                  <Phone size={14} className="text-slate-400 shrink-0" />
-                  <div>
-                    <p className="text-[10px] font-black text-slate-400 uppercase">No. Telepon</p>
-                    <p className="mt-0.5 font-mono font-bold text-slate-700">{selectedItem.phone}</p>
-                  </div>
-                </div>
-              )}
-
-              <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 col-span-2">
-                <p className="text-[10px] font-black text-slate-400 uppercase">Visibilitas Akses</p>
-                <div className="mt-1 flex flex-wrap gap-1">
-                  {selectedItem.visibilitas ? (
-                    (Array.isArray(selectedItem.visibilitas) ? selectedItem.visibilitas : String(selectedItem.visibilitas).split(',')).map(v => (
-                      <span key={v} className="bg-indigo-100 text-indigo-700 font-extrabold px-2 py-0.5 rounded-md text-[10px]">Level {v}</span>
-                    ))
-                  ) : <span className="text-slate-400 font-medium italic">Global (Semua Level)</span>}
-                </div>
-              </div>
-            </div>
-
-            <div className="flex gap-2 pt-2">
-              <button
-                onClick={() => openEditModal(selectedItem)}
-                className="flex-1 py-3 bg-indigo-50 text-indigo-600 border border-indigo-100 rounded-xl font-bold text-xs uppercase tracking-wider hover:bg-indigo-100 transition-colors flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <Pencil size={14} /> Edit Data
-              </button>
-              {selectedItem.id_lama !== 'umum1' && (
-                <DeleteAccess collection="dropdown" id={selectedItem.id}><button
-                  onClick={() => setModalType('delete')}
-                  className="py-3 px-4 bg-rose-50 text-rose-600 border border-rose-100 rounded-xl font-bold text-xs uppercase tracking-wider hover:bg-rose-100 transition-colors cursor-pointer"
-                >
-                  <Trash2 size={14} />
-                </button></DeleteAccess>
-              )}
-              <button 
-                onClick={() => setModalType(null)} 
-                className="flex-1 py-3 bg-slate-800 text-white rounded-xl font-bold text-xs uppercase tracking-wider hover:bg-slate-900 transition-colors cursor-pointer"
-              >
-                Tutup
-              </button>
-            </div>
-          </div>
-        )}
-      </Modal>
+      <SettingsDetailModal
+        isOpen={modalType === 'detail'}
+        selectedItem={selectedItem}
+        onClose={() => setModalType(null)}
+        onOpenEdit={(item) => openEditModal(item)}
+        onOpenDelete={() => setModalType('delete')}
+        getFieldLabel={getFieldLabel}
+      />
 
       {/* MODAL FORM EDIT / ADD DENGAN TAB DESIGN */}
-      <Modal 
-        isOpen={modalType === 'form'} 
-        onClose={() => setModalType(null)} 
-        title={selectedItem ? "Edit Master Data" : "Tambah Master Data"}
-      >
-        <form onSubmit={submitForm} className="space-y-4 max-h-[75vh] overflow-y-auto pr-1 custom-scrollbar pb-2">
-          
-          {/* TAB HEADER DESIGN INSIDE MODAL */}
-          <div className="flex border-b border-slate-200 gap-2 pb-2">
-            <button
-              type="button"
-              onClick={() => setFormTab('basic')}
-              className={`flex-1 py-2 px-3 rounded-xl font-extrabold text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                formTab === 'basic'
-                  ? 'bg-indigo-600 text-white shadow-xs'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
-            >
-              <Tag size={13} /> Utama
-            </button>
-            <button
-              type="button"
-              onClick={() => setFormTab('extra')}
-              className={`flex-1 py-2 px-3 rounded-xl font-extrabold text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                formTab === 'extra'
-                  ? 'bg-indigo-600 text-white shadow-xs'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
-            >
-              <Sliders size={13} /> Nilai & Extra
-            </button>
-            <button
-              type="button"
-              onClick={() => setFormTab('access')}
-              className={`flex-1 py-2 px-3 rounded-xl font-extrabold text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                formTab === 'access'
-                  ? 'bg-indigo-600 text-white shadow-xs'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
-            >
-              <Shield size={13} /> Enum & Akses
-            </button>
-          </div>
-
-          {/* TAB 1: BASIC INFO */}
-          {formTab === 'basic' && (
-            <div className="space-y-3 pt-1">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="col-span-2 md:col-span-1 relative">
-                  <Field label="Jenis (Section) *">
-                    <input
-                      name="jenis"
-                      value={formData.jenis || ''}
-                      onFocus={() => setIsJenisOpen(true)}
-                      onBlur={() => setTimeout(() => setIsJenisOpen(false), 200)}
-                      onChange={(e) => { handleInputChange(e as any); setJenisSearch(e.target.value); setIsJenisOpen(true); }}
-                      required
-                      placeholder="Ketik/pilih jenis..."
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold outline-none focus:border-indigo-500"
-                    />
-                  </Field>
-                  {isJenisOpen && filteredJenis.length > 0 && (
-                    <div className="absolute z-20 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl max-h-36 overflow-y-auto custom-scrollbar">
-                      {filteredJenis.map(j => (
-                        <div key={j} className="p-2.5 hover:bg-indigo-50 text-xs font-bold text-slate-700 cursor-pointer border-b border-slate-50 last:border-0"
-                          onClick={() => { setFormData({ ...formData, jenis: j }); setJenisSearch(j); setIsJenisOpen(false); }}>
-                          {j}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                <div className="col-span-2 md:col-span-1 relative">
-                  <Field label="Kategori *">
-                    <input
-                      name="kategori"
-                      value={formData.kategori || ''}
-                      onFocus={() => setIsKategoriOpen(true)}
-                      onBlur={() => setTimeout(() => setIsKategoriOpen(false), 200)}
-                      onChange={(e) => { handleInputChange(e as any); setKategoriSearch(e.target.value); setIsKategoriOpen(true); }}
-                      required
-                      placeholder="Ketik/pilih kategori..."
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold outline-none focus:border-indigo-500"
-                    />
-                  </Field>
-                  {isKategoriOpen && filteredKategoris.length > 0 && (
-                    <div className="absolute z-20 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl max-h-36 overflow-y-auto custom-scrollbar">
-                      {filteredKategoris.map(k => (
-                        <div key={k} className="p-2.5 hover:bg-indigo-50 text-xs font-bold text-slate-700 cursor-pointer border-b border-slate-50 last:border-0"
-                          onClick={() => { setFormData({ ...formData, kategori: k }); setKategoriSearch(k); setIsKategoriOpen(false); }}>
-                          {k}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <Field label={getFieldLabel('text_1', formData.kategori || '', formData.jenis || '')}>
-                <input 
-                  name="text_1" 
-                  value={formData.text_1 || ''} 
-                  onChange={handleInputChange} 
-                  required 
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold outline-none focus:border-indigo-500" 
-                  placeholder="Nama item..." 
-                />
-              </Field>
-
-              <div className="grid grid-cols-2 gap-3">
-                <Field label={getFieldLabel('text_2', formData.kategori || '', formData.jenis || '')}>
-                  <input name="text_2" value={formData.text_2 || ''} onChange={handleInputChange} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold outline-none focus:border-indigo-500" placeholder="Keterangan..." />
-                </Field>
-                <Field label="Text 3">
-                  <input name="text_3" value={formData.text_3 || ''} onChange={handleInputChange} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold outline-none focus:border-indigo-500" placeholder="Catatan..." />
-                </Field>
-              </div>
-
-              <Field label="Alamat">
-                <input name="address" value={formData.address || ''} onChange={handleInputChange} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold outline-none focus:border-indigo-500" placeholder="Alamat..." />
-              </Field>
-
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="No. Telepon">
-                  <input type="number" name="phone" value={formData.phone ?? ''} onChange={handleInputChange} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold outline-none focus:border-indigo-500" placeholder="628..." />
-                </Field>
-                <Field label="Lat Long">
-                  <input name="latlong" value={formData.latlong || ''} onChange={handleInputChange} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold outline-none focus:border-indigo-500" placeholder="-8.xxx, 114.xxx" />
-                </Field>
-              </div>
-            </div>
-          )}
-
-          {/* TAB 2: NUMBERS & EXTRA */}
-          {formTab === 'extra' && (
-            <div className="space-y-3 pt-1">
-              <div className="grid grid-cols-2 gap-3">
-                <Field label={getFieldLabel('number_1', formData.kategori || '', formData.jenis || '')}>
-                  <input type="number" name="number_1" value={formData.number_1 ?? ''} onChange={handleInputChange} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold outline-none focus:border-indigo-500" placeholder="0" />
-                </Field>
-                <Field label={getFieldLabel('number_2', formData.kategori || '', formData.jenis || '')}>
-                  <input type="number" name="number_2" value={formData.number_2 ?? ''} onChange={handleInputChange} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold outline-none focus:border-indigo-500" placeholder="0" />
-                </Field>
-              </div>
-
-              <div className="grid grid-cols-3 gap-2">
-                <Field label="Number 3">
-                  <input type="number" name="number_3" value={formData.number_3 ?? ''} onChange={handleInputChange} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold outline-none focus:border-indigo-500" placeholder="0" />
-                </Field>
-                <Field label="Number 4">
-                  <input type="number" name="number_4" value={formData.number_4 ?? ''} onChange={handleInputChange} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold outline-none focus:border-indigo-500" placeholder="0" />
-                </Field>
-                <Field label="Number 5">
-                  <input type="number" name="number_5" value={formData.number_5 ?? ''} onChange={handleInputChange} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold outline-none focus:border-indigo-500" placeholder="0" />
-                </Field>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="Link Gambar">
-                  <input name="link_image" value={formData.link_image || ''} onChange={handleInputChange} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold outline-none focus:border-indigo-500" placeholder="https://..." />
-                </Field>
-                <Field label="Link Dokumen">
-                  <input name="doc" value={formData.doc || ''} onChange={handleInputChange} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold outline-none focus:border-indigo-500" placeholder="https://..." />
-                </Field>
-              </div>
-            </div>
-          )}
-
-          {/* TAB 3: ENUM & ACCESS VISIBILITY */}
-          {formTab === 'access' && (
-            <div className="space-y-3 pt-1">
-              <BeautifulEnumList
-                label="Visibilitas Akses (Level User)"
-                gridCols="grid-cols-2 md:grid-cols-4"
-                options={levelUserOptions}
-                selectedValues={formData.visibilitas || []}
-                onChange={(vals) => setFormData(prev => ({ ...prev, visibilitas: vals }))}
-              />
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <BeautifulEnumList
-                  label={getFieldLabel('enum_1', formData.kategori || '', formData.jenis || '')}
-                  gridCols="grid-cols-2"
-                  options={allUsers.map(u => ({ label: u.name || u.username, value: u.name || u.username }))}
-                  selectedValues={formData.enum_1 || []}
-                  onChange={(vals) => setFormData(prev => ({ ...prev, enum_1: vals }))}
-                />
-
-                <BeautifulEnumList
-                  label="Enum 4 (User Cadangan)"
-                  gridCols="grid-cols-2"
-                  options={allUsers.map(u => ({ label: u.name || u.username, value: u.name || u.username }))}
-                  selectedValues={formData.enum_4 || []}
-                  onChange={(vals) => setFormData(prev => ({ ...prev, enum_4: vals }))}
-                />
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <BeautifulEnumList
-                  label="Enum 2 (Level)"
-                  gridCols="grid-cols-2"
-                  options={levelUserOptions}
-                  selectedValues={formData.enum_2 || []}
-                  onChange={(vals) => setFormData(prev => ({ ...prev, enum_2: vals }))}
-                />
-
-                <BeautifulEnumList
-                  label="Enum 3 (Level Tambahan)"
-                  gridCols="grid-cols-2"
-                  options={levelUserOptions}
-                  selectedValues={formData.enum_3 || []}
-                  onChange={(vals) => setFormData(prev => ({ ...prev, enum_3: vals }))}
-                />
-              </div>
-            </div>
-          )}
-
-          <div className="flex gap-2 pt-3 border-t border-slate-100">
-            <button 
-              type="button" 
-              onClick={() => setModalType(null)} 
-              className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-xl font-bold text-xs uppercase tracking-wider transition-colors cursor-pointer"
-            >
-              Batal
-            </button>
-            <button 
-              type="submit" 
-              disabled={isProcessing} 
-              className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-xs uppercase tracking-widest shadow-md shadow-indigo-200 transition-colors cursor-pointer"
-            >
-              {isProcessing ? 'Memproses...' : 'Simpan'}
-            </button>
-          </div>
-        </form>
-      </Modal>
+      <SettingsFormModal
+        isOpen={modalType === 'form'}
+        isProcessing={isProcessing}
+        selectedItem={selectedItem}
+        formData={formData}
+        formTab={formTab}
+        allUsers={allUsers}
+        filteredKategoris={filteredKategoris}
+        filteredJenis={filteredJenis}
+        isKategoriOpen={isKategoriOpen}
+        isJenisOpen={isJenisOpen}
+        onClose={() => setModalType(null)}
+        onFormTabChange={setFormTab}
+        onFormDataChange={setFormData}
+        onInputChange={handleInputChange}
+        onSubmit={submitForm}
+        onKategoriSearchChange={setKategoriSearch}
+        onJenisSearchChange={setJenisSearch}
+        onKategoriOpenChange={setIsKategoriOpen}
+        onJenisOpenChange={setIsJenisOpen}
+      />
 
       {/* MODAL DELETE */}
-      <Modal isOpen={modalType === 'delete'} onClose={() => setModalType(null)} title="Hapus Master Data">
-        <div className="text-center p-4">
-          <div className="w-14 h-14 bg-rose-50 text-rose-600 rounded-full flex items-center justify-center mx-auto mb-4">
-            <Trash2 size={28} />
-          </div>
-          <p className="font-bold text-slate-700 text-sm">Hapus <span className="text-rose-600 font-black">{selectedItem?.text_1}</span>?</p>
-          <div className="flex gap-2 mt-6">
-            <button onClick={() => setModalType(null)} className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 rounded-xl font-bold text-slate-500 text-xs uppercase cursor-pointer">Batal</button>
-            <button onClick={submitDelete} className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold text-xs uppercase shadow-md shadow-rose-200 cursor-pointer">Hapus</button>
-          </div>
-        </div>
-      </Modal>
+      <SettingsDeleteModal
+        isOpen={modalType === 'delete'}
+        selectedItem={selectedItem}
+        onClose={() => setModalType(null)}
+        onConfirmDelete={submitDelete}
+      />
 
       {/* DIALOG POPUP */}
       <Modal isOpen={dialog.show} onClose={() => setDialog(prev => ({ ...prev, show: false }))} title={dialog.title}>
