@@ -4,50 +4,22 @@ import { createRecordId } from '../lib/ids';
 import { createFinancialBatch } from '../services/api/financialBatch';
 import { flushPendingSync, deleteFinancialRecord } from '../services/api/laravel';
 import { formatRupiah } from '../lib/money';
-  import React, { useState, useEffect, useMemo, useRef } from 'react';
-  import { Link, useNavigate } from 'react-router-dom';
-  import { pb } from '../lib/pocketbase';
-  import Modal from '../components/modal';
-  import { 
-    Wallet, Search, Trash2, ChevronLeft, ChevronRight, ChevronUp,
-    ArrowDownRight, ArrowUpRight, Calendar, User,
-    ExternalLink, Layers, X, DollarSign, ImagePlus, Save, FileText,
-    ArrowRight, Filter, Plus, ChevronDown, AlertCircle, RefreshCw
-  } from 'lucide-react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { Link } from 'react-router-dom';
+import { pb } from '../lib/pocketbase';
+import Modal from '../components/modal';
+import CashflowHistoryTab from '../components/cashflow/CashflowHistoryTab';
+import CashflowAccountsTab from '../components/cashflow/CashflowAccountsTab';
+import CashflowTempoTab from '../components/cashflow/CashflowTempoTab';
+import CashflowModalForm from '../components/cashflow/CashflowModalForm';
+import type { Cashflow, DropdownItem } from '../components/cashflow/types';
+import { 
+  Wallet, Trash2, Calendar, User,
+  ExternalLink, Layers, DollarSign, ImagePlus, Save, FileText,
+  ArrowRight, Plus, ChevronDown
+} from 'lucide-react';
 
-  interface Cashflow {
-    saldo_awal?: number; saldo_akhir?: number;
-    id: string;
-    id_lama: string;
-    ref: string;
-    operator: string;
-    created_at: string;
-    jenis: string;
-    mutasi: string; 
-    account_1: string;
-    account_2: string;
-    persontext: string;   // field person lama menjadi persontext
-    nominal: number;
-    note: string;
-    ref_baru: string;
-    created: string; 
-    file: string[];
-    person?: string;      // field person_customer lama menjadi person
-    acc1?: string;
-    acc2?: string;
-  }
-
-  interface DropdownItem {
-    id_lama?: string; text_2?: string; number_1?: number; enum_1?: string;
-    id: string;
-    kategori: string;
-    jenis: string;
-    text_1: string;
-    visibilitas: string;
-  }
-
-  export default function CashflowPage() {
-    const navigate = useNavigate();
+export default function CashflowPage() {
     const submitLockRef = useRef(false);
     const cashflowRequestRef = useRef(0);
     const [transactions, setTransactions] = useState<Cashflow[]>([]);
@@ -71,6 +43,7 @@ import { formatRupiah } from '../lib/money';
 
     // ========== SCROLL BEHAVIOR ==========
     const scrollContainerRef = useRef<HTMLDivElement>(null);
+    const scrollContainerAccountsRef = useRef<HTMLDivElement>(null);
     const scrollTempoRef = useRef<HTMLDivElement>(null);
     const [showHeader, setShowHeader] = useState(true);
     const [showTabs, setShowTabs] = useState(true);
@@ -95,8 +68,6 @@ import { formatRupiah } from '../lib/money';
     const [accountOptions, setAccountOptions] = useState<DropdownItem[]>([]);
 
     const [personOptions, setPersonOptions] = useState<{ id: string; id_lama: string; text_1: string; text_2?: string; jenis?: string; source: 'dropdown' | 'user' }[]>([]);
-    const [searchPerson, setSearchPerson] = useState('');
-    const [isPersonOpen, setIsPersonOpen] = useState(false);
     const [searchPersonBon, setSearchPersonBon] = useState('');
     const [isPersonOpenBon, setIsPersonOpenBon] = useState(false);
     
@@ -106,7 +77,6 @@ import { formatRupiah } from '../lib/money';
 
     const [isMobileFilterOpen, setIsMobileFilterOpen] = useState(false);
 
-    const [activeFilter, setActiveFilter] = useState<'account' | 'jenis' | 'tanggal' | 'search' | null>(null);
 
     // State untuk filter jenis
     const [filterJenis, setFilterJenis] = useState<string[]>([]);
@@ -418,7 +388,8 @@ import { formatRupiah } from '../lib/money';
       return !!(formData.jenis || formData.account_1 || formData.nominal || formData.note);
     };
 
-    const getAccountName = (idOrName: string) => {
+    const getAccountName = (idOrName: string | undefined) => {
+      if (!idOrName) return '-';
       const acc = accountOptions.find(opt => opt.id === idOrName || opt.text_1 === idOrName);
       return acc ? acc.text_1 : idOrName;
     };
@@ -509,7 +480,7 @@ import { formatRupiah } from '../lib/money';
       }
     };
 
-    // ========== FUNGSI HITUNG ULANG BON / PIUTANG / HUTANG ==========
+    // ========== FUNGSI HITUNG ULANG (PIUTANG CUSTOMER & HUTANG SUPPLIER) ==========
     const calculateBalances = async () => {
       if (calculating || submitLockRef.current) return;
       submitLockRef.current = true;
@@ -1000,7 +971,6 @@ import { formatRupiah } from '../lib/money';
     // Ditambahkan pengecekan agar jika filename kosong/undefined tidak memicu crash
     const isVideo = (filename: string | undefined) => filename ? !!filename.match(/\.(mp4|webm|ogg)$/i) : false;
 
-    const scrollContainerAccountsRef = useRef<HTMLDivElement>(null);
 
     return (
       <fieldset disabled={isProcessing} className="h-full min-w-0 border-0 m-0 p-0">
@@ -1129,1207 +1099,91 @@ import { formatRupiah } from '../lib/money';
       {/* CONTAINER HISTORY */}
       {/* ============================================================ */}
       {activeTab === 'history' && (
-        <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/40 border border-slate-100 flex-1 min-h-0 flex flex-col overflow-hidden relative">
-          
-          {/* FILTER BAR - STICKY TOP */}
-          <div className="sticky top-0 z-10 p-3 border-b border-slate-100 bg-white flex items-center gap-2 shrink-0">
-            
-            {/* === KIRI: Toggle Mutasi === */}
-            <div 
-              className={`bg-slate-100 rounded-lg transition-all duration-300 ease-in-out flex overflow-hidden ${
-                activeFilter 
-                  ? 'w-0 max-w-0 p-0 opacity-0 sm:w-auto sm:max-w-[250px] sm:p-0.5 sm:opacity-100' // Hilang di HP, mengecil di Desktop
-                  : 'flex-1 max-w-[60%] p-0.5 opacity-100 min-w-0' // Normal state
-              }`}
-            >
-              {['semua', 'masuk', 'keluar'].map((tab) => (
-                <button
-                  key={tab}
-                  onClick={() => {
-                    setFilterMutasi(tab);
-                    setPage(1);
-                  }}
-                  className={`flex-1 py-1.5 px-2 rounded-md font-bold text-[10px] uppercase tracking-wider transition-all duration-300 truncate ${
-                    filterMutasi === tab
-                      ? 'bg-white text-emerald-600 shadow-sm'
-                      : 'text-slate-400 hover:text-slate-600 hover:bg-slate-200/50'
-                  }`}
-                  title={tab}
-                >
-                  {tab}
-                </button>
-              ))}
-            </div>
-
-            {/* === TENGAH: Expandable Filter Area === */}
-            <div
-              className={`transition-all duration-300 ease-in-out flex items-center overflow-hidden ${
-                activeFilter ? 'flex-1 opacity-100 max-w-full ml-2' : 'w-0 opacity-0 max-w-0 ml-0'
-              }`}
-            >
-              {activeFilter === 'account' && (
-                <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 h-10 w-full shadow-sm flex-nowrap overflow-x-auto no-scrollbar">
-                  <Wallet size={16} className="text-emerald-500 shrink-0" />
-                  <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar flex-1 scroll-smooth">
-                    {accountOptions.map((acc) => (
-                      <button
-                        key={acc.id}
-                        onClick={() => toggleFilterAccount(acc.id)}
-                        className={`whitespace-nowrap px-3 py-1 text-[10px] font-bold rounded-lg transition-all border ${
-                          filterAccounts.includes(acc.id)
-                            ? 'bg-emerald-500 border-emerald-500 text-white shadow-sm'
-                            : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-100 hover:text-slate-700'
-                        }`}
-                      >
-                        {acc.text_1}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="w-[1px] h-4 bg-slate-300 shrink-0 mx-1"></div>
-                  <button onClick={() => setActiveFilter(null)} className="p-1 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors shrink-0">
-                    <X size={14} strokeWidth={2.5} />
-                  </button>
-                </div>
-              )}
-
-              {activeFilter === 'jenis' && (
-                <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 h-10 w-full shadow-sm flex-nowrap overflow-x-auto no-scrollbar">
-                  <Layers size={16} className="text-emerald-500 shrink-0" />
-                  <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar flex-1 scroll-smooth">
-                    {availableJenisOptions.map((opt) => (
-                      <button
-                        key={opt.id}
-                        onClick={() => toggleFilterJenis(opt.id_lama || opt.id)}
-                        className={`whitespace-nowrap px-3 py-1 text-[10px] font-bold rounded-lg transition-all border ${
-                          filterJenis.includes(opt.id_lama || opt.id)
-                            ? 'bg-emerald-500 border-emerald-500 text-white shadow-sm'
-                            : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-100 hover:text-slate-700'
-                        }`}
-                      >
-                        {opt.text_1}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="w-[1px] h-4 bg-slate-300 shrink-0 mx-1"></div>
-                  <button onClick={() => setActiveFilter(null)} className="p-1 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors shrink-0">
-                    <X size={14} strokeWidth={2.5} />
-                  </button>
-                </div>
-              )}
-
-              {activeFilter === 'tanggal' && (
-                <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1 h-10 w-full shadow-sm flex-nowrap overflow-x-auto no-scrollbar">
-                  <Calendar size={15} className="text-emerald-500 shrink-0" />
-                  <div className="flex items-center gap-1 shrink-0">
-                    <input
-                      type="date"
-                      className="bg-white border border-slate-200 rounded-lg px-1.5 py-0.5 text-[10px] font-bold text-slate-700 outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400 w-[105px]"
-                      value={dateRange.start}
-                      onChange={(e) => { setDateRange({ ...dateRange, start: e.target.value }); setPage(1); }}
-                    />
-                    <span className="text-slate-400 font-black text-xs shrink-0">-</span>
-                    <input
-                      type="date"
-                      className="bg-white border border-slate-200 rounded-lg px-1.5 py-0.5 text-[10px] font-bold text-slate-700 outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400 w-[105px]"
-                      value={dateRange.end}
-                      onChange={(e) => { setDateRange({ ...dateRange, end: e.target.value }); setPage(1); }}
-                    />
-                  </div>
-                  <div className="w-[1px] h-4 bg-slate-300 shrink-0 mx-0.5"></div>
-                  <div className="flex gap-1 shrink-0">
-                    {[
-                      {label:'Hari Ini', get:()=>{const d=new Date();return d.toISOString().split('T')[0];}},
-                      {label:'7 Hari', get:()=>{const d=new Date();d.setDate(d.getDate()-7);return d.toISOString().split('T')[0];}},
-                      {label:'30 Hari', get:()=>{const d=new Date();d.setDate(d.getDate()-30);return d.toISOString().split('T')[0];}},
-                    ].map(p=>(
-                      <button key={p.label}
-                        type="button"
-                        onClick={()=>{setDateRange({start:p.get(),end:new Date().toISOString().split('T')[0]});setPage(1);}}
-                        className="px-1.5 py-0.5 bg-white hover:bg-emerald-100 hover:text-emerald-700 border border-slate-200 rounded-md text-[9px] font-bold text-slate-600 transition-colors whitespace-nowrap">{p.label}</button>
-                    ))}
-                  </div>
-                  <div className="w-[1px] h-4 bg-slate-300 shrink-0 mx-0.5"></div>
-                  <button type="button" onClick={() => { setDateRange({ start: '', end: '' }); setActiveFilter(null); setPage(1); }} className="p-1 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors shrink-0">
-                    <X size={14} strokeWidth={2.5} />
-                  </button>
-                </div>
-              )}
-
-              {activeFilter === 'search' && (
-                <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 h-10 w-full shadow-sm flex-nowrap focus-within:ring-1 focus-within:ring-emerald-400 focus-within:border-emerald-400 transition-all">
-                  <Search size={16} className="text-emerald-500 shrink-0" />
-                  <input
-                    type="text"
-                    placeholder="Cari transaksi (Nota/Ket)..."
-                    className="bg-transparent text-[11px] font-bold text-slate-700 outline-none flex-1 min-w-[150px]"
-                    value={searchInput}
-                    onChange={(e) => setSearchInput(e.target.value)}
-                    autoFocus
-                  />
-                  <div className="w-[1px] h-4 bg-slate-300 shrink-0 mx-1"></div>
-                  <button onClick={() => { setSearchInput(''); setActiveFilter(null); }} className="p-1 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors shrink-0">
-                    <X size={14} strokeWidth={2.5} />
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {/* === KANAN: Ikon-ikon Filter (tetap di posisi) === */}
-            <div className="flex items-center gap-1 flex-shrink-0">
-              <button
-                onClick={() => setActiveFilter(activeFilter === 'account' ? null : 'account')}
-                className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all shadow-sm ${
-                  activeFilter === 'account'
-                    ? 'bg-emerald-100 text-emerald-600 border border-emerald-300'
-                    : 'bg-slate-50 border border-slate-200 text-slate-400 hover:text-emerald-500 hover:bg-slate-100'
-                }`}
-                title="Filter Akun"
-              >
-                <Wallet size={16} />
-              </button>
-
-              <button
-                onClick={() => setActiveFilter(activeFilter === 'jenis' ? null : 'jenis')}
-                className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all shadow-sm ${
-                  activeFilter === 'jenis'
-                    ? 'bg-emerald-100 text-emerald-600 border border-emerald-300'
-                    : 'bg-slate-50 border border-slate-200 text-slate-400 hover:text-emerald-500 hover:bg-slate-100'
-                }`}
-                title="Filter Jenis"
-              >
-                <Layers size={16} />
-              </button>
-
-              <button
-                onClick={() => setActiveFilter(activeFilter === 'tanggal' ? null : 'tanggal')}
-                className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all shadow-sm ${
-                  activeFilter === 'tanggal'
-                    ? 'bg-emerald-100 text-emerald-600 border border-emerald-300'
-                    : 'bg-slate-50 border border-slate-200 text-slate-400 hover:text-emerald-500 hover:bg-slate-100'
-                }`}
-                title="Filter Tanggal"
-              >
-                <Calendar size={16} />
-              </button>
-
-              <button
-                onClick={() => setActiveFilter(activeFilter === 'search' ? null : 'search')}
-                className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all shadow-sm ${
-                  activeFilter === 'search'
-                    ? 'bg-emerald-100 text-emerald-600 border border-emerald-300'
-                    : 'bg-slate-50 border border-slate-200 text-slate-400 hover:text-emerald-500 hover:bg-slate-100'
-                }`}
-                title="Cari"
-              >
-                <Search size={16} />
-              </button>
-
-              {/* Tombol filter mobile (muncul di layar kecil) */}
-              <button
-                onClick={() => setIsMobileFilterOpen(true)}
-                className="md:hidden w-8 h-8 flex items-center justify-center bg-slate-100 border border-slate-200 rounded-lg text-slate-600 shadow-sm"
-              >
-                <Filter size={16} />
-              </button>
-            </div>
-          </div>
-
-          {/* DAFTAR TRANSAKSI - SCROLLABLE */}
-          <div
-            ref={scrollContainerRef}
-            className="flex-1 overflow-y-auto p-4 md:p-6 space-y-8 scroll-smooth custom-scrollbar"
-          >
-            {loading ? (
-              <div className="space-y-3 px-3 py-6">
-                {Array.from({length:5}).map((_,i)=>(
-                  <div key={i} className="bg-slate-50 border border-slate-100 rounded-2xl p-4 animate-pulse flex gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-slate-200" />
-                    <div className="flex-1 space-y-2">
-                      <div className="h-3 bg-slate-200 rounded w-1/3" />
-                      <div className="h-4 bg-slate-200 rounded w-2/3" />
-                      <div className="h-2 bg-slate-200 rounded w-1/4" />
-                    </div>
-                    <div className="w-20 h-6 bg-slate-200 rounded" />
-                  </div>
-                ))}
-              </div>
-            ) : Object.keys(groupedTransactions).length === 0 ? (
-              <div className="text-center py-20 text-slate-400 font-bold bg-slate-50 rounded-3xl border-2 border-dashed border-slate-200">
-                Belum ada data transaksi kas ditemukan.
-              </div>
-            ) : (
-              Object.entries(groupedTransactions).map(([date, items]) => (
-                <div key={date} className="space-y-4">
-                  <div className="flex items-center gap-4">
-                    <span className="bg-slate-800 px-4 py-1.5 rounded-full text-[10px] font-black text-white uppercase tracking-widest text-center shadow-sm">
-                      {date !== 'Tanpa Tanggal' ? date : 'Tanpa Tanggal'}
-                    </span>
-                    <div className="h-[2px] flex-1 bg-slate-100" />
-                  </div>
-                  <div className="grid gap-3">
-                    {items.map((tx) => {
-                      const isMasuk = tx.mutasi.toLowerCase() === 'in' || (filterAccounts.includes(tx.account_2) && !filterAccounts.includes(tx.account_1) && tx.jenis.toLowerCase().includes('transfer'));
-                      const isTransfer = (tx.jenis || '').toLowerCase() === 'transfer';
-                      const iconColor = isTransfer ? 'bg-indigo-50 text-indigo-600' : (isMasuk ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600');
-                      const textColor = isTransfer ? 'text-indigo-600' : (isMasuk ? 'text-emerald-600' : 'text-rose-600');
-                      // Menghapus manual calculation _runningBalance karena sudah ditangani database
-                      return (
-                        <div
-                          key={tx.id}
-                          onClick={() => {
-                            setSelectedTx(tx);
-                            setModalType('detail');
-                          }}
-                          className="group bg-white border-2 border-slate-100 rounded-2xl hover:border-emerald-300 hover:shadow-lg hover:shadow-emerald-500/10 transition-all cursor-pointer overflow-hidden"
-                        >
-                          <div className="p-4 md:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                            <div className="flex items-start sm:items-center gap-3 shrink-0">
-                              <div
-                                className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-sm ${iconColor}`}
-                              >
-                                {isTransfer ? (
-                                  <RefreshCw size={18} strokeWidth={2.5} />
-                                ) : isMasuk ? (
-                                  <ArrowDownRight strokeWidth={2.5} />
-                                ) : (
-                                  <ArrowUpRight strokeWidth={2.5} />
-                                )}
-                              </div>
-                              <div className="flex flex-col">
-                                <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider">
-                                  {tx.id?.slice(-6) || tx.ref?.slice(-6)}
-                                </span>
-                                <span className="text-[10px] font-black text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200 mt-0.5 text-center">
-                                  {tx.jenis}
-                                </span>
-                              </div>
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <h4 className="font-bold text-slate-800 text-sm md:text-base truncate">
-                                {tx.note || '-'}
-                              </h4>
-                              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 text-xs">
-                                <span className="text-slate-500 flex items-center gap-1">
-                                  <User size={12} /> {getPersonName(tx.person, tx.persontext)}
-                                </span>
-                                <span className="text-slate-500 flex items-center gap-1">
-                                  <Wallet size={12} /> {getAccountName(tx.account_1)}
-                                </span>
-                                {tx.account_2 && (
-                                  <span className="text-slate-500 flex items-center gap-1">
-                                    <ArrowRight size={12} />{' '}
-                                    {getAccountName(tx.account_2)}
-                                  </span>
-                                )}
-                                <span className="text-slate-500 flex items-center gap-1">
-                                  <User size={12} /> {tx.operator || '-'}
-                                </span>
-                              </div>
-                            </div>
-                            <div className="flex items-center justify-end shrink-0">
-                              <p
-                                className={`text-base md:text-lg font-black tracking-tight ${textColor}`}
-                              >
-                                {isTransfer ? '↔' : isMasuk ? '+' : '-'} {formatRupiah(tx.nominal)}
-                              </p>
-                            </div>
-                          </div>
-                          <div className={`px-4 pb-3 md:px-5 md:pb-4 border-t border-slate-100 flex justify-between items-center ${isTransfer ? 'bg-indigo-50/30' : 'bg-slate-50/50'}`}>
-                            <span className="text-[9px] font-mono text-slate-400">
-                              {tx.created_at
-                                ? new Date(tx.created_at).toLocaleTimeString(
-                                    'id-ID',
-                                    { hour: '2-digit', minute: '2-digit' }
-                                  )
-                                : '-'}
-                              {isTransfer && (
-                                <span className="ml-2 text-indigo-400 font-bold uppercase">TRANSFER</span>
-                              )}
-                            </span>
-                            {(tx.saldo_akhir !== undefined && tx.saldo_akhir !== null) && (
-                              <span className={`text-[9px] font-bold ${Number(tx.saldo_akhir) < 0 ? 'text-rose-500' : 'text-emerald-600'}`}>
-                                Saldo Akhir: {formatRupiah(Number(tx.saldo_akhir))}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-
-          {/* PAGINASI */}
-          <div className="sticky bottom-0 z-30 p-3 sm:p-4 md:p-6 border-t border-slate-100 bg-white flex justify-between items-center shrink-0 rounded-b-3xl shadow-[0_-8px_20px_-5px_rgba(0,0,0,0.08)]">
-            <p className="text-xs font-black text-slate-400 uppercase tracking-widest bg-slate-100 px-4 py-2 rounded-xl">
-              Hal. {page} / {totalPages || 1}
-            </p>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={page === 1}
-                className="w-10 h-10 flex items-center justify-center bg-white rounded-xl border border-slate-200 hover:bg-slate-50 hover:border-slate-300 disabled:opacity-30 transition-all shadow-sm text-slate-600"
-              >
-                <ChevronLeft size={20} />
-              </button>
-              <button
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                disabled={page >= totalPages}
-                className="w-10 h-10 flex items-center justify-center bg-white rounded-xl border border-slate-200 hover:bg-slate-50 hover:border-slate-300 disabled:opacity-30 transition-all shadow-sm text-slate-600"
-              >
-                <ChevronRight size={20} />
-              </button>
-            </div>
-          </div>
-        </div>
+        <CashflowHistoryTab
+          loading={loading}
+          groupedTransactions={groupedTransactions}
+          filterMutasi={filterMutasi}
+          setFilterMutasi={setFilterMutasi}
+          filterAccounts={filterAccounts}
+          toggleFilterAccount={toggleFilterAccount}
+          filterJenis={filterJenis}
+          toggleFilterJenis={toggleFilterJenis}
+          availableJenisOptions={availableJenisOptions}
+          accountOptions={accountOptions}
+          dateRange={dateRange}
+          setDateRange={setDateRange}
+          searchInput={searchInput}
+          setSearchInput={setSearchInput}
+          page={page}
+          totalPages={totalPages}
+          setPage={setPage}
+          onSelectTransaction={(tx) => { setSelectedTx(tx); setModalType('detail'); }}
+          onOpenMobileFilter={() => setIsMobileFilterOpen(true)}
+          getPersonName={getPersonName}
+          getAccountName={getAccountName}
+          scrollContainerRef={scrollContainerRef}
+        />
       )}
 
       {/* ============================================================ */}
       {/* CONTAINER ACCOUNTS / WALLET */}
       {/* ============================================================ */}
       {activeTab === 'accounts' && (
-        <div
-          ref={scrollContainerAccountsRef}
-          className="flex-1 min-h-0 overflow-y-auto custom-scrollbar pb-10"
-        >
-          <div className="mb-6">
-            <h3 className="text-xl font-black text-slate-800 flex items-center gap-2">
-              Buku Rekening & Kas
-            </h3>
-            <p className="text-sm font-medium text-slate-500 mt-1">
-              Sisa saldo aktif untuk setiap penyimpanan dan pencatatan bon
-            </p>
-          </div>
-
-          {/* Sub-tab Kategori Akun */}
-          <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
-            <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2 flex-wrap">
-              {[
-                { id: 'kas', label: 'Kas & Bank', color: 'emerald' },
-                { id: 'customer', label: 'Piutang Customer', color: 'blue' },
-                { id: 'supplier', label: 'Hutang Supplier', color: 'amber' },
-                { id: 'karyawan', label: 'Bon Karyawan', color: 'purple' },
-              ].map(tab => (
-                <button
-                  key={tab.id}
-                  onClick={() => {
-                    setActiveAccountTab(tab.id as any);
-                    setShowZeroBalances(false);
-                  }}
-                  className={`shrink-0 px-4 py-2.5 text-xs font-black uppercase tracking-wider rounded-xl transition-all duration-300 ${
-                    activeAccountTab === tab.id
-                      ? (tab.id === 'kas' ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/30' : 
-                        tab.id === 'customer' ? 'bg-blue-500 text-white shadow-md shadow-blue-500/30' :
-                        tab.id === 'supplier' ? 'bg-amber-500 text-white shadow-md shadow-amber-500/30' :
-                        'bg-purple-500 text-white shadow-md shadow-purple-500/30')
-                      : 'bg-white text-slate-500 hover:bg-slate-100 border border-slate-200'
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-            
-            {/* Tombol Hitung Ulang - hanya tampil jika tab piutang atau hutang */}
-            {(activeAccountTab === 'customer' || activeAccountTab === 'supplier') && (
-              <button
-                onClick={calculateBalances}
-                disabled={calculating}
-                className={`shrink-0 px-5 py-2.5 text-xs font-black uppercase tracking-wider rounded-xl transition-all duration-300 flex items-center gap-2 ${
-                  activeAccountTab === 'customer' ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-500/30' :
-                  activeAccountTab === 'supplier' ? 'bg-amber-600 hover:bg-amber-700 text-white shadow-md shadow-amber-500/30' :
-                  'bg-purple-600 hover:bg-purple-700 text-white shadow-md shadow-purple-500/30'
-                } ${calculating ? 'opacity-70 cursor-not-allowed' : ''}`}
-              >
-                {calculating ? (
-                  <>
-                    <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    MENGHITUNG...
-                  </>
-                ) : (
-                  <>
-                    <RefreshCw size={16} />
-                    HITUNG ULANG
-                  </>
-                )}
-              </button>
-            )}
-          </div>
-
-          {loadingWallets ? (
-            <div className="flex justify-center py-20">
-              <div className="w-10 h-10 border-4 border-emerald-200 border-t-emerald-600 rounded-full animate-spin" />
-            </div>
-          ) : wallets.length === 0 ? (
-            <div className="text-center py-20 text-slate-400 font-bold bg-white rounded-3xl border border-slate-200 shadow-sm">
-              Tidak ada data yang tersedia.
-            </div>
-          ) : (
-            <div className="space-y-8">
-              {(() => {
-                const getInitials = (name: string) => name.split(' ').map((n) => n[0]).join('').substring(0, 2).toUpperCase();
-                 // Mengambil dan mensortir data berdasarkan saldo terbesar (descending)
-                const listCashflow = wallets.filter(w => (w.kategori || '').toLowerCase().includes('cashflow')).sort((a, b) => ((b as any).number_1 || 0) - ((a as any).number_1 || 0));
-                const listCustomer = wallets.filter(w => (w.kategori || '').toLowerCase().includes('person') && (w.jenis || '').toLowerCase().includes('customer')).sort((a, b) => ((b as any).number_1 || 0) - ((a as any).number_1 || 0));
-                const listSupplier = wallets.filter(w => (w.kategori || '').toLowerCase().includes('person') && (w.jenis || '').toLowerCase().includes('supplier')).sort((a, b) => ((b as any).number_1 || 0) - ((a as any).number_1 || 0));
-                const listUser = wallets.filter(w => (w.kategori || '').toLowerCase().includes('person') && (w.jenis || '').toLowerCase().includes('user')).sort((a, b) => ((b as any).number_1 || 0) - ((a as any).number_1 || 0));
-
-                let currentList: DropdownItem[] = [];
-                let colorTheme = 'emerald';
-                let title = '';
-
-                if (activeAccountTab === 'kas') { currentList = listCashflow; colorTheme = 'emerald'; title = 'Akun Kas & Bank'; }
-                else if (activeAccountTab === 'customer') { currentList = listCustomer; colorTheme = 'blue'; title = 'Piutang Customer'; }
-                else if (activeAccountTab === 'supplier') { currentList = listSupplier; colorTheme = 'amber'; title = 'Hutang Supplier'; }
-                else if (activeAccountTab === 'karyawan') { currentList = listUser; colorTheme = 'purple'; title = 'Bon Karyawan'; }
-
-                if (currentList.length === 0) {
-                  return (
-                    <div className="text-center py-20 text-slate-400 font-bold bg-white rounded-3xl border border-dashed border-slate-200 shadow-sm">
-                      Belum ada data untuk kategori ini.
-                    </div>
-                  );
-                }
-
-                // Hitung subtotal seluruhnya di kategori ini
-                const subtotal = currentList.reduce((acc, w) => acc + ((w as any).number_1 || 0), 0);
-
-                // Pisahkan yang aktif (> 0) dan yang dilipat (<= 0)
-                const activeList = currentList.filter(w => ((w as any).number_1 || 0) > 0);
-                const zeroList = currentList.filter(w => ((w as any).number_1 || 0) <= 0);
-
-                const FLAT_CARD_PALETTE = [
-                  { bg: 'bg-emerald-600', border: 'border-emerald-500', shadow: 'shadow-emerald-600/20' },
-                  { bg: 'bg-blue-600', border: 'border-blue-500', shadow: 'shadow-blue-600/20' },
-                  { bg: 'bg-amber-600', border: 'border-amber-500', shadow: 'shadow-amber-600/20' },
-                  { bg: 'bg-purple-600', border: 'border-purple-500', shadow: 'shadow-purple-600/20' },
-                  { bg: 'bg-rose-600', border: 'border-rose-500', shadow: 'shadow-rose-600/20' },
-                  { bg: 'bg-cyan-600', border: 'border-cyan-500', shadow: 'shadow-cyan-600/20' },
-                  { bg: 'bg-indigo-600', border: 'border-indigo-500', shadow: 'shadow-indigo-600/20' },
-                  { bg: 'bg-teal-600', border: 'border-teal-500', shadow: 'shadow-teal-600/20' },
-                  { bg: 'bg-violet-600', border: 'border-violet-500', shadow: 'shadow-violet-600/20' },
-                  { bg: 'bg-orange-600', border: 'border-orange-500', shadow: 'shadow-orange-600/20' },
-                  { bg: 'bg-pink-600', border: 'border-pink-500', shadow: 'shadow-pink-600/20' },
-                  { bg: 'bg-sky-600', border: 'border-sky-500', shadow: 'shadow-sky-600/20' },
-                ];
-
-                const getFlatColor = (name: string, id: string) => {
-                  let hash = 0;
-                  const str = (name || '') + (id || '');
-                  for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
-                  const idx = Math.abs(hash) % FLAT_CARD_PALETTE.length;
-                  return FLAT_CARD_PALETTE[idx];
-                };
-
-                const renderGrid = (listToRender: DropdownItem[]) => {
-                  return (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-                      {listToRender.map((wallet) => {
-                        const wData = wallet as any;
-                        const flatColor = getFlatColor(wallet.text_1, wallet.id);
-                        return (
-                          <div
-                            key={wallet.id}
-                            onClick={() => {
-                              if (activeAccountTab === 'customer' || activeAccountTab === 'supplier') {
-                                navigate(`/?person=${wallet.id_lama}&status=belum`);
-                              } else if (activeAccountTab === 'karyawan') {
-                                openBonHistory(wallet);
-                              } else {
-                                setFilterPerson(null);
-                                setFilterAccounts([wallet.id]);
-                                setActiveTab('history');
-                                setPage(1);
-                              }
-                            }}
-                            className={`relative overflow-hidden rounded-[2rem] p-5 sm:p-6 text-white ${flatColor.bg} border ${flatColor.border} shadow-lg ${flatColor.shadow} hover:-translate-y-1 transition-all duration-200 group cursor-pointer`}
-                          >
-                            <div className="flex justify-between items-start mb-6 relative z-10">
-                              <div className="w-12 h-12 rounded-2xl bg-white/20 border border-white/30 flex items-center justify-center font-black text-sm text-white shadow-sm overflow-hidden">
-                                {wData.link_image && !wData.link_image.startsWith('#') ? (
-                                  <img
-                                    src={wData.link_image.startsWith('http') ? wData.link_image : pb.files.getUrl(wallet, wData.link_image)}
-                                    alt="PP"
-                                    className="w-full h-full object-cover"
-                                    onError={(e) => {
-                                      e.currentTarget.classList.add('hidden');
-                                      e.currentTarget.nextElementSibling?.classList.remove('hidden');
-                                    }}
-                                  />
-                                ) : null}
-                                <span className={wData.link_image && !wData.link_image.startsWith('#') ? 'hidden' : ''}>
-                                  {getInitials(wallet.text_1)}
-                                </span>
-                              </div>
-                              <span className="text-[9px] font-black uppercase tracking-widest text-white bg-white/20 border border-white/30 px-3 py-1 rounded-full">
-                                {wallet.jenis || 'DOMPET'}
-                              </span>
-                            </div>
-                            <div className="relative z-10">
-                              <p className="text-xs font-extrabold text-white/90 mb-1 truncate">{wallet.text_1}</p>
-                              <p className="text-2xl sm:text-3xl font-black tracking-tight text-white">{formatRupiah(wData.number_1 || 0)}</p>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  );
-                };
-
-                const THEME_STYLES: Record<string, { title: string; subtotalLabel: string; subtotalVal: string }> = {
-                  emerald: { title: 'text-emerald-600', subtotalLabel: 'text-emerald-500', subtotalVal: 'text-emerald-600' },
-                  blue: { title: 'text-blue-600', subtotalLabel: 'text-blue-500', subtotalVal: 'text-blue-600' },
-                  amber: { title: 'text-amber-600', subtotalLabel: 'text-amber-500', subtotalVal: 'text-amber-600' },
-                  purple: { title: 'text-purple-600', subtotalLabel: 'text-purple-500', subtotalVal: 'text-purple-600' },
-                };
-                const currentThemeStyle = THEME_STYLES[colorTheme] || THEME_STYLES.emerald;
-
-                return (
-                  <div className="space-y-6">
-                    {/* Header Section dengan Subtotal */}
-                    <div className="flex justify-between items-end border-b-2 border-slate-200 pb-3 px-2">
-                      <h4 className={`text-xl md:text-2xl font-black ${currentThemeStyle.title} uppercase tracking-widest`}>{title}</h4>
-                      <div className="text-right">
-                        <span className={`text-[10px] font-black ${currentThemeStyle.subtotalLabel} uppercase tracking-widest block`}>Subtotal Saldo</span>
-                        <span className={`text-lg md:text-xl font-black ${currentThemeStyle.subtotalVal}`}>{formatRupiah(subtotal)}</span>
-                      </div>
-                    </div>
-
-                    {/* Menampilkan list yang saldonya > 0 */}
-                    {activeList.length > 0 ? renderGrid(activeList) : (
-                      <div className="text-sm font-bold text-slate-400 bg-slate-100 p-4 rounded-xl text-center">Tidak ada akun aktif (saldo diatas 0) di kategori ini.</div>
-                    )}
-
-                    {/* Menampilkan list yang saldonya <= 0 dalam keadaan terlipat */}
-                    {zeroList.length > 0 && (
-                      <div className="mt-8">
-                        <button 
-                          onClick={() => setShowZeroBalances(!showZeroBalances)}
-                          className="w-full py-3 flex items-center justify-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-xl font-black text-xs uppercase tracking-widest transition-colors"
-                        >
-                          {showZeroBalances ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                          {showZeroBalances ? 'Sembunyikan Akun Kosong/Minus' : `Tampilkan ${zeroList.length} Akun Kosong/Minus`}
-                        </button>
-                        
-                        <div className={`transition-all duration-500 overflow-hidden ${showZeroBalances ? 'max-h-[5000px] mt-4 opacity-100' : 'max-h-0 opacity-0'}`}>
-                          {renderGrid(zeroList)}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })()}
-            </div>
-          )}
-        </div>
+        <CashflowAccountsTab
+          wallets={wallets}
+          loadingWallets={loadingWallets}
+          activeAccountTab={activeAccountTab}
+          setActiveAccountTab={setActiveAccountTab}
+          showZeroBalances={showZeroBalances}
+          setShowZeroBalances={setShowZeroBalances}
+          calculating={calculating}
+          calculateBalances={calculateBalances}
+          onOpenBonHistory={openBonHistory}
+          onFilterKasWallet={(walletId) => { setFilterPerson(null); setFilterAccounts([walletId]); setActiveTab('history'); setPage(1); }}
+          scrollContainerAccountsRef={scrollContainerAccountsRef}
+        />
       )}
 
       {/* ============================================================ */}
       {/* ============================================================ */}
       {/* CONTAINER JATUH TEMPO – DENGAN INTERAKSI FILTER & RESPONSIF MOBIL/TABLET */}
       {/* ============================================================ */}
-      {activeTab === 'tempo' && ['1', '2', '5', '6'].includes(userLevel) && (() => {
-        // Flatten data dari tempoGroups
-        const allItems = tempoGroups.flatMap(g => g.items.map(item => ({ ...item, tempoDate: g.date })));
-        const totalItemsCount = allItems.length;
-
-        const todayKey = businessDate();
-
-        // Perhitungan Ringkasan Metrik (Overdue vs Upcoming)
-        let overdueCount = 0;
-        let overdueSisaTotal = 0;
-        let upcomingCount = 0;
-        let upcomingSisaTotal = 0;
-        let grandSisaTotal = 0;
-
-        allItems.forEach(item => {
-          const groupDate = item.tempoDate;
-          const sisa = Math.max(0, Number(item.total || 0) - Number(item.dibayar || 0));
-          grandSisaTotal += sisa;
-
-          if (groupDate < todayKey) {
-            overdueCount += 1;
-            overdueSisaTotal += sisa;
-          } else {
-            upcomingCount += 1;
-            upcomingSisaTotal += sisa;
-          }
-        });
-
-        // Filtering data berdasarkan kategori yang diklik pada metric cards
-        const filteredAllItems = allItems.filter(item => {
-          const groupDate = item.tempoDate;
-          if (tempoCategoryFilter === 'overdue') return groupDate < todayKey;
-          if (tempoCategoryFilter === 'upcoming') return groupDate >= todayKey;
-          return true;
-        });
-
-        const totalFilteredItems = filteredAllItems.length;
-
-        // Pagination
-        const totalPages = Math.ceil(totalFilteredItems / tempoPerPage) || 1;
-        const startIndex = (tempoPage - 1) * tempoPerPage;
-        const endIndex = Math.min(startIndex + tempoPerPage, totalFilteredItems);
-        const currentPageItems = filteredAllItems.slice(startIndex, endIndex);
-
-        const totalHalaman = currentPageItems.reduce((acc, item) => acc + Math.max(0, Number(item.total || 0) - Number(item.dibayar || 0)), 0);
-
-        const getDaysDiffText = (dateStr: string) => {
-          const diffMs = new Date(dateStr).getTime() - new Date(todayKey).getTime();
-          const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
-          if (diffDays < 0) return `Lewat ${Math.abs(diffDays)} Hari`;
-          if (diffDays === 0) return `Jatuh Tempo Hari Ini`;
-          return `Sisa ${diffDays} Hari`;
-        };
-
-        const tempoCategoryLabels: Record<string, string> = {
-          all: 'Semua',
-          overdue: 'Terlambat',
-          upcoming: 'Akan Datang'
-        };
-
-        return (
-          <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/40 border border-slate-100 flex-1 min-h-0 flex flex-col overflow-hidden relative">
-            {/* HEADER CONTAINER */}
-            <div className="p-4 sm:p-5 border-b border-slate-100 bg-slate-50/50 shrink-0 flex flex-col md:flex-row md:items-center justify-between gap-3">
-              <div>
-                <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
-                  <Calendar size={18} className="text-amber-500 shrink-0" />
-                  Daftar Pembelian Belum Lunas (Monitoring Jatuh Tempo Hutang)
-                </h4>
-                <p className="text-[11px] sm:text-xs text-slate-500 mt-0.5">
-                  Klik pada banner metrik di bawah untuk menyaring data berdasarkan keterlambatan pelunasan.
-                </p>
-              </div>
-              <div className="flex items-center gap-2 self-start md:self-auto flex-wrap">
-                {tempoCategoryFilter !== 'all' && (
-                  <button
-                    onClick={() => { setTempoCategoryFilter('all'); setTempoPage(1); }}
-                    className="px-2.5 py-1 bg-rose-100 text-rose-700 hover:bg-rose-200 text-[10px] font-black uppercase rounded-xl border border-rose-200 transition-colors flex items-center gap-1"
-                  >
-                    <X size={12} /> Reset Filter ({tempoCategoryLabels[tempoCategoryFilter] || tempoCategoryFilter})
-                  </button>
-                )}
-                <span className="px-3 py-1 bg-amber-100 text-amber-800 text-[10px] font-black uppercase rounded-xl border border-amber-200">
-                  {totalFilteredItems} Transaksi Tampil
-                </span>
-              </div>
-            </div>
-
-            {/* MAIN SCROLLABLE CONTENT BODY (BANNERS & LIST ITEM UNIFIED SCROLL) */}
-            <div ref={scrollTempoRef} className="flex-1 overflow-y-auto p-3.5 sm:p-5 md:p-6 space-y-5 sm:space-y-6 custom-scrollbar">
-              {/* RINGKASAN STATISTIK METRIK INTERAKTIF (3 CARDS METRIC - KLIK UNTUK FILTER) */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3.5 pb-2 border-b border-slate-100">
-                {/* Card 1: Overdue */}
-                <div 
-                  onClick={() => {
-                    setTempoCategoryFilter(tempoCategoryFilter === 'overdue' ? 'all' : 'overdue');
-                    setTempoPage(1);
-                  }}
-                  className={`p-3.5 sm:p-4 bg-gradient-to-br from-rose-50 to-red-50/80 border-2 rounded-2xl flex flex-col justify-between shadow-xs cursor-pointer transition-all duration-200 active:scale-98 ${
-                    tempoCategoryFilter === 'overdue'
-                      ? 'border-rose-600 ring-4 ring-rose-200 shadow-md scale-[1.01]'
-                      : 'border-rose-200 hover:border-rose-400'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-black text-rose-600 uppercase tracking-widest flex items-center gap-1.5">
-                      <AlertCircle size={14} /> Lewat Jatuh Tempo
-                    </span>
-                    <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black border ${
-                      tempoCategoryFilter === 'overdue'
-                        ? 'bg-rose-600 text-white border-rose-700'
-                        : 'bg-rose-200/60 text-rose-800 border-rose-300/50'
-                    }`}>
-                      {overdueCount} Nota
-                    </span>
-                  </div>
-                  <div className="mt-2 sm:mt-3">
-                    <p className="text-lg sm:text-2xl font-black text-rose-700 tracking-tight">
-                      {formatRupiah(overdueSisaTotal)}
-                    </p>
-                    <div className="flex items-center justify-between mt-1">
-                      <p className="text-[9px] sm:text-[10px] font-bold text-rose-500">Sisa Hutang Terlambat</p>
-                      <span className="text-[9px] font-black text-rose-700 uppercase tracking-wider underline">
-                        {tempoCategoryFilter === 'overdue' ? '✓ Filter Aktif' : 'Klik Filter ↗'}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Card 2: Upcoming */}
-                <div 
-                  onClick={() => {
-                    setTempoCategoryFilter(tempoCategoryFilter === 'upcoming' ? 'all' : 'upcoming');
-                    setTempoPage(1);
-                  }}
-                  className={`p-3.5 sm:p-4 bg-gradient-to-br from-amber-50 to-orange-50/80 border-2 rounded-2xl flex flex-col justify-between shadow-xs cursor-pointer transition-all duration-200 active:scale-98 ${
-                    tempoCategoryFilter === 'upcoming'
-                      ? 'border-amber-500 ring-4 ring-amber-200 shadow-md scale-[1.01]'
-                      : 'border-amber-200 hover:border-amber-400'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-black text-amber-600 uppercase tracking-widest flex items-center gap-1.5">
-                      <Calendar size={14} /> Akan Jatuh Tempo
-                    </span>
-                    <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black border ${
-                      tempoCategoryFilter === 'upcoming'
-                        ? 'bg-amber-500 text-white border-amber-600'
-                        : 'bg-amber-200/60 text-amber-800 border-amber-300/50'
-                    }`}>
-                      {upcomingCount} Nota
-                    </span>
-                  </div>
-                  <div className="mt-2 sm:mt-3">
-                    <p className="text-lg sm:text-2xl font-black text-amber-700 tracking-tight">
-                      {formatRupiah(upcomingSisaTotal)}
-                    </p>
-                    <div className="flex items-center justify-between mt-1">
-                      <p className="text-[9px] sm:text-[10px] font-bold text-amber-600">Dalam Tenggat Waktu</p>
-                      <span className="text-[9px] font-black text-amber-800 uppercase tracking-wider underline">
-                        {tempoCategoryFilter === 'upcoming' ? '✓ Filter Aktif' : 'Klik Filter ↗'}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Card 3: Total Sisa Tagihan */}
-                <div 
-                  onClick={() => {
-                    setTempoCategoryFilter('all');
-                    setTempoPage(1);
-                  }}
-                  className={`p-3.5 sm:p-4 bg-gradient-to-br from-slate-900 to-slate-800 text-white border-2 rounded-2xl flex flex-col justify-between shadow-md cursor-pointer transition-all duration-200 active:scale-98 ${
-                    tempoCategoryFilter === 'all'
-                      ? 'border-emerald-400 ring-4 ring-emerald-400/30 scale-[1.01]'
-                      : 'border-slate-700 hover:border-slate-500'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest flex items-center gap-1.5">
-                      <DollarSign size={14} className="text-emerald-400" /> Total Sisa Tagihan
-                    </span>
-                    <span className="px-2 py-0.5 bg-white/10 text-emerald-300 rounded-lg text-[10px] font-black border border-white/10">
-                      {totalItemsCount} Nota
-                    </span>
-                  </div>
-                  <div className="mt-2 sm:mt-3">
-                    <p className="text-lg sm:text-2xl font-black text-emerald-400 tracking-tight">
-                      {formatRupiah(grandSisaTotal)}
-                    </p>
-                    <div className="flex items-center justify-between mt-1">
-                      <p className="text-[9px] sm:text-[10px] font-bold text-slate-300">Total Kewajiban Pembayaran</p>
-                      <span className="text-[9px] font-black text-emerald-300 uppercase tracking-wider underline">
-                        {tempoCategoryFilter === 'all' ? '✓ Tampil Semua' : 'Tampilkan Semua ↗'}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              {loadingTempo ? (
-                <div className="space-y-3 px-3 py-6">
-                  {Array.from({length:4}).map((_,i)=>(
-                    <div key={i} className="bg-slate-50 border border-slate-100 rounded-2xl p-4 animate-pulse flex gap-3">
-                      <div className="w-1.5 rounded-full bg-slate-200" />
-                      <div className="flex-1 space-y-2">
-                        <div className="h-3 bg-slate-200 rounded w-1/3" />
-                        <div className="h-4 bg-slate-200 rounded w-2/3" />
-                        <div className="h-2 bg-slate-200 rounded w-1/2" />
-                      </div>
-                      <div className="w-20 h-6 bg-slate-200 rounded" />
-                    </div>
-                  ))}
-                </div>
-              ) : totalFilteredItems === 0 ? (
-                <div className="text-center py-16 sm:py-20 text-slate-400 font-bold bg-slate-50 rounded-3xl border-2 border-dashed border-slate-200 px-4">
-                  <p className="text-base sm:text-lg">🎉 Tidak ada pembelian dalam kategori filter ini ({tempoCategoryLabels[tempoCategoryFilter] || tempoCategoryFilter}).</p>
-                  <button 
-                    onClick={() => { setTempoCategoryFilter('all'); setTempoPage(1); }}
-                    className="mt-3 px-4 py-2 bg-slate-800 text-white rounded-xl text-xs font-black uppercase tracking-wider"
-                  >
-                    Tampilkan Semua Transaksi Jatuh Tempo
-                  </button>
-                </div>
-              ) : (
-                (() => {
-                  const groupedPageItems: Record<string, any[]> = {};
-                  currentPageItems.forEach(item => {
-                    const key = item.tempoDate;
-                    if (!groupedPageItems[key]) groupedPageItems[key] = [];
-                    groupedPageItems[key].push(item);
-                  });
-                  const sortedGroupKeys = Object.keys(groupedPageItems).sort((a, b) => a.localeCompare(b));
-
-                  return sortedGroupKeys.map((dateKey) => {
-                    const isOverdueGroup = dateKey < todayKey;
-                    const items = groupedPageItems[dateKey];
-                    const daysDiffText = getDaysDiffText(dateKey);
-
-                    return (
-                      <div key={dateKey} className="space-y-3">
-                        {/* Header Kelompok Tanggal Tempo */}
-                        <div className="flex items-center gap-2 sm:gap-3 px-1 flex-wrap">
-                          <span className={`px-2.5 sm:px-3 py-1 rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-wider flex items-center gap-1.5 border shadow-xs ${
-                            isOverdueGroup 
-                              ? 'bg-rose-600 text-white border-rose-700' 
-                              : 'bg-amber-500 text-white border-amber-600'
-                          }`}>
-                            {isOverdueGroup ? <AlertCircle size={13} /> : <Calendar size={13} />}
-                            {isOverdueGroup ? `LEWAT JATUH TEMPO (${daysDiffText})` : `AKAN JATUH TEMPO (${daysDiffText})`}
-                          </span>
-                          <span className="text-[10px] sm:text-xs font-black text-slate-700 bg-slate-100 px-2.5 py-1 rounded-xl border border-slate-200">
-                            Batas: {formatLocalDateTime(dateKey)}
-                          </span>
-                          <div className="h-px flex-1 bg-slate-200 min-w-[30px]" />
-                        </div>
-
-                        {/* List Items Card */}
-                        {items.map((item) => {
-                          const personName = getPersonName(item.person) || item.person || 'Supplier Umum';
-                          const dibayar = item.dibayar || 0;
-                          const total = item.total || 0;
-                          const sisa = total - dibayar;
-                          const percentPaid = total > 0 ? Math.min(100, Math.round((dibayar / total) * 100)) : 0;
-
-                          return (
-                            <div
-                              key={item.id}
-                              onClick={() => navigate(`/?ref=${item.id}`)}
-                              className={`group bg-white border-2 rounded-2xl p-3.5 sm:p-4 md:p-5 hover:shadow-xl transition-all cursor-pointer flex flex-col md:flex-row md:items-center justify-between gap-3.5 md:gap-4 relative overflow-hidden ${
-                                isOverdueGroup 
-                                  ? 'border-rose-200 hover:border-rose-400 bg-rose-50/20' 
-                                  : 'border-slate-200 hover:border-amber-400 hover:bg-amber-50/10'
-                              }`}
-                            >
-                              {/* Left Color Indicator Bar */}
-                              <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${isOverdueGroup ? 'bg-rose-500' : 'bg-amber-500'}`} />
-
-                              <div className="flex flex-col gap-2 min-w-0 flex-1 pl-1.5 sm:pl-2">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <span className="text-[11px] sm:text-xs font-mono font-black bg-slate-100 text-slate-700 px-2 sm:px-2.5 py-0.5 rounded-lg border border-slate-200">
-                                    ID: #{item.id.slice(-6).toUpperCase()}
-                                  </span>
-                                  <span className={`text-[9px] sm:text-[10px] font-black px-2 sm:px-2.5 py-0.5 rounded-lg uppercase tracking-wider border ${
-                                    isOverdueGroup ? 'bg-rose-100 text-rose-800 border-rose-300' : 'bg-amber-100 text-amber-800 border-amber-300'
-                                  }`}>
-                                    {isOverdueGroup ? '🔴 TERLAMBAT' : '🟡 MENUNGGU PELUNASAN'}
-                                  </span>
-                                </div>
-
-                                <div className="flex items-center gap-2">
-                                  <User size={16} className="text-slate-400 shrink-0" />
-                                  <p className="font-extrabold text-slate-800 text-sm sm:text-base truncate">
-                                    {personName}
-                                  </p>
-                                </div>
-
-                                {/* Progress Bar Pelunasan */}
-                                <div className="mt-1 w-full max-w-md">
-                                  <div className="flex justify-between items-center text-[10px] font-bold mb-1 flex-wrap gap-1">
-                                    <span className="text-slate-500">Progress: <strong className="text-emerald-700">{percentPaid}%</strong></span>
-                                    <span className="text-slate-500">Terbayar: <strong className="text-emerald-700">{formatRupiah(dibayar)}</strong></span>
-                                  </div>
-                                  <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden border border-slate-200 flex">
-                                    <div className="bg-emerald-500 h-full transition-all duration-500" style={{ width: `${percentPaid}%` }} />
-                                    <div className={`h-full transition-all duration-500 ${isOverdueGroup ? 'bg-rose-400' : 'bg-amber-400'}`} style={{ width: `${100 - percentPaid}%` }} />
-                                  </div>
-                                </div>
-                              </div>
-
-                              {/* Right Column: Sisa Tagihan */}
-                              <div className="flex items-center justify-between gap-3 border-t border-slate-100 pt-2.5 md:border-t-0 md:border-l md:flex-col md:items-end md:justify-center md:pt-0 md:pl-4 shrink-0">
-                                <div className="text-left md:text-right min-w-0">
-                                  <p className="text-[9px] sm:text-[10px] font-black text-rose-500 uppercase tracking-wider truncate">Sisa Belum Lunas</p>
-                                  <p className="text-sm sm:text-lg font-black text-rose-600 tracking-tight">
-                                    {formatRupiah(sisa)}
-                                  </p>
-                                  <p className="text-[9px] font-bold text-slate-400">dari {formatRupiah(total)}</p>
-                                </div>
-                                <span className="shrink-0 inline-flex items-center gap-1 text-[10px] font-black text-blue-600 group-hover:text-blue-700 uppercase tracking-wider bg-blue-50 px-2 py-1 rounded-lg">
-                                  LIHAT <ArrowRight size={12} />
-                                </span>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    );
-                  });
-                })()
-              )}
-            </div>
-
-            {/* FOOTER DENGAN PAGINATION & SUMMARY */}
-            <div className="p-3.5 sm:p-4 border-t border-slate-100 bg-white rounded-b-3xl flex flex-col sm:flex-row justify-between items-center gap-3 shrink-0">
-              <div className="flex flex-wrap items-center gap-2 sm:gap-4 text-[10px] font-black text-slate-500 uppercase tracking-widest text-center sm:text-left">
-                <span>Tampil {totalFilteredItems} / {totalItemsCount} Transaksi</span>
-                <span className="hidden sm:inline">|</span>
-                <span>Subtotal Hal: <strong className="text-slate-800">{formatRupiah(totalHalaman)}</strong></span>
-              </div>
-              <div className="flex items-center gap-2 sm:gap-3">
-                <button
-                  onClick={() => setTempoPage(p => Math.max(1, p - 1))}
-                  disabled={tempoPage === 1}
-                  className="px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-xl border border-slate-200 hover:bg-slate-50 disabled:opacity-30 transition font-black text-[11px] sm:text-xs flex items-center gap-1"
-                >
-                  <ChevronLeft size={15} /> SEBELUMNYA
-                </button>
-                <span className="text-[11px] sm:text-xs font-black text-slate-700 bg-slate-100 px-2.5 sm:px-3 py-1.5 rounded-xl border border-slate-200">
-                  {tempoPage} / {totalPages}
-                </span>
-                <button
-                  onClick={() => setTempoPage(p => Math.min(totalPages, p + 1))}
-                  disabled={tempoPage === totalPages}
-                  className="px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-xl border border-slate-200 hover:bg-slate-50 disabled:opacity-30 transition font-black text-[11px] sm:text-xs flex items-center gap-1"
-                >
-                  SELANJUTNYA <ChevronRight size={15} />
-                </button>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
+      {activeTab === 'tempo' && ['1', '2', '5', '6'].includes(userLevel) && (
+        <CashflowTempoTab
+          tempoGroups={tempoGroups}
+          loadingTempo={loadingTempo}
+          tempoPage={tempoPage}
+          setTempoPage={setTempoPage}
+          tempoCategoryFilter={tempoCategoryFilter}
+          setTempoCategoryFilter={setTempoCategoryFilter}
+          tempoPerPage={tempoPerPage}
+          getPersonName={getPersonName}
+          formatLocalDateTime={formatLocalDateTime}
+          scrollTempoRef={scrollTempoRef}
+        />
+      )}
 
           {/* MODAL TRANSAKSI FORM */}
-          <Modal
+          <CashflowModalForm
             isOpen={modalType === 'form'}
             onClose={handleCloseModal}
-            title={isEditMode ? 'Revisi Transaksi Kas' : 'Catat Transaksi Kas Baru'}
-            maxWidth="max-w-3xl"
-          >
-            <form onSubmit={submitForm} className="flex flex-col max-h-[75vh] md:max-h-[80vh] overflow-y-auto custom-scrollbar p-1">
-              <div className="space-y-5">
-                
-                <div className="flex bg-slate-100 p-1.5 rounded-2xl w-full shadow-inner">
-                  <button type="button" onClick={() => handleMutasiChange('Masuk')} className={`flex-1 py-3 text-xs font-black uppercase tracking-widest rounded-xl transition-all ${formData.mutasi === 'Masuk' ? 'bg-emerald-500 text-white shadow-md' : 'text-slate-500 hover:bg-white/50'}`}>
-                    <ArrowDownRight size={16} className="inline mr-2"/> KAS MASUK
-                  </button>
-                  <button type="button" onClick={() => handleMutasiChange('Keluar')} className={`flex-1 py-3 text-xs font-black uppercase tracking-widest rounded-xl transition-all ${formData.mutasi === 'Keluar' ? 'bg-rose-500 text-white shadow-md' : 'text-slate-500 hover:bg-white/50'}`}>
-                    <ArrowUpRight size={16} className="inline mr-2"/> KAS KELUAR
-                  </button>
-                </div>
-
-                {(() => {
-                  const isMasuk = formData.mutasi === 'Masuk';
-                  const txtColor = isMasuk ? 'text-emerald-600' : 'text-rose-600';
-                  const focusClass = isMasuk ? 'focus:ring-emerald-500/20 focus:border-emerald-400' : 'focus:ring-rose-500/20 focus:border-rose-400';
-                  const bgBox = isMasuk ? 'bg-emerald-50/30 border-emerald-100' : 'bg-rose-50/30 border-rose-100';
-                  const btnUpload = isMasuk ? 'text-emerald-600 border-emerald-200' : 'text-rose-600 border-rose-200';
-
-                  const optionsJenis = isMasuk ? jenisOptionsIn : jenisOptionsOut;
-                  const isTransfer = formData.jenis?.toLowerCase().includes('transfer');
-
-                  return (
-                    <>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
-                          <label className={`text-[10px] md:text-[11px] font-black ${txtColor} uppercase tracking-wider ml-1 flex items-center gap-1.5`}><Calendar size={14}/> Tanggal Waktu</label>
-                          <input type="datetime-local" name="created_at" value={formData.created_at || ''} onChange={handleInputChange} className={`w-full mt-2 p-2.5 text-xs md:text-sm font-semibold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none transition-all shadow-sm ${focusClass}`} required />
-                        </div>
-                        <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
-                          <label className={`text-[10px] md:text-[11px] font-black ${txtColor} uppercase tracking-wider ml-1 flex items-center gap-1.5`}><Layers size={14}/> Jenis Cashflow</label>
-                          <select name="jenis" value={formData.jenis || ''} onChange={handleInputChange} className={`w-full mt-2 p-2.5 text-xs md:text-sm font-semibold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none shadow-sm ${focusClass}`} required>
-                            <option value="" disabled>Pilih Kategori...</option>
-                            {/* Mengubah value menjadi id_lama agar saat Edit bisa terbaca, dan label tetap text_1 */}
-                            {optionsJenis.map(opt => <option key={opt.id} value={opt.id_lama || opt.id}>{opt.text_1}</option>)}
-                          </select>
-                        </div>
-                      </div>
-
-                    {/* (1) Akun Sumber & Tujuan (atau Person Selector) */}
-                    {(() => {
-                      const showPersonSelector = formData.mutasi === 'Keluar' && formData.jenis?.toLowerCase() === 'bonkaryawan';
-                      const twoColumns = isTransfer || showPersonSelector;
-                      return (
-                        <div className={`grid grid-cols-1 ${twoColumns ? 'sm:grid-cols-2' : ''} gap-3`}>
-                          {/* Kolom 1: Akun Sumber (selalu ada) */}
-                          <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
-                            <div className="flex flex-wrap justify-between items-center gap-1 ml-1">
-                              <label className={`text-[10px] md:text-[11px] font-black ${txtColor} uppercase tracking-wider flex items-center gap-1.5`}>
-                                <Wallet size={14}/> Akun Sumber
-                              </label>
-                              {formData.account_1 && (
-                                <span className="text-[10px] font-semibold text-slate-600 bg-slate-200/80 px-2 py-0.5 rounded-md">
-                                  Saldo: {formatRupiah(walletsMap.get(formData.account_1)?.number_1 || 0)}
-                                </span>
-                              )}
-                            </div>
-                            <select name="account_1" value={formData.account_1 || ''} onChange={handleInputChange} className={`w-full mt-2 p-2.5 text-xs md:text-sm font-semibold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none shadow-sm ${focusClass}`} required>
-                              <option value="" disabled>Pilih Dompet...</option>
-                              {accountOptions.map(opt => <option key={opt.id} value={opt.id}>{opt.text_1}</option>)}
-                            </select>
-                          </div>
-
-                          {/* Kolom 2: Tentukan berdasarkan kondisi */}
-                          {isTransfer && (
-                            <div className="bg-blue-50 p-3 rounded-2xl border border-blue-100 animate-in fade-in zoom-in duration-300">
-                              <div className="flex flex-wrap justify-between items-center gap-1 ml-1">
-                                <label className="text-[10px] md:text-[11px] font-black text-blue-600 uppercase tracking-wider flex items-center gap-1.5">
-                                  <ArrowRight size={14}/> Akun Tujuan
-                                </label>
-                                {formData.account_2 && (
-                                  <span className="text-[10px] font-semibold text-blue-600 bg-blue-200/50 px-2 py-0.5 rounded-md">
-                                    Saldo: {formatRupiah(walletsMap.get(formData.account_2)?.number_1 || 0)}
-                                  </span>
-                                )}
-                              </div>
-                              <select name="account_2" value={formData.account_2 || ''} onChange={handleInputChange} className="w-full mt-2 p-2.5 text-xs md:text-sm font-semibold text-slate-700 bg-white border border-blue-200 rounded-xl focus:ring-blue-500/20 focus:border-blue-400 outline-none shadow-sm" required>
-                                <option value="" disabled>Pilih Tujuan...</option>
-                                {accountOptions.map(opt => <option key={opt.id} value={opt.id}>{opt.text_1}</option>)}
-                              </select>
-                            </div>
-                          )}
-
-                          {showPersonSelector && !isTransfer && (
-                            <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 relative">
-                              <label className={`text-[10px] md:text-[11px] font-black ${txtColor} uppercase tracking-wider ml-1 flex items-center gap-1.5`}>
-                                <User size={14}/> Pilih Pihak (Customer / Karyawan)
-                              </label>
-                              <div className="relative mt-2">
-                                {/* Input search dengan tombol dropdown */}
-                                <div className="flex items-center gap-2">
-                                  <input
-                                    type="text"
-                                    placeholder="Cari nama..."
-                                    value={searchPerson}
-                                    onChange={(e) => setSearchPerson(e.target.value)}
-                                    onFocus={() => setIsPersonOpen(true)}
-                                    className="flex-1 min-w-0 p-2.5 text-xs md:text-sm font-semibold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500/20"
-                                  />
-                                  <button
-                                    type="button"
-                                    onClick={() => setIsPersonOpen(!isPersonOpen)}
-                                    className="p-2.5 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition shrink-0"
-                                  >
-                                    <ChevronDown size={16} className={`transition-transform duration-200 ${isPersonOpen ? 'rotate-180' : ''}`} />
-                                  </button>
-                                </div>
-
-                                {/* Dropdown list person */}
-                                {isPersonOpen && (
-                                  <div className="absolute z-20 mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-lg max-h-60 overflow-y-auto">
-                                    {personOptions.length === 0 ? (
-                                      <div className="px-4 py-3 text-xs text-slate-500 text-center">Memuat data...</div>
-                                    ) : (
-                                      personOptions
-                                        .filter(opt => opt.text_1.toLowerCase().includes(searchPerson.toLowerCase()))
-                                        .map(opt => (
-                                          <div
-                                            key={opt.id}
-                                            onClick={() => {
-                                              setFormData(prev => ({
-                                                ...prev,
-                                                person: opt.id,
-                                                persontext: opt.source === 'user' ? (opt.id_lama || opt.text_1) : opt.text_1
-                                              }));
-                                              setSearchPerson('');
-                                              setIsPersonOpen(false);
-                                            }}
-                                            className="px-3 py-2.5 text-xs md:text-sm font-semibold text-slate-700 hover:bg-emerald-50 cursor-pointer border-b border-slate-100 last:border-0 flex justify-between items-center gap-2"
-                                          >
-                                            <span className="truncate">{opt.text_1}</span>
-                                            <span className="text-[10px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full shrink-0">
-                                              {opt.source === 'user' ? 'Karyawan' : 'Customer'}
-                                            </span>
-                                          </div>
-                                        ))
-                                    )}
-                                  </div>
-                                )}
-                              </div>
-                              {formData.person && (
-                                <div className="mt-2.5 text-xs font-semibold text-emerald-600 bg-white p-2.5 rounded-xl border border-emerald-100 flex items-center justify-between gap-2">
-                                  <span>Dipilih:</span>
-                                  <span className="text-slate-800 truncate">{formData.persontext}</span>
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })()}
-
-                    {/* (2) Nominal Rupiah DIPINDAH KE BAWAH */}
-                    <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
-                      <label className={`text-[10px] md:text-[11px] font-black ${txtColor} uppercase tracking-wider ml-1 flex items-center gap-1.5`}><DollarSign size={14}/> Nominal Rupiah</label>
-                      <div className="relative mt-2">
-                        <span className={`absolute left-3 top-1/2 -translate-y-1/2 text-xs font-semibold ${txtColor}`}>Rp</span>
-                        <input type="number" name="nominal" placeholder="0" value={formData.nominal || ''} onChange={handleInputChange} className={`w-full pl-9 pr-3 py-2.5 text-xs md:text-sm font-semibold text-slate-800 bg-white border border-slate-200 rounded-xl outline-none shadow-sm ${focusClass}`} required />
-                      </div>
-                      {Number(formData.nominal) > 0 && (
-                        <p className="mt-1.5 text-[11px] font-bold text-slate-500 ml-1">
-                          Terbilang: <span className="font-extrabold text-slate-800">{formatRupiah(Number(formData.nominal))}</span>
-                        </p>
-                      )}
-                    </div>
-
-                      <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
-                        <label className={`text-[10px] md:text-[11px] font-black ${txtColor} uppercase tracking-wider ml-1 flex items-center gap-1.5`}><FileText size={14}/> Catatan</label>
-                        <div className="grid grid-cols-1 gap-2 mt-2">
-                          <input type="text" name="note" placeholder="Deskripsi/Catatan..." value={formData.note || ''} onChange={handleInputChange} className={`w-full p-2.5 text-xs md:text-sm font-semibold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none shadow-sm ${focusClass}`} required />
-                        </div>
-                      </div>
-
-                      <div className={`p-4 rounded-3xl border space-y-3 ${bgBox}`}>
-                      <div className="flex justify-between items-center">
-                        <label className={`text-[11px] font-black ${txtColor} uppercase tracking-wider flex items-center gap-2`}><ImagePlus size={16} /> Lampiran Bukti</label>
-                        
-                        {/* 1. Label dipisah dan menggunakan htmlFor untuk mencegah bug event bubbling di React */}
-                        <label 
-                          htmlFor="cashflow-file-input" 
-                          className={`cursor-pointer text-[10px] font-black bg-white px-4 py-2 rounded-xl shadow-sm hover:scale-105 active:scale-95 transition-all border ${btnUpload}`}
-                        >
-                          + Upload
-                        </label>
-                        
-                        {/* 2. Input diletakkan di luar label dengan id yang terhubung ke htmlFor */}
-                        <input 
-                          id="cashflow-file-input"
-                          type="file" 
-                          multiple 
-                          accept="image/*,video/*" 
-                          className="hidden" 
-                          onChange={e => { 
-                            // EKSTRAK file DULU sebelum input di-reset!
-                            const selectedFiles = Array.from(e.target.files || []);
-                            
-                            if (selectedFiles.length > 0) {
-                              setFiles(prev => [...prev, ...selectedFiles]); 
-                              setIsFormDirty(true); 
-                            }
-                            
-                            // Baru aman untuk membersihkan input agar bisa upload file yang sama berkali-kali
-                            e.target.value = ''; 
-                          }} 
-                        />
-                      </div>
-                        {previewUrls.length === 0 ? (
-                          <div className="text-center py-5 rounded-2xl border-2 border-dashed border-white/50"><p className={`text-[10px] font-bold ${txtColor} opacity-70`}>Belum ada file terlampir</p></div>
-                        ) : (
-                          <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
-                            {previewUrls.map((url, idx) => (
-                              <div key={idx} className="relative group rounded-xl overflow-hidden border border-white shadow-sm aspect-square bg-white">
-                                {isVideo(files[idx]?.name) ? <video src={url} className="w-full h-full object-cover opacity-80" muted /> : <img src={url} alt={`preview-${idx}`} className="w-full h-full object-cover transition-transform group-hover:scale-110 duration-500" />}
-                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"><button type="button" onClick={() => setFiles(prev => prev.filter((_, i) => i !== idx))} className="w-8 h-8 bg-rose-500 text-white rounded-full flex items-center justify-center hover:scale-110 active:scale-95 shadow-lg"><Trash2 size={14} /></button></div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </>
-                  );
-                })()}
-              </div>
-
-              <div className="mt-6 flex flex-col sm:flex-row gap-3 pt-5 border-t-2 border-slate-100 sticky bottom-0 bg-white">
-                <button type="button" onClick={handleCloseModal} className="flex-1 py-4 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-2xl font-black text-xs tracking-widest transition-colors">BATALKAN</button>
-                <button type="submit" disabled={isProcessing} className={`flex-[2] py-4 text-white rounded-2xl font-black text-xs shadow-xl transition-all active:scale-95 flex justify-center items-center gap-2 ${isProcessing ? 'opacity-70 cursor-not-allowed bg-slate-400' : (formData.mutasi === 'Masuk' ? 'bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/40' : 'bg-rose-500 hover:bg-rose-600 shadow-rose-500/40')}`}>{isProcessing ? <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"/> MENYIMPAN...</> : <><Save size={16}/> SIMPAN TRANSAKSI</>}</button>
-              </div>
-            </form>
-          </Modal>
+            isEditMode={isEditMode}
+            formData={formData}
+            setFormData={setFormData}
+            handleMutasiChange={handleMutasiChange}
+            handleInputChange={handleInputChange}
+            accountOptions={accountOptions}
+            jenisOptionsIn={jenisOptionsIn}
+            jenisOptionsOut={jenisOptionsOut}
+            personOptions={personOptions}
+            walletsMap={walletsMap}
+            files={files}
+            setFiles={setFiles}
+            previewUrls={previewUrls}
+            setIsFormDirty={setIsFormDirty}
+            isProcessing={isProcessing}
+            onSubmit={submitForm}
+          />
 
           {/* ============================================================ */}
           {/* MODAL FORM TAMBAH BON */}
