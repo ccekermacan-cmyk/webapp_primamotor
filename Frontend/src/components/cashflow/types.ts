@@ -51,3 +51,14 @@ export interface SystemAlertState {
   type: 'alert' | 'confirm';
   onConfirm: () => void;
 }
+
+export interface FormDataBon {
+  catatCashflow: boolean;
+  created_at: string;
+  akun_asal: string;
+  person: string;
+  persontext: string;
+  nominal: number;
+  note: string;
+  jenis: string;
+}

@@ -1,22 +1,22 @@
-import DeleteAccess from '../components/delete-access';
 import { businessDate, businessDateBoundary, editableBalance } from '../lib/cashflow';
 import { createRecordId } from '../lib/ids';
 import { createFinancialBatch } from '../services/api/financialBatch';
 import { flushPendingSync, deleteFinancialRecord } from '../services/api/laravel';
 import { formatRupiah } from '../lib/money';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Link } from 'react-router-dom';
 import { pb } from '../lib/pocketbase';
 import Modal from '../components/modal';
 import CashflowHistoryTab from '../components/cashflow/CashflowHistoryTab';
 import CashflowAccountsTab from '../components/cashflow/CashflowAccountsTab';
 import CashflowTempoTab from '../components/cashflow/CashflowTempoTab';
 import CashflowModalForm from '../components/cashflow/CashflowModalForm';
+import CashflowBonModal from '../components/cashflow/CashflowBonModal';
+import CashflowMobileFilterModal from '../components/cashflow/CashflowMobileFilterModal';
+import CashflowDetailModal from '../components/cashflow/CashflowDetailModal';
+import CashflowBonHistoryModal from '../components/cashflow/CashflowBonHistoryModal';
 import type { Cashflow, DropdownItem } from '../components/cashflow/types';
 import { 
-  Wallet, Trash2, Calendar, User,
-  ExternalLink, Layers, DollarSign, ImagePlus, Save, FileText,
-  ArrowRight, Plus, ChevronDown
+  Wallet, FileText, Plus
 } from 'lucide-react';
 
 export default function CashflowPage() {
@@ -68,8 +68,6 @@ export default function CashflowPage() {
     const [accountOptions, setAccountOptions] = useState<DropdownItem[]>([]);
 
     const [personOptions, setPersonOptions] = useState<{ id: string; id_lama: string; text_1: string; text_2?: string; jenis?: string; source: 'dropdown' | 'user' }[]>([]);
-    const [searchPersonBon, setSearchPersonBon] = useState('');
-    const [isPersonOpenBon, setIsPersonOpenBon] = useState(false);
     
     const [page, setPage] = useState(1);
     const [totalPages, setTotalPages] = useState(1);
@@ -968,8 +966,6 @@ export default function CashflowPage() {
       }
     };
 
-    // Ditambahkan pengecekan agar jika filename kosong/undefined tidak memicu crash
-    const isVideo = (filename: string | undefined) => filename ? !!filename.match(/\.(mp4|webm|ogg)$/i) : false;
 
 
     return (
@@ -1185,577 +1181,97 @@ export default function CashflowPage() {
             onSubmit={submitForm}
           />
 
-          {/* ============================================================ */}
           {/* MODAL FORM TAMBAH BON */}
-          {/* ============================================================ */}
-          <Modal isOpen={modalType === 'formBon'} onClose={() => setModalType(null)} title="Tambah Bon Karyawan" maxWidth="max-w-3xl">
-            <form onSubmit={submitFormBon} className="flex flex-col max-h-[75vh] md:max-h-[80vh] overflow-y-auto custom-scrollbar p-1">
-              <div className="space-y-5">
+          <CashflowBonModal
+            isOpen={modalType === 'formBon'}
+            onClose={() => setModalType(null)}
+            formDataBon={formDataBon}
+            setFormDataBon={setFormDataBon}
+            personOptions={personOptions}
+            accountOptions={accountOptions}
+            files={files}
+            setFiles={setFiles}
+            previewUrls={previewUrls}
+            isProcessing={isProcessing}
+            onSubmit={submitFormBon}
+          />
 
-                {/* Checkbox Catat Cashflow */}
-                <label className="flex items-center gap-3 p-4 bg-purple-50 border border-purple-200 rounded-2xl cursor-pointer hover:bg-purple-100 transition-colors shadow-sm">
-                  <input
-                    type="checkbox"
-                    className="w-5 h-5 accent-purple-600 cursor-pointer"
-                    checked={formDataBon.catatCashflow}
-                    onChange={(e) => setFormDataBon({ ...formDataBon, catatCashflow: e.target.checked })}
-                  />
-                  <div>
-                    <p className="font-black text-purple-700 text-sm">Catat ke Cashflow</p>
-                    <p className="text-[10px] font-bold text-purple-500">Nominal bon akan tercatat sebagai pengeluaran kas</p>
-                  </div>
-                </label>
-
-                {/* Baris 1: Tanggal + Jenis Bon (tetap out) */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
-                    <label className="text-[10px] md:text-[11px] font-black text-purple-600 uppercase tracking-wider ml-1 flex items-center gap-1.5">
-                      <Calendar size={14} /> Tanggal Waktu
-                    </label>
-                    <input
-                      type="datetime-local"
-                      value={formDataBon.created_at}
-                      onChange={e => setFormDataBon({ ...formDataBon, created_at: e.target.value })}
-                      className="w-full mt-2 p-2.5 text-xs md:text-sm font-semibold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none shadow-sm focus:ring-purple-500/20 focus:border-purple-400"
-                      required
-                    />
-                  </div>
-
-                  <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
-                    <label className="text-[10px] md:text-[11px] font-black text-purple-600 uppercase tracking-wider ml-1 flex items-center gap-1.5">
-                      <ArrowRight size={14} /> Jenis Bon
-                    </label>
-                    <div className="bg-white rounded-xl p-1.5 mt-2 border border-slate-200 shadow-sm">
-                      <div className="flex flex-wrap items-center justify-center gap-2">
-                        <span className="px-3 py-1.5 bg-rose-500 text-white rounded-lg text-xs font-semibold shadow-sm">
-                          KELUAR (Bayar)
-                        </span>
-                        <span className="text-[11px] text-slate-400 font-medium">(Bon karyawan selalu keluar)</span>
-                      </div>
-                      <input type="hidden" name="jenis" value="out" />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Pilih Person (dari semua kategori person) */}
-                <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 relative">
-                  <label className="text-[10px] md:text-[11px] font-black text-purple-600 uppercase tracking-wider ml-1 flex items-center gap-1.5">
-                    <User size={14} /> Pilih Karyawan (User)
-                  </label>
-                  <div className="relative mt-2">
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="text"
-                        placeholder="Cari nama karyawan..."
-                        value={searchPersonBon}
-                        onChange={(e) => setSearchPersonBon(e.target.value)}
-                        onFocus={() => setIsPersonOpenBon(true)}
-                        className="flex-1 min-w-0 p-2.5 text-xs md:text-sm font-semibold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-purple-500/20"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setIsPersonOpenBon(!isPersonOpenBon)}
-                        className="p-2.5 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition shrink-0"
-                      >
-                        <ChevronDown size={16} className={`transition-transform duration-200 ${isPersonOpenBon ? 'rotate-180' : ''}`} />
-                      </button>
-                    </div>
-
-                    {isPersonOpenBon && (
-                      <div className="absolute z-20 mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-lg max-h-60 overflow-y-auto">
-                        {personOptions.filter(p => p.jenis?.toLowerCase() === 'user' || p.source === 'user').length === 0 ? (
-                          <div className="px-4 py-3 text-xs text-slate-500 text-center">Tidak ada karyawan terdaftar</div>
-                        ) : (
-                          personOptions
-                            .filter(p => p.jenis?.toLowerCase() === 'user' || p.source === 'user')
-                            .filter(p => 
-                              p.text_1.toLowerCase().includes(searchPersonBon.toLowerCase()) ||
-                              (p.text_2 && p.text_2.toLowerCase().includes(searchPersonBon.toLowerCase())) ||
-                              (p.id_lama && p.id_lama.toLowerCase().includes(searchPersonBon.toLowerCase()))
-                            )
-                            .map(opt => (
-                              <div
-                                key={opt.id}
-                                onClick={() => {
-                                  setFormDataBon(prev => ({ ...prev, person: opt.id, persontext: opt.id_lama }));
-                                  setSearchPersonBon('');
-                                  setIsPersonOpenBon(false);
-                                }}
-                                className="px-3 py-2.5 text-xs md:text-sm font-semibold text-slate-700 hover:bg-purple-50 cursor-pointer border-b border-slate-100 last:border-0 flex justify-between items-center gap-2"
-                              >
-                                <span className="truncate">{opt.text_1} {opt.text_2 ? `- ${opt.text_2}` : ''}</span>
-                                <span className="text-[10px] font-semibold text-purple-600 bg-purple-50 px-2 py-0.5 rounded-full border border-purple-100 shrink-0">
-                                  Karyawan
-                                </span>
-                              </div>
-                            ))
-                        )}
-                      </div>
-                    )}
-                  </div>
-                  {formDataBon.person && (
-                    <div className="mt-2.5 text-xs font-semibold text-purple-700 bg-white p-2.5 rounded-xl border border-purple-100 flex items-center justify-between gap-2 shadow-sm">
-                      <span>Dipilih:</span>
-                      <span className="text-slate-800 truncate">{formDataBon.persontext}</span>
-                    </div>
-                  )}
-                </div>
-
-                {/* Akun Asal (hanya jika catat cashflow) */}
-                {formDataBon.catatCashflow && (
-                  <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 animate-in fade-in slide-in-from-top-2 duration-300">
-                    <label className="text-[10px] md:text-[11px] font-black text-purple-600 uppercase tracking-wider ml-1 flex items-center gap-1.5">
-                      <Wallet size={14} /> Akun Asal (Kas)
-                    </label>
-                    <select
-                      value={formDataBon.akun_asal}
-                      onChange={e => setFormDataBon({ ...formDataBon, akun_asal: e.target.value })}
-                      className="w-full mt-2 p-2.5 text-xs md:text-sm font-semibold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none shadow-sm focus:ring-purple-500/20 focus:border-purple-400"
-                      required
-                    >
-                      <option value="">Pilih Dompet...</option>
-                      {accountOptions.map(acc => (
-                        <option key={acc.id} value={acc.id}>{acc.text_1}</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-
-                {/* Nominal */}
-                <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
-                  <label className="text-[10px] md:text-[11px] font-black text-purple-600 uppercase tracking-wider ml-1 flex items-center gap-1.5">
-                    <DollarSign size={14} /> Nominal
-                  </label>
-                  <div className="relative mt-2">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-purple-600">Rp</span>
-                    <input
-                      type="number"
-                      placeholder="0"
-                      value={formDataBon.nominal || ''}
-                      onChange={e => setFormDataBon({ ...formDataBon, nominal: Number(e.target.value) })}
-                      className="w-full pl-9 pr-3 py-2.5 text-xs md:text-sm font-semibold text-slate-800 bg-white border border-slate-200 rounded-xl outline-none shadow-sm focus:ring-purple-500/20 focus:border-purple-400"
-                      required
-                    />
-                  </div>
-                  {Number(formDataBon.nominal) > 0 && (
-                    <p className="mt-1.5 text-[11px] font-bold text-purple-600 ml-1">
-                      Terbilang: <span className="font-extrabold text-purple-900">{formatRupiah(Number(formDataBon.nominal))}</span>
-                    </p>
-                  )}
-                </div>
-
-                {/* Catatan */}
-                <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
-                  <label className="text-[10px] md:text-[11px] font-black text-purple-600 uppercase tracking-wider ml-1 flex items-center gap-1.5">
-                    <FileText size={14} /> Catatan / Keterangan
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Deskripsi bon..."
-                    value={formDataBon.note}
-                    onChange={e => setFormDataBon({ ...formDataBon, note: e.target.value })}
-                    className="w-full mt-2 p-2.5 text-xs md:text-sm font-semibold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none shadow-sm focus:ring-purple-500/20 focus:border-purple-400"
-                    required
-                  />
-                </div>
-
-                {/* Upload File */}
-                <div className="p-4 rounded-3xl border border-purple-100 bg-purple-50/30 space-y-3">
-                  <div className="flex justify-between items-center">
-                    <label className="text-[11px] font-black text-purple-600 uppercase tracking-wider flex items-center gap-2">
-                      <ImagePlus size={16} /> Lampiran Bukti
-                    </label>
-                    <label
-                      htmlFor="bon-file-input"
-                      className="cursor-pointer text-[10px] font-black bg-white px-4 py-2 rounded-xl shadow-sm hover:scale-105 active:scale-95 transition-all border border-purple-200 text-purple-600"
-                    >
-                      + Upload
-                    </label>
-                    <input
-                      id="bon-file-input"
-                      type="file"
-                      multiple
-                      accept="image/*,video/*"
-                      className="hidden"
-                      onChange={e => {
-                        const selectedFiles = Array.from(e.target.files || []);
-                        if (selectedFiles.length > 0) setFiles(prev => [...prev, ...selectedFiles]);
-                        e.target.value = '';
-                      }}
-                    />
-                  </div>
-
-                  {previewUrls.length === 0 ? (
-                    <div className="text-center py-5 rounded-2xl border-2 border-dashed border-purple-200/50">
-                      <p className="text-[10px] font-bold text-purple-600 opacity-70">Belum ada file terlampir</p>
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
-                      {previewUrls.map((url, idx) => (
-                        <div key={idx} className="relative group rounded-xl overflow-hidden border border-white shadow-sm aspect-square bg-white">
-                          {isVideo(files[idx]?.name) ? (
-                            <video src={url} className="w-full h-full object-cover opacity-80" muted />
-                          ) : (
-                            <img src={url} alt={`preview-${idx}`} className="w-full h-full object-cover transition-transform group-hover:scale-110 duration-500" />
-                          )}
-                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                            <button
-                              type="button"
-                              onClick={() => setFiles(prev => prev.filter((_, i) => i !== idx))}
-                              className="w-8 h-8 bg-rose-500 text-white rounded-full flex items-center justify-center hover:scale-110 active:scale-95 shadow-lg"
-                            >
-                              <Trash2 size={14} />
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Tombol Aksi */}
-              <div className="mt-6 flex flex-col sm:flex-row gap-3 pt-5 border-t-2 border-slate-100 sticky bottom-0 bg-white">
-                <button type="button" onClick={() => setModalType(null)} className="flex-1 py-4 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-2xl font-black text-xs tracking-widest transition-colors">
-                  BATALKAN
-                </button>
-                <button
-                  type="submit"
-                  disabled={isProcessing}
-                  className={`flex-[2] py-4 text-white rounded-2xl font-black text-xs shadow-xl transition-all active:scale-95 flex justify-center items-center gap-2 ${
-                    isProcessing ? 'opacity-70 cursor-not-allowed bg-slate-400' : 'bg-purple-600 hover:bg-purple-700 shadow-purple-500/40'
-                  }`}
-                >
-                  {isProcessing ? (
-                    <>
-                      <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> MENYIMPAN...
-                    </>
-                  ) : (
-                    <>
-                      <Save size={16} /> SIMPAN TRANSAKSI BON
-                    </>
-                  )}
-                </button>
-              </div>
-            </form>
-          </Modal>
-
-          {/* ============================================================ */}
           {/* MODAL FILTER MOBILE */}
-          <Modal
+          <CashflowMobileFilterModal
             isOpen={isMobileFilterOpen}
             onClose={() => setIsMobileFilterOpen(false)}
-            title="Filter Riwayat Kas"
-            maxWidth="max-w-2xl"
-          >
-            <div className="space-y-6 p-2">
-              <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1.5"><Wallet size={14}/> Filter Dompet / Akun</label>
-                  <div className="flex items-center gap-2 mt-2 overflow-x-auto no-scrollbar pb-2">                    {accountOptions.map(acc => (
-                  <button 
-                    key={acc.id}
-                    onClick={() => toggleFilterAccount(acc.id)}
-                    className={`shrink-0 whitespace-nowrap px-4 py-2.5 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all border ${filterAccounts.includes(acc.id) ? 'bg-emerald-500 border-emerald-500 text-white shadow-md' : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100'}`}
-                  >
-                  {acc.text_1}
-                  </button>
-                ))}
-              </div>
-              </div>
-
-              <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
-                  <Layers size={14}/> Filter Jenis
-                </label>
-                <div className="flex items-center gap-2 mt-2 overflow-x-auto no-scrollbar pb-2">
-                  {availableJenisOptions.map(opt => (
-                    <button 
-                      key={opt.id}
-                      onClick={() => toggleFilterJenis(opt.id_lama || opt.id)}
-                      className={`shrink-0 whitespace-nowrap px-4 py-2.5 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all border ${
-                        filterJenis.includes(opt.id_lama || opt.id) 
-                          ? 'bg-emerald-500 border-emerald-500 text-white shadow-md' 
-                          : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100'
-                      }`}
-                    >
-                      {opt.text_1}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">Rentang Tanggal</label>
-                <div className="grid grid-cols-2 gap-2">
-                  <input type="date" className="p-3 bg-slate-50 rounded-xl text-xs font-bold border border-slate-200" value={dateRange.start} onChange={(e) => setDateRange({...dateRange, start: e.target.value})} />
-                  <input type="date" className="p-3 bg-slate-50 rounded-xl text-xs font-bold border border-slate-200" value={dateRange.end} onChange={(e) => setDateRange({...dateRange, end: e.target.value})} />
-                </div>
-              </div>
-              <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">Pencarian</label>
-                <input type="text" placeholder="Cari kata kunci..." className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold" value={searchInput} onChange={(e) => setSearchInput(e.target.value)} />
-              </div>
-              <button onClick={() => setIsMobileFilterOpen(false)} className="w-full py-4 bg-emerald-500 text-white rounded-2xl font-black text-xs uppercase tracking-widest">Terapkan Filter</button>
-            </div>
-          </Modal>
+            accountOptions={accountOptions}
+            filterAccounts={filterAccounts}
+            toggleFilterAccount={toggleFilterAccount}
+            availableJenisOptions={availableJenisOptions}
+            filterJenis={filterJenis}
+            toggleFilterJenis={toggleFilterJenis}
+            dateRange={dateRange}
+            setDateRange={setDateRange}
+            searchInput={searchInput}
+            setSearchInput={setSearchInput}
+          />
 
           {/* MODAL DETAIL */}
-          <Modal
+          <CashflowDetailModal
             isOpen={modalType === 'detail'}
             onClose={() => setModalType(null)}
-            title="Detail Log Transaksi Kas"
-          >
-            {selectedTx && (() => {
-              const isTransfer = (selectedTx.jenis || '').toLowerCase().includes('transfer');
-              const isMasuk = selectedTx.mutasi?.toLowerCase() === 'in';
-              const txtColor = isTransfer ? 'text-indigo-600' : (isMasuk ? 'text-emerald-600' : 'text-rose-600');
-              const mutasiLabel = isTransfer ? 'TRANSFER INTERNAL KAS' : (isMasuk ? 'KAS MASUK (DEBET)' : 'KAS KELUAR (KREDIT)');
- 
-              return (
-                <div className="flex flex-col max-h-[75vh] md:max-h-[80vh] overflow-y-auto custom-scrollbar p-1">
-                  <div className={`flex flex-col p-5 sm:p-7 md:p-8 rounded-3xl sm:rounded-[2rem] text-white relative shadow-xl overflow-hidden shrink-0 ${isTransfer ? 'bg-indigo-500' : (isMasuk ? 'bg-emerald-500' : 'bg-rose-500')}`}>
-                    {/* Efek Latar Belakang */}
-                    <div className="absolute -top-10 -right-10 w-40 h-40 bg-white rounded-full blur-3xl opacity-20 pointer-events-none" />
-                    <div className="absolute -bottom-10 -left-10 w-40 h-40 bg-black rounded-full blur-3xl opacity-10 pointer-events-none" />
-                    
-                    {/* Label KAS MASUK / KELUAR */}
-                    <div className="relative z-10 flex justify-center mb-2">
-                      <span className="bg-white/20 border border-white/30 px-4 py-1.5 rounded-full text-[10px] sm:text-xs font-black uppercase tracking-widest backdrop-blur-md shadow-sm">
-                        {mutasiLabel}
-                      </span>
-                    </div>
-                    
-                    {/* Nominal Transaksi */}
-                    <div className="relative z-10 flex flex-col justify-center items-center my-4 sm:my-6">
-                      <span className="text-white/80 text-[10px] sm:text-xs font-bold mb-1 uppercase tracking-wider">Total Nominal</span>
-                      {/* Menggunakan break-words agar teks membungkus (wrap) jika terlalu panjang di HP, tidak bikin penyet */}
-                      <p className="text-3xl sm:text-4xl md:text-5xl font-black tracking-tighter drop-shadow-md break-words text-center px-2 w-full leading-tight">
-                        {isTransfer ? '↔ ' : (isMasuk ? '+ ' : '- ')}{formatRupiah(selectedTx.nominal)}
-                      </p>
-                    </div>
-
-                    {/* Informasi Detail Ekstra (ID, Waktu, Operator) */}
-                    <div className="relative z-10 mt-auto bg-black/15 border border-white/10 rounded-2xl p-3 sm:p-4 backdrop-blur-sm flex flex-col sm:flex-row gap-3 sm:gap-4 justify-between items-center text-[10px] sm:text-xs shadow-inner">
-                       
-                       {/* ID Transaksi */}
-                       <div className="flex flex-col items-center sm:items-start text-center sm:text-left w-full sm:w-auto">
-                          <span className="text-white/60 font-bold uppercase tracking-wider text-[9px]">ID Transaksi</span>
-                          <span className="font-mono font-bold truncate max-w-[150px] sm:max-w-[200px]">{selectedTx.ref || selectedTx.id}</span>
-                       </div>
-                       
-                       {/* Divider (Hanya tampil di tablet/desktop) */}
-                       <div className="hidden sm:block w-px h-8 bg-white/20"></div>
-                       
-                       {/* Waktu */}
-                       <div className="flex flex-col items-center text-center w-full sm:w-auto border-t border-white/10 sm:border-0 pt-2 sm:pt-0">
-                          <span className="text-white/60 font-bold uppercase tracking-wider text-[9px]">Waktu Transaksi</span>
-                          <span className="font-bold">{formatLocalDateTime(selectedTx.created_at)}</span>
-                       </div>
-                       
-                       {/* Divider (Hanya tampil di tablet/desktop) */}
-                       <div className="hidden sm:block w-px h-8 bg-white/20"></div>
-                       
-                       {/* Operator */}
-                       <div className="flex flex-col items-center sm:items-end text-center sm:text-right w-full sm:w-auto border-t border-white/10 sm:border-0 pt-2 sm:pt-0">
-                          <span className="text-white/60 font-bold uppercase tracking-wider text-[9px]">Operator</span>
-                          <span className="font-bold flex items-center gap-1.5"><User size={12}/> {selectedTx.operator || '-'}</span>
-                       </div>
-
-                    </div>
-                  </div>
-
-                  <div className="mt-5 flex flex-col gap-4 text-xs font-medium">
-                    <div className="bg-slate-50 p-5 rounded-[1.5rem] border-2 border-slate-100 shadow-sm space-y-3">
-                      <p className={`font-black text-[11px] ${txtColor} uppercase border-b-2 border-slate-200 pb-3 mb-2 flex items-center gap-2`}><Layers size={16} /> Entitas: Data Jurnal Kas</p>
-                      <p className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1"><span className="text-slate-400 font-bold">Waktu Transaksi:</span> <span className="font-bold text-slate-700 sm:text-right">{formatLocalDateTime(selectedTx.created_at)}</span></p>
-                      <p className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1"><span className="text-slate-400 font-bold">Operator:</span> <span className="font-bold text-slate-700 sm:text-right">{selectedTx.operator || '-'}</span></p>
-                      <p className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 mt-2 pt-2 border-t border-dashed border-slate-200"><span className="text-slate-400 font-bold">Kategori/Jenis:</span> <span className="font-black text-slate-700 bg-slate-200 px-2 py-0.5 rounded uppercase self-start sm:self-auto">{selectedTx.jenis}</span></p>
-                      <p className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1"><span className="text-slate-400 font-bold">Akun Sumber:</span> <span className="font-bold text-slate-700 sm:text-right">{getAccountName(selectedTx.account_1)}</span></p>
-                      {selectedTx.account_2 && <p className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1"><span className="text-slate-400 font-bold">Akun Tujuan:</span> <span className="font-bold text-blue-600 sm:text-right">{getAccountName(selectedTx.account_2)}</span></p>}
-                      <p className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1"><span className="text-slate-400 font-bold">Pihak Terkait:</span> <span className="font-bold text-slate-700 sm:text-right">{getPersonName(selectedTx.person, selectedTx.persontext)}</span></p>
-                      {selectedTx.ref_baru && <p className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1 mt-2 pt-2 border-t border-dashed border-slate-200"><span className="text-slate-400 font-bold">Ref Transaksi POS:</span> <Link to={`/?ref=${encodeURIComponent(selectedTx.ref_baru)}`} title="Buka detail transaksi di POS" className="inline-flex items-center gap-1.5 font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded border border-blue-100 self-start sm:self-auto hover:bg-blue-100 hover:underline focus-visible:outline-2 focus-visible:outline-blue-500">{selectedTx.ref_baru}<ExternalLink size={13} aria-hidden="true" /></Link></p>}
-                      {(userLevel === '1' || userLevel === '2' || userLevel === '5') && (selectedTx.saldo_awal != null || selectedTx.saldo_akhir != null) && (
-                      <div className="mt-2 pt-3 border-t border-dashed border-slate-200 space-y-2">
-                        <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Saldo akun sumber</p>
-                        <p className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1">
-                          <span className="text-slate-500 font-bold">Saldo Sebelum Transaksi:</span>
-                          <span className="font-bold text-slate-700 sm:text-right">{selectedTx.saldo_awal == null ? 'Belum tersedia' : formatRupiah(selectedTx.saldo_awal)}</span>
-                        </p>
-                        <p className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1">
-                          <span className="text-slate-500 font-bold">Saldo Sesudah Transaksi:</span>
-                          <span className="font-bold text-emerald-700 sm:text-right">{selectedTx.saldo_akhir == null ? 'Belum tersedia' : formatRupiah(selectedTx.saldo_akhir)}</span>
-                        </p>
-                      </div>
-                      )}
-                    </div>
-
-                    <div className="bg-slate-50 p-5 rounded-[1.5rem] border-2 border-slate-100 shadow-sm flex flex-col">
-                      <p className={`font-black text-[11px] ${txtColor} uppercase border-b-2 border-slate-200 pb-3 mb-3 flex items-center gap-2`}><FileText size={16}/> Catatan & Keterangan</p>
-                      <p className="text-sm font-bold text-slate-700 italic leading-relaxed">"{selectedTx.note || 'Tidak ada catatan'}"</p>
-                    </div>
-
-                    {selectedTx.file && selectedTx.file.length > 0 && (
-                      <div className="bg-slate-50 p-5 rounded-[1.5rem] border-2 border-slate-100 shadow-sm flex flex-col">
-                        <p className={`font-black text-[11px] ${txtColor} uppercase border-b-2 border-slate-200 pb-3 mb-3 flex items-center gap-2`}><ImagePlus size={16}/> Bukti Lampiran Media</p>
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                          {selectedTx.file.map((f, i) => {
-                            const fileUrl = pb.files.getUrl(selectedTx, f);
-                            return (
-                              <div key={i} className={`relative group rounded-xl overflow-hidden border-2 border-white shadow-md aspect-square ${isTransfer ? 'bg-indigo-100' : (isMasuk ? 'bg-emerald-100' : 'bg-rose-100')}`}>
-                                {f.match(/\.(mp4|webm|ogg)$/i) ? <video src={fileUrl} className="w-full h-full object-cover opacity-90" /> : <img src={fileUrl} alt={`Lampiran ${i}`} className="w-full h-full object-cover transition-transform group-hover:scale-110 duration-500" />}
-                                <a href={fileUrl} target="_blank" rel="noreferrer" className={`absolute inset-0 ${isTransfer ? 'bg-indigo-900/40' : (isMasuk ? 'bg-emerald-900/40' : 'bg-rose-900/40')} opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-sm`}><ExternalLink size={24} className="text-white drop-shadow-lg scale-75 group-hover:scale-100 transition-transform" /></a>
-                              </div>
-                            )
-                          })}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="mt-6 pt-4 pb-2 border-t-2 border-slate-100 sticky bottom-0 bg-white z-20">
-                    <div className="grid grid-cols-4 md:flex gap-3">
-                      {/* Tombol Hapus */}
-                      <DeleteAccess collection="cashflow" id={selectedTx.id}><button
-                        onClick={() => {
-                          setSystemAlert({
-                            show: true,
-                            title: "Hapus Transaksi?",
-                            message: "Yakin ingin menghapus transaksi kas ini secara permanen?",
-                            type: 'confirm',
-                            onConfirm: () => {
-                              setSystemAlert(prev => ({...prev, show: false}));
-                              submitDelete();
-                            }
-                          });
-                        }} 
-                        disabled={isProcessing}
-                        className="col-span-1 md:w-14 h-12 md:h-14 flex-shrink-0 bg-rose-50 text-rose-600 rounded-2xl hover:bg-rose-500 hover:text-white border border-rose-100 hover:shadow-lg transition-all flex justify-center items-center group disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-rose-50 disabled:hover:text-rose-600"
-                        title="Hapus transaksi"
-                      >
-                        <Trash2 size={20} className="group-hover:scale-110 transition-transform"/>
-                      </button></DeleteAccess>
-                      
-                      {/* Tombol Edit */}
-                      <button 
-                        onClick={() => { 
-                          const localCreatedAt = selectedTx.created_at ? formatToLocalDatetimeInput(selectedTx.created_at) : '';
-                          
-                          const oldFiles = (selectedTx.file || []).map(fileName => ({
-                            isOld: true,
-                            name: fileName,
-                            url: pb.files.getUrl(selectedTx, fileName)
-                          }));
-                          
-                          setFiles(oldFiles); 
-                          
-                          const matchedPersonOpt = personOptions.find(
-                            p => p.id === selectedTx.person || (selectedTx.persontext && (p.id_lama === selectedTx.persontext || p.text_1 === selectedTx.persontext))
-                          );
-                          setFormData({
-                            mutasi: selectedTx.mutasi?.toLowerCase() === 'in' ? 'Masuk' : 'Keluar', 
-                            created_at: localCreatedAt, 
-                            jenis: selectedTx.jenis, 
-                            account_1: selectedTx.account_1, 
-                            account_2: selectedTx.account_2 || '', 
-                            person: selectedTx.person || matchedPersonOpt?.id || '', 
-                            persontext: selectedTx.persontext || '', 
-                            nominal: selectedTx.nominal, 
-                            note: selectedTx.note 
-                          }); 
-                          setModalType('form'); 
-                        }}
-                        disabled={isProcessing}
-                        className="col-span-3 md:flex-1 h-12 md:h-14 bg-blue-500 text-white rounded-xl font-black text-[11px] md:text-xs uppercase tracking-widest hover:bg-blue-600 transition-all flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-blue-500"
-                      >
-                        Edit Transaksi
-                      </button>
-                      
-                      {/* Tombol Tutup */}
-                      <button 
-                        onClick={() => setModalType(null)} 
-                        className="col-span-4 md:flex-[2] h-12 md:h-14 bg-slate-900 hover:bg-slate-800 text-white rounded-2xl font-black text-xs tracking-widest shadow-xl transition-all active:scale-95 uppercase flex items-center justify-center"
-                      >
-                        TUTUP DETAIL
-                      </button>
-                    </div>
-                  </div>
-                </div>
+            selectedTx={selectedTx}
+            formatLocalDateTime={formatLocalDateTime}
+            getAccountName={getAccountName}
+            getPersonName={getPersonName}
+            userLevel={userLevel}
+            isProcessing={isProcessing}
+            onDelete={() => {
+              setSystemAlert({
+                show: true,
+                title: "Hapus Transaksi?",
+                message: "Yakin ingin menghapus transaksi kas ini secara permanen?",
+                type: 'confirm',
+                onConfirm: () => {
+                  setSystemAlert(prev => ({...prev, show: false}));
+                  submitDelete();
+                }
+              });
+            }}
+            onEdit={() => {
+              if (!selectedTx) return;
+              const localCreatedAt = selectedTx.created_at ? formatToLocalDatetimeInput(selectedTx.created_at) : '';
+              const oldFiles = (selectedTx.file || []).map(fileName => ({
+                isOld: true,
+                name: fileName,
+                url: pb.files.getUrl(selectedTx, fileName)
+              }));
+              setFiles(oldFiles);
+              const matchedPersonOpt = personOptions.find(
+                p => p.id === selectedTx.person || (selectedTx.persontext && (p.id_lama === selectedTx.persontext || p.text_1 === selectedTx.persontext))
               );
-            })()}
-          </Modal>
+              setFormData({
+                mutasi: selectedTx.mutasi?.toLowerCase() === 'in' ? 'Masuk' : 'Keluar',
+                created_at: localCreatedAt,
+                jenis: selectedTx.jenis,
+                account_1: selectedTx.account_1,
+                account_2: selectedTx.account_2 || '',
+                person: selectedTx.person || matchedPersonOpt?.id || '',
+                persontext: selectedTx.persontext || '',
+                nominal: selectedTx.nominal,
+                note: selectedTx.note
+              });
+              setModalType('form');
+            }}
+          />
 
           {/* MODAL RIWAYAT BON KARYAWAN */}
-          <Modal
+          <CashflowBonHistoryModal
             isOpen={bonHistoryModalOpen}
             onClose={() => setBonHistoryModalOpen(false)}
-            title={`Riwayat Bon: ${bonHistoryUser?.text_1 || ''}`}
-            maxWidth="max-w-4xl"
-          >
-            <div className="p-4 bg-slate-50 flex flex-col max-h-[80vh] overflow-hidden rounded-b-2xl">
-              <div className="mb-4 rounded-xl border border-slate-200 bg-white p-4 flex justify-between items-center shrink-0">
-                <div>
-                  <p className="text-xs text-slate-500">Total saldo bon saat ini</p>
-                  <p className="text-2xl font-semibold text-purple-700 tabular-nums">{formatRupiah(bonHistoryUser?.number_1 || 0)}</p>
-                </div>
-              </div>
-              
-              <div className="flex-1 overflow-y-auto custom-scrollbar bg-white rounded-xl border border-slate-200">
-                {loadingBonHistory ? (
-                  <div className="flex justify-center p-10"><div className="w-8 h-8 border-4 border-purple-200 border-t-purple-600 rounded-full animate-spin"></div></div>
-                ) : bonHistoryData.length === 0 ? (
-                  <div className="text-center py-10 text-slate-400 font-bold">Belum ada riwayat bon.</div>
-                ) : (
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-50 sticky top-0 border-b border-slate-200 text-slate-500 font-black uppercase tracking-wider z-10">
-                      <tr>
-                        <th className="p-3 pl-4">Waktu</th>
-                        <th className="p-3">Jenis</th>
-                        <th className="p-3">Nominal</th>
-                        <th className="p-3">Keterangan</th>
-                        {userLevel === '1' && <th className="p-3 pr-4 text-right">Aksi</th>}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {bonHistoryData.map(b => (
-                        <tr key={b.id} className="hover:bg-slate-50 transition-colors">
-                          <td className="p-3 pl-4 text-slate-700 whitespace-nowrap">
-                            <div className="flex-1 min-w-0 pr-4">
-                              <p className="text-xs font-bold text-slate-800 flex justify-between">
-                                {formatLocalDateTime(b.created_at || b.created).split(' ')[0]} <br/>
-                                <span className="text-[10px] text-slate-400">{formatLocalDateTime(b.created_at || b.created).split(' ')[1]}</span>
-                              </p>
-                            </div>
-                          </td>
-                          <td className="p-3">
-                            <span className={`px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-widest ${
-                              (b.jenis||'').toLowerCase() === 'in' ? 'bg-blue-100 text-blue-700' : 'bg-rose-100 text-rose-700'
-                            }`}>
-                              {(b.jenis||'').toLowerCase() === 'in' ? 'BAYAR BON' : 'AMBIL BON'}
-                            </span>
-                          </td>
-                          <td className="p-3 font-semibold text-slate-800 whitespace-nowrap tabular-nums">
-                            {formatRupiah(b.nominal || 0)}
-                          </td>
-                          <td className="p-3 text-slate-600 max-w-[200px] truncate" title={b.note}>
-                            {b.note}
-                            {b.ref_gaji && (b.expand?.ref_gaji?.ref_baru ? <Link to={`/?ref=${encodeURIComponent(b.expand.ref_gaji.ref_baru)}`} className="ml-2 inline-flex items-center gap-1 text-teal-700 text-xs font-semibold" title="Buka slip dan ubah melalui transaksi gaji"><FileText size={13} /> Buka gaji</Link> : <span className="ml-2 text-xs text-slate-500">Via Gaji</span>)}
-                          </td>
-                          {userLevel === '1' && (
-                            <td className="p-3 pr-4 text-right whitespace-nowrap flex justify-end space-x-2">
-                              {/* Aksi Hapus */}
-                              <DeleteAccess collection="bon" id={b.id}><button onClick={() => handleDeleteBon(b.id)} className="inline-flex items-center gap-1 px-2 py-1 bg-rose-50 text-rose-600 hover:bg-rose-500 hover:text-white rounded-lg text-[10px] font-semibold transition-colors" title="Hapus riwayat bon">
-                                <Trash2 size={13} /> Hapus
-                              </button></DeleteAccess>
-                            </td>
-                          )}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-            </div>
-          </Modal>
+            bonHistoryUser={bonHistoryUser}
+            bonHistoryData={bonHistoryData}
+            loadingBonHistory={loadingBonHistory}
+            userLevel={userLevel}
+            formatLocalDateTime={formatLocalDateTime}
+            onDeleteBon={handleDeleteBon}
+          />
 
         </div>
         
