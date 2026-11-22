@@ -650,16 +650,34 @@ export default function CashflowPage() {
 
     useEffect(() => { 
       fetchDropdowns(); 
-      fetchWallets(); 
       fetchPersonOptions(); 
     }, []);
     useEffect(() => {
-      const delayDebounce = setTimeout(() => { setSearchTerm(searchInput); setPage(1); }, 500);
+      const delayDebounce = setTimeout(() => { setSearchTerm(searchInput); setPage(1); }, 250);
       return () => clearTimeout(delayDebounce);
     }, [searchInput]);
     
-    // Tambahkan filterAccounts ke dalam dependency agar data otomatis ter-refresh
-    useEffect(() => { fetchCashflow(); }, [page, searchTerm, filterMutasi, dateRange, filterAccounts, filterJenis, filterPerson]);
+    // Hanya fetch data tab yang sedang aktif
+    useEffect(() => {
+      if (activeTab === 'history') {
+        fetchCashflow();
+      }
+    }, [activeTab, page, searchTerm, filterMutasi, dateRange, filterAccounts, filterJenis, filterPerson]);
+
+    useEffect(() => {
+      if (activeTab === 'accounts') {
+        fetchWallets();
+      } else if (activeTab === 'tempo') {
+        fetchTempo();
+      }
+    }, [activeTab]);
+
+    // Muat data dompet bila form transaksi dibuka saat wallets masih kosong
+    useEffect(() => {
+      if ((modalType === 'form' || modalType === 'formBon') && wallets.length === 0) {
+        fetchWallets();
+      }
+    }, [modalType, wallets.length]);
 
     useEffect(() => {
       // Reset person jika bukan (mutasi keluar & jenis bonkaryawan)
@@ -731,13 +749,6 @@ export default function CashflowPage() {
         if (containerAccounts) containerAccounts.removeEventListener('scroll', handleScroll);
         if (containerTempo) containerTempo.removeEventListener('scroll', handleScroll);
       };
-    }, [activeTab]);
-
-    // 🆕 UseEffect untuk fetchTempo
-    useEffect(() => {
-      if (activeTab === 'tempo') {
-        fetchTempo();
-      }
     }, [activeTab]);
 
     const groupedTransactions = useMemo(() => {
@@ -1045,10 +1056,7 @@ export default function CashflowPage() {
             }`}
           >
             <button
-              onClick={() => {
-                setActiveTab('accounts');
-                fetchWallets();
-              }}
+              onClick={() => setActiveTab('accounts')}
               className={`flex-1 sm:w-40 py-2.5 text-xs font-black uppercase tracking-wider rounded-xl transition-all duration-300 ${
                 activeTab === 'accounts'
                   ? 'bg-white text-emerald-600 shadow-sm'
@@ -1059,12 +1067,7 @@ export default function CashflowPage() {
             </button>
 
             <button
-              onClick={() => {
-                setActiveTab('history');
-                setPage(1);
-                fetchCashflow();
-        fetchWallets();
-              }}
+              onClick={() => { setActiveTab('history'); setPage(1); }}
               className={`flex-1 sm:w-40 py-2.5 text-xs font-black uppercase tracking-wider rounded-xl transition-all duration-300 ${
                 activeTab === 'history'
                   ? 'bg-white text-emerald-600 shadow-sm'
@@ -1076,10 +1079,7 @@ export default function CashflowPage() {
 
             {['1', '2', '5', '6'].includes(userLevel) && (
               <button
-                onClick={() => {
-                  setActiveTab('tempo');
-                  fetchTempo();
-                }}
+                onClick={() => setActiveTab('tempo')}
                 className={`flex-1 sm:w-40 py-2.5 text-xs font-black uppercase tracking-wider rounded-xl transition-all duration-300 ${
                   activeTab === 'tempo'
                     ? 'bg-white text-emerald-600 shadow-sm'

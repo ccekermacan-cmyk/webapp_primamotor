@@ -7,45 +7,11 @@ import { flushPendingSync } from '../services/api/laravel';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { pb } from '../lib/pocketbase';
 import Modal from '../components/modal';
-import { Package, Search, Trash2, Edit, Copy, ChevronLeft, ChevronRight, X, Filter, LayoutGrid, List, ArrowUp, ArrowDown, ImagePlus, ExternalLink, Plus, AlertTriangle, Check } from 'lucide-react';
-interface Produk {
-  [key: string]: any; 
-  id: string;
-  id_lama: string;
-  kategori: string;
-  merk: string;
-  jenis: string;
-  varian: string;
-  keterangan: string; 
-  tipe: string;
-  unit: string;
-  beli: number;
-  sell_1: number;
-  sell_2: number;
-  sell_3: number;
-  sell_4: number;
-  sell_5: number;
-  sell_6: number;
-  min_1: number;
-  min_2: number;
-  min_3: number;
-  stok_1: number;
-  stok_2: number;
-  stok_3: number;
-  date: string;
-  file?: string[]; // field untuk menyimpan file gambar
-}
-
-function ProductMedia({ src, alt = '', className, loading, controls = false, video = false }: {src: string; alt?: string; className?: string; loading?: 'lazy' | 'eager'; controls?: boolean; video?: boolean}) {
-  const [failedSource, setFailedSource] = useState('');
-  if (failedSource === src) return <Package className="text-gray-300 m-auto" aria-label="Media tidak tersedia" />;
-  if (video || isProductVideo(src)) {
-    const videoUrl = new URL(src, window.location.href);
-    videoUrl.searchParams.delete('thumb');
-    return <video src={videoUrl.href} controls={controls} muted={!controls} playsInline preload="metadata" className={className} onError={() => setFailedSource(src)} />;
-  }
-  return <img src={src} alt={alt} loading={loading} className={className} onError={() => setFailedSource(src)} />;
-}
+import { Package, Search, Trash2, Edit, Copy, ChevronLeft, ChevronRight, X, Filter, LayoutGrid, List, ImagePlus, ExternalLink, Plus, AlertTriangle, Check } from 'lucide-react';
+import ProductMedia from '../components/produk/ProductMedia';
+import ProductCardGrid from '../components/produk/ProductCardGrid';
+import ProductTable from '../components/produk/ProductTable';
+import type { Produk } from '../types/produk';
 
 export default function Produk() {
   const [products, setProducts] = useState<Produk[]>([]);
@@ -218,11 +184,25 @@ export default function Produk() {
 
     const fetchDropdownOptions = async () => {
       try {
+        // Cache di sessionStorage agar tidak mengunduh 8.540 row berulang
+        const cacheKey = 'produk:options:v1';
+        const cached = sessionStorage.getItem(cacheKey);
+        if (cached) {
+          try {
+            const parsed = JSON.parse(cached);
+            if (parsed && Array.isArray(parsed.kategori) && Array.isArray(parsed.tipe)) {
+              setExistingTipe(parsed.tipe);
+              setKategoriOptions(parsed.kategori);
+              return;
+            }
+          } catch { /* cache rusak, ambil ulang */ }
+        }
         const records = await pb.collection('produk').getFullList({ fields: 'tipe,kategori', $autoCancel: false });
         const allTypes = Array.from(new Set(records.flatMap(r => r.tipe?.split(',').map((s: string) => s.trim()).filter(Boolean))));
         const uniqueKategori = Array.from(new Set(records.map(r => r.kategori).filter(Boolean)));
         setExistingTipe(allTypes);
         setKategoriOptions(uniqueKategori);
+        try { sessionStorage.setItem(cacheKey, JSON.stringify({ tipe: allTypes, kategori: uniqueKategori })); } catch { /* storage penuh */ }
       } catch (e) {
         console.error("Gagal memuat opsi tipe/kategori", e);
       }
@@ -237,7 +217,7 @@ export default function Produk() {
     const delayDebounceFn = setTimeout(() => {
       setSearchTerm(searchInput);
       setPage(1); 
-    }, 500);
+    }, 250);
     return () => clearTimeout(delayDebounceFn);
   }, [searchInput]);
 
@@ -333,7 +313,7 @@ const fetchRelatedProducts = async (sp: Produk) => {
         $autoCancel: false,
       });
     } else {
-      records = await pb.collection('produk').getFullList<Produk>({ $autoCancel: false });
+      return;
     }
 
     const levenshteinDistance = (a: string, b: string) => {
@@ -418,9 +398,10 @@ const fetchRelatedProducts = async (sp: Produk) => {
     setSelectedProduct(prod);
     setCurrentImageIndex(0); // reset slideshow ke gambar pertama
     setLogPage(1);
+    // Buka modal dulu, data pendukung (riwayat & terkait) diambil di background
+    setModalType('detail');
     fetchLogHistory(prod.id, 1);
     fetchRelatedProducts(prod);
-    setModalType('detail');
   };
 
   const handleOpenEdit = async (prod: Produk, e?: React.MouseEvent) => {
@@ -997,173 +978,32 @@ const fetchRelatedProducts = async (sp: Produk) => {
             </div>
           ) : 
             viewMode === 'grid' ? (
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 sm:gap-3">
-                {sortedProducts.map((prod) => (
-                  <div 
-                    key={prod.id} 
-                    onClick={() => handleOpenDetail(prod)}
-                    className="group bg-white border border-orange-200 rounded-2xl hover:border-orange-500 hover:shadow-lg hover:shadow-orange-300 transition-all duration-300 cursor-pointer flex flex-col overflow-hidden"
-                  >
-                    {/* Thumbnail */}
-                    <div className="relative w-full aspect-[3/2] sm:aspect-[4/3] bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center overflow-hidden">
-                      {prod.file && prod.file.length > 0 ? (
-                        <ProductMedia src={`${pb.files.getUrl(prod, prod.file[0])}?thumb=300x225`} alt="" loading="lazy" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
-                      ) : (
-                        <Package size={40} className="text-gray-300" />
-                      )}
-                      {prod.stok_3 <= 0 && (
-                        <span className="absolute top-2 left-2 px-2 py-0.5 bg-red-500 text-white text-[9px] font-black rounded-lg">HABIS</span>
-                      )}
-                      {prod.stok_3 > 0 && prod.stok_3 <= (prod.stok_2||0) && (
-                        <span className="absolute top-2 left-2 px-2 py-0.5 bg-amber-500 text-white text-[9px] font-black rounded-lg animate-pulse">MENIPIS</span>
-                      )}
-                    </div>
-
-                    <div className="p-1.5 sm:p-2 xl:p-3 flex flex-col flex-1">
-                      {/* ID + Unit */}
-                      <div className="flex justify-between items-start gap-2 mb-2">
-                        <span className="text-[10px] font-mono text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded">{formatIdLamaDisplay(prod.id_lama)}</span>
-                        <span className="text-[10px] font-bold text-orange-500 bg-orange-50 px-1.5 py-0.5 rounded">{prod.unit || '-'}</span>
-                      </div>
-                      
-                      {/* Nama */}
-                      <h3 className="font-bold text-gray-800 text-xs sm:text-sm leading-snug group-hover:text-orange-600 line-clamp-2 mb-2 flex-1">
-                        {`${prod.kategori} ${prod.merk} ${prod.jenis} ${prod.varian} ${prod.keterangan || ''} ${prod.tipe || ''}`.trim()}
-                      </h3>
-                      
-                      {/* Stok + Harga */}
-                      <div className="grid grid-cols-2 gap-2 p-2.5 sm:p-3 bg-gray-50 rounded-xl mb-2">
-                        <div>
-                          <p className="text-[9px] text-gray-400 font-medium mb-0.5">Stok</p>
-                          <p className={`font-black text-base ${prod.stok_3 <= 0 ? 'text-red-500' : prod.stok_3 <= (prod.stok_2||0) ? 'text-amber-500' : 'text-green-600'}`}>
-                            {prod.stok_3} <span className="text-[9px] font-normal text-gray-400">{prod.unit}</span>
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-[9px] text-gray-400 font-medium mb-0.5">Harga</p>
-                          <p className="font-black text-blue-600 text-sm">Rp {prod.sell_6?.toLocaleString('id-ID') || 0}</p>
-                          {(userLevel === '1' || userLevel === '2' || userLevel === '5' || userLevel === '6') && prod.beli > 0 && prod.sell_6 > 0 && (
-                            <p className={`text-[8px] font-bold mt-0.5 ${prod.sell_6 > prod.beli ? 'text-emerald-600' : 'text-red-500'}`}>
-                              Mgn {Math.round((1 - prod.beli/prod.sell_6)*100)}%
-                            </p>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Tombol Aksi */}
-                      <div className="flex gap-1 justify-between items-center border-t border-gray-100 pt-1.5">
-                        <div className="flex gap-0.5">
-                          <button onClick={(e) => handleOpenEdit(prod, e)} className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-500 bg-slate-100 hover:bg-slate-200" title="Edit">
-                            <Edit size={13} />
-                          </button>
-                          <button onClick={(e) => handleOpenCopy(prod, e)} className="w-7 h-7 flex items-center justify-center rounded-lg text-blue-500 bg-blue-50 hover:bg-blue-100" title="Copy">
-                            <Copy size={13} />
-                          </button>
-                          {userLevel === '1' && (
-                          <DeleteAccess collection="produk" id={prod.id}><button onClick={(e) => handleOpenDelete(prod, e)} className="w-7 h-7 flex items-center justify-center rounded-lg text-red-500 bg-red-50 hover:bg-red-100" title="Hapus">
-                            <Trash2 size={13} />
-                          </button></DeleteAccess>
-                          )}
-                        </div>
-                        {!isReadOnly && (
-                        <div className="flex items-center gap-0.5" onClick={e => e.stopPropagation()}>
-                          <button disabled={isProcessing} onClick={async () => { await handleQuickStockChange(prod, -1); }} className="w-6 h-6 flex items-center justify-center rounded-md bg-red-50 hover:bg-red-100 text-red-600 text-xs font-black">−</button>
-                          <span className="text-[9px] font-bold text-gray-400 w-4 text-center">{prod.stok_3}</span>
-                          <button disabled={isProcessing} onClick={async () => { await handleQuickStockChange(prod, 1); }} className="w-6 h-6 flex items-center justify-center rounded-md bg-green-50 hover:bg-green-100 text-green-600 text-xs font-black">+</button>
-                        </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
+              <ProductCardGrid
+                products={sortedProducts}
+                userLevel={userLevel}
+                isProcessing={isProcessing}
+                onOpenDetail={handleOpenDetail}
+                onOpenEdit={handleOpenEdit}
+                onOpenCopy={handleOpenCopy}
+                onOpenDelete={handleOpenDelete}
+                onQuickStockChange={handleQuickStockChange}
+              />
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm border-collapse">
-                  <thead className="bg-gray-50 border-b border-gray-200">
-                    <tr>
-                      <th className="text-left py-3 px-4 font-semibold text-gray-600 cursor-pointer select-none" onClick={() => { if (sortField === 'id_lama') setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc'); else { setSortField('id_lama'); setSortOrder('asc'); } }}>
-                        <div className="flex items-center gap-1">
-                          Kode
-                          {sortField === 'id_lama' && (sortOrder === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />)}
-                        </div>
-                      </th>
-                      <th className="text-left py-3 px-2 font-semibold text-gray-600 w-12"></th>
-                      <th className="text-left py-3 px-4 font-semibold text-gray-600 cursor-pointer select-none" onClick={() => { if (sortField === 'nama') setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc'); else { setSortField('nama'); setSortOrder('asc'); } }}>
-                        <div className="flex items-center gap-1">
-                          Nama Produk
-                          {sortField === 'nama' && (sortOrder === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />)}
-                        </div>
-                      </th>
-                      <th className="text-right py-3 px-4 font-semibold text-gray-600 cursor-pointer select-none" onClick={() => { if (sortField === 'stok') setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc'); else { setSortField('stok'); setSortOrder('asc'); } }}>
-                        <div className="flex items-center justify-end gap-1">
-                          Stok
-                          {sortField === 'stok' && (sortOrder === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />)}
-                        </div>
-                      </th>
-                      <th className="text-right py-3 px-4 font-semibold text-gray-600 cursor-pointer select-none" onClick={() => { if (sortField === 'harga_customer') setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc'); else { setSortField('harga_customer'); setSortOrder('asc'); } }}>
-                        <div className="flex items-center justify-end gap-1">
-                          Harga Pelanggan
-                          {sortField === 'harga_customer' && (sortOrder === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />)}
-                        </div>
-                      </th>
-                      <th className="text-right py-3 px-4 font-semibold text-gray-600 cursor-pointer select-none" onClick={() => { if (sortField === 'harga_retail') setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc'); else { setSortField('harga_retail'); setSortOrder('asc'); } }}>
-                        <div className="flex items-center justify-end gap-1">
-                          Harga Retail
-                          {sortField === 'harga_retail' && (sortOrder === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />)}
-                        </div>
-                      </th>
-                      <th className="text-center py-3 px-4 font-semibold text-gray-600">Aksi</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {sortedProducts.map((prod) => (
-                      <tr key={prod.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => handleOpenDetail(prod)}>
-                        <td className="py-3 px-4 font-mono text-xs">{formatIdLamaDisplay(prod.id_lama)}</td>
-                        <td className="py-2 px-2">
-                          <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg bg-gray-100 overflow-hidden flex items-center justify-center shrink-0">
-                            {prod.file && prod.file.length > 0 ? (
-                              <ProductMedia src={`${pb.files.getUrl(prod, prod.file[0])}?thumb=80x80`} alt="" loading="lazy" className="w-full h-full object-cover" />
-                            ) : (
-                              <Package size={14} className="text-gray-300" />
-                            )}
-                          </div>
-                        </td>
-                        <td className="py-3 px-4 font-medium text-gray-800">
-                          {`${prod.kategori} ${prod.merk} ${prod.jenis} ${prod.varian} ${prod.keterangan || ''} ${prod.tipe || ''}`.trim()}
-                        </td>
-                        <td className="py-3 px-4 text-right font-semibold">
-                          <span className={prod.stok_3 <= 0 ? 'text-red-500' : 'text-green-600'}>
-                            {prod.stok_3} {prod.unit}
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 text-right font-semibold text-purple-600">
-                          Rp {prod.sell_5?.toLocaleString('id-ID') || 0}
-                        </td>
-                        <td className="py-3 px-4 text-right font-semibold text-blue-600">
-                          Rp {prod.sell_6?.toLocaleString('id-ID') || 0}
-                        </td>
-                        <td className="py-3 px-4 text-center whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
-                          <div className="flex gap-1 justify-center">
-                            <button onClick={(e) => handleOpenEdit(prod, e)} className="p-1.5 text-slate-600 hover:bg-slate-100 rounded-md transition" title="Edit">
-                              <Edit size={14} />
-                            </button>
-                            <button onClick={(e) => handleOpenCopy(prod, e)} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-md transition" title="Copy">
-                              <Copy size={14} />
-                            </button>
-                            {userLevel === '1' && (
-                            <DeleteAccess collection="produk" id={prod.id}><button onClick={(e) => handleOpenDelete(prod, e)} className="p-1.5 text-red-600 hover:bg-red-50 rounded-md transition" title="Hapus">
-                              <Trash2 size={14} />
-                            </button></DeleteAccess>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-          )}
+              <ProductTable
+                products={sortedProducts}
+                userLevel={userLevel}
+                sortField={sortField}
+                sortOrder={sortOrder}
+                onSort={(field) => {
+                  if (sortField === field) setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+                  else { setSortField(field); setSortOrder('asc'); }
+                }}
+                onOpenDetail={handleOpenDetail}
+                onOpenEdit={handleOpenEdit}
+                onOpenCopy={handleOpenCopy}
+                onOpenDelete={handleOpenDelete}
+              />
+            )}
         </div>
 
         {/* Floating Add Button (selalu tampil di mobile, di desktop hanya saat scroll) */}
