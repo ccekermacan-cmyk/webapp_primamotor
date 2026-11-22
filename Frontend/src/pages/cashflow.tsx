@@ -537,11 +537,29 @@ export default function CashflowPage() {
 
     const fetchPersonOptions = async () => {
       try {
+        const cacheKey = 'cashflow:personOptions:v1';
+        const cached = sessionStorage.getItem(cacheKey);
+        if (cached) {
+          try {
+            const parsed = JSON.parse(cached);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              setPersonOptions(parsed);
+              return;
+            }
+          } catch { /* parse error, fetch fresh */ }
+        }
+
         // Ambil SEMUA person dari dropdown (customer, supplier, user) dengan case-insensitive
-        const persons = await pb.collection('dropdown').getFullList({
-          filter: `kategori ~ "person"`,
-          $autoCancel: false
-        });
+        const [persons, users] = await Promise.all([
+          pb.collection('dropdown').getFullList({
+            filter: `kategori ~ "person"`,
+            $autoCancel: false
+          }),
+          pb.collection('user').getFullList({
+            filter: `status = "Active" || status = "active"`,
+            $autoCancel: false
+          })
+        ]);
         const dropdownList = persons.map(p => ({
           id: p.id,
           id_lama: p.id_lama || '',
@@ -551,11 +569,6 @@ export default function CashflowPage() {
           jenis: p.jenis || '' // akan berisi 'customer', 'supplier', atau 'user'
         }));
 
-        // Ambil dari koleksi user (karyawan) sebagai tambahan
-        const users = await pb.collection('user').getFullList({
-          filter: `status = "Active" || status = "active"`,
-          $autoCancel: false
-        });
         const userList = users.map(u => ({
           id: u.id,
           id_lama: u.username || u.id,
@@ -574,7 +587,9 @@ export default function CashflowPage() {
             uniqueMap.set(key, item);
           }
         });
-        setPersonOptions(Array.from(uniqueMap.values()));
+        const result = Array.from(uniqueMap.values());
+        setPersonOptions(result);
+        try { sessionStorage.setItem(cacheKey, JSON.stringify(result)); } catch {}
       } catch (error) {
         console.error("Gagal memuat person:", error);
       }

@@ -57,21 +57,27 @@ export default function Settings() {
     }
   }, []);
 
-  // Fetch user untuk Enum
+  // Fetch user dan dropdown secara paralel saat inisialisasi
   useEffect(() => {
-    const fetchUsers = async () => {
+    const initSettings = async () => {
       try {
-        const users = await pb.collection('user').getFullList({ $autoCancel: false });
+        setLoading(true);
+        const [users, records] = await Promise.all([
+          pb.collection('user').getFullList({ $autoCancel: false }),
+          pb.collection('dropdown').getFullList<DropdownData>({
+            sort: 'jenis,kategori,text_1',
+            $autoCancel: false
+          })
+        ]);
         setAllUsers(users);
-      } catch (e) {
-        console.error("Gagal memuat data pengguna:", e);
+        setData(records);
+      } catch (error) {
+        console.error("Gagal inisialisasi settings:", error);
+      } finally {
+        setLoading(false);
       }
     };
-    fetchUsers();
-  }, []);
-
-  useEffect(() => {
-    fetchDropdowns();
+    initSettings();
   }, []);
 
   const fetchDropdowns = async () => {

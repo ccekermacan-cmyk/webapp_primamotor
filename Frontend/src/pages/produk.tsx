@@ -178,31 +178,52 @@ export default function Produk() {
   const hasFetchedOptions = useRef(false);
   useEffect(() => {
     if (hasFetchedOptions.current) return;
-    hasFetchedOptions.current = true;
-    fetchDropdownOptions();
+    // Tunda background fetch opsi 800ms agar fetchProducts (tabel utama) selesai seketika
+    const timer = setTimeout(() => {
+      hasFetchedOptions.current = true;
+      fetchDropdownOptions();
+    }, 800);
+    return () => clearTimeout(timer);
   }, []);
 
     const fetchDropdownOptions = async () => {
       try {
-        // Cache di sessionStorage agar tidak mengunduh 8.540 row berulang
-        const cacheKey = 'produk:options:v1';
-        const cached = sessionStorage.getItem(cacheKey);
+        // Cache di localStorage (awet 24 jam) agar tidak mendownload 8.540 row tiap sesi baru
+        const cacheKey = 'produk:options:v2';
+        const cached = localStorage.getItem(cacheKey);
         if (cached) {
           try {
             const parsed = JSON.parse(cached);
-            if (parsed && Array.isArray(parsed.kategori) && Array.isArray(parsed.tipe)) {
+            const isFresh = parsed.timestamp && (Date.now() - parsed.timestamp < 24 * 60 * 60 * 1000);
+            if (isFresh && Array.isArray(parsed.kategori) && Array.isArray(parsed.tipe)) {
               setExistingTipe(parsed.tipe);
               setKategoriOptions(parsed.kategori);
               return;
             }
           } catch { /* cache rusak, ambil ulang */ }
         }
-        const records = await pb.collection('produk').getFullList({ fields: 'tipe,kategori', $autoCancel: false });
+
+        // Ambil paralel 9 page agar hemat waktu (~800ms vs ~2.5s serial)
+        const fetchPage = async (p: number) => {
+          return pb.collection('produk').getList(p, 1000, {
+            fields: 'tipe,kategori',
+            skipTotal: true,
+            $autoCancel: false,
+          });
+        };
+        const results = await Promise.all(Array.from({ length: 9 }, (_, i) => fetchPage(i + 1)));
+        const records = results.flatMap(r => r.items);
         const allTypes = Array.from(new Set(records.flatMap(r => r.tipe?.split(',').map((s: string) => s.trim()).filter(Boolean))));
         const uniqueKategori = Array.from(new Set(records.map(r => r.kategori).filter(Boolean)));
         setExistingTipe(allTypes);
         setKategoriOptions(uniqueKategori);
-        try { sessionStorage.setItem(cacheKey, JSON.stringify({ tipe: allTypes, kategori: uniqueKategori })); } catch { /* storage penuh */ }
+        try {
+          localStorage.setItem(cacheKey, JSON.stringify({
+            tipe: allTypes,
+            kategori: uniqueKategori,
+            timestamp: Date.now()
+          }));
+        } catch { /* storage penuh */ }
       } catch (e) {
         console.error("Gagal memuat opsi tipe/kategori", e);
       }

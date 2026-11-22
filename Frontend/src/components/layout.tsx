@@ -70,16 +70,16 @@ export default function Layout({ setAuth }: { setAuth: (status: boolean) => void
       }
       // --- URL FORCE GUARD END ---
 
-      try {
-        const freshUser = await pb.collection('user').getOne(pb.authStore.model.id, { $autoCancel: false });
-        if (!freshUser || freshUser.status?.toLowerCase() !== 'active') {
+      // Validasi cepat dari model sesi lokal tanpa memblokir navigasi dengan HTTP request
+      const currentModel = pb.authStore.model;
+      if (currentModel) {
+        if (currentModel.status?.toLowerCase() !== 'active') {
           forceLogout();
           return;
         }
-        // 🔐 Pengecekan level dari database
-        const dbLevel = freshUser.level?.toString();
+        const dbLevel = currentModel.level?.toString();
         const localLevel = localStorage.getItem('user_level');
-        if (dbLevel !== localLevel) {
+        if (dbLevel && localLevel && dbLevel !== localLevel) {
           setSystemAlert({
             show: true,
             title: "Sesi Tidak Valid",
@@ -87,15 +87,6 @@ export default function Layout({ setAuth }: { setAuth: (status: boolean) => void
             onConfirm: () => { setSystemAlert(prev => ({...prev, show: false})); forceLogout(); }
           });
           return;
-        }
-      } catch (error: any) {
-        // Global session guard verifies permission failures before clearing authentication.
-        // Jangan logout jika terjadi kesalahan koneksi jaringan / timeout sementara!
-        if (error?.status === 401 || !pb.authStore.isValid) {
-          console.error("Sesi tidak valid / kedaluwarsa:", error);
-          forceLogout();
-        } else {
-          console.warn("Notice: Gagal verifikasi user sementara (network/timeout), sesi tetap dipertahankan:", error);
         }
       }
     };

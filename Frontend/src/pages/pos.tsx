@@ -407,13 +407,13 @@ export default function MenuPage() {
     useEffect(() => {
       const initData = async () => {
         try {
-          const [persons, menus, accounts, mechs, usersList] = await Promise.all([
+          const [persons, menus, accounts, usersList] = await Promise.all([
             pb.collection('dropdown').getFullList<DropdownItem>({ filter: `kategori ~ "person"`, $autoCancel: false }),
             pb.collection('dropdown').getFullList<DropdownItem>({ filter: `kategori ~ "menu" && jenis ~ "jenis menu"`, sort: 'text_1', $autoCancel: false }),
             pb.collection('dropdown').getFullList<DropdownItem>({ filter: `jenis ~ "cashflow account"`, sort: 'text_1', $autoCancel: false }),
-            pb.collection('user').getFullList<UserKaryawan>({ filter: `level = 10 && status = "Active"`, $autoCancel: false }),
-            pb.collection('user').getFullList({ sort: 'name', $autoCancel: false }),
+            pb.collection('user').getFullList<UserKaryawan>({ sort: 'name', $autoCancel: false }),
           ]);
+          const mechs = (usersList as UserKaryawan[]).filter(u => Number(u.level) === 10 && String(u.status || '').toLowerCase() === 'active');
           setAllPersons(persons);
           setMenuOptions([{ id: 'ov-1', text_1: 'Overview' } as any, ...menus]);
           setCashflowAccounts(accounts);
@@ -445,10 +445,12 @@ export default function MenuPage() {
           const jenisTarget = isPembelian ? 'supplier' : 'customer';
 
           try {
-              const persons = await pb.collection('dropdown').getFullList<DropdownItem>({
-                  filter: `kategori ~ "person" && jenis ~ "${jenisTarget}"`,
-                  $autoCancel: false
-              });
+              const persons = allPersons.length > 0
+                  ? allPersons.filter(p => (p.jenis || '').toLowerCase().includes(jenisTarget))
+                  : await pb.collection('dropdown').getFullList<DropdownItem>({
+                      filter: `kategori ~ "person" && jenis ~ "${jenisTarget}"`,
+                      $autoCancel: false
+                  });
               setPersonOptions(persons);
               
               // Set default person khusus 'umum1' jika menu penjualan/service
