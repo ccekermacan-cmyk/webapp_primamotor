@@ -85,7 +85,7 @@ export default function App() {
   // Auto-reload jika ada versi baru di server (SPA staleness fix)
   useEffect(() => {
     let currentVersion = '';
-    
+
     fetch('/version.json')
       .then(r => r.json())
       .then(data => { currentVersion = data.version; })
@@ -108,6 +108,38 @@ export default function App() {
 
     document.addEventListener('visibilitychange', checkVersion);
     return () => document.removeEventListener('visibilitychange', checkVersion);
+  }, []);
+
+  // Pemulihan chunk basi: setelah deploy baru, bundle lama di cache browser masih
+  // meminta chunk hash lama yang sudah tidak ada. Reload sekali (dibatasi sessionStorage
+  // agar tidak loop) untuk mengambil index.html dengan hash baru.
+  useEffect(() => {
+    const recover = () => {
+      try {
+        if (sessionStorage.getItem('prima:chunk-reload')) return;
+        sessionStorage.setItem('prima:chunk-reload', '1');
+      } catch { /* storage penuh/diblok */ }
+      window.location.reload();
+    };
+    const isDynamicImportError = (msg: string) =>
+      msg.includes('error loading dynamically imported module') ||
+      msg.includes('Failed to fetch dynamically imported module') ||
+      msg.includes('Importing a module script failed');
+    const onPreloadError = () => recover();
+    const onError = (e: ErrorEvent) => { if (isDynamicImportError(e.message)) recover(); };
+    const onUnhandledRejection = (e: PromiseRejectionEvent) => {
+      const reason = e.reason;
+      const msg = reason instanceof Error ? reason.message : String(reason ?? '');
+      if (isDynamicImportError(msg)) recover();
+    };
+    window.addEventListener('vite:preloadError', onPreloadError);
+    window.addEventListener('error', onError);
+    window.addEventListener('unhandledrejection', onUnhandledRejection);
+    return () => {
+      window.removeEventListener('vite:preloadError', onPreloadError);
+      window.removeEventListener('error', onError);
+      window.removeEventListener('unhandledrejection', onUnhandledRejection);
+    };
   }, []);
 
   return (

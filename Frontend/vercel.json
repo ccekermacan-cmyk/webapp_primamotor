@@ -1,6 +1,8 @@
 {
   "rewrites": [
-    { "source": "/(.*)", "destination": "/" }
+    { "source": "/assets/:path*", "destination": "/assets/:path*" },
+    { "source": "/version.json", "destination": "/version.json" },
+    { "source": "/((?!assets/).*)", "destination": "/" }
   ],
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
