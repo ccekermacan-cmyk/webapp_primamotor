@@ -7,6 +7,7 @@ import Layout from './components/layout';
 import Login from './pages/login';
 import { checkSessionExpiry } from './lib/session';
 import { validateSession } from './services/pocketbase/client';
+import ErrorBoundary from './components/ErrorBoundary';
 
 // Lazy load halaman-halaman berat
 const Pos = lazy(() => import('./pages/pos'));
@@ -156,23 +157,25 @@ export default function App() {
           </div>
         </div>
       )}
-      <Suspense fallback={<PageLoader />}>
-        <Routes>
-          <Route path="/login" element={
-            isAuthenticated ? <Navigate to="/" replace /> : <Login setAuth={setIsAuthenticated} />
-          } />
-          
-          <Route element={<ProtectedRoute isAuthenticated={isAuthenticated}><Layout setAuth={setIsAuthenticated} /></ProtectedRoute>}>
-            <Route path="/" element={<Pos />} />
-            <Route path="/produk" element={<Produk />} />
-            <Route path="/person" element={<Person />} />
-            <Route path="/cashflow" element={<Cashflow />} />
-            <Route path="/report" element={<ReportPage />} />
-            <Route path="/akun" element={<Akun />} />
-            <Route path="/settings" element={<Settings />} />
-          </Route>
-        </Routes>
-      </Suspense>
+      <ErrorBoundary>
+        <Suspense fallback={<PageLoader />}>
+          <Routes>
+            <Route path="/login" element={
+              isAuthenticated ? <Navigate to="/" replace /> : <Login setAuth={setIsAuthenticated} />
+            } />
+            
+            <Route element={<ProtectedRoute isAuthenticated={isAuthenticated}><Layout setAuth={setIsAuthenticated} /></ProtectedRoute>}>
+              <Route path="/" element={<Pos />} />
+              <Route path="/produk" element={<Produk />} />
+              <Route path="/person" element={<Person />} />
+              <Route path="/cashflow" element={<Cashflow />} />
+              <Route path="/report" element={<ReportPage />} />
+              <Route path="/akun" element={<Akun />} />
+              <Route path="/settings" element={<Settings />} />
+            </Route>
+          </Routes>
+        </Suspense>
+      </ErrorBoundary>
     </Router>
   );
 }

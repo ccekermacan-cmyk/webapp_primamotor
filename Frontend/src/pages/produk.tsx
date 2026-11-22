@@ -1,16 +1,17 @@
-import DeleteAccess from '../components/delete-access';
 import PocketBase, { BaseAuthStore } from 'pocketbase';
 import { createRecordId } from '../lib/ids';
-import { normalizeProductCode, productValidationError, stockAdjustment, isProductCodeConflict, isProductVideo, displayProductCode } from '../lib/products';
+import { normalizeProductCode, productValidationError, stockAdjustment, isProductCodeConflict, displayProductCode } from '../lib/products';
 import { createFinancialBatch } from '../services/api/financialBatch';
 import { flushPendingSync } from '../services/api/laravel';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { pb } from '../lib/pocketbase';
-import Modal from '../components/modal';
-import { Package, Search, Trash2, Edit, Copy, ChevronLeft, ChevronRight, X, Filter, LayoutGrid, List, ImagePlus, ExternalLink, Plus, AlertTriangle, Check } from 'lucide-react';
-import ProductMedia from '../components/produk/ProductMedia';
+import { Package, Search, ChevronLeft, ChevronRight, X, Filter, LayoutGrid, List, Plus, AlertTriangle } from 'lucide-react';
 import ProductCardGrid from '../components/produk/ProductCardGrid';
 import ProductTable from '../components/produk/ProductTable';
+import ProductDetailModal from '../components/produk/ProductDetailModal';
+import ProductFormModal from '../components/produk/ProductFormModal';
+import ProductDeleteModal from '../components/produk/ProductDeleteModal';
+import ProductCopyModal from '../components/produk/ProductCopyModal';
 import type { Produk } from '../types/produk';
 
 export default function Produk() {
@@ -1053,710 +1054,70 @@ const fetchRelatedProducts = async (sp: Produk) => {
       {/* ========================================================= */}
       {/* 1. MODAL DETAIL PRODUK */}
       {/* ========================================================= */}
-      {/* Tambahkan maxWidth agar tabel/konten tidak saling berhimpitan di layar */}
-      <Modal isOpen={modalType === 'detail'} onClose={() => setModalType(null)} title="Detail Spesifikasi Produk" maxWidth="max-w-2xl">
-        {selectedProduct && (
-          <div className="space-y-5">
-            {/* Hero image */}
-            <div className="relative w-full aspect-[16/9] sm:aspect-[2/1] bg-gradient-to-br from-gray-100 to-gray-200 rounded-2xl overflow-hidden">
-              {selectedProduct.file && (selectedProduct.file || []).length > 0 ? (
-                <>
-                  <ProductMedia controls
-                    src={pb.files.getUrl(selectedProduct, selectedProduct.file[currentImageIndex])} 
-                    alt="" 
-                    className="w-full h-full object-cover"
-                  />
-                  {(selectedProduct.file || []).length > 1 && (
-                    <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-black/40 backdrop-blur rounded-full px-3 py-1.5">
-                      <button onClick={e => { e.stopPropagation(); setCurrentImageIndex(p => p === 0 ? (selectedProduct.file || []).length - 1 : p - 1); }} className="text-white text-xs font-black px-1">‹</button>
-                      <span className="text-white text-[10px] font-bold">{currentImageIndex + 1}/{(selectedProduct.file || []).length}</span>
-                      <button onClick={e => { e.stopPropagation(); setCurrentImageIndex(p => p === (selectedProduct.file || []).length - 1 ? 0 : p + 1); }} className="text-white text-xs font-black px-1">›</button>
-                    </div>
-                  )}
-                </>
-              ) : (
-                <Package size={56} className="text-gray-300" />
-              )}
-              {selectedProduct.stok_3 <= 0 && (
-                <span className="absolute top-3 left-3 px-2.5 py-1 bg-red-500 text-white text-[10px] font-black rounded-lg">HABIS</span>
-              )}
-            </div>
-
-            {/* Info header */}
-            <div className="flex items-start gap-3 p-3 bg-orange-50 rounded-xl border border-orange-100">
-              <div className="flex-1 min-w-0">
-                <p className="text-[10px] font-mono text-gray-400 mb-0.5">ID: {formatIdLamaDisplay(selectedProduct.id_lama)}</p>
-                <h3 className="font-black text-gray-800 text-base leading-snug">
-                  {`${selectedProduct.kategori} ${selectedProduct.merk} ${selectedProduct.jenis} ${selectedProduct.varian} ${selectedProduct.keterangan || ''} ${selectedProduct.tipe || ''}`.trim()}
-                </h3>
-              </div>
-              <div className="flex flex-col items-end gap-1 shrink-0">
-                <span className="px-2 py-1 bg-orange-100 text-orange-600 text-[10px] font-black rounded-lg">{selectedProduct.unit || '-'}</span>
-                <button 
-                  onClick={async (e) => {
-                    e.stopPropagation();
-                    const fullName = `${selectedProduct.kategori} ${selectedProduct.merk} ${selectedProduct.jenis} ${selectedProduct.varian} ${selectedProduct.keterangan || ''} ${selectedProduct.tipe || ''}`.trim();
-                    try {
-                      await navigator.clipboard.writeText(fullName);
-                      setIsCopied(true);
-                      setTimeout(() => setIsCopied(false), 2000);
-                    } catch { alert('Nama produk belum dapat disalin. Periksa izin clipboard browser.'); }
-                  }}
-                  className="p-1.5 mt-1 bg-white text-orange-500 hover:text-orange-700 hover:bg-orange-100 border border-orange-200 rounded-lg transition-colors shadow-sm"
-                  title="Salin Nama Produk"
-                >
-                  {isCopied ? <Check size={14} className="text-green-600" /> : <Copy size={14} />}
-                </button>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-3 mt-2">
-                  <span className="inline-flex items-center gap-1 text-xs font-semibold text-green-700 bg-green-100 px-2 py-0.5 rounded-full">
-                    <Package size={12} />
-                    Stok: {selectedProduct.stok_3 ?? 0} {selectedProduct.unit || ''}
-                  </span>
-                  {selectedProduct.stok_3 <= 0 && (
-                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-700 bg-red-100 px-2 py-0.5 rounded-full">
-                      Habis
-                    </span>
-                  )}
-                  {selectedProduct.stok_3 > 0 && selectedProduct.stok_3 <= (selectedProduct.stok_2 ?? 0) && (
-                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
-                      Menipis
-                    </span>
-                  )}
-                </div>
-
-            <div className="flex justify-end gap-2 border-b pb-4">
-              <button onClick={() => handleOpenEdit(selectedProduct)} className="flex items-center gap-1 px-4 py-2 text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors"><Edit size={16} /> Edit Data</button>
-              <button onClick={() => handleOpenCopy(selectedProduct)} className="flex items-center gap-1 px-4 py-2 text-sm font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-xl transition-colors"><Copy size={16} /> Salin</button>
-              {userLevel === '1' && (
-              <DeleteAccess collection="produk" id={selectedProduct.id}><button onClick={() => handleOpenDelete(selectedProduct)} className="flex items-center gap-1 px-4 py-2 text-sm font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded-xl transition-colors"><Trash2 size={16} /> Hapus</button></DeleteAccess>
-              )}
-            </div>
-
-            <div>
-            <div className="bg-white p-4 rounded-2xl border border-gray-200 mb-4">
-              <div className="flex justify-between items-center">
-                <span className="text-sm font-bold text-gray-600">Harga Beli (Modal)</span>
-                <span className="text-lg font-black text-gray-800">Rp {selectedProduct.beli?.toLocaleString('id-ID') || 0}</span>
-              </div>
-            </div>
-            <div className="overflow-hidden border border-gray-200 rounded-2xl">
-                <table className="w-full text-left text-sm">
-                  <thead className="bg-gray-100 text-gray-600">
-                    <tr><th className="px-4 py-3">Tier</th><th className="px-4 py-3 text-center">Minimum</th><th className="px-4 py-3 text-right">Harga</th><th className="px-4 py-3 text-right">Profit</th></tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                <tr>
-                  <td className="px-4 py-3 font-medium">Tier 1 (Grosir Besar)</td>
-                  <td className="px-4 py-3 text-center font-bold text-blue-600">&ge; {selectedProduct.min_1 || 0}</td>
-                  <td className="px-4 py-3 text-right font-bold">Rp {selectedProduct.sell_1?.toLocaleString('id-ID') || 0}</td>
-                  <td className="px-4 py-3 text-right text-xs font-bold text-emerald-600">
-                    {selectedProduct.beli && selectedProduct.sell_1 ? ((selectedProduct.sell_1 - selectedProduct.beli) / selectedProduct.beli * 100).toFixed(1) + '%' : '-'}
-                  </td>
-                </tr>
-                <tr>
-                  <td className="px-4 py-3 font-medium">Tier 2 (Grosir Sedang)</td>
-                  <td className="px-4 py-3 text-center font-bold text-blue-600">&ge; {selectedProduct.min_2 || 0}</td>
-                  <td className="px-4 py-3 text-right font-bold">Rp {selectedProduct.sell_2?.toLocaleString('id-ID') || 0}</td>
-                  <td className="px-4 py-3 text-right text-xs font-bold text-emerald-600">
-                    {selectedProduct.beli && selectedProduct.sell_2 ? ((selectedProduct.sell_2 - selectedProduct.beli) / selectedProduct.beli * 100).toFixed(1) + '%' : '-'}
-                  </td>
-                </tr>
-                <tr>
-                  <td className="px-4 py-3 font-medium">Tier 3 (Grosir Kecil)</td>
-                  <td className="px-4 py-3 text-center font-bold text-blue-600">&ge; {selectedProduct.min_3 || 0}</td>
-                  <td className="px-4 py-3 text-right font-bold">Rp {selectedProduct.sell_3?.toLocaleString('id-ID') || 0}</td>
-                  <td className="px-4 py-3 text-right text-xs font-bold text-emerald-600">
-                    {selectedProduct.beli && selectedProduct.sell_3 ? ((selectedProduct.sell_3 - selectedProduct.beli) / selectedProduct.beli * 100).toFixed(1) + '%' : '-'}
-                  </td>
-                </tr>
-                <tr>
-                  <td className="px-4 py-3 font-medium">Tier 4</td>
-                  <td className="px-4 py-3 text-center text-gray-400">-</td>
-                  <td className="px-4 py-3 text-right font-bold">Rp {selectedProduct.sell_4?.toLocaleString('id-ID') || 0}</td>
-                  <td className="px-4 py-3 text-right text-xs font-bold text-emerald-600">
-                    {selectedProduct.beli && selectedProduct.sell_4 ? ((selectedProduct.sell_4 - selectedProduct.beli) / selectedProduct.beli * 100).toFixed(1) + '%' : '-'}
-                  </td>
-                </tr>
-                <tr className="bg-orange-50/30">
-                  <td className="px-4 py-3 font-bold text-purple-600">Tier 5 (Pelanggan)</td>
-                  <td className="px-4 py-3 text-center text-gray-400">-</td>
-                  <td className="px-4 py-3 text-right font-black text-purple-600">Rp {selectedProduct.sell_5?.toLocaleString('id-ID') || 0}</td>
-                  <td className="px-4 py-3 text-right text-xs font-bold text-emerald-600">
-                    {selectedProduct.beli && selectedProduct.sell_5 ? ((selectedProduct.sell_5 - selectedProduct.beli) / selectedProduct.beli * 100).toFixed(1) + '%' : '-'}
-                  </td>
-                </tr>
-                <tr className="bg-blue-50/30">
-                  <td className="px-4 py-3 font-bold text-blue-600">Tier 6 (Default Ecer)</td>
-                  <td className="px-4 py-3 text-center text-gray-400">-</td>
-                  <td className="px-4 py-3 text-right font-black text-blue-600">Rp {selectedProduct.sell_6?.toLocaleString('id-ID') || 0}</td>
-                  <td className="px-4 py-3 text-right text-xs font-bold text-emerald-600">
-                    {selectedProduct.beli && selectedProduct.sell_6 ? ((selectedProduct.sell_6 - selectedProduct.beli) / selectedProduct.beli * 100).toFixed(1) + '%' : '-'}
-                  </td>
-                </tr>
-              </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* History Table */}
-            <div className="mt-8">
-              <h4 className="font-bold text-slate-700 text-sm mb-4">Riwayat Keluar/Masuk</h4>
-              
-              <div className="bg-white border border-slate-100 rounded-[1.25rem] shadow-sm overflow-hidden text-xs">
-                <table className="w-full text-left border-collapse">
-                  <thead className="bg-slate-50/80 border-b border-slate-100">
-                    <tr>
-                      <th className="px-4 py-3 font-bold text-slate-400 text-[10px] uppercase tracking-wider">Tanggal</th>
-                      <th className="px-4 py-3 font-bold text-slate-400 text-[10px] uppercase tracking-wider">Operator</th>
-                      <th className="px-4 py-3 font-bold text-slate-400 text-[10px] uppercase tracking-wider text-center">Status</th>
-                      <th className="px-4 py-3 font-bold text-slate-400 text-[10px] uppercase tracking-wider text-center">Qty</th>
-                      <th className="px-4 py-3 font-bold text-slate-400 text-[10px] uppercase tracking-wider text-right">Harga</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100/80">
-                    {logHistory.length === 0 ? (
-                      <tr>
-                        <td colSpan={5} className="px-4 py-8 text-center text-slate-400 font-medium">
-                          Belum ada riwayat transaksi.
-                        </td>
-                      </tr>
-                    ) : (
-                      logHistory.map((log) => (
-                        <tr 
-                          key={log.id} 
-                          className="hover:bg-blue-50/40 transition-colors cursor-pointer group" 
-                          onClick={() => { window.location.href = `/?ref=${log.ref_baru}`; }}
-                        >
-                          <td className="px-4 py-3 text-slate-500 font-medium">
-                            {(() => {
-                              const dateStr = log.created_at || log.created;
-                              if (!dateStr) return '-';
-                              const date = new Date(dateStr);
-                              if (isNaN(date.getTime())) return dateStr;
-                              const tanggal = date.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
-                              const waktu = date.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-                              return (
-                                <div className="flex flex-col">
-                                  <span>{tanggal}</span>
-                                  <span className="text-[9px] text-slate-400">{waktu}</span>
-                                </div>
-                              );
-                            })()}
-                          </td>
-                          <td className="px-4 py-3 text-slate-600 font-semibold capitalize">
-                            {log.operator || '-'}
-                          </td>
-                          <td className="px-4 py-3 text-center">
-                            <span className={`inline-flex items-center justify-center px-2.5 py-1 rounded-md text-[9px] font-black tracking-widest uppercase border ${
-                              log.boolean?.toLowerCase() === 'in' 
-                                ? 'bg-emerald-50 text-emerald-600 border-emerald-100' 
-                                : 'bg-rose-50 text-rose-600 border-rose-100'
-                            }`}>
-                              {log.boolean}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 font-black text-slate-700 text-center">
-                            {log.qty}
-                          </td>
-                          <td className="px-4 py-3 text-right font-black text-slate-800">
-                            Rp {log.price_1?.toLocaleString('id-ID') || 0}
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-              
-              {logError && <p role="alert" className="text-red-600 text-xs">{logError} <button onClick={() => fetchLogHistory(selectedProduct!.id, logPage)} className="underline">Coba lagi</button></p>}
-              {/* Pagination History */}
-              <div className="flex justify-between items-center mt-4 px-1">
-                <button 
-                  disabled={logPage === 1}
-                  onClick={() => { setLogPage(p => p - 1); fetchLogHistory(selectedProduct!.id, logPage - 1); }}
-                  className="flex items-center justify-center w-8 h-8 bg-white border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-blue-600 rounded-xl disabled:opacity-30 disabled:hover:bg-white transition-all shadow-sm"
-                >
-                  <ChevronLeft size={16}/>
-                </button>
-                <span className="text-[11px] font-bold text-slate-400 bg-slate-50 px-3 py-1 rounded-lg border border-slate-100">
-                  Hal {logPage} / {logTotalPages || 1}
-                </span>
-                <button 
-                  disabled={logPage >= logTotalPages}
-                  onClick={() => { setLogPage(p => p + 1); fetchLogHistory(selectedProduct!.id, logPage + 1); }}
-                  className="flex items-center justify-center w-8 h-8 bg-white border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-blue-600 rounded-xl disabled:opacity-30 disabled:hover:bg-white transition-all shadow-sm"
-                >
-                  <ChevronRight size={16}/>
-                </button>
-              </div>
-            </div>
-
-            {/* Lampiran Gambar */}
-            {selectedProduct.file && (selectedProduct.file || []).length > 0 && (
-              <div className="bg-slate-50 p-5 rounded-[1.5rem] border-2 border-slate-100 shadow-sm">
-                <p className={`font-black text-[11px] text-blue-600 uppercase border-b-2 border-slate-200 pb-3 mb-3 flex items-center gap-2`}>
-                  <ImagePlus size={16}/> Lampiran Gambar Produk
-                </p>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  {(selectedProduct.file || []).map((f, i) => {
-                    const fileUrl = pb.files.getUrl(selectedProduct, f);
-                    return (
-                      <div key={i} className="relative group rounded-xl overflow-hidden border-2 border-white shadow-md aspect-square bg-slate-100">
-                        {isProductVideo(f) ? (
-                          <video src={fileUrl} className="w-full h-full object-cover" />
-                        ) : (
-                          <img src={fileUrl} alt={`lampiran-${i}`} className="w-full h-full object-cover transition-transform group-hover:scale-110 duration-500" />
-                        )}
-                        <a href={fileUrl} target="_blank" rel="noreferrer" className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-sm">
-                          <ExternalLink size={24} className="text-white drop-shadow-lg scale-75 group-hover:scale-100 transition-transform" />
-                        </a>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* Produk Terkait */}
-            {relatedProductsList.length > 0 && (
-                <div className="mt-8">
-                  <h4 className="font-bold text-slate-700 text-sm mb-4">Produk Serupa / Terkait</h4>
-                  <div className="flex flex-col gap-2">
-                    {relatedProductsList.map(prod => (
-                      <div 
-                        key={prod.id} 
-                        onClick={() => handleOpenDetail(prod)}
-                        className="group flex items-center gap-3 bg-white border border-slate-100 rounded-2xl p-2 hover:border-orange-200 hover:shadow-md hover:bg-orange-50/50 transition-all cursor-pointer"
-                      >
-                        <div className="w-12 h-12 shrink-0 bg-slate-50/80 rounded-xl overflow-hidden relative border border-slate-100/50">
-                          {prod.file && prod.file.length > 0 ? (
-                            <ProductMedia src={pb.files.getUrl(prod, prod.file[0])} alt="" className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"/>
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center text-slate-300">
-                              <Package size={20} />
-                            </div>
-                          )}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-black text-slate-700 leading-snug truncate group-hover:text-orange-600 transition-colors">
-                            {`${prod.kategori} ${prod.merk} ${prod.jenis} ${prod.varian} ${prod.keterangan || ''} ${prod.tipe || ''}`.trim()}
-                          </p>
-                          <div className="flex items-center gap-1.5 text-[10px] font-bold mt-1">
-                            <span className="px-2 py-0.5 bg-slate-100 text-slate-500 rounded-md">ID: {formatIdLamaDisplay(prod.id_lama)}</span>
-                            {prod.stok_3 <= 0 ? (
-                              <span className="px-2 py-0.5 bg-rose-100 text-rose-600 rounded-md">HABIS</span>
-                            ) : (
-                              <span className="px-2 py-0.5 bg-emerald-50 text-emerald-600 border border-emerald-100 rounded-md flex items-center gap-1">
-                                <Package size={10} /> Stok: {prod.stok_3 ?? 0}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        <div className="shrink-0 pl-2 pr-1">
-                          <ChevronRight size={18} className="text-slate-300 group-hover:text-orange-500 transition-colors" />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-            )}
-
-            <button onClick={() => setModalType(null)} className="w-full bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold py-3 rounded-[1.25rem] transition-colors mt-4">Tutup</button>
-          </div>
-        )}
-      </Modal>
-
+      <ProductDetailModal
+        isOpen={modalType === 'detail'}
+        onClose={() => setModalType(null)}
+        selectedProduct={selectedProduct}
+        currentImageIndex={currentImageIndex}
+        setCurrentImageIndex={setCurrentImageIndex}
+        isCopied={isCopied}
+        setIsCopied={setIsCopied}
+        userLevel={userLevel}
+        formatIdLamaDisplay={formatIdLamaDisplay}
+        handleOpenEdit={handleOpenEdit}
+        handleOpenCopy={handleOpenCopy}
+        handleOpenDelete={handleOpenDelete}
+        handleOpenDetail={handleOpenDetail}
+        logHistory={logHistory}
+        logPage={logPage}
+        logTotalPages={logTotalPages}
+        logError={logError}
+        fetchLogHistory={fetchLogHistory}
+        setLogPage={setLogPage}
+        relatedProductsList={relatedProductsList}
+      />
       {/* ========================================================= */}
       {/* 2. MODAL FORM (TAMBAH / EDIT / COPY) */}
       {/* ========================================================= */}
-      {/* Modal Form ini input-annya sangat banyak, butuh space yang lebih lebar */}
-      <Modal isOpen={modalType === 'form'} onClose={() => { if (!mutationLockRef.current) setModalType(null); }} title={isEditMode ? "Edit Produk" : "Tambah/Copy Produk"} maxWidth="max-w-4xl">
-        <form onSubmit={submitForm} className="space-y-4">
-          <div className="max-h-[60vh] overflow-y-auto pr-2 space-y-4">
-
-            {/* ── INFORMASI DASAR ─────────────────────────────────────── */}
-            <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 space-y-4">
-              <h4 className="font-bold text-gray-700 text-sm border-b pb-2">Informasi Dasar</h4>
-
-              {/* Baris 1: ID Lama + Kategori */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-xs font-bold text-gray-500">ID Lama</label>
-                  <input
-                    required
-                    type="text"
-                    name="id_lama"
-                    maxLength={5}
-                    value={formData.id_lama || ''}
-                    onChange={handleInputChange}
-                    disabled={isEditMode}
-                    className={`w-full p-2 border rounded-lg outline-none ${isEditMode ? 'bg-gray-200 text-gray-500 cursor-not-allowed border-transparent' : 'bg-white focus:ring-2 focus:ring-orange-400'}`}
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-gray-500">Kategori</label>
-                  <input required type="text" name="kategori" value={formData.kategori || ''} onChange={handleInputChange} className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-orange-400 outline-none" />
-                </div>
-              </div>
-
-              {/* Baris 2: Merk (Wajib) + Jenis (Opsional) */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-xs font-bold text-gray-500">Merk <span className="text-rose-500">*</span></label>
-                  <input required type="text" name="merk" value={formData.merk || ''} onChange={handleInputChange} className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-orange-400 outline-none" />
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-gray-500">Jenis</label>
-                  <input type="text" name="jenis" value={formData.jenis || ''} onChange={handleInputChange} className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-orange-400 outline-none" />
-                </div>
-              </div>
-
-              {/* Baris 3: Varian + Keterangan */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-xs font-bold text-gray-500">Varian</label>
-                  <input type="text" name="varian" value={formData.varian || ''} onChange={handleInputChange} className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-orange-400 outline-none" />
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-gray-500">Keterangan</label>
-                  <input type="text" name="keterangan" value={formData.keterangan || ''} onChange={handleInputChange} className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-orange-400 outline-none" />
-                </div>
-              </div>
-
-              {/* Baris 4: Satuan */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-xs font-bold text-gray-500">Satuan (Unit)</label>
-                  <select name="unit" value={formData.unit || 'pcs'} onChange={handleInputChange} className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-orange-400 outline-none bg-white">
-                    <option value="pcs">pcs</option>
-                    <option value="m">m</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Tipe Motor */}
-              <div>
-                <label className="font-bold text-orange-700 text-sm mb-2 block">Tipe Motor <span className="text-xs font-normal text-gray-400">(Tekan Enter untuk menambah)</span></label>
-
-                {/* Tag list */}
-                <div className="flex flex-wrap gap-2 mb-2 min-h-[28px]">
-                  {(formData.tipe?.split(',').map(s => s.trim()).filter(Boolean) || []).map((t, idx) => (
-                    <span key={idx} className="px-3 py-1 bg-orange-500 text-white text-[11px] font-bold rounded-lg flex items-center gap-1 shadow-sm">
-                      {t}
-                      <X size={12} className="cursor-pointer hover:text-orange-200" onClick={() => {
-                        const current = formData.tipe?.split(',').map(s => s.trim()).filter(Boolean) || [];
-                        setFormData({ ...formData, tipe: current.filter((_, i) => i !== idx).join(', ') });
-                      }} />
-                    </span>
-                  ))}
-                </div>
-
-                {/* Input + Dropdown */}
-                <div className="relative">
-                  <input
-                    type="text"
-                    placeholder="Ketik tipe motor..."
-                    className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-orange-400 outline-none text-sm"
-                    value={inputValue}
-                    onChange={(e) => setInputValue(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        const val = e.currentTarget.value.trim();
-                        if (val) {
-                          const current = formData.tipe ? formData.tipe.split(',').map(s => s.trim()).filter(Boolean) : [];
-                          if (!current.includes(val)) setFormData({ ...formData, tipe: [...current, val].join(', ') });
-                          setInputValue('');
-                        }
-                      }
-                    }}
-                  />
-                  {inputValue.length > 0 && (
-                    <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-40 overflow-y-auto">
-                      <div
-                        className="px-4 py-2 text-xs font-black text-orange-600 bg-orange-50 cursor-pointer border-b border-orange-100"
-                        onClick={() => {
-                          const current = formData.tipe ? formData.tipe.split(',').map(s => s.trim()).filter(Boolean) : [];
-                          if (!current.includes(inputValue)) setFormData({ ...formData, tipe: [...current, inputValue].join(', ') });
-                          setInputValue('');
-                        }}
-                      >
-                        + Tambah "{inputValue}" sebagai tipe baru
-                      </div>
-                      {existingTipe
-                        .filter(t => t.toLowerCase().includes(inputValue.toLowerCase()))
-                        .map((t) => (
-                          <div
-                            key={t}
-                            className="px-4 py-2 text-xs font-bold text-gray-700 hover:bg-orange-50 cursor-pointer border-b last:border-0"
-                            onClick={() => {
-                              const current = formData.tipe ? formData.tipe.split(',').map(s => s.trim()).filter(Boolean) : [];
-                              if (!current.includes(t)) setFormData({ ...formData, tipe: [...current, t].join(', ') });
-                              setInputValue('');
-                            }}
-                          >
-                            {t}
-                          </div>
-                        ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* ── MANAJEMEN STOK ──────────────────────────────────────── */}
-            <div className="bg-green-50/50 p-4 rounded-xl border border-green-100 space-y-4">
-              <h4 className="font-bold text-green-700 text-sm border-b border-green-200 pb-2">
-                Manajemen Stok
-              </h4>
-              <div className="grid grid-cols-3 gap-4">
-                <div>
-                  <label className="text-xs font-bold text-gray-500">Stok Awal</label>
-                  <input
-                    type="number" min="0" step="1"
-                    name="stok_1"
-                    disabled={isReadOnly}
-                    value={formData.stok_1 ?? ''}
-                    onChange={handleInputChange}
-                    className={`w-full p-2 border rounded-lg outline-none ${isReadOnly ? 'bg-gray-100 text-gray-500' : 'bg-white focus:ring-2 focus:ring-green-400'}`}
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-gray-500">Stok Menipis</label>
-                  <input
-                    type="number" min="0" step="1"
-                    name="stok_2"
-                    disabled={isReadOnly}
-                    value={formData.stok_2 ?? ''}
-                    onChange={handleInputChange}
-                    className={`w-full p-2 border rounded-lg outline-none font-bold ${isReadOnly ? 'bg-gray-100 text-gray-500' : 'bg-white text-amber-700 focus:ring-2 focus:ring-amber-400'}`}
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-green-600">Stok Realtime</label>
-                  <input
-                    type="number" min="0" step="1"
-                    name="stok_3"
-                    disabled={isReadOnly}
-                    value={formData.stok_3 ?? ''}
-                    onChange={handleInputChange}
-                    className={`w-full p-2 border rounded-lg outline-none font-bold ${isReadOnly ? 'bg-gray-100 text-gray-500' : 'bg-green-50 focus:ring-2 focus:ring-green-400'}`}
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* ── SKEMA HARGA ─────────────────────────────────────────── */}
-            <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100 space-y-4">
-              <h4 className="font-bold text-blue-700 text-sm border-b border-blue-200 pb-2">Skema Harga (Tiering)</h4>
-
-              {/* Harga Beli */}
-              <div>
-                <label className="text-xs font-bold text-gray-500">Harga Beli Dasar (Modal)</label>
-                <input
-                  type="number" min="0" step="1"
-                  name="beli"
-                  value={formData.beli ?? ''}
-                  onChange={handleInputChange}
-                  disabled={isReadOnly}
-                  className={`w-full p-2 border rounded-lg outline-none ${isReadOnly ? 'bg-gray-100 text-gray-500' : 'focus:ring-2 focus:ring-blue-400'}`}
-                />
-              </div>
-
-              {/* Tier Grid */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-
-                {/* Tier 1 */}
-                <div className="bg-white p-3 rounded-lg border space-y-2">
-                  <div>
-                    <label className="text-xs font-bold text-gray-500 block mb-1">Min 1 Qty</label>
-                    <input type="number" min="0" step="1" name="min_1" value={formData.min_1 ?? ''} onChange={handleInputChange} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-orange-400" />
-                  </div>
-                  <div>
-                    <label className="text-xs font-bold text-gray-500 block mb-1">Sell 1</label>
-                    <div className="flex items-center gap-2">
-                      <input type="number" min="0" step="1" name="sell_1" value={formData.sell_1 ?? ''} onChange={handleInputChange} className="flex-1 p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-orange-400 bg-gray-50" />
-                      {(formData.beli || 0) > 0 && formData.sell_1 && <span className="text-[10px] font-bold text-emerald-600 whitespace-nowrap">+{((formData.sell_1 - (formData.beli || 0)) / (formData.beli || 0) * 100).toFixed(1)}%</span>}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Tier 2 */}
-                <div className="bg-white p-3 rounded-lg border space-y-2">
-                  <div>
-                    <label className="text-xs font-bold text-gray-500 block mb-1">Min 2 Qty</label>
-                    <input type="number" min="0" step="1" name="min_2" value={formData.min_2 ?? ''} onChange={handleInputChange} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-orange-400" />
-                  </div>
-                  <div>
-                    <label className="text-xs font-bold text-gray-500 block mb-1">Sell 2</label>
-                    <div className="flex items-center gap-2">
-                      <input type="number" min="0" step="1" name="sell_2" value={formData.sell_2 ?? ''} onChange={handleInputChange} className="flex-1 p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-orange-400 bg-gray-50" />
-                      {(formData.beli || 0) > 0 && formData.sell_2 && <span className="text-[10px] font-bold text-emerald-600 whitespace-nowrap">+{((formData.sell_2 - (formData.beli || 0)) / (formData.beli || 0) * 100).toFixed(1)}%</span>}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Tier 3 */}
-                <div className="bg-white p-3 rounded-lg border space-y-2">
-                  <div>
-                    <label className="text-xs font-bold text-gray-500 block mb-1">Min 3 Qty</label>
-                    <input type="number" min="0" step="1" name="min_3" value={formData.min_3 ?? ''} onChange={handleInputChange} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-orange-400" />
-                  </div>
-                  <div>
-                    <label className="text-xs font-bold text-gray-500 block mb-1">Sell 3</label>
-                    <div className="flex items-center gap-2">
-                      <input type="number" min="0" step="1" name="sell_3" value={formData.sell_3 ?? ''} onChange={handleInputChange} className="flex-1 p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-orange-400 bg-gray-50" />
-                      {(formData.beli || 0) > 0 && formData.sell_3 && <span className="text-[10px] font-bold text-emerald-600 whitespace-nowrap">+{((formData.sell_3 - (formData.beli || 0)) / (formData.beli || 0) * 100).toFixed(1)}%</span>}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Tier 4 — tidak ada Min, hanya Sell */}
-                <div className="bg-white p-3 rounded-lg border space-y-2">
-                  <div className="h-[56px]" /> {/* Spacer setinggi field Min + label */}
-                  <div>
-                    <label className="text-xs font-bold text-gray-500 block mb-1">Sell 4</label>
-                    <div className="flex items-center gap-2">
-                      <input type="number" min="0" step="1" name="sell_4" value={formData.sell_4 ?? ''} onChange={handleInputChange} className="flex-1 p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-orange-400 bg-gray-50" />
-                      {(formData.beli || 0) > 0 && formData.sell_4 && <span className="text-[10px] font-bold text-emerald-600 whitespace-nowrap">+{((formData.sell_4 - (formData.beli || 0)) / (formData.beli || 0) * 100).toFixed(1)}%</span>}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Tier 5 — Pelanggan */}
-                <div className="bg-purple-50 p-3 rounded-lg border border-purple-200 space-y-2">
-                  <div className="h-[56px]" />
-                  <div>
-                    <label className="text-xs font-bold text-purple-600 block mb-1">Sell 5 (Pelanggan)</label>
-                    <div className="flex items-center gap-2">
-                      <input type="number" min="0" step="1" name="sell_5" value={formData.sell_5 ?? ''} onChange={handleInputChange} className="flex-1 p-2 border border-purple-300 rounded-lg outline-none focus:ring-2 focus:ring-purple-400 bg-purple-100 font-bold text-purple-700" />
-                      {(formData.beli || 0) > 0 && formData.sell_5 && <span className="text-[10px] font-bold text-emerald-600 whitespace-nowrap">+{((formData.sell_5 - (formData.beli || 0)) / (formData.beli || 0) * 100).toFixed(1)}%</span>}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Tier 6 — Default Ecer */}
-                <div className="bg-blue-50 p-3 rounded-lg border border-blue-200 space-y-2">
-                  <div className="h-[56px]" />
-                  <div>
-                    <label className="text-xs font-bold text-blue-600 block mb-1">Sell 6 (Default Ecer)</label>
-                    <div className="flex items-center gap-2">
-                      <input type="number" min="0" step="1" name="sell_6" value={formData.sell_6 ?? ''} onChange={handleInputChange} className="flex-1 p-2 border border-blue-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-400 bg-blue-100 font-bold text-blue-700" />
-                      {(formData.beli || 0) > 0 && formData.sell_6 && <span className="text-[10px] font-bold text-emerald-600 whitespace-nowrap">+{((formData.sell_6 - (formData.beli || 0)) / (formData.beli || 0) * 100).toFixed(1)}%</span>}
-                    </div>
-                  </div>
-                </div>
-
-              </div>
-            </div>
-
-            {/* ── GAMBAR PRODUK ───────────────────────────────────────── */}
-            <div className="bg-yellow-50/30 p-4 rounded-xl border border-yellow-100 space-y-3">
-              <div className="flex justify-between items-center">
-                <label className="text-[11px] font-black text-yellow-600 uppercase tracking-wider flex items-center gap-2">
-                  <ImagePlus size={16} /> Gambar Produk
-                </label>
-                <label htmlFor="product-file-input" className="cursor-pointer text-[10px] font-black bg-white px-4 py-2 rounded-xl shadow-sm hover:scale-105 active:scale-95 transition-all border border-yellow-200 text-yellow-600">
-                  + Upload
-                </label>
-                <input
-                  id="product-file-input"
-                  type="file"
-                  multiple
-                  accept="image/*,video/*"
-                  className="hidden"
-                  onChange={e => {
-                    const selectedFiles = Array.from(e.target.files || []);
-                    if (productFiles.length + selectedFiles.length > 10) { alert('Maksimal 10 file per produk.'); e.target.value = ''; return; }
-                    if (selectedFiles.length > 0) setProductFiles(prev => [...prev, ...selectedFiles]);
-                    e.target.value = '';
-                  }}
-                />
-              </div>
-
-              {productPreviewUrls.length === 0 ? (
-                <div className="text-center py-5 rounded-2xl border-2 border-dashed border-yellow-200">
-                  <p className="text-[10px] font-bold text-yellow-600 opacity-70">Belum ada file gambar</p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
-                  {productPreviewUrls.map((url, idx) => (
-                    <div key={idx} className="relative group rounded-xl overflow-hidden border border-white shadow-sm aspect-square bg-white">
-                      <ProductMedia src={url} video={isProductVideo(productFiles[idx])} alt={`preview-${idx}`} className="w-full h-full object-cover transition-transform group-hover:scale-110 duration-500" />
-                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                        <button type="button" onClick={() => setProductFiles(prev => prev.filter((_, i) => i !== idx))} className="w-8 h-8 bg-rose-500 text-white rounded-full flex items-center justify-center hover:scale-110 active:scale-95 shadow-lg">
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {productFiles.length > 0 && (
-                <div className="flex justify-between items-center pt-2 border-t border-yellow-200">
-                  <span className="text-[11px] font-black text-yellow-600">{productFiles.length} file terpilih</span>
-                  <button type="button" onClick={() => setProductFiles([])} className="text-[10px] font-black text-rose-500 hover:text-rose-700 bg-rose-50 px-3 py-1.5 rounded-lg transition-colors">
-                    Hapus Semua
-                  </button>
-                </div>
-              )}
-            </div>
-
-          </div>
-
-          {/* ── TOMBOL AKSI ─────────────────────────────────────────── */}
-          <div className="flex gap-3 pt-4 border-t">
-            <button type="button" disabled={isProcessing} onClick={() => setModalType(null)} className="flex-1 py-3 bg-gray-100 text-gray-700 font-bold rounded-xl hover:bg-gray-200">Batal</button>
-            <button type="submit" disabled={isProcessing} className="flex-1 py-3 bg-orange-500 text-white font-bold rounded-xl hover:bg-orange-600 disabled:opacity-50">
-              {isProcessing ? 'Menyimpan...' : 'Simpan Data'}
-            </button>
-          </div>
-        </form>
-      </Modal>
+      <ProductFormModal
+        isOpen={modalType === 'form'}
+        isEditMode={isEditMode}
+        isReadOnly={isReadOnly}
+        isProcessing={isProcessing}
+        formData={formData}
+        setFormData={setFormData}
+        handleInputChange={handleInputChange}
+        inputValue={inputValue}
+        setInputValue={setInputValue}
+        existingTipe={existingTipe}
+        productFiles={productFiles}
+        setProductFiles={setProductFiles}
+        productPreviewUrls={productPreviewUrls}
+        onClose={() => { if (!mutationLockRef.current) setModalType(null); }}
+        onSubmit={submitForm}
+      />
+      {/* ========================================================= */}
+      {/* 3. MODAL HAPUS */}
+      {/* ========================================================= */}
+      <ProductDeleteModal
+        isOpen={modalType === 'delete'}
+        selectedProduct={selectedProduct}
+        deletePass={deletePass}
+        deleteError={deleteError}
+        isProcessing={isProcessing}
+        onClose={() => { setModalType(null); setDeletePass(''); setDeleteError(''); }}
+        onDeletePassChange={val => { setDeletePass(val); setDeleteError(''); }}
+        onSubmit={submitDelete}
+      />
 
       {/* ========================================================= */}
-      {/* 3. MODAL HAPUS (Dikonversi ke Modal Alert Dinamis) */}
+      {/* 4. MODAL KONFIRMASI COPY */}
       {/* ========================================================= */}
-      <Modal 
-        isOpen={modalType === 'delete'} 
-        onClose={() => { setModalType(null); setDeletePass(''); setDeleteError(''); }} 
-        title="Konfirmasi Hapus Produk"
-      >
-        <div className="p-4 space-y-4">
-          <p className="text-sm text-slate-600">Yakin ingin menghapus <b>{selectedProduct?.kategori} {selectedProduct?.merk} {selectedProduct?.jenis} {selectedProduct?.varian}</b>? Tindakan ini <b className="text-red-600">tidak dapat dibatalkan</b>.</p>
-          <div>
-            <label className="text-[10px] font-black text-slate-500 uppercase block mb-1">Password Admin</label>
-            <input type="password" value={deletePass} onChange={e => { setDeletePass(e.target.value); setDeleteError(''); }} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-red-400" placeholder="Masukkan password untuk konfirmasi" />
-            {deleteError && <p className="text-xs text-red-500 font-bold mt-1">{deleteError}</p>}
-          </div>
-          <div className="flex gap-2">
-            <button onClick={() => { setModalType(null); setDeletePass(''); setDeleteError(''); }} className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 rounded-xl font-bold text-xs uppercase">Batal</button>
-            <button onClick={submitDelete} disabled={isProcessing} className="flex-1 py-2.5 bg-red-600 hover:bg-red-500 text-white rounded-xl font-bold text-xs uppercase disabled:opacity-50">
-              {isProcessing ? 'Menghapus...' : 'Hapus Permanen'}
-            </button>
-          </div>
-        </div>
-      </Modal>
-
-      {/* ========================================================= */}
-      {/* 4. MODAL KONFIRMASI COPY (Alert Dinamis) */}
-      {/* ========================================================= */}
-      <Modal
+      <ProductCopyModal
         isOpen={modalType === 'copy'}
+        selectedProduct={selectedProduct}
         onClose={() => setModalType(null)}
-        isAlert={true}
-        title="Salin Produk Ini?"
-        alertDescription={<>Anda akan menduplikasi semua atribut dari <span className="font-bold text-slate-800">{selectedProduct?.kategori} {selectedProduct?.merk} {selectedProduct?.jenis} {selectedProduct?.varian}</span>. Stok awal pada produk baru akan di-reset menjadi 0.</>}
-        alertIcon={<Copy size={24} />}
-        alertIconBg="bg-blue-50 text-blue-600 border-blue-100"
         onConfirm={executeCopy}
-        confirmText="Ya, Salin Data"
-        cancelText="Batal"
-        confirmBg="bg-blue-600 hover:bg-blue-500 shadow-blue-200"
       />
       
     </div>
