@@ -97,6 +97,8 @@ import { formatRupiah } from '../lib/money';
     const [personOptions, setPersonOptions] = useState<{ id: string; id_lama: string; text_1: string; text_2?: string; jenis?: string; source: 'dropdown' | 'user' }[]>([]);
     const [searchPerson, setSearchPerson] = useState('');
     const [isPersonOpen, setIsPersonOpen] = useState(false);
+    const [searchPersonBon, setSearchPersonBon] = useState('');
+    const [isPersonOpenBon, setIsPersonOpenBon] = useState(false);
     
     const [page, setPage] = useState(1);
     const [totalPages, setTotalPages] = useState(1);
@@ -139,6 +141,17 @@ import { formatRupiah } from '../lib/money';
       });
       return map;
     }, [wallets]);
+
+    const availableJenisOptions = useMemo(() => {
+      if (filterMutasi === 'masuk') return jenisOptionsIn;
+      if (filterMutasi === 'keluar') return jenisOptionsOut;
+      const map = new Map<string, DropdownItem>();
+      [...jenisOptionsIn, ...jenisOptionsOut].forEach(j => {
+        const key = j.id_lama || j.id;
+        if (!map.has(key)) map.set(key, j);
+      });
+      return Array.from(map.values());
+    }, [filterMutasi, jenisOptionsIn, jenisOptionsOut]);
     const [loadingWallets, setLoadingWallets] = useState(false);
     const [activeTab, setActiveTab] = useState<'accounts' | 'history' | 'tempo'>('history');
     
@@ -299,7 +312,7 @@ import { formatRupiah } from '../lib/money';
           cfData.append("id", cashflowId);
           cfData.append("created_at", utcDate);
           cfData.append("operator", operatorName);
-          cfData.append("jenis", "bon");
+          cfData.append("jenis", "bonkaryawan");
           cfData.append("mutasi", "out");
           cfData.append("account_1", formDataBon.akun_asal);
           cfData.append("account_2", selectedPerson?.source === "user" ? selectedPerson.id : "");
@@ -410,12 +423,13 @@ import { formatRupiah } from '../lib/money';
       return acc ? acc.text_1 : idOrName;
     };
 
-    const getPersonName = (personId: string | undefined) => {
-      if (!personId) return '-';
+    const getPersonName = (personId: string | undefined, persontextFallback?: string) => {
+      if (!personId && !persontextFallback) return '-';
+      if (!personId) return persontextFallback || '-';
       // Cari di personOptions
       const person = personOptions.find(opt => opt.id === personId || opt.id_lama === personId);
       
-      if (!person) return personId;
+      if (!person) return persontextFallback || personId;
       
       // Jika source-nya 'dropdown', gunakan text_1 dan text_2
       if (person.source === 'dropdown') {
@@ -425,7 +439,7 @@ import { formatRupiah } from '../lib/money';
       }
       
       // Jika source-nya 'user', return text_1 (karena di fetchPersonOptions kita set text_1 = user.name)
-      return person.text_1;
+      return person.text_1 || persontextFallback || personId;
     };
 
     const fetchDropdowns = async () => {
@@ -471,7 +485,7 @@ import { formatRupiah } from '../lib/money';
             $autoCancel: false
           }),
           pb.collection('user').getFullList({
-            filter: userLevel === '1' ? `number > 0` : `number > 0 && id = "${currentUser?.id}"`,
+            filter: userLevel === '1' ? '' : `id = "${currentUser?.id}"`,
             $autoCancel: false
           })
         ]);
@@ -619,9 +633,15 @@ import { formatRupiah } from '../lib/money';
             if (filterMutasi === 'masuk') conditions.push(`((mutasi = "in" && (${source})) || (mutasi = "out" && jenis ~ "transfer" && (${target}) && !(${source})))`);
             else conditions.push(`mutasi = "out" && (${source})`);
           } else conditions.push(filterMutasi === 'masuk' ? `mutasi = "in"` : `mutasi = "out"`);
+        } else if (filterAccounts.length > 0) {
+          const accountConditions = filterAccounts.map((id, i) => {
+            params[`wallet${i}`] = id;
+            return `(account_1 = {:wallet${i}} || account_2 = {:wallet${i}})`;
+          }).join(' || ');
+          conditions.push(`(${accountConditions})`);
         }
 
-        // --- LOGIKA FILTER TANGGAL BARU ---
+        // --- LOGIKA FILTER TANGGAL ---
         if (dateRange.start) {
           conditions.push(`created_at >= {:start}`);
           params.start = businessDateBoundary(dateRange.start);
@@ -629,12 +649,6 @@ import { formatRupiah } from '../lib/money';
         if (dateRange.end) {
           conditions.push(`created_at < {:end}`);
           params.end = businessDateBoundary(dateRange.end, true);
-        }
-
-        // --- LOGIKA FILTER AKUN/DOMPET (MULTISELECT) ---
-        if (filterAccounts.length > 0) {
-          const accountConditions = filterAccounts.map(id => `(account_1 = "${id}" || account_2 = "${id}")`).join(' || ');
-          conditions.push(`(${accountConditions})`);
         }
 
         if (filterJenis.length > 0) {
@@ -792,10 +806,17 @@ import { formatRupiah } from '../lib/money';
 
     const handleMutasiChange = (newMutasi: string) => {
       if (formData.jenis && formData.jenis !== '') {
-        if (window.confirm("Mengubah jenis mutasi akan mereset pilihan Jenis Cashflow. Lanjutkan?")) {
-          setFormData(prev => ({ ...prev, mutasi: newMutasi, jenis: '', account_2: '' }));
-          setIsFormDirty(true);
-        }
+        setSystemAlert({
+          show: true,
+          title: "Ubah Jenis Mutasi?",
+          message: "Mengubah jenis mutasi akan mereset pilihan Jenis Cashflow. Lanjutkan?",
+          type: 'confirm',
+          onConfirm: () => {
+            setFormData(prev => ({ ...prev, mutasi: newMutasi, jenis: '', account_2: '' }));
+            setIsFormDirty(true);
+            setSystemAlert(prev => ({ ...prev, show: false }));
+          }
+        });
       } else {
         setFormData(prev => ({ ...prev, mutasi: newMutasi, account_2: '' }));
         setIsFormDirty(true);
@@ -1068,7 +1089,7 @@ import { formatRupiah } from '../lib/money';
                   : 'text-slate-500 hover:text-emerald-700 hover:bg-white/50'
               }`}
             >
-              Daftar Dompet
+              Buku Kas & Saldo
             </button>
 
             <button
@@ -1175,7 +1196,7 @@ import { formatRupiah } from '../lib/money';
                 <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 h-10 w-full shadow-sm flex-nowrap overflow-x-auto no-scrollbar">
                   <Layers size={16} className="text-emerald-500 shrink-0" />
                   <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar flex-1 scroll-smooth">
-                    {(filterMutasi === 'masuk' ? jenisOptionsIn : filterMutasi === 'keluar' ? jenisOptionsOut : []).map((opt) => (
+                    {availableJenisOptions.map((opt) => (
                       <button
                         key={opt.id}
                         onClick={() => toggleFilterJenis(opt.id_lama || opt.id)}
@@ -1197,41 +1218,41 @@ import { formatRupiah } from '../lib/money';
               )}
 
               {activeFilter === 'tanggal' && (
-                <>
-                <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 h-10 w-full shadow-sm flex-nowrap overflow-x-auto no-scrollbar">
-                  <Calendar size={16} className="text-emerald-500 shrink-0" />
-                  <div className="flex items-center gap-2 flex-1 justify-center shrink-0">
+                <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1 h-10 w-full shadow-sm flex-nowrap overflow-x-auto no-scrollbar">
+                  <Calendar size={15} className="text-emerald-500 shrink-0" />
+                  <div className="flex items-center gap-1 shrink-0">
                     <input
                       type="date"
-                      className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-[10px] font-bold text-slate-700 outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400 w-[110px]"
+                      className="bg-white border border-slate-200 rounded-lg px-1.5 py-0.5 text-[10px] font-bold text-slate-700 outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400 w-[105px]"
                       value={dateRange.start}
                       onChange={(e) => { setDateRange({ ...dateRange, start: e.target.value }); setPage(1); }}
                     />
                     <span className="text-slate-400 font-black text-xs shrink-0">-</span>
                     <input
                       type="date"
-                      className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-[10px] font-bold text-slate-700 outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400 w-[110px]"
+                      className="bg-white border border-slate-200 rounded-lg px-1.5 py-0.5 text-[10px] font-bold text-slate-700 outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400 w-[105px]"
                       value={dateRange.end}
                       onChange={(e) => { setDateRange({ ...dateRange, end: e.target.value }); setPage(1); }}
                     />
                   </div>
-                  <div className="w-[1px] h-4 bg-slate-300 shrink-0 mx-1"></div>
-                  <button onClick={() => { setDateRange({ start: '', end: '' }); setActiveFilter(null); setPage(1); }} className="p-1 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors shrink-0">
+                  <div className="w-[1px] h-4 bg-slate-300 shrink-0 mx-0.5"></div>
+                  <div className="flex gap-1 shrink-0">
+                    {[
+                      {label:'Hari Ini', get:()=>{const d=new Date();return d.toISOString().split('T')[0];}},
+                      {label:'7 Hari', get:()=>{const d=new Date();d.setDate(d.getDate()-7);return d.toISOString().split('T')[0];}},
+                      {label:'30 Hari', get:()=>{const d=new Date();d.setDate(d.getDate()-30);return d.toISOString().split('T')[0];}},
+                    ].map(p=>(
+                      <button key={p.label}
+                        type="button"
+                        onClick={()=>{setDateRange({start:p.get(),end:new Date().toISOString().split('T')[0]});setPage(1);}}
+                        className="px-1.5 py-0.5 bg-white hover:bg-emerald-100 hover:text-emerald-700 border border-slate-200 rounded-md text-[9px] font-bold text-slate-600 transition-colors whitespace-nowrap">{p.label}</button>
+                    ))}
+                  </div>
+                  <div className="w-[1px] h-4 bg-slate-300 shrink-0 mx-0.5"></div>
+                  <button type="button" onClick={() => { setDateRange({ start: '', end: '' }); setActiveFilter(null); setPage(1); }} className="p-1 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors shrink-0">
                     <X size={14} strokeWidth={2.5} />
                   </button>
                 </div>
-                <div className="flex gap-1 text-[9px] font-bold">
-                  {[
-                    {label:'Hari Ini', get:()=>{const d=new Date();return d.toISOString().split('T')[0];}},
-                    {label:'7 Hari', get:()=>{const d=new Date();d.setDate(d.getDate()-7);return d.toISOString().split('T')[0];}},
-                    {label:'30 Hari', get:()=>{const d=new Date();d.setDate(d.getDate()-30);return d.toISOString().split('T')[0];}},
-                  ].map(p=>(
-                    <button key={p.label}
-                      onClick={()=>{setDateRange({start:p.get(),end:new Date().toISOString().split('T')[0]});setPage(1);}}
-                      className="px-2 py-0.5 bg-slate-100 hover:bg-emerald-100 hover:text-emerald-700 rounded-md text-slate-500 transition-colors">{p.label}</button>
-                  ))}
-                </div>
-                </>
               )}
 
               {activeFilter === 'search' && (
@@ -1389,7 +1410,7 @@ import { formatRupiah } from '../lib/money';
                               </h4>
                               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 text-xs">
                                 <span className="text-slate-500 flex items-center gap-1">
-                                  <User size={12} /> {getPersonName(tx.person)}
+                                  <User size={12} /> {getPersonName(tx.person, tx.persontext)}
                                 </span>
                                 <span className="text-slate-500 flex items-center gap-1">
                                   <Wallet size={12} /> {getAccountName(tx.account_1)}
@@ -1657,14 +1678,22 @@ import { formatRupiah } from '../lib/money';
                   );
                 };
 
+                const THEME_STYLES: Record<string, { title: string; subtotalLabel: string; subtotalVal: string }> = {
+                  emerald: { title: 'text-emerald-600', subtotalLabel: 'text-emerald-500', subtotalVal: 'text-emerald-600' },
+                  blue: { title: 'text-blue-600', subtotalLabel: 'text-blue-500', subtotalVal: 'text-blue-600' },
+                  amber: { title: 'text-amber-600', subtotalLabel: 'text-amber-500', subtotalVal: 'text-amber-600' },
+                  purple: { title: 'text-purple-600', subtotalLabel: 'text-purple-500', subtotalVal: 'text-purple-600' },
+                };
+                const currentThemeStyle = THEME_STYLES[colorTheme] || THEME_STYLES.emerald;
+
                 return (
                   <div className="space-y-6">
                     {/* Header Section dengan Subtotal */}
-                    <div className={`flex justify-between items-end border-b-2 border-slate-200 pb-3 px-2`}>
-                      <h4 className={`text-xl md:text-2xl font-black text-${colorTheme}-600 uppercase tracking-widest`}>{title}</h4>
+                    <div className="flex justify-between items-end border-b-2 border-slate-200 pb-3 px-2">
+                      <h4 className={`text-xl md:text-2xl font-black ${currentThemeStyle.title} uppercase tracking-widest`}>{title}</h4>
                       <div className="text-right">
-                        <span className={`text-[10px] font-black text-${colorTheme}-400 uppercase tracking-widest block`}>Subtotal Saldo</span>
-                        <span className={`text-lg md:text-xl font-black text-${colorTheme}-600`}>{formatRupiah(subtotal)}</span>
+                        <span className={`text-[10px] font-black ${currentThemeStyle.subtotalLabel} uppercase tracking-widest block`}>Subtotal Saldo</span>
+                        <span className={`text-lg md:text-xl font-black ${currentThemeStyle.subtotalVal}`}>{formatRupiah(subtotal)}</span>
                       </div>
                     </div>
 
@@ -1755,6 +1784,12 @@ import { formatRupiah } from '../lib/money';
           return `Sisa ${diffDays} Hari`;
         };
 
+        const tempoCategoryLabels: Record<string, string> = {
+          all: 'Semua',
+          overdue: 'Terlambat',
+          upcoming: 'Akan Datang'
+        };
+
         return (
           <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/40 border border-slate-100 flex-1 min-h-0 flex flex-col overflow-hidden relative">
             {/* HEADER CONTAINER */}
@@ -1762,7 +1797,7 @@ import { formatRupiah } from '../lib/money';
               <div>
                 <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
                   <Calendar size={18} className="text-amber-500 shrink-0" />
-                  Daftar Pembelian Belum Lunas (Monitoring Jatuh Tempo)
+                  Daftar Pembelian Belum Lunas (Monitoring Jatuh Tempo Hutang)
                 </h4>
                 <p className="text-[11px] sm:text-xs text-slate-500 mt-0.5">
                   Klik pada banner metrik di bawah untuk menyaring data berdasarkan keterlambatan pelunasan.
@@ -1774,7 +1809,7 @@ import { formatRupiah } from '../lib/money';
                     onClick={() => { setTempoCategoryFilter('all'); setTempoPage(1); }}
                     className="px-2.5 py-1 bg-rose-100 text-rose-700 hover:bg-rose-200 text-[10px] font-black uppercase rounded-xl border border-rose-200 transition-colors flex items-center gap-1"
                   >
-                    <X size={12} /> Reset Filter ({tempoCategoryFilter})
+                    <X size={12} /> Reset Filter ({tempoCategoryLabels[tempoCategoryFilter] || tempoCategoryFilter})
                   </button>
                 )}
                 <span className="px-3 py-1 bg-amber-100 text-amber-800 text-[10px] font-black uppercase rounded-xl border border-amber-200">
@@ -1910,7 +1945,7 @@ import { formatRupiah } from '../lib/money';
                 </div>
               ) : totalFilteredItems === 0 ? (
                 <div className="text-center py-16 sm:py-20 text-slate-400 font-bold bg-slate-50 rounded-3xl border-2 border-dashed border-slate-200 px-4">
-                  <p className="text-base sm:text-lg">🎉 Tidak ada pembelian dalam kategori filter ini ({tempoCategoryFilter}).</p>
+                  <p className="text-base sm:text-lg">🎉 Tidak ada pembelian dalam kategori filter ini ({tempoCategoryLabels[tempoCategoryFilter] || tempoCategoryFilter}).</p>
                   <button 
                     onClick={() => { setTempoCategoryFilter('all'); setTempoPage(1); }}
                     className="mt-3 px-4 py-2 bg-slate-800 text-white rounded-xl text-xs font-black uppercase tracking-wider"
@@ -2224,6 +2259,11 @@ import { formatRupiah } from '../lib/money';
                         <span className={`absolute left-3 top-1/2 -translate-y-1/2 text-xs font-semibold ${txtColor}`}>Rp</span>
                         <input type="number" name="nominal" placeholder="0" value={formData.nominal || ''} onChange={handleInputChange} className={`w-full pl-9 pr-3 py-2.5 text-xs md:text-sm font-semibold text-slate-800 bg-white border border-slate-200 rounded-xl outline-none shadow-sm ${focusClass}`} required />
                       </div>
+                      {Number(formData.nominal) > 0 && (
+                        <p className="mt-1.5 text-[11px] font-bold text-slate-500 ml-1">
+                          Terbilang: <span className="font-extrabold text-slate-800">{formatRupiah(Number(formData.nominal))}</span>
+                        </p>
+                      )}
                     </div>
 
                       <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
@@ -2353,21 +2393,21 @@ import { formatRupiah } from '../lib/money';
                       <input
                         type="text"
                         placeholder="Cari nama karyawan..."
-                        value={searchPerson}
-                        onChange={(e) => setSearchPerson(e.target.value)}
-                        onFocus={() => setIsPersonOpen(true)}
+                        value={searchPersonBon}
+                        onChange={(e) => setSearchPersonBon(e.target.value)}
+                        onFocus={() => setIsPersonOpenBon(true)}
                         className="flex-1 min-w-0 p-2.5 text-xs md:text-sm font-semibold text-slate-700 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-purple-500/20"
                       />
                       <button
                         type="button"
-                        onClick={() => setIsPersonOpen(!isPersonOpen)}
+                        onClick={() => setIsPersonOpenBon(!isPersonOpenBon)}
                         className="p-2.5 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition shrink-0"
                       >
-                        <ChevronDown size={16} className={`transition-transform duration-200 ${isPersonOpen ? 'rotate-180' : ''}`} />
+                        <ChevronDown size={16} className={`transition-transform duration-200 ${isPersonOpenBon ? 'rotate-180' : ''}`} />
                       </button>
                     </div>
 
-                    {isPersonOpen && (
+                    {isPersonOpenBon && (
                       <div className="absolute z-20 mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-lg max-h-60 overflow-y-auto">
                         {personOptions.filter(p => p.jenis?.toLowerCase() === 'user' || p.source === 'user').length === 0 ? (
                           <div className="px-4 py-3 text-xs text-slate-500 text-center">Tidak ada karyawan terdaftar</div>
@@ -2375,17 +2415,17 @@ import { formatRupiah } from '../lib/money';
                           personOptions
                             .filter(p => p.jenis?.toLowerCase() === 'user' || p.source === 'user')
                             .filter(p => 
-                              p.text_1.toLowerCase().includes(searchPerson.toLowerCase()) ||
-                              (p.text_2 && p.text_2.toLowerCase().includes(searchPerson.toLowerCase())) ||
-                              (p.id_lama && p.id_lama.toLowerCase().includes(searchPerson.toLowerCase()))
+                              p.text_1.toLowerCase().includes(searchPersonBon.toLowerCase()) ||
+                              (p.text_2 && p.text_2.toLowerCase().includes(searchPersonBon.toLowerCase())) ||
+                              (p.id_lama && p.id_lama.toLowerCase().includes(searchPersonBon.toLowerCase()))
                             )
                             .map(opt => (
                               <div
                                 key={opt.id}
                                 onClick={() => {
                                   setFormDataBon(prev => ({ ...prev, person: opt.id, persontext: opt.id_lama }));
-                                  setSearchPerson('');
-                                  setIsPersonOpen(false);
+                                  setSearchPersonBon('');
+                                  setIsPersonOpenBon(false);
                                 }}
                                 className="px-3 py-2.5 text-xs md:text-sm font-semibold text-slate-700 hover:bg-purple-50 cursor-pointer border-b border-slate-100 last:border-0 flex justify-between items-center gap-2"
                               >
@@ -2443,6 +2483,11 @@ import { formatRupiah } from '../lib/money';
                       required
                     />
                   </div>
+                  {Number(formDataBon.nominal) > 0 && (
+                    <p className="mt-1.5 text-[11px] font-bold text-purple-600 ml-1">
+                      Terbilang: <span className="font-extrabold text-purple-900">{formatRupiah(Number(formDataBon.nominal))}</span>
+                    </p>
+                  )}
                 </div>
 
                 {/* Catatan */}
@@ -2545,8 +2590,8 @@ import { formatRupiah } from '../lib/money';
           {/* MODAL FILTER MOBILE */}
           <Modal
             isOpen={isMobileFilterOpen}
-            onClose={() => setModalType(null)}
-            title="Detail Log Transaksi Kas"
+            onClose={() => setIsMobileFilterOpen(false)}
+            title="Filter Riwayat Kas"
             maxWidth="max-w-2xl"
           >
             <div className="space-y-6 p-2">
@@ -2564,28 +2609,26 @@ import { formatRupiah } from '../lib/money';
               </div>
               </div>
 
-              {filterMutasi !== 'semua' && (
-                <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
-                    <Layers size={14}/> Filter Jenis
-                  </label>
-                  <div className="flex items-center gap-2 mt-2 overflow-x-auto no-scrollbar pb-2">
-                    {(filterMutasi === 'masuk' ? jenisOptionsIn : jenisOptionsOut).map(opt => (
-                      <button 
-                        key={opt.id}
-                        onClick={() => toggleFilterJenis(opt.id_lama || opt.id)}
-                        className={`shrink-0 whitespace-nowrap px-4 py-2.5 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all border ${
-                          filterJenis.includes(opt.id_lama || opt.id) 
-                            ? 'bg-emerald-500 border-emerald-500 text-white shadow-md' 
-                            : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100'
-                        }`}
-                      >
-                        {opt.text_1}
-                      </button>
-                    ))}
-                  </div>
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                  <Layers size={14}/> Filter Jenis
+                </label>
+                <div className="flex items-center gap-2 mt-2 overflow-x-auto no-scrollbar pb-2">
+                  {availableJenisOptions.map(opt => (
+                    <button 
+                      key={opt.id}
+                      onClick={() => toggleFilterJenis(opt.id_lama || opt.id)}
+                      className={`shrink-0 whitespace-nowrap px-4 py-2.5 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all border ${
+                        filterJenis.includes(opt.id_lama || opt.id) 
+                          ? 'bg-emerald-500 border-emerald-500 text-white shadow-md' 
+                          : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100'
+                      }`}
+                    >
+                      {opt.text_1}
+                    </button>
+                  ))}
                 </div>
-              )}
+              </div>
 
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">Rentang Tanggal</label>
@@ -2609,13 +2652,14 @@ import { formatRupiah } from '../lib/money';
             title="Detail Log Transaksi Kas"
           >
             {selectedTx && (() => {
+              const isTransfer = (selectedTx.jenis || '').toLowerCase().includes('transfer');
               const isMasuk = selectedTx.mutasi?.toLowerCase() === 'in';
-              const txtColor = isMasuk ? 'text-emerald-600' : 'text-rose-600';
-              const mutasiLabel = isMasuk ? 'KAS MASUK (DEBET)' : 'KAS KELUAR (KREDIT)';
-
+              const txtColor = isTransfer ? 'text-indigo-600' : (isMasuk ? 'text-emerald-600' : 'text-rose-600');
+              const mutasiLabel = isTransfer ? 'TRANSFER INTERNAL KAS' : (isMasuk ? 'KAS MASUK (DEBET)' : 'KAS KELUAR (KREDIT)');
+ 
               return (
                 <div className="flex flex-col max-h-[75vh] md:max-h-[80vh] overflow-y-auto custom-scrollbar p-1">
-                  <div className={`flex flex-col p-5 sm:p-7 md:p-8 rounded-3xl sm:rounded-[2rem] text-white relative shadow-xl overflow-hidden shrink-0 ${isMasuk ? 'bg-emerald-500' : 'bg-rose-500'}`}>
+                  <div className={`flex flex-col p-5 sm:p-7 md:p-8 rounded-3xl sm:rounded-[2rem] text-white relative shadow-xl overflow-hidden shrink-0 ${isTransfer ? 'bg-indigo-500' : (isMasuk ? 'bg-emerald-500' : 'bg-rose-500')}`}>
                     {/* Efek Latar Belakang */}
                     <div className="absolute -top-10 -right-10 w-40 h-40 bg-white rounded-full blur-3xl opacity-20 pointer-events-none" />
                     <div className="absolute -bottom-10 -left-10 w-40 h-40 bg-black rounded-full blur-3xl opacity-10 pointer-events-none" />
@@ -2632,7 +2676,7 @@ import { formatRupiah } from '../lib/money';
                       <span className="text-white/80 text-[10px] sm:text-xs font-bold mb-1 uppercase tracking-wider">Total Nominal</span>
                       {/* Menggunakan break-words agar teks membungkus (wrap) jika terlalu panjang di HP, tidak bikin penyet */}
                       <p className="text-3xl sm:text-4xl md:text-5xl font-black tracking-tighter drop-shadow-md break-words text-center px-2 w-full leading-tight">
-                        {formatRupiah(selectedTx.nominal)}
+                        {isTransfer ? '↔ ' : (isMasuk ? '+ ' : '- ')}{formatRupiah(selectedTx.nominal)}
                       </p>
                     </div>
 
@@ -2674,7 +2718,7 @@ import { formatRupiah } from '../lib/money';
                       <p className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 mt-2 pt-2 border-t border-dashed border-slate-200"><span className="text-slate-400 font-bold">Kategori/Jenis:</span> <span className="font-black text-slate-700 bg-slate-200 px-2 py-0.5 rounded uppercase self-start sm:self-auto">{selectedTx.jenis}</span></p>
                       <p className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1"><span className="text-slate-400 font-bold">Akun Sumber:</span> <span className="font-bold text-slate-700 sm:text-right">{getAccountName(selectedTx.account_1)}</span></p>
                       {selectedTx.account_2 && <p className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1"><span className="text-slate-400 font-bold">Akun Tujuan:</span> <span className="font-bold text-blue-600 sm:text-right">{getAccountName(selectedTx.account_2)}</span></p>}
-                      <p className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1"><span className="text-slate-400 font-bold">Pihak Terkait:</span> <span className="font-bold text-slate-700 sm:text-right">{getPersonName(selectedTx.person)}</span></p>
+                      <p className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1"><span className="text-slate-400 font-bold">Pihak Terkait:</span> <span className="font-bold text-slate-700 sm:text-right">{getPersonName(selectedTx.person, selectedTx.persontext)}</span></p>
                       {selectedTx.ref_baru && <p className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1 mt-2 pt-2 border-t border-dashed border-slate-200"><span className="text-slate-400 font-bold">Ref Transaksi POS:</span> <Link to={`/?ref=${encodeURIComponent(selectedTx.ref_baru)}`} title="Buka detail transaksi di POS" className="inline-flex items-center gap-1.5 font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded border border-blue-100 self-start sm:self-auto hover:bg-blue-100 hover:underline focus-visible:outline-2 focus-visible:outline-blue-500">{selectedTx.ref_baru}<ExternalLink size={13} aria-hidden="true" /></Link></p>}
                       {(userLevel === '1' || userLevel === '2' || userLevel === '5') && (selectedTx.saldo_awal != null || selectedTx.saldo_akhir != null) && (
                       <div className="mt-2 pt-3 border-t border-dashed border-slate-200 space-y-2">
@@ -2703,9 +2747,9 @@ import { formatRupiah } from '../lib/money';
                           {selectedTx.file.map((f, i) => {
                             const fileUrl = pb.files.getUrl(selectedTx, f);
                             return (
-                              <div key={i} className={`relative group rounded-xl overflow-hidden border-2 border-white shadow-md aspect-square ${isMasuk ? 'bg-emerald-100' : 'bg-rose-100'}`}>
+                              <div key={i} className={`relative group rounded-xl overflow-hidden border-2 border-white shadow-md aspect-square ${isTransfer ? 'bg-indigo-100' : (isMasuk ? 'bg-emerald-100' : 'bg-rose-100')}`}>
                                 {f.match(/\.(mp4|webm|ogg)$/i) ? <video src={fileUrl} className="w-full h-full object-cover opacity-90" /> : <img src={fileUrl} alt={`Lampiran ${i}`} className="w-full h-full object-cover transition-transform group-hover:scale-110 duration-500" />}
-                                <a href={fileUrl} target="_blank" rel="noreferrer" className={`absolute inset-0 ${isMasuk ? 'bg-emerald-900/40' : 'bg-rose-900/40'} opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-sm`}><ExternalLink size={24} className="text-white drop-shadow-lg scale-75 group-hover:scale-100 transition-transform" /></a>
+                                <a href={fileUrl} target="_blank" rel="noreferrer" className={`absolute inset-0 ${isTransfer ? 'bg-indigo-900/40' : (isMasuk ? 'bg-emerald-900/40' : 'bg-rose-900/40')} opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-sm`}><ExternalLink size={24} className="text-white drop-shadow-lg scale-75 group-hover:scale-100 transition-transform" /></a>
                               </div>
                             )
                           })}
