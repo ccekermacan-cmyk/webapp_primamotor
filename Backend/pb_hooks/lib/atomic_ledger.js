@@ -51,8 +51,8 @@ function loanEffect(app, r, sign) {
   increment(app,'user',target.user,'number',delta);
 }
 function journal(app, token, collection, event, old, current, id) {
-  sql(app, 'INSERT INTO _pm_atomic_changes(id,batch_id,collection_name,record_id,event,old_data,new_data) VALUES ({:key},{:token},{:collection},{:id},{:event},{:old},{:current})',
-    {key:$security.randomString(24),token,collection,id,event,old:json(old),current:json(current)});
+  sql(app, 'INSERT INTO _pm_atomic_changes(id,batch_id,collection_name,record_id,event,old_data,new_data,created) VALUES ({:key},{:token},{:collection},{:id},{:event},{:old},{:current},{:created})',
+    {key:$security.randomString(24),token,collection,id,event,old:json(old),current:json(current),created:new Date().toISOString()});
 }
 // Derived records bypass model hooks and explicitly run the same effect implementation.
 function derived(app, token, collection, old, data) {
@@ -79,9 +79,9 @@ function cascade(app, token, collection, r) {
     }
     const salaries = rows(app,'gaji','ref_baru = {:id} || ref = {:id}',{id:r.id});
     const salaryIds = salaries.map(item => item.id);
-    for (const bon of rows(app,'bon')) {
-      if (text(bon,'ref_menu') === r.id || salaryIds.includes(text(bon,'ref_gaji'))) derived(app,token,'bon',bon,null);
-    }
+    const bonFilter = ['ref_menu = {:id}',...salaryIds.map((_,i) => `ref_gaji = {:s${i}}`)].join(' || ');
+    const bonParams = {id:r.id,...Object.fromEntries(salaryIds.map((v,i) => [`s${i}`,v]))};
+    for (const bon of rows(app,'bon',bonFilter,bonParams)) derived(app,token,'bon',bon,null);
     for (const salary of salaries) app.delete(salary);
   }
   if (collection === 'cashflow') for (const bon of rows(app,'bon','ref_cashflow = {:id}',{id:r.id})) derived(app,token,'bon',bon,null);
@@ -332,4 +332,7 @@ exports.finish = (app, token) => {
   for (const id of accounts) rebuildAccount(app,id);
   for (const id of products) rebuildStock(app,id,prices.has(id));
   for (const date of dates) report(app,date);
+  // Retensi jurnal 30 hari: cukup untuk dedup webhook lama yang tertunda;
+  // riwayat transaksi sesungguhnya tetap ada di koleksi bisnis.
+  sql(app, 'DELETE FROM _pm_atomic_changes WHERE created < {:cutoff}', {cutoff:new Date(Date.now()-30*86400000).toISOString()});
 };

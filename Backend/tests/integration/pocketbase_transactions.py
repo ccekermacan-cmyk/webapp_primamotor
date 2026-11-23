@@ -56,6 +56,7 @@ try:
  shutil.copy(root/'Backend/pb_migrations/1792358100_protect_derived_balance.js',tmp/'migrations')
  shutil.copy(root/'Backend/pb_migrations/1792358200_preserve_admin_balance_correction.js',tmp/'migrations')
  shutil.copy(root/'Backend/pb_migrations/1792400000_stock_override_via_api.js',tmp/'migrations')
+ shutil.copy(root/'Backend/pb_migrations/1792500000_atomic_changes_retention.js',tmp/'migrations')
  subprocess.run([str(root/'Backend/pocketbase'),'migrate','up',*pbflags],check=True,stdout=subprocess.DEVNULL)
  processes[0]=subprocess.Popen([str(root/'Backend/pocketbase'),'serve','--http','127.0.0.1:18090',*pbflags],stdout=f,stderr=subprocess.STDOUT);wait(pb+'/api/health')
  # Enable atomic batch requests in the isolated PocketBase instance.
@@ -520,6 +521,19 @@ try:
  api(pb,'/api/collections/cashflow/records/'+corrEntry['id'],'DELETE',token=admin)
  api(pb,'/api/collections/dropdown/records/'+corrWallet['id'],'DELETE',token=admin)
  print('PASS: admin balance edit re-anchors historical cashflow snapshots')
+ # Journal retention: the next commit purges _pm_atomic_changes rows older than 30 days.
+ _,retWallet=api(pb,'/api/collections/dropdown/records','POST',{'id_lama':'retw1','text_1':'ret-wallet','jenis':'Cashflow Account','kategori':'Cashflow','number_1':100},admin)
+ fixture=sqlite3.connect(data/'data.db')
+ fixture.execute("INSERT INTO _pm_atomic_changes(id,batch_id,collection_name,record_id,event,old_data,new_data,created) VALUES ('oldjournal','oldbatch','cashflow','stale','created','{}','{}','2020-01-01 00:00:00.000Z')")
+ fixture.commit();fixture.close()
+ _,retEntry=api(pb,'/api/collections/cashflow/records','POST',{'account_1':retWallet['id'],'nominal':10,'mutasi':'out','jenis':'operasional'},admin)
+ fixture=sqlite3.connect(data/'data.db')
+ stale=fixture.execute("SELECT COUNT(*) FROM _pm_atomic_changes WHERE id='oldjournal'").fetchone()[0]
+ fresh=fixture.execute("SELECT COUNT(*) FROM _pm_atomic_changes WHERE record_id=? AND event='created'",(retEntry['id'],)).fetchone()[0]
+ fixture.close()
+ assert stale==0 and fresh>0,(stale,fresh)
+ api(pb,'/api/collections/cashflow/records/'+retEntry['id'],'DELETE',token=admin)
+ print('PASS: atomic change journal retention purges rows older than 30 days')
  if os.environ.get('PM_SCALE_TEST')=='1':
   # Synthetic history only, in the disposable database: 200k alternating movements net to zero.
   fixture=sqlite3.connect(data/'data.db')

@@ -59,6 +59,7 @@ export const executePosCheckout = async (ctx: PosCheckoutContext) => {
     let oldCashflows: any[] = [];
     let oldOngkos: any[] = [];
     let oldLogs: any[] = [];
+  let keptOngkosIds: Set<string> = new Set();
 
     try {
       await flushPendingSync();
@@ -194,7 +195,7 @@ export const executePosCheckout = async (ctx: PosCheckoutContext) => {
 
         // Dynamic Incremental Diff for Ongkos (Service Mechanics)
         const validMekanik = formBayar.mekanikList.filter((m: any) => m.idLama && m.ongkos > 0);
-        const keptOngkosIds = new Set<string>();
+        keptOngkosIds = new Set<string>();
         const matchedPersons = new Set<string>();
         for (const ong of oldOngkos) {
           if (validMekanik.some((m: any) => m.idLama === ong.person) && !matchedPersons.has(ong.person)) {
@@ -376,10 +377,11 @@ export const executePosCheckout = async (ctx: PosCheckoutContext) => {
         const mekanikValid = formBayar.mekanikList.filter(m => m.idLama && m.ongkos > 0);
         
         if (mekanikValid.length > 0) {
+          const reusableOngkos = oldOngkos.filter((o: any) => keptOngkosIds.has(o.id));
           const usedOngkosIds = new Set<string>();
           for (const mek of mekanikValid) {
-            const existingOng = oldOngkos.find(o => o.person === mek.idLama && !usedOngkosIds.has(o.id)) ||
-                                oldOngkos.find(o => !usedOngkosIds.has(o.id) && !mekanikValid.some(m => m.idLama === o.person));
+            const existingOng = reusableOngkos.find(o => o.person === mek.idLama && !usedOngkosIds.has(o.id)) ||
+                                reusableOngkos.find(o => !usedOngkosIds.has(o.id));
             if (existingOng) {
               usedOngkosIds.add(existingOng.id);
               if (existingOng.ongkos !== mek.ongkos || existingOng.person !== mek.idLama) {
