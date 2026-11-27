@@ -46,6 +46,7 @@ Desain: `docs/superpowers/specs/2026-11-27-android-web-parity-design.md`.
 - Produk: filter stok memakai `stok_3 <= min_3` (menipis) dan `stok_3 <= 0` (habis), sama dengan query web; +/- menulis `log_stock` ke outbox.
 - Akun: nominal gaji/bon tersembunyi sampai password diverifikasi online, sama seperti web.
 - Report: alamat API Laravel diambil dari `API_PUBLIC_URL` di file `datasource` (`BuildConfig.POS_API_URL`), dipakai hanya untuk rekalkulasi laporan.
+- Sengaja beda dari web: riwayat gaji karyawan lain di halaman Person tidak dibuka di Android. Web menarik `gaji` per username tanpa verifikasi; `AGENTS.md` melarang melonggarkan privasi gaji, jadi hanya gaji milik akun login yang tampil di Akun.
 - Bukti: unit 65/65, instrumented 57/57, release APK 2,5 MB, cold start 1155 ms di CPH2461.
 
 ## Aturan tetap
