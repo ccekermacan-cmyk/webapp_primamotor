@@ -52,6 +52,15 @@ android {
         compose = true
     }
 
+    testOptions {
+        unitTests.all {
+            it.systemProperty(
+                "repo.root",
+                rootProject.projectDir.parentFile?.absolutePath ?: rootProject.projectDir.absolutePath,
+            )
+        }
+    }
+
     packaging {
         resources.excludes += setOf(
             "/META-INF/{AL2.0,LGPL2.1}",

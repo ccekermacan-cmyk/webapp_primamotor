@@ -1,0 +1,96 @@
+{
+  "_comment": "Fixture paritas ledger lokal Android vs aturan Backend/pb_hooks/lib/atomic_ledger.js. Angka sebagai string agar tidak ada galat pembulatan. `expect` = delta bersih (current - old), bukan saldo akhir.",
+  "cases": [
+    {
+      "name": "cash_in_adds_to_source_account",
+      "type": "cash",
+      "old": null,
+      "new": { "account_1": "acc-a", "account_2": "", "nominal": "150000", "mutasi": "in", "jenis": "tunai" },
+      "expect": { "acc-a": "150000" }
+    },
+    {
+      "name": "cash_out_subtracts_from_source_account",
+      "type": "cash",
+      "old": null,
+      "new": { "account_1": "acc-a", "account_2": "", "nominal": "50000", "mutasi": "out", "jenis": "operasional" },
+      "expect": { "acc-a": "-50000" }
+    },
+    {
+      "name": "transfer_moves_money_between_accounts",
+      "type": "cash",
+      "old": null,
+      "new": { "account_1": "acc-a", "account_2": "acc-b", "nominal": "100000", "mutasi": "out", "jenis": "transfer" },
+      "expect": { "acc-a": "-100000", "acc-b": "100000" }
+    },
+    {
+      "name": "edit_nominal_applies_difference",
+      "type": "cash",
+      "old": { "account_1": "acc-a", "account_2": "", "nominal": "150000", "mutasi": "in", "jenis": "tunai" },
+      "new": { "account_1": "acc-a", "account_2": "", "nominal": "200000", "mutasi": "in", "jenis": "tunai" },
+      "expect": { "acc-a": "50000" }
+    },
+    {
+      "name": "delete_cashflow_reverses_effect",
+      "type": "cash",
+      "old": { "account_1": "acc-a", "account_2": "", "nominal": "150000", "mutasi": "in", "jenis": "tunai" },
+      "new": null,
+      "expect": { "acc-a": "-150000" }
+    },
+    {
+      "name": "stock_in_adds_quantity",
+      "type": "stock",
+      "old": null,
+      "new": { "item": "p1", "qty": "5", "boolean": "in" },
+      "expect": { "p1": "5" }
+    },
+    {
+      "name": "stock_out_subtracts_quantity",
+      "type": "stock",
+      "old": null,
+      "new": { "item": "p1", "qty": "3", "boolean": "out" },
+      "expect": { "p1": "-3" }
+    },
+    {
+      "name": "stock_edit_direction_reverses_old_and_applies_new",
+      "type": "stock",
+      "old": { "item": "p1", "qty": "3", "boolean": "in" },
+      "new": { "item": "p1", "qty": "3", "boolean": "out" },
+      "expect": { "p1": "-6" }
+    },
+    {
+      "name": "stock_delete_reverses_quantity",
+      "type": "stock",
+      "old": { "item": "p1", "qty": "5", "boolean": "in" },
+      "new": null,
+      "expect": { "p1": "-5" }
+    },
+    {
+      "name": "bon_out_adds_debt_to_person_and_user",
+      "type": "bon",
+      "old": null,
+      "new": { "nominal": "50000", "jenis": "out", "person": "d1", "user": "u1" },
+      "expect": { "person:d1": "50000", "user:u1": "50000" }
+    },
+    {
+      "name": "bon_in_reduces_debt",
+      "type": "bon",
+      "old": null,
+      "new": { "nominal": "50000", "jenis": "in", "person": "d1", "user": "u1" },
+      "expect": { "person:d1": "-50000", "user:u1": "-50000" }
+    },
+    {
+      "name": "bon_edit_amount_applies_difference",
+      "type": "bon",
+      "old": { "nominal": "50000", "jenis": "out", "person": "d1", "user": "u1" },
+      "new": { "nominal": "30000", "jenis": "out", "person": "d1", "user": "u1" },
+      "expect": { "person:d1": "-20000", "user:u1": "-20000" }
+    },
+    {
+      "name": "bon_delete_reverses_debt",
+      "type": "bon",
+      "old": { "nominal": "50000", "jenis": "out", "person": "d1", "user": "u1" },
+      "new": null,
+      "expect": { "person:d1": "-50000", "user:u1": "-50000" }
+    }
+  ]
+}
