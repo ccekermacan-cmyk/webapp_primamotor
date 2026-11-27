@@ -77,7 +77,7 @@ class MasterRepositoryTest {
 
     @Test
     fun employee_create_uses_default_password_and_user_collection() = runBlocking {
-        val result = employees.save(EmployeeDraft(name = "Rina", username = "rina", level = 5))
+        val result = employees.save(EmployeeDraft(name = "Rina", username = "rina", email = "rina@primamotor.com", level = 5))
 
         assertTrue(result is EmployeeSave.Saved)
         val row = db.localRecordDao().find("user", "usr000000000001")

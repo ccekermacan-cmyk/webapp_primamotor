@@ -167,3 +167,100 @@ Sumber: `Frontend/src/pages/cashflow.tsx` + `Frontend/src/components/cashflow/*`
 - [x] Catat deviasi: klik kartu customer/supplier belum membuka POS terfilter `?person=...&status=belum` dan klik item jatuh tempo belum membuka POS terfilter `?ref=...` karena POS native belum punya pintu masuk berparameter; keduanya masih tanpa aksi
 - [x] Catat deviasi: tombol hapus bon di riwayat hanya muncul untuk level 1 dan baris non-`ref_gaji`; baris gaji tetap ditolak server
 - [x] Catat deviasi: `Batas` di jatuh tempo memakai label tanggal (`d MMMM yyyy`), bukan datetime dari tanggal-saja seperti web
+
+## Fase 8 — Person 1:1 web
+
+Sumber kebenaran: `Frontend/src/pages/person.tsx`, `components/person/PersonFormModal.tsx`,
+`components/person/UserFormModal.tsx`, `components/person/PersonDetailModal.tsx`,
+`components/salary/SalaryDetail.tsx`.
+
+### Task 1 — `domain/PersonFeed.kt`
+
+- [x] `filterPeople(rows, tab, query)` persis web: tab `all|customer|supplier`, pencarian hanya `text_1`/`text_2`; `filterStaff(rows, level, status, query)` pada `name`/`username`
+- [x] `pageOf(rows, page, perPage)` + `pagesOf(size, perPage)`; `perPageFor(heightDp)` = `max(5, min(12, (h - 360) / 62))`
+- [x] `historySummary(menus)` = total `total` dan total `total - dibayar` (hanya `status = belum`, sisa > 0)
+- [x] `bonRows(cashflows, username)` filter `(id_lama = "addbon" || note ~ "bon") && (person = username || persontext = username)`
+- [x] `initials(name)` 2 huruf; `levelBadge(level)` `Admin`/`Mekanik`/`Karyawan`; `addressOf(person)` urutan `text_3, RT/RW, Ds. text_4, Kec. text_5, text_6, text_7`
+- [x] Tes `PersonFeedTest`
+
+### Task 2 — model + repo
+
+- [x] `PersonRow` lengkap: `text3..text9`, `number2/3/4`, `phone`, `linkImage`, `alamat`
+- [x] `UserRow` lengkap: `number1` (bon), `emailVisibility`, `verified`
+- [x] `MasterRepository`: pesan validasi person `Nama dan Jenis Transaksi wajib diisi!`; `id_lama` auto `PSN-####` untuk `kategori = Person`; media `file` lewat `mediaDao` (unggah saat online)
+- [x] `EmployeeRepository`: `number`, `emailVisibility`, `verified`; `username` hanya saat create; email wajib; media `avatar` lewat `mediaDao`
+- [x] Hapus Person dan User lewat `permissions/delete` (level 1) sebelum masuk outbox, seperti web `DeleteAccess`
+
+### Task 3 — `PersonViewModel`
+
+- [x] Tab `Semua (Person)`, `Customers`, `Suppliers`, `Karyawan` (Karyawan hanya level 1); pencarian debounce 500 ms, reset halaman
+- [x] Paginasi client memakai `perPageFor`; `Halaman x Dari y`
+- [x] Form person: `jenis` Customer/Supplier, `text_1`*, `text_2`, `number_4` NIK, `phone`, `text_3` dusun/jalan, `number_2` RT, `number_3` RW, `text_4` desa, `text_5` kecamatan, `text_6` kota, `text_7` provinsi, `text_9` (level 1/2 bebas, lainnya `Pelanggan`/`Supplier`), foto
+- [x] Form user: `name`*, `username`* (create), `email`*, `password` (create, default `password123`), level 1–7/10, status, avatar, `link_image`, `phone`, `number`, `emailVisibility`, `verified`
+- [x] Detail person: `Overview` (alamat lengkap, kontak, NIK, tipe, ID rekam) dan `History` (Total Belanja, Total Piutang/Hutang berjalan, 5 riwayat/halaman, LUNAS/BELUM, sisa, subtotal halaman, paginasi)
+- [x] Detail user (level 1): `Overview`, `Gaji` (`salaryDetails` 5/halaman + slip), `Bon` (saldo `user.number`, 5/halaman)
+- [x] Hapus dengan dialog konfirmasi web; pesan hasil seperti web
+
+### Task 4 — layar + dialog
+
+- [x] Header `People` / `Kelola data mitra utama entitas usaha dagang desa`; tombol add desktop + FAB; label `Add Karyawan`/`Add Customer`/`Add Supplier`/`Add Cust / Supp`
+- [x] Tab + pencarian `Cari Karyawan...`/`Cari Customer/Supplier...`; filter level/status user
+- [x] Tabel/daftar: avatar inisial, nama, `text_2` fallback `No description`, badge jenis warna cyan/amber, `#id_lama`, aksi edit/hapus; kolom jenis & referensi disembunyikan di layar sempit seperti breakpoint `sm` web
+- [x] Baris user: `email • @username`, badge level & status, aksi edit/hapus/detail
+- [x] Slip gaji dipakai bersama dengan halaman Akun (`ui/salary/SlipDialog.kt`)
+
+### Task 5 — verifikasi
+
+- [x] Unit + instrumented hijau; build release; ukur APK dan cold start; install ulang
+- [x] Catat deviasi yang tersisa di plan ini
+
+
+### Catatan implementasi Fase 8
+
+- Paginasi memakai tinggi layar dp sebagai pengganti `vh` web: `PersonFeed.perPageFor(heightDp)`.
+- Riwayat person, gaji, dan bon dibaca dari cache lokal (menu 180 hari, gaji/user penuh, cashflow 90 hari); web memuat per halaman dari server. Bila data di luar jendela tarik, tab kosong sampai sinkron berikutnya.
+- Hapus person/user memanggil `/api/permissions/delete` lebih dulu (level 1) lalu masuk outbox; offline atau ditolak berarti tidak ada penghapusan.
+- Tombol hapus ditampilkan pada semua baris; web menyembunyikannya lewat `DeleteAccess`. Pemeriksaan akhir tetap di server.
+- Foto person (`file`) dan avatar karyawan (`avatar`) memakai kamera, diunggah lewat antrean media setelah baris server ada.
+
+## Fase 9 — Report 1:1 web
+
+Sumber kebenaran: `Frontend/src/pages/report.tsx`.
+
+### Task 1 — `domain/ReportFeed.kt`
+
+- [ ] `summary(rows)` -> omset toko/servis/minuman, laba kotor, pengeluaran, pemasukan lain, omset total, laba bersih, insight persis web (termasuk `penyumbangTerbesar`)
+- [ ] `chartPoints(rows)` urut naik; `ReportSummaryRow`
+- [ ] `filterRows(rows, query, from, to)` web: `text`/`id`, tanggal inklusif
+- [ ] `menuStats(menus)`, `logStats(logs, menus)` (in/out, penjualan, laba dengan pengecualian pembelian/rusak/opname), `cashStats(cashflows)`, `ongkosStats(ongkos)`
+- [ ] Pencarian tiap tab persis daftar field web; sort default `created_at desc`
+- [ ] `formatDate` (`d MMM yyyy` id) dan format nominal negatif piutang/hutang
+- [ ] Tes `ReportFeedTest`
+
+### Task 2 — repo + puller
+
+- [ ] `Puller`: `report` 365 hari agar daftar laporan tidak terpotong 30 hari
+- [ ] `ReportRepository.details(dateKey)`: baca cache per hari; saat online tarik `menu`, `log_stock`, `cashflow`, `ongkos` satu hari (filter `created_at`/`date` rentang WIB) lalu simpan
+- [ ] `ReportRepository.fixHargaBeli(dateKey)`: `log_stock` mutasi `out` -> `price_2 = produk.beli x qty` lewat outbox; kembalikan jumlah baris berubah
+- [ ] `ReportPrinter` mencetak ringkasan + tabel riwayat laporan (kolom sama web)
+
+### Task 3 — `ReportViewModel`
+
+- [ ] State: `query`, `from`, `to`, `page`, `perPage = 31`, `selectedMetrics`, `generateDate`, `selectedReport`, `detailTab`, `detailSearch`, `menuFilterJenis`, `menuFilterStatus`, filter log/kas, sort per tab
+- [ ] Aksi: reset filter, generate (online-only, default hari ini), hapus (level 1–5), buka/tutup detail, refresh detail, pindah tab menu -> log dengan `ref`
+- [ ] Ringkasan, grafik, insight, statistik detail dari `ReportFeed`
+
+### Task 4 — layar + dialog
+
+- [ ] Header `Analitik Laporan` / `Overview Mutasi & Performa Bisnis Prima Motor`; tombol `GENERATE OTOMATIS` + `UNDUH REPORT`
+- [ ] Pencarian `Cari keterangan mutasi...`, rentang tanggal, `RESET`
+- [ ] 6 kartu metrik (`Total Omset Kotor`, `Laba Penjualan`, `Total Pengeluaran`, `Estimasi Laba Bersih`, `Piutang Penjualan`, `Hutang Pembelian`) + kartu `Insight Sistem`
+- [ ] Grafik tren dengan toggle `Omset`, `Pengeluaran`, `Laba`, `Piutang`, `Hutang`
+- [ ] Tabel laporan (`Tanggal`, `Keterangan`, `Omset`, `Laba`, `Keluar`, `Piutang`, `Hutang`, `Kasir Final`), paginasi `Hal. x / y`, empty state web
+- [ ] Dialog generate + dialog detail 5 tab (`Overview`, `Menu`, `Log`, `Kas`, `Ongkos`) dengan filter/pencarian/sort/ringkasan; footer `HAPUS LAPORAN` (level 1–5) + `TUTUP`
+- [ ] Tombol `Sesuaikan Harga Beli Hari Ini` hanya level 1
+
+### Task 5 — verifikasi
+
+- [ ] Unit + instrumented hijau; build release; ukur APK dan cold start; install ulang
+- [ ] Catat deviasi yang tersisa di plan ini

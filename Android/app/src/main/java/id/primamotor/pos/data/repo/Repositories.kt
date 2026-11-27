@@ -153,6 +153,8 @@ data class CashflowRow(
     val acc1: String = "",
     val acc2: String = "",
     val files: List<String> = emptyList(),
+    /** `id_lama` baris kas lama; `addbon` menandai pencatatan bon. */
+    val idLama: String = "",
 )
 
 data class BonRow(
@@ -243,6 +245,18 @@ data class PersonRow(
     val number1: BigDecimal = BigDecimal.ZERO,
     val number2: BigDecimal = BigDecimal.ZERO,
     val visibilitas: String = "",
+    /** `text_3` dusun/jalan, `text_4` desa, `text_5` kecamatan. */
+    val text3: String = "",
+    val text4: String = "",
+    val text5: String = "",
+    /** `text_6` kota/kabupaten, `text_7` provinsi, `text_9` tipe/kelompok. */
+    val text6: String = "",
+    val text7: String = "",
+    val text9: String = "",
+    /** `number_3` RW, `number_4` NIK. `number_2` = RT. */
+    val number3: BigDecimal = BigDecimal.ZERO,
+    val number4: BigDecimal = BigDecimal.ZERO,
+    val linkImage: String = "",
 )
 
 data class UserRow(
@@ -256,6 +270,8 @@ data class UserRow(
     val linkImage: String = "",
     /** Saldo bon karyawan (`number` di koleksi `user`). */
     val number1: BigDecimal = BigDecimal.ZERO,
+    val emailVisibility: Boolean = true,
+    val verified: Boolean = true,
 )
 
 fun LocalRecordEntity.object_(): JsonObject? =
@@ -303,6 +319,7 @@ class Repositories(private val db: AppDatabase) {
                 acc1 = row.text("acc1"),
                 acc2 = row.text("acc2"),
                 files = row.strings("file"),
+                idLama = row.text("id_lama"),
             )
         }
     }
@@ -332,30 +349,39 @@ class Repositories(private val db: AppDatabase) {
      */
     fun observeGajiSendiri(personId: String): Flow<List<GajiRow>> =
         db.localRecordDao().observeGroup("gaji", personId).map { rows ->
-            rows.mapNotNull { entity ->
-                val row = entity.obj()
-                if (row.text("person") != personId) return@mapNotNull null
-                GajiRow(
-                    id = entity.id,
-                    person = personId,
-                    ref = row.text("ref"),
-                    pokok = row.number("pokok"),
-                    tunjangan = row.number("tunjangan"),
-                    lembur = row.number("lembur"),
-                    qty = row.number("qty").takeIf { it.signum() > 0 } ?: BigDecimal.ONE,
-                    alfa = row.number("alfa"),
-                    setengahHari = row.number("setengah_hari"),
-                    sakit = row.number("sakit"),
-                    telat = row.number("telat"),
-                    bpjs = row.number("bpjs"),
-                    bonDiambil = row.number("bon_diambil"),
-                    bonDibayar = row.number("bon_dibayar"),
-                    bonus = row.number("bonus_1") + row.number("bonus_2") + row.number("bonus_3") + row.number("bonus_4") + row.number("program"),
-                    total = row.text("total").takeIf { it.isNotBlank() }?.toBigDecimalOrNull(),
-                    createdAt = row.text("created_at"),
-                )
-            }
+            rows.mapNotNull { entity -> gajiRow(entity.id, entity.obj(), personId) }
         }
+
+    /**
+     * Riwayat gaji satu karyawan untuk tab Gaji di detail People. Tab itu hanya
+     * tampil untuk level 1, sama seperti jangkauan halaman web; aturan server tetap otoritatif.
+     */
+    fun observeGajiPerson(username: String): Flow<List<GajiRow>> = observeRows("gaji").map { rows ->
+        rows.mapNotNull { row -> gajiRow(row.text("id"), row, username) }
+    }
+
+    private fun gajiRow(id: String, row: JsonObject, person: String): GajiRow? {
+        if (row.text("person") != person) return null
+        return GajiRow(
+            id = id,
+            person = person,
+            ref = row.text("ref"),
+            pokok = row.number("pokok"),
+            tunjangan = row.number("tunjangan"),
+            lembur = row.number("lembur"),
+            qty = row.number("qty").takeIf { it.signum() > 0 } ?: BigDecimal.ONE,
+            alfa = row.number("alfa"),
+            setengahHari = row.number("setengah_hari"),
+            sakit = row.number("sakit"),
+            telat = row.number("telat"),
+            bpjs = row.number("bpjs"),
+            bonDiambil = row.number("bon_diambil"),
+            bonDibayar = row.number("bon_dibayar"),
+            bonus = row.number("bonus_1") + row.number("bonus_2") + row.number("bonus_3") + row.number("bonus_4") + row.number("program"),
+            total = row.text("total").takeIf { it.isNotBlank() }?.toBigDecimalOrNull(),
+            createdAt = row.text("created_at"),
+        )
+    }
 
     fun observeMasterRows(): Flow<List<LocalRecordEntity>> = db.localRecordDao().observe("dropdown")
 
@@ -376,6 +402,15 @@ class Repositories(private val db: AppDatabase) {
                 number1 = row.number("number_1"),
                 number2 = row.number("number_2"),
                 visibilitas = row.text("visibilitas"),
+                text3 = row.text("text_3"),
+                text4 = row.text("text_4"),
+                text5 = row.text("text_5"),
+                text6 = row.text("text_6"),
+                text7 = row.text("text_7"),
+                text9 = row.text("text_9"),
+                number3 = row.number("number_3"),
+                number4 = row.number("number_4"),
+                linkImage = row.text("link_image"),
             )
         }
     }
@@ -472,6 +507,8 @@ class Repositories(private val db: AppDatabase) {
                 phone = row.text("phone"),
                 linkImage = row.text("link_image"),
                 number1 = row.number("number"),
+                emailVisibility = row.text("emailVisibility").ifBlank { "true" } != "false",
+                verified = row.text("verified").equals("true", ignoreCase = true),
             )
         }
     }

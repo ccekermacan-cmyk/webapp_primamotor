@@ -6,6 +6,7 @@ import id.primamotor.pos.data.local.LocalRecordEntity
 import id.primamotor.pos.data.local.OutboxEntity
 import id.primamotor.pos.data.local.OutboxOperationEntity
 import id.primamotor.pos.data.local.OutboxStatus
+import id.primamotor.pos.data.local.PendingMediaEntity
 import id.primamotor.pos.domain.RecordId
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -23,6 +24,12 @@ data class EmployeeDraft(
     val status: String = "active",
     val linkImage: String = "",
     val password: String = "password123",
+    /** Saldo bon karyawan (`number` di koleksi `user`). */
+    val number: String = "0",
+    val emailVisibility: Boolean = true,
+    val verified: Boolean = true,
+    /** Avatar lokal; diunggah setelah baris server ada. */
+    val mediaPath: String? = null,
 )
 
 sealed interface EmployeeSave {
@@ -40,6 +47,7 @@ class EmployeeRepository(
         if (draft.id == null && draft.username.isBlank()) {
             return@withTransaction EmployeeSave.Rejected("Username wajib diisi.")
         }
+        if (draft.email.isBlank()) return@withTransaction EmployeeSave.Rejected("Email wajib diisi.")
         if (draft.level !in setOf(1, 2, 3, 4, 5, 6, 7, 10)) {
             return@withTransaction EmployeeSave.Rejected("Level tidak dikenal.")
         }
@@ -55,14 +63,16 @@ class EmployeeRepository(
             previous?.forEach { (key, value) -> put(key, value) }
             put("id", id)
             put("name", draft.name.trim())
-            put("username", draft.username.trim())
             put("email", draft.email.trim())
             put("phone", draft.phone.trim())
             put("level", draft.level)
             put("status", draft.status.trim().ifBlank { "active" })
             put("link_image", draft.linkImage.trim())
-            put("emailVisibility", true)
+            put("emailVisibility", draft.emailVisibility)
+            put("verified", draft.verified)
+            put("number", draft.number.toBigDecimalOrNull() ?: 0)
             if (existing == null) {
+                put("username", draft.username.trim())
                 put("password", draft.password)
                 put("passwordConfirm", draft.password)
             }
@@ -88,6 +98,16 @@ class EmployeeRepository(
             recordId = id,
             json = json.toString(),
         )
+        draft.mediaPath?.let { path ->
+            db.mediaDao().add(
+                PendingMediaEntity(
+                    collection = "user",
+                    recordId = id,
+                    field = "avatar",
+                    filePath = path,
+                ),
+            )
+        }
         EmployeeSave.Saved(id, existing == null)
     }
 

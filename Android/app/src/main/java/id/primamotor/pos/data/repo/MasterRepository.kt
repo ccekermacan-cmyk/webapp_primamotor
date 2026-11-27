@@ -6,6 +6,7 @@ import id.primamotor.pos.data.local.LocalRecordEntity
 import id.primamotor.pos.data.local.OutboxEntity
 import id.primamotor.pos.data.local.OutboxOperationEntity
 import id.primamotor.pos.data.local.OutboxStatus
+import id.primamotor.pos.data.local.PendingMediaEntity
 import id.primamotor.pos.domain.RecordId
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -49,6 +50,8 @@ data class MasterDraft(
     val visibilitas: String = "1,2,3,4,5,6,7",
     val idLama: String = "",
     val operator: String = "",
+    /** Foto/berkas lokal; diunggah setelah baris server ada. */
+    val mediaPath: String? = null,
 )
 
 sealed interface MasterSave {
@@ -64,9 +67,15 @@ class MasterRepository(
 ) {
 
     suspend fun save(draft: MasterDraft): MasterSave = db.withTransaction {
+        val isPerson = draft.kategori.equals("Person", ignoreCase = true)
+        val required = if (isPerson) "Nama dan Jenis Transaksi wajib diisi!" else null
         if (draft.kategori.isBlank()) return@withTransaction MasterSave.Rejected("Kategori wajib diisi.")
-        if (draft.jenis.isBlank()) return@withTransaction MasterSave.Rejected("Jenis wajib diisi.")
-        if (draft.text1.isBlank()) return@withTransaction MasterSave.Rejected("Label utama wajib diisi.")
+        if (draft.jenis.isBlank()) {
+            return@withTransaction MasterSave.Rejected(required ?: "Jenis wajib diisi.")
+        }
+        if (draft.text1.isBlank()) {
+            return@withTransaction MasterSave.Rejected(required ?: "Label utama wajib diisi.")
+        }
 
         val existing = draft.id?.let { db.localRecordDao().find("dropdown", it) }
         if (draft.id != null && existing == null) {
@@ -108,7 +117,7 @@ class MasterRepository(
             put("doc", draft.linkDokumen.trim())
             put("visibilitas", draft.visibilitas.trim())
             // Web mengirim id_lama kosong (bertabrakan dengan unique index). Native membuat unik.
-            put("id_lama", draft.idLama.trim().ifBlank { uniqueCode() })
+            put("id_lama", draft.idLama.trim().ifBlank { if (isPerson) personCode() else uniqueCode() })
             put("operator", draft.operator.trim())
         }
 
@@ -134,6 +143,16 @@ class MasterRepository(
             recordId = id,
             json = json.toString(),
         )
+        draft.mediaPath?.let { path ->
+            db.mediaDao().add(
+                PendingMediaEntity(
+                    collection = "dropdown",
+                    recordId = id,
+                    field = "file",
+                    filePath = path,
+                ),
+            )
+        }
         MasterSave.Saved(id, existing == null)
     }
 
@@ -143,6 +162,10 @@ class MasterRepository(
         enqueue("dropdown", "delete", id, existing.json)
         true
     }
+
+    /** `PSN-####`, cermin `id_lama` otomatis form person web. */
+    private fun personCode(): String =
+        "PSN-" + (System.currentTimeMillis() % 10_000).toString().padStart(4, '0')
 
     private fun uniqueCode(): String = "m" + RecordId.create(14)
 
