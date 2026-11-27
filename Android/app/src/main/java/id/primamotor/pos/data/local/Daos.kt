@@ -45,6 +45,9 @@ interface LocalRecordDao {
     @Query("UPDATE local_record SET dirty = 0, json = :json, updatedAt = :updatedAt WHERE collection = :collection AND id = :id")
     suspend fun markClean(collection: String, id: String, json: String, updatedAt: Long)
 
+    @Query("UPDATE local_record SET dirty = 0 WHERE collection = :collection AND id = :id")
+    suspend fun clearDirty(collection: String, id: String)
+
     @Query("SELECT COUNT(*) FROM local_record WHERE collection = :collection AND dirty = 1")
     suspend fun dirtyCount(collection: String): Int
 }
@@ -84,6 +87,9 @@ interface OutboxDao {
 
     @Query("UPDATE outbox SET status = :status, lastError = :lastError WHERE requestId = :requestId")
     suspend fun setStatus(requestId: String, status: String, lastError: String?)
+
+    @Query("UPDATE outbox SET status = 'pending', lastError = 'Interrupted while sending' WHERE status = 'sending'")
+    suspend fun requeueInterrupted()
 
     @Query("SELECT * FROM outbox WHERE status = 'needs_review' ORDER BY createdAt ASC")
     fun observeNeedsReview(): Flow<List<OutboxEntity>>
