@@ -20,6 +20,12 @@ interface LocalRecordDao {
     @Query("SELECT * FROM local_record WHERE collection = :collection ORDER BY dateKey DESC, id DESC")
     fun observe(collection: String): Flow<List<LocalRecordEntity>>
 
+    @Query("SELECT * FROM local_record WHERE collection = :collection AND dateKey = :dateKey ORDER BY id DESC")
+    fun observeDay(collection: String, dateKey: String): Flow<List<LocalRecordEntity>>
+
+    @Query("SELECT * FROM local_record WHERE collection = :collection AND groupKey = :groupKey ORDER BY dateKey DESC, id DESC")
+    fun observeGroup(collection: String, groupKey: String): Flow<List<LocalRecordEntity>>
+
     @Query("SELECT * FROM local_record WHERE collection = :collection AND dateKey BETWEEN :from AND :to ORDER BY dateKey DESC, id DESC")
     suspend fun inRange(collection: String, from: String, to: String): List<LocalRecordEntity>
 

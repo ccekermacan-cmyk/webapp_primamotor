@@ -1,10 +1,13 @@
 package id.primamotor.pos.ui.nav
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -29,7 +32,7 @@ enum class TopRoute(val route: String, val label: String) {
 }
 
 @Composable
-fun AppNav() {
+fun AppNav(onLogout: () -> Unit = {}) {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val selected = backStackEntry?.destination
@@ -61,9 +64,27 @@ fun AppNav() {
             modifier = Modifier.padding(padding),
         ) {
             TopRoute.entries.forEach { item ->
-                composable(item.route) { PlaceholderScreen(item.label) }
+                composable(item.route) {
+                    if (item == TopRoute.ACCOUNT) {
+                        AccountPlaceholder(onLogout)
+                    } else {
+                        PlaceholderScreen(item.label)
+                    }
+                }
             }
         }
+    }
+}
+
+@Composable
+private fun AccountPlaceholder(onLogout: () -> Unit) {
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(text = "Akun")
+        OutlinedButton(onClick = onLogout, modifier = Modifier.testTag("logout")) { Text("Keluar") }
     }
 }
 
