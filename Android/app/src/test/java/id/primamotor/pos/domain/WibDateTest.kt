@@ -18,6 +18,11 @@ class WibDateTest {
     }
 
     @Test
+    fun wib_day_parses_pocketbase_datetime_with_z() {
+        assertEquals(LocalDate.of(2026, 11, 27), WibDate.dayOf("2026-11-27 10:00:00.000Z"))
+    }
+
+    @Test
     fun day_of_blank_is_null() {
         assertEquals(null, WibDate.dayOf(""))
         assertEquals(null, WibDate.dayOf(null))

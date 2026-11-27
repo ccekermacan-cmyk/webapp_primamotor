@@ -1,9 +1,27 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
 }
+
+/** Satu sumber alamat layanan: file `datasource` di root repo (lihat DATASOURCE.md). */
+fun datasourceValue(key: String): String? {
+    val file = rootProject.projectDir.parentFile?.resolve("datasource") ?: return null
+    if (!file.exists()) return null
+    return file.readLines()
+        .map { it.trim() }
+        .firstOrNull { it.startsWith("$key=") }
+        ?.substringAfter("=")
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() }
+}
+
+val posBaseUrl: String = (findProperty("posBaseUrl") as String?)
+    ?: datasourceValue("PB_PUBLIC_URL")
+    ?: "http://localhost:8090"
 
 android {
     namespace = "id.primamotor.pos"
@@ -16,6 +34,7 @@ android {
         versionCode = 1
         versionName = "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("String", "POS_BASE_URL", "\"$posBaseUrl\"")
     }
 
     buildTypes {
@@ -50,6 +69,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     testOptions {
@@ -83,6 +103,7 @@ dependencies {
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     implementation(libs.okhttp)
+    implementation(libs.androidx.work.runtime)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.androidx.security.crypto)
     ksp(libs.androidx.room.compiler)

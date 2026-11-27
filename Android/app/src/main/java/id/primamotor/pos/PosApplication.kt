@@ -1,13 +1,16 @@
 package id.primamotor.pos
 
 import android.app.Application
+import id.primamotor.pos.data.sync.SyncWorker
 
-/**
- * Tempat graph dependency manual. Tanpa Hilt: hanya satu graph untuk aplikasi ini.
- * Repository, database, dan klien jaringan dipasang di sini pada task berikutnya.
- */
 class PosApplication : Application() {
+
+    lateinit var container: AppContainer
+        private set
+
     override fun onCreate() {
         super.onCreate()
+        container = AppContainer(this)
+        SyncWorker.schedule(this)
     }
 }

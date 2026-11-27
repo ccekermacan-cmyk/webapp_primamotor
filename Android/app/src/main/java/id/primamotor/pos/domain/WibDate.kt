@@ -29,7 +29,9 @@ object WibDate {
     fun parseInstant(raw: String?): Instant? {
         if (raw.isNullOrBlank()) return null
         val trimmed = raw.trim()
+        val withT = trimmed.replace(' ', 'T')
         return runCatching { Instant.parse(trimmed) }.getOrNull()
-            ?: runCatching { LocalDateTime.parse(trimmed.replace(' ', 'T')).toInstant(ZoneOffset.UTC) }.getOrNull()
+            ?: runCatching { java.time.OffsetDateTime.parse(withT).toInstant() }.getOrNull()
+            ?: runCatching { LocalDateTime.parse(withT).toInstant(ZoneOffset.UTC) }.getOrNull()
     }
 }
