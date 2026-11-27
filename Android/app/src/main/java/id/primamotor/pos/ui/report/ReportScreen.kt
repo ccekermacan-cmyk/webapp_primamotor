@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -17,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Button
 import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.OutlinedButton
@@ -33,6 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -89,6 +92,11 @@ fun ReportScreen(viewModel: ReportViewModel, container: AppContainer) {
     var ascending by remember { mutableStateOf(false) }
     var appliedFrom by remember { mutableStateOf("") }
     var appliedTo by remember { mutableStateOf("") }
+    val context = LocalContext.current
+    val allMenuPrint by viewModel.menu.collectAsStateWithLifecycle()
+    val allCashPrint by viewModel.cashflow.collectAsStateWithLifecycle()
+    val allLogsPrint by viewModel.logs.collectAsStateWithLifecycle()
+    val allOngkosPrint by viewModel.ongkos.collectAsStateWithLifecycle()
 
     fun inRange(date: String): Boolean {
         val day = date.take(10)
@@ -145,6 +153,22 @@ fun ReportScreen(viewModel: ReportViewModel, container: AppContainer) {
                 )
             }
         }
+        Button(
+            onClick = {
+                ReportPrinter.print(
+                    context = context,
+                    title = "Report Prima Motor",
+                    from = appliedFrom,
+                    to = appliedTo,
+                    menu = allMenuPrint.filter { inRange(it.createdAt) },
+                    cashflow = allCashPrint.filter { inRange(it.createdAt) },
+                    logs = allLogsPrint.filter { inRange(it.dateKey) },
+                    ongkos = allOngkosPrint.filter { inRange(it.dateKey) },
+                )
+            },
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp).heightIn(min = 48.dp).testTag("report_print"),
+        ) { Text("Cetak / Unduh Report") }
+
         when (tab) {
             0 -> OverviewTab(
                 viewModel,
@@ -252,28 +276,51 @@ private fun RawTab(
     field3: String,
     ascending: Boolean = false,
 ) {
-    val sorted = if (ascending) rows.reversed() else rows
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        if (sorted.isEmpty()) item { EmptyHint() }
-        items(sorted, key = { it.id }) { entity ->
-            val row = entity.object_() ?: return@items
-            Surface(
-                shape = RoundedCornerShape(14.dp),
-                color = MaterialTheme.colorScheme.surface,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.surfaceVariant),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text(
-                            row.text(field1).ifBlank { entity.id },
-                            style = MaterialTheme.typography.titleSmall,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Text(row.number(field2).stripTrailingZeros().toPlainString(), fontWeight = FontWeight.Bold)
+    var sortKey by remember { mutableStateOf("tanggal") }
+    var sortAsc by remember { mutableStateOf(ascending) }
+    val sorted = remember(rows, sortKey, sortAsc) {
+        val comparator: Comparator<LocalRecordEntity> = when (sortKey) {
+            field1 -> compareBy { it.object_()?.text(field1).orEmpty() }
+            field2 -> compareBy { it.object_()?.number(field2) ?: BigDecimal.ZERO }
+            else -> compareBy { it.dateKey }
+        }
+        rows.sortedWith(if (sortAsc) comparator else comparator.reversed())
+    }
+    Column(Modifier.fillMaxSize()) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            listOf("tanggal" to "Tanggal", field1 to field1, field2 to field2).forEach { (value, label) ->
+                FilterChip(
+                    selected = sortKey == value,
+                    onClick = { if (sortKey == value) sortAsc = !sortAsc else { sortKey = value; sortAsc = true } },
+                    label = { Text(label) },
+                )
+            }
+        }
+        LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (sorted.isEmpty()) item { EmptyHint(message = "Tidak ada data ${field1}.") }
+            items(sorted, key = { it.id }) { entity ->
+                val row = entity.object_() ?: return@items
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.surfaceVariant),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(
+                                row.text(field1).ifBlank { entity.id },
+                                style = MaterialTheme.typography.titleSmall,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Text(row.number(field2).stripTrailingZeros().toPlainString(), fontWeight = FontWeight.Bold)
+                        }
+                        Text(row.text(field3), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(entity.dateKey, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    Text(row.text(field3), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(entity.dateKey, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
@@ -282,33 +329,57 @@ private fun RawTab(
 
 @Composable
 private fun CashTab(rows: List<CashflowRow>, ascending: Boolean = false) {
-    val sorted = if (ascending) rows.reversed() else rows
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        if (sorted.isEmpty()) item { EmptyHint() }
-        items(sorted, key = { it.id }) { row ->
-            Surface(
-                shape = RoundedCornerShape(14.dp),
-                color = MaterialTheme.colorScheme.surface,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.surfaceVariant),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text(row.jenis.ifBlank { row.note }, style = MaterialTheme.typography.titleSmall)
-                        Text(
-                            (if (row.mutasi.lowercase() in setOf("out", "keluar")) "-" else "+") +
-                                Money.formatRupiah(row.nominal.abs()),
-                            fontWeight = FontWeight.Bold,
-                            color = if (row.mutasi.lowercase() in setOf("out", "keluar")) {
-                                MaterialTheme.colorScheme.error
-                            } else {
-                                MaterialTheme.colorScheme.primary
-                            },
-                        )
+    var sortKey by remember { mutableStateOf("tanggal") }
+    var sortAsc by remember { mutableStateOf(ascending) }
+    val sorted = remember(rows, sortKey, sortAsc) {
+        val comparator: Comparator<CashflowRow> = when (sortKey) {
+            "jenis" -> compareBy { it.jenis.lowercase() }
+            "nominal" -> compareBy { it.nominal }
+            "mutasi" -> compareBy { it.mutasi.lowercase() }
+            else -> compareBy { it.createdAt }
+        }
+        rows.sortedWith(if (sortAsc) comparator else comparator.reversed())
+    }
+    Column(Modifier.fillMaxSize()) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            listOf("tanggal" to "Tanggal", "jenis" to "Jenis", "nominal" to "Nominal", "mutasi" to "Mutasi").forEach { (value, label) ->
+                FilterChip(
+                    selected = sortKey == value,
+                    onClick = { if (sortKey == value) sortAsc = !sortAsc else { sortKey = value; sortAsc = true } },
+                    label = { Text(label) },
+                )
+            }
+        }
+        LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (sorted.isEmpty()) item { EmptyHint(message = "Tidak ada data cashflow.") }
+            items(sorted, key = { it.id }) { row ->
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.surfaceVariant),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(row.jenis.ifBlank { row.note }, style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                (if (row.mutasi.lowercase() in setOf("out", "keluar")) "-" else "+") +
+                                    Money.formatRupiah(row.nominal.abs()),
+                                fontWeight = FontWeight.Bold,
+                                color = if (row.mutasi.lowercase() in setOf("out", "keluar")) {
+                                    MaterialTheme.colorScheme.error
+                                } else {
+                                    MaterialTheme.colorScheme.primary
+                                },
+                            )
+                        }
+                        Text(row.note, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        HorizontalDivider()
+                        Text(row.createdAt, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    Text(row.note, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    HorizontalDivider()
-                    Text(row.createdAt, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }

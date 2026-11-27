@@ -19,6 +19,7 @@ import kotlinx.coroutines.launch
 
 data class ProductsUiState(
     val query: String = "",
+    val filterStok: String = "all",
     val draft: ProductDraft? = null,
     val detail: Produk? = null,
     val scanning: Boolean = false,
@@ -36,6 +37,7 @@ class ProductViewModel(
     private val writer: ProductRepository,
     private val sessions: SessionManager,
     private val identity: String,
+    private val operator: String = identity,
 ) : ViewModel() {
 
     private val local = MutableStateFlow(ProductsUiState())
@@ -47,20 +49,37 @@ class ProductViewModel(
     val products: StateFlow<List<Produk>> = combine(repos.observeProduk(), local) { rows, value ->
         cache = rows
         val query = value.query.trim().lowercase()
-        if (query.isEmpty()) {
-            rows
-        } else {
-            rows.filter { product ->
+        rows.filter { product ->
+            val matchesQuery = query.isEmpty() ||
                 product.nama.lowercase().contains(query) ||
-                    product.barcode.contains(query) ||
-                    product.idLama.lowercase().contains(query) ||
-                    product.merk.lowercase().contains(query) ||
-                    product.kategori.lowercase().contains(query)
+                product.barcode.contains(query) ||
+                product.idLama.lowercase().contains(query) ||
+                product.merk.lowercase().contains(query) ||
+                product.kategori.lowercase().contains(query)
+            val matchesStock = when (value.filterStok) {
+                "menipis" -> product.stok.signum() > 0 && product.stok <= product.min3
+                "habis" -> product.stok.signum() <= 0
+                else -> true
             }
+            matchesQuery && matchesStock
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     fun setQuery(value: String) = local.update { it.copy(query = value) }
+
+    fun setFilterStok(value: String) = local.update { it.copy(filterStok = value) }
+
+    /** Tombol +/- stok di daftar, cermin `handleQuickStockChange` web. */
+    fun adjustStock(product: Produk, delta: Int) {
+        if (local.value.saving) return
+        local.update { it.copy(saving = true) }
+        viewModelScope.launch {
+            when (val result = writer.adjustStock(product.id, delta, operator)) {
+                is ProductSave.Saved -> local.update { it.copy(saving = false, message = "Stok ${product.nama} diperbarui.") }
+                is ProductSave.Rejected -> local.update { it.copy(saving = false, message = result.message) }
+            }
+        }
+    }
 
     fun show(product: Produk) = local.update { it.copy(detail = product) }
 

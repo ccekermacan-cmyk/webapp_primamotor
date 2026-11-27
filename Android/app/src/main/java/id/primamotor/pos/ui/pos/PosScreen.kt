@@ -349,7 +349,7 @@ private fun CatalogPane(
         CustomerPicker(state = state, customers = customers, onCustomer = viewModel::setCustomer)
 
         if (products.isEmpty()) {
-            EmptyHint()
+            EmptyHint(message = "Tidak ada produk ditemukan.")
         } else {
             LazyVerticalGrid(
                 columns = GridCells.Adaptive(minSize = 180.dp),
@@ -434,7 +434,7 @@ private fun HistoryPane(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            if (rows.isEmpty()) item { EmptyHint() }
+            if (rows.isEmpty()) item { EmptyHint(message = "Tidak ada nota.") }
             items(rows, key = { it.id }) { row ->
                 Surface(
                     shape = RoundedCornerShape(16.dp),

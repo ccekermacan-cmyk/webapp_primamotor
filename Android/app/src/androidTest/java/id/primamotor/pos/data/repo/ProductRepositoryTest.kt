@@ -61,6 +61,31 @@ class ProductRepositoryTest {
     }
 
     @Test
+    fun adjust_stock_writes_log_and_moves_local_stock() = runBlocking {
+        repo.save(ProductDraft(nama = "Oli", stok = BigDecimal("5")))
+        val id = db.localRecordDao().idsInRange("produk", "", "zzzz").single()
+
+        val result = repo.adjustStock(id, -1, "kasir")
+
+        assertTrue(result is ProductSave.Saved)
+        assertEquals(0, BigDecimal("4").compareTo(Repositories(db).produkById(id)!!.stok))
+        val log = db.localRecordDao().idsInRange("log_stock", "", "zzzz").single()
+        assertEquals("out", db.localRecordDao().find("log_stock", log)!!.object_()!!.text("boolean"))
+        assertEquals(2, db.outboxDao().count())
+    }
+
+    @Test
+    fun adjust_stock_below_zero_is_rejected() = runBlocking {
+        repo.save(ProductDraft(nama = "Oli", stok = BigDecimal.ZERO))
+        val id = db.localRecordDao().idsInRange("produk", "", "zzzz").single()
+
+        val result = repo.adjustStock(id, -1, "kasir")
+
+        assertTrue(result is ProductSave.Rejected)
+        assertEquals(0, BigDecimal.ZERO.compareTo(Repositories(db).produkById(id)!!.stok))
+    }
+
+    @Test
     fun blank_name_is_rejected_without_writing() = runBlocking {
         val result = repo.save(ProductDraft(nama = " "))
 

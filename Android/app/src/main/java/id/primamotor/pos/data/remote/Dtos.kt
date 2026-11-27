@@ -32,5 +32,7 @@ data class Resolution(val status: String, val results: List<BatchResult>?) {
 interface TokenStore {
     fun token(): String?
     fun save(session: UserSession)
+    /** Default no-op agar penyimpanan uji tidak perlu diubah. */
+    fun saveName(name: String) {}
     fun clear()
 }

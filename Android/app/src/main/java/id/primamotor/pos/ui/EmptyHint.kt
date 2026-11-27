@@ -14,11 +14,11 @@ import androidx.compose.ui.unit.dp
  * Arahkan ke satu tindakan, jangan hanya menampilkan layar kosong.
  */
 @Composable
-fun EmptyHint(modifier: Modifier = Modifier) {
+fun EmptyHint(modifier: Modifier = Modifier, message: String = "Belum ada data.") {
     Column(modifier.fillMaxWidth().padding(24.dp)) {
-        Text("Belum ada data.", style = MaterialTheme.typography.bodyLarge)
+        Text(message, style = MaterialTheme.typography.bodyLarge)
         Text(
-            "Sambungkan internet, lalu buka Akun → Pengaturan → Sinkron sekarang.",
+            "Sambungkan internet, lalu buka Settings → Sinkron sekarang.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

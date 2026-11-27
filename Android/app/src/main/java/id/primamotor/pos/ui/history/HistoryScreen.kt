@@ -79,7 +79,7 @@ fun HistoryScreen(viewModel: HistoryViewModel) {
         }
 
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            if (rows.isEmpty()) item { id.primamotor.pos.ui.EmptyHint() }
+            if (rows.isEmpty()) item { id.primamotor.pos.ui.EmptyHint(message = "Tidak ada data menu.") }
             items(rows, key = { it.id }) { row ->
                 val sisa = Settlement.remaining(row.total, row.dibayar)
                 Surface(

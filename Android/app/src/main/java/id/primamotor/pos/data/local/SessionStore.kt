@@ -46,6 +46,12 @@ class EncryptedTokenStore(context: Context) : TokenStore {
             .apply()
     }
 
+    /** Simpan nama baru tanpa menyentuh token, dipakai setelah update profil. */
+    override fun saveName(name: String) {
+        val current = cachedUser() ?: return
+        save(current.copy(name = name))
+    }
+
     override fun clear() {
         prefs.edit().clear().apply()
     }

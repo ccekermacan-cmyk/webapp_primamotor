@@ -163,7 +163,7 @@ fun PersonScreen(viewModel: PersonViewModel) {
                     )
                 }
                 LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    if (staff.isEmpty()) item { EmptyHint() }
+                    if (staff.isEmpty()) item { EmptyHint(message = "Tidak ada data karyawan.") }
                     items(staff, key = { it.id }) { row ->
                         PersonCard(
                             title = row.name.ifBlank { row.username },
@@ -175,7 +175,7 @@ fun PersonScreen(viewModel: PersonViewModel) {
                 }
             } else {
                 LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    if (people.isEmpty()) item { EmptyHint() }
+                    if (people.isEmpty()) item { EmptyHint(message = "Tidak ada data ${state.tab.label.lowercase()}.") }
                     items(people, key = { it.id }) { row ->
                         PersonCard(
                             title = row.nama,

@@ -8,11 +8,13 @@ import id.primamotor.pos.data.local.OutboxOperationEntity
 import id.primamotor.pos.data.local.OutboxStatus
 import id.primamotor.pos.data.local.PendingMediaEntity
 import id.primamotor.pos.domain.RecordId
+import id.primamotor.pos.domain.WibDate
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.math.BigDecimal
+import java.time.LocalDate
 
 /** Field sama dengan form produk web: `beli`, `sell_1..6`, `min_1..3`, `stok_3`. */
 data class ProductDraft(
@@ -123,6 +125,61 @@ class ProductRepository(
         ProductSave.Saved(id, existing == null)
     }
 
+    /**
+     * Penyesuaian stok cepat (+1/-1) seperti tombol web: tulis `log_stock`, server
+     * menghitung ulang stok. Stok lokal langsung bergerak supaya daftar tidak menunggu.
+     */
+    suspend fun adjustStock(productId: String, delta: Int, operator: String): ProductSave = db.withTransaction {
+        if (delta != 1 && delta != -1) return@withTransaction ProductSave.Rejected("Perubahan stok hanya +1 atau -1.")
+        val existing = db.localRecordDao().find("produk", productId)
+            ?: return@withTransaction ProductSave.Rejected("Produk tidak ditemukan di cache. Sinkronkan dulu.")
+        val previous = parse(existing.json) ?: return@withTransaction ProductSave.Rejected("Data produk rusak di cache.")
+        val current = previous.number("stok_3")
+        val next = current + BigDecimal.valueOf(delta.toLong())
+        if (next.signum() < 0) return@withTransaction ProductSave.Rejected("Stok tidak cukup.")
+
+        val updated = buildJsonObject {
+            previous.forEach { (key, value) -> put(key, value) }
+            put("stok_3", next)
+        }
+        db.localRecordDao().upsertAll(listOf(existing.copy(json = updated.toString(), dirty = 1, updatedAt = System.currentTimeMillis())))
+
+        val nowIso = WibDate.nowIso()
+        val dateKey = LocalDate.now(WibDate.WIB).toString()
+        val logId = idGenerator()
+        val logJson = buildJsonObject {
+            put("id", logId)
+            put("id_lama", "")
+            put("created_at", nowIso)
+            put("operator", operator)
+            put("item", previous.text("id_lama").ifBlank { productId })
+            put("item_baru", productId)
+            put("qty", BigDecimal.ONE)
+            put("price_1", BigDecimal.ZERO)
+            put("price_2", BigDecimal.ZERO)
+            put("normal", BigDecimal.ZERO)
+            put("boolean", if (delta > 0) "in" else "out")
+            put("ref", "")
+            put("ref_baru", "")
+        }
+        db.localRecordDao().upsertAll(
+            listOf(
+                LocalRecordEntity(
+                    collection = "log_stock",
+                    id = logId,
+                    dateKey = dateKey,
+                    groupKey = productId,
+                    text = previous.text("nama").lowercase(),
+                    json = logJson.toString(),
+                    dirty = 1,
+                    updatedAt = System.currentTimeMillis(),
+                ),
+            ),
+        )
+        enqueueOperation("log_stock", "create", logId, logJson)
+        ProductSave.Saved(productId, created = false)
+    }
+
     suspend fun delete(id: String): Boolean = db.withTransaction {
         val existing = db.localRecordDao().find("produk", id) ?: return@withTransaction false
         db.localRecordDao().delete("produk", id)
@@ -155,7 +212,10 @@ class ProductRepository(
         min3 = product.min3,
     )
 
-    private suspend fun enqueue(method: String, recordId: String, json: JsonObject) {
+    private suspend fun enqueue(method: String, recordId: String, json: JsonObject) =
+        enqueueOperation("produk", method, recordId, json)
+
+    private suspend fun enqueueOperation(collection: String, method: String, recordId: String, json: JsonObject) {
         val requestId = RecordId.create(24)
         db.outboxDao().enqueueWithOperations(
             OutboxEntity(requestId, OutboxStatus.PENDING, System.currentTimeMillis(), "{}"),
@@ -163,7 +223,7 @@ class ProductRepository(
                 OutboxOperationEntity(
                     requestId = requestId,
                     seq = 1,
-                    collection = "produk",
+                    collection = collection,
                     method = method,
                     recordId = recordId,
                     payloadJson = json.toString(),

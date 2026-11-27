@@ -59,6 +59,10 @@ import kotlinx.coroutines.launch
 import java.math.BigDecimal
 
 data class AccountUiState(
+    val profileOpen: Boolean = false,
+    val profileName: String = "",
+    val linkImage: String = "",
+    val changePasswordInline: Boolean = false,
     val passwordOpen: Boolean = false,
     val emailOpen: Boolean = false,
     val slipFor: GajiRow? = null,
@@ -73,7 +77,8 @@ data class AccountUiState(
 
 class AccountViewModel(private val container: AppContainer) : ViewModel() {
     private val user = container.tokenStore.cachedUser()
-    val nama: String = user?.name.orEmpty().ifBlank { user?.username.orEmpty() }
+    var nama: String = user?.name.orEmpty().ifBlank { user?.username.orEmpty() }
+        private set
     val username: String = user?.username.orEmpty()
     private val userId: String = user?.id.orEmpty()
 
@@ -84,11 +89,74 @@ class AccountViewModel(private val container: AppContainer) : ViewModel() {
     private val local = MutableStateFlow(AccountUiState())
     val state: StateFlow<AccountUiState> = local
 
+    fun openProfile() = local.update {
+        it.copy(
+            profileOpen = true,
+            profileName = nama,
+            linkImage = "",
+            changePasswordInline = false,
+            oldPassword = "",
+            password = "",
+            passwordConfirm = "",
+            error = null,
+        )
+    }
+
+    /** Simpan profil: nama wajib, avatar opsional, password opsional (butuh jaringan). */
+    fun saveProfile() {
+        val snapshot = local.value
+        val name = snapshot.profileName.trim()
+        if (name.isEmpty()) {
+            local.update { it.copy(error = "Nama wajib diisi.") }
+            return
+        }
+        if (snapshot.changePasswordInline) {
+            if (snapshot.password != snapshot.passwordConfirm) {
+                local.update { it.copy(error = "Konfirmasi password tidak sama.") }
+                return
+            }
+            if (snapshot.password.isNotEmpty() && snapshot.password.length < 8) {
+                local.update { it.copy(error = "Password minimal 8 karakter.") }
+                return
+            }
+        }
+        local.update { it.copy(saving = true, error = null) }
+        viewModelScope.launch {
+            val newPassword = if (snapshot.changePasswordInline && snapshot.password.isNotEmpty()) snapshot.password else null
+            runCatching {
+                container.sessions.updateProfile(
+                    userId = userId,
+                    name = name,
+                    linkImage = snapshot.linkImage.trim(),
+                    oldPassword = if (newPassword != null) snapshot.oldPassword else null,
+                    password = newPassword,
+                )
+            }.onSuccess {
+                nama = name
+                local.update {
+                    it.copy(
+                        saving = false,
+                        profileOpen = false,
+                        changePasswordInline = false,
+                        oldPassword = "",
+                        password = "",
+                        passwordConfirm = "",
+                        message = "Profil berhasil diperbarui.",
+                    )
+                }
+            }.onFailure { error ->
+                local.update { it.copy(saving = false, error = error.message ?: "Gagal memperbarui profil. Periksa koneksi.") }
+            }
+        }
+    }
+
     fun openPassword() = local.update { it.copy(passwordOpen = true, error = null) }
     fun openEmail() = local.update { it.copy(emailOpen = true, error = null) }
     fun showSlip(row: GajiRow) = local.update { it.copy(slipFor = row) }
     fun closeSlip() = local.update { it.copy(slipFor = null) }
-    fun closeForms() = local.update { it.copy(passwordOpen = false, emailOpen = false, error = null) }
+    fun closeForms() = local.update {
+        it.copy(profileOpen = false, passwordOpen = false, emailOpen = false, error = null)
+    }
     fun update(block: (AccountUiState) -> AccountUiState) = local.update(block)
     fun clearMessage() = local.update { it.copy(message = null) }
 
@@ -148,6 +216,22 @@ fun AccountScreen(viewModel: AccountViewModel, container: AppContainer, onLogout
     val gaji by viewModel.gaji.collectAsStateWithLifecycle(emptyList())
     val bon by viewModel.bon.collectAsStateWithLifecycle(emptyList())
     val state by viewModel.state.collectAsStateWithLifecycle()
+    var page by remember { mutableStateOf(1) }
+    var bonPage by remember { mutableStateOf(1) }
+    var hideNominal by remember { mutableStateOf(true) }
+    var verifyOpen by remember { mutableStateOf(false) }
+    var verifyPass by remember { mutableStateOf("") }
+    var verifyError by remember { mutableStateOf<String?>(null) }
+    var verifying by remember { mutableStateOf(false) }
+    var pendingSlip by remember { mutableStateOf<GajiRow?>(null) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val perPage = 5
+    val totalPages = maxOf(1, (gaji.size + perPage - 1) / perPage)
+    val safePage = page.coerceIn(1, totalPages)
+    val salaryPage = gaji.drop((safePage - 1) * perPage).take(perPage)
+    val bonTotalPages = maxOf(1, (bon.size + perPage - 1) / perPage)
+    val safeBonPage = bonPage.coerceIn(1, bonTotalPages)
+    val bonPageRows = bon.drop((safeBonPage - 1) * perPage).take(perPage)
     val snackbar = remember { SnackbarHostState() }
     LaunchedEffect(state.message) {
         state.message?.let { snackbar.showSnackbar(it); viewModel.clearMessage() }
@@ -179,8 +263,8 @@ fun AccountScreen(viewModel: AccountViewModel, container: AppContainer, onLogout
                 }
             }
             Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = viewModel::openPassword, modifier = Modifier.weight(1f).heightIn(min = 44.dp)) {
-                    Text("Ubah Password")
+                OutlinedButton(onClick = viewModel::openProfile, modifier = Modifier.weight(1f).heightIn(min = 44.dp)) {
+                    Text("Update Profil")
                 }
                 OutlinedButton(onClick = viewModel::openEmail, modifier = Modifier.weight(1f).heightIn(min = 44.dp)) {
                     Text("Ubah Email")
@@ -193,17 +277,67 @@ fun AccountScreen(viewModel: AccountViewModel, container: AppContainer, onLogout
             Text("Belum ada data gaji di cache. Data muncul setelah sinkron berhasil.", style = MaterialTheme.typography.bodyMedium)
         } else {
             LazyColumn(Modifier.weight(1f)) {
-                items(gaji, key = { it.id }) { row ->
-                    Column(Modifier.clickable { viewModel.showSlip(row) }) { GajiRowItem(row) }
+                item {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        OutlinedButton(
+                            onClick = {
+                                if (hideNominal) {
+                                    pendingSlip = null
+                                    verifyPass = ""
+                                    verifyError = null
+                                    verifyOpen = true
+                                } else {
+                                    hideNominal = true
+                                }
+                            },
+                            modifier = Modifier.heightIn(min = 40.dp),
+                        ) {
+                            Text(if (hideNominal) "Tampilkan nominal" else "Sembunyikan nominal")
+                        }
+                    }
+                }
+                items(salaryPage, key = { it.id }) { row ->
+                    Column(
+                        Modifier.clickable {
+                            if (hideNominal) {
+                                pendingSlip = row
+                                verifyPass = ""
+                                verifyError = null
+                                verifyOpen = true
+                            } else {
+                                viewModel.showSlip(row)
+                            }
+                        },
+                    ) { GajiRowItem(row, hideNominal) }
                 }
                 item {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        OutlinedButton(onClick = { if (safePage > 1) page = safePage - 1 }, enabled = safePage > 1) { Text("Sebelumnya") }
+                        Text("Gaji $safePage / $totalPages", style = MaterialTheme.typography.bodySmall)
+                        OutlinedButton(onClick = { if (safePage < totalPages) page = safePage + 1 }, enabled = safePage < totalPages) { Text("Berikutnya") }
+                    }
                     Text("Bon", fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 12.dp))
                     Text(
-                        "Dipinjam ${Money.formatRupiah(loans.borrowed)} • dibayar ${Money.formatRupiah(loans.repaid)}" +
-                            (loans.rate?.let { " • $it%" } ?: ""),
+                        "Dipinjam ${mask(hideNominal, loans.borrowed)} • dibayar ${mask(hideNominal, loans.repaid)}" +
+                            (if (hideNominal) " • •••" else loans.rate?.let { " • $it%" } ?: ""),
                         style = MaterialTheme.typography.bodySmall,
                     )
-                    bon.take(10).forEach { bonRow -> BonItem(bonRow) }
+                    bonPageRows.forEach { bonRow -> BonItem(bonRow, hideNominal) }
+                    if (bon.isNotEmpty()) {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            OutlinedButton(onClick = { if (safeBonPage > 1) bonPage = safeBonPage - 1 }, enabled = safeBonPage > 1) { Text("Sebelumnya") }
+                            Text("Bon $safeBonPage / $bonTotalPages", style = MaterialTheme.typography.bodySmall)
+                            OutlinedButton(onClick = { if (safeBonPage < bonTotalPages) bonPage = safeBonPage + 1 }, enabled = safeBonPage < bonTotalPages) { Text("Berikutnya") }
+                        }
+                    }
                 }
             }
         }
@@ -213,6 +347,84 @@ fun AccountScreen(viewModel: AccountViewModel, container: AppContainer, onLogout
             modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).testTag("logout"),
         ) { Text("Keluar") }
     }
+    }
+
+    if (state.profileOpen) {
+        AlertDialog(
+            onDismissRequest = viewModel::closeForms,
+            title = { Text("Update Profil") },
+            text = {
+                Column(
+                    Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    OutlinedTextField(
+                        value = state.profileName,
+                        onValueChange = { value -> viewModel.update { it.copy(profileName = value) } },
+                        label = { Text("Nama lengkap") },
+                        singleLine = true,
+                        modifier = Modifier.testTag("profile_name"),
+                    )
+                    OutlinedTextField(
+                        value = viewModel.username,
+                        onValueChange = {},
+                        label = { Text("Username") },
+                        enabled = false,
+                        singleLine = true,
+                    )
+                    OutlinedTextField(
+                        value = state.linkImage,
+                        onValueChange = { value -> viewModel.update { it.copy(linkImage = value) } },
+                        label = { Text("URL avatar (opsional)") },
+                        singleLine = true,
+                        modifier = Modifier.testTag("profile_image"),
+                    )
+                    Row(
+                        Modifier.fillMaxWidth().clickable {
+                            viewModel.update { it.copy(changePasswordInline = !it.changePasswordInline) }
+                        },
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Checkbox(
+                            checked = state.changePasswordInline,
+                            onCheckedChange = { value -> viewModel.update { it.copy(changePasswordInline = value) } },
+                        )
+                        Text("Ganti password (opsional)", style = MaterialTheme.typography.bodyMedium)
+                    }
+                    if (state.changePasswordInline) {
+                        OutlinedTextField(
+                            value = state.oldPassword,
+                            onValueChange = { value -> viewModel.update { it.copy(oldPassword = value) } },
+                            label = { Text("Password saat ini") },
+                            singleLine = true,
+                            visualTransformation = PasswordVisualTransformation(),
+                        )
+                        OutlinedTextField(
+                            value = state.password,
+                            onValueChange = { value -> viewModel.update { it.copy(password = value) } },
+                            label = { Text("Password baru (min 8)") },
+                            singleLine = true,
+                            visualTransformation = PasswordVisualTransformation(),
+                        )
+                        OutlinedTextField(
+                            value = state.passwordConfirm,
+                            onValueChange = { value -> viewModel.update { it.copy(passwordConfirm = value) } },
+                            label = { Text("Ulangi password baru") },
+                            singleLine = true,
+                            visualTransformation = PasswordVisualTransformation(),
+                        )
+                    }
+                    state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                    Text("Butuh jaringan. Avatar hanya tersimpan sebagai URL.", style = MaterialTheme.typography.bodySmall)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = viewModel::saveProfile, enabled = !state.saving) {
+                    Text(if (state.saving) "Menyimpan..." else "Simpan Perubahan")
+                }
+            },
+            dismissButton = { TextButton(onClick = viewModel::closeForms) { Text("Batal") } },
+        )
     }
 
     if (state.passwordOpen) {
@@ -285,18 +497,67 @@ fun AccountScreen(viewModel: AccountViewModel, container: AppContainer, onLogout
         )
     }
 
+    if (verifyOpen) {
+        AlertDialog(
+            onDismissRequest = { if (!verifying) { verifyOpen = false; pendingSlip = null } },
+            title = { Text("Verifikasi Akses Privasi") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Masukkan password akun untuk membuka nominal gaji & bon.", style = MaterialTheme.typography.bodySmall)
+                    OutlinedTextField(
+                        value = verifyPass,
+                        onValueChange = { verifyPass = it; verifyError = null },
+                        label = { Text("Password login") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        modifier = Modifier.testTag("verify_password"),
+                    )
+                    verifyError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                    Text("Butuh jaringan. Password diverifikasi server.", style = MaterialTheme.typography.bodySmall)
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !verifying,
+                    onClick = {
+                        if (verifying) return@TextButton
+                        verifying = true
+                        verifyError = null
+                        scope.launch {
+                            val ok = runCatching {
+                                container.sessions.verifyPassword(viewModel.username, verifyPass)
+                            }.getOrDefault(false)
+                            verifying = false
+                            if (ok) {
+                                hideNominal = false
+                                verifyOpen = false
+                                verifyPass = ""
+                                pendingSlip?.let { viewModel.showSlip(it) }
+                                pendingSlip = null
+                            } else {
+                                verifyError = "Password salah! Akses ditolak."
+                            }
+                        }
+                    },
+                ) { Text(if (verifying) "Memeriksa..." else "Buka Privasi") }
+            },
+            dismissButton = { TextButton(onClick = { verifyOpen = false; pendingSlip = null }) { Text("Batal") } },
+        )
+    }
+
     state.slipFor?.let { row -> SlipDialog(row, viewModel::closeSlip) }
 }
 
 @Composable
-private fun GajiRowItem(row: GajiRow) {
+private fun GajiRowItem(row: GajiRow, hideNominal: Boolean = true) {
+    fun amount(value: BigDecimal) = if (hideNominal) "Rp ****" else Money.formatRupiah(value)
     Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(row.ref.ifBlank { row.id }, style = MaterialTheme.typography.bodySmall)
-            Text(Money.formatRupiah(row.diterima), fontWeight = FontWeight.SemiBold)
+            Text(amount(row.diterima), fontWeight = FontWeight.SemiBold)
         }
         Text(
-            "Pokok ${Money.formatRupiah(row.pokok)} • lembur ${Money.formatRupiah(row.lembur)} • bpjs ${Money.formatRupiah(row.bpjs)}",
+            "Pokok ${amount(row.pokok)} • lembur ${amount(row.lembur)} • bpjs ${amount(row.bpjs)}",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -305,12 +566,15 @@ private fun GajiRowItem(row: GajiRow) {
 }
 
 @Composable
-private fun BonItem(row: BonRow) {
+private fun BonItem(row: BonRow, hideNominal: Boolean = false) {
     Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
         Text(if (row.jenis == "out") "Pinjam" else "Bayar", style = MaterialTheme.typography.bodySmall)
-        Text(Money.formatRupiah(row.nominal), style = MaterialTheme.typography.bodySmall)
+        Text(mask(hideNominal, row.nominal), style = MaterialTheme.typography.bodySmall)
     }
 }
+
+private fun mask(hidden: Boolean, value: BigDecimal): String =
+    if (hidden) "Rp ****" else Money.formatRupiah(value)
 
 object BonAdapter {
     fun toEntry(row: BonRow) = LoanEntry(row.nominal, row.jenis)

@@ -18,6 +18,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -60,6 +61,7 @@ fun ProductsRoute(container: AppContainer) {
             writer = container.productRepository,
             sessions = container.sessions,
             identity = user?.username.orEmpty(),
+            operator = user?.let { it.name.ifBlank { it.username } }.orEmpty().ifBlank { "Admin" },
         )
     }
     ProductsScreen(vm)
@@ -105,10 +107,27 @@ fun ProductsScreen(viewModel: ProductViewModel) {
                 textStyle = MaterialTheme.typography.bodyLarge,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).testTag("products_search"),
             )
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                listOf("all" to "Semua", "menipis" to "Menipis", "habis" to "Habis").forEach { (value, label) ->
+                    FilterChip(
+                        selected = state.filterStok == value,
+                        onClick = { viewModel.setFilterStok(value) },
+                        label = { Text(label) },
+                        modifier = Modifier.heightIn(min = 40.dp).testTag("products_filter_$label"),
+                    )
+                }
+            }
             LazyColumn(Modifier.fillMaxSize()) {
-                if (products.isEmpty()) item { id.primamotor.pos.ui.EmptyHint() }
+                if (products.isEmpty()) item { id.primamotor.pos.ui.EmptyHint(message = "Tidak ada produk ditemukan.") }
                 items(products, key = { it.id }) { product ->
-                    ProdukRow(product) { viewModel.show(product) }
+                    ProdukRow(
+                        product = product,
+                        onClick = { viewModel.show(product) },
+                        onStock = { delta -> viewModel.adjustStock(product, delta) },
+                    )
                 }
             }
         }
@@ -173,7 +192,7 @@ fun ProductsScreen(viewModel: ProductViewModel) {
 }
 
 @Composable
-private fun ProdukRow(product: Produk, onClick: () -> Unit) {
+private fun ProdukRow(product: Produk, onClick: () -> Unit, onStock: (Int) -> Unit) {
     Surface(
         shape = RoundedCornerShape(16.dp),
         color = MaterialTheme.colorScheme.surface,
@@ -198,9 +217,21 @@ private fun ProdukRow(product: Produk, onClick: () -> Unit) {
                     color = if (product.stok.signum() <= 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Column(horizontalAlignment = Alignment.End) {
+            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(Money.formatRupiah(product.sell6), style = MaterialTheme.typography.titleSmall)
-                Text("retail", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    OutlinedButton(
+                        onClick = { onStock(-1) },
+                        enabled = product.stok.signum() > 0,
+                        modifier = Modifier.heightIn(min = 40.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp),
+                    ) { Text("−", style = MaterialTheme.typography.titleMedium) }
+                    OutlinedButton(
+                        onClick = { onStock(1) },
+                        modifier = Modifier.heightIn(min = 40.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp),
+                    ) { Text("+", style = MaterialTheme.typography.titleMedium) }
+                }
             }
         }
     }

@@ -1,7 +1,12 @@
 package id.primamotor.pos.ui.cashflow
 
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Alignment
@@ -65,6 +70,7 @@ import id.primamotor.pos.data.repo.UserRow
 import id.primamotor.pos.data.repo.MenuRow
 import id.primamotor.pos.data.repo.PersonRow
 import id.primamotor.pos.domain.CashflowFilter
+import id.primamotor.pos.domain.CashflowHistoryFilter
 import id.primamotor.pos.domain.Money
 import java.math.BigDecimal
 
@@ -164,7 +170,7 @@ fun CashflowRoute(container: AppContainer) {
 
 @Composable
 fun CashflowScreen(viewModel: CashflowViewModel) {
-    var tab by remember { mutableIntStateOf(0) }
+    var tab by remember { mutableIntStateOf(1) }
     val state by viewModel.state.collectAsStateWithLifecycle()
     val cashflow by viewModel.cashflow.collectAsStateWithLifecycle(emptyList())
     val people by viewModel.people.collectAsStateWithLifecycle(emptyList())
@@ -209,7 +215,7 @@ fun CashflowScreen(viewModel: CashflowViewModel) {
         }
         when (tab) {
             0 -> AccountsTab(cashflow, people, bonHistory, onDeleteBon = viewModel::askDeleteBon)
-            1 -> CashTab(cashflow, onDelete = viewModel::askDeleteCash)
+            1 -> CashTab(cashflow, accounts, kinds, onDelete = viewModel::askDeleteCash)
             else -> TempoTab(menu)
         }
     }
@@ -266,24 +272,107 @@ fun CashflowScreen(viewModel: CashflowViewModel) {
 }
 
 @Composable
-private fun CashTab(rows: List<CashflowRow>, onDelete: (CashflowRow) -> Unit) {
-    var filter by remember { mutableStateOf(CashflowFilter.SEMUA) }
-    val filtered = CashflowFilter.byMutation(rows, filter)
+private fun CashTab(rows: List<CashflowRow>, accounts: List<PersonRow>, kinds: List<CashflowKind>, onDelete: (CashflowRow) -> Unit) {
+    var search by remember { mutableStateOf("") }
+    var mutasi by remember { mutableStateOf("semua") }
+    var from by remember { mutableStateOf("") }
+    var to by remember { mutableStateOf("") }
+    var selectedAccounts by remember { mutableStateOf(setOf<String>()) }
+    var selectedJenis by remember { mutableStateOf(setOf<String>()) }
+    var page by remember { mutableStateOf(1) }
+    var detail by remember { mutableStateOf<CashflowRow?>(null) }
+    val perPage = 20
+
+    val jenisOptions = kinds.filter {
+        when (mutasi) {
+            "masuk" -> it.arah == "in"
+            "keluar" -> it.arah == "out"
+            else -> true
+        }
+    }.distinctBy { it.idLama.ifBlank { it.id } }
+
+    val filtered = CashflowHistoryFilter.apply(
+        rows = rows,
+        search = search,
+        mutasi = mutasi,
+        accountIds = selectedAccounts,
+        jenis = selectedJenis,
+        from = from,
+        to = to,
+    )
+    val totalPages = maxOf(1, (filtered.size + perPage - 1) / perPage)
+    val safePage = page.coerceIn(1, totalPages)
+    val paged = filtered.drop((safePage - 1) * perPage).take(perPage)
+
     Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(CashflowFilter.SEMUA, CashflowFilter.MASUK, CashflowFilter.KELUAR).forEach { option ->
+        OutlinedTextField(
+            value = search,
+            onValueChange = { search = it; page = 1 },
+            label = { Text("Cari ref / catatan / pihak / jenis") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp).testTag("cashflow_search"),
+        )
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf("semua" to "Semua", "masuk" to "Masuk", "keluar" to "Keluar").forEach { (value, label) ->
                 FilterChip(
-                    selected = filter == option,
-                    onClick = { filter = option },
-                    label = { Text(option) },
-                    modifier = Modifier.heightIn(min = 44.dp).testTag("cashflow_filter_$option"),
+                    selected = mutasi == value,
+                    onClick = { mutasi = value; selectedJenis = emptySet(); page = 1 },
+                    label = { Text(label) },
+                    modifier = Modifier.heightIn(min = 44.dp).testTag("cashflow_filter_$label"),
                 )
+            }
+        }
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(
+                value = from,
+                onValueChange = { from = it; page = 1 },
+                label = { Text("Dari") },
+                singleLine = true,
+                modifier = Modifier.weight(1f).testTag("cashflow_from"),
+            )
+            OutlinedTextField(
+                value = to,
+                onValueChange = { to = it; page = 1 },
+                label = { Text("Sampai") },
+                singleLine = true,
+                modifier = Modifier.weight(1f).testTag("cashflow_to"),
+            )
+        }
+        if (accounts.isNotEmpty()) {
+            Text("Dompet", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(horizontal = 16.dp))
+            LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                items(accounts, key = { it.id }) { account ->
+                    FilterChip(
+                        selected = account.id in selectedAccounts,
+                        onClick = {
+                            selectedAccounts = if (account.id in selectedAccounts) selectedAccounts - account.id else selectedAccounts + account.id
+                            page = 1
+                        },
+                        label = { Text(account.nama) },
+                    )
+                }
+            }
+        }
+        if (jenisOptions.isNotEmpty()) {
+            Text("Jenis", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(horizontal = 16.dp))
+            LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                items(jenisOptions, key = { it.id }) { kind ->
+                    val value = kind.idLama.ifBlank { kind.id }
+                    FilterChip(
+                        selected = value in selectedJenis,
+                        onClick = {
+                            selectedJenis = if (value in selectedJenis) selectedJenis - value else selectedJenis + value
+                            page = 1
+                        },
+                        label = { Text(kind.nama) },
+                    )
+                }
             }
         }
         Surface(
             shape = RoundedCornerShape(20.dp),
             color = MaterialTheme.colorScheme.primaryContainer,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
         ) {
             Column(Modifier.padding(18.dp)) {
                 Text("Selisih kas", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
@@ -292,16 +381,17 @@ private fun CashTab(rows: List<CashflowRow>, onDelete: (CashflowRow) -> Unit) {
                     style = MaterialTheme.typography.headlineSmall,
                     color = MaterialTheme.colorScheme.onPrimaryContainer,
                 )
+                Text("${filtered.size} transaksi", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
             }
         }
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            if (filtered.isEmpty()) item { id.primamotor.pos.ui.EmptyHint() }
-            items(filtered, key = { it.id }) { row ->
+        LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (paged.isEmpty()) item { id.primamotor.pos.ui.EmptyHint(message = "Tidak ada data cashflow.") }
+            items(paged, key = { it.id }) { row ->
                 Surface(
                     shape = RoundedCornerShape(16.dp),
                     color = MaterialTheme.colorScheme.surface,
                     border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.surfaceVariant),
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().clickable { detail = row },
                 ) {
                     Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -324,12 +414,87 @@ private fun CashTab(rows: List<CashflowRow>, onDelete: (CashflowRow) -> Unit) {
                                     MaterialTheme.colorScheme.primary
                                 },
                             )
-                            TextButton(onClick = { onDelete(row) }) { Text("Hapus", style = MaterialTheme.typography.labelSmall) }
+                            Text(row.createdAt.take(10), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }
             }
         }
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            OutlinedButton(onClick = { if (safePage > 1) page = safePage - 1 }, enabled = safePage > 1) { Text("Sebelumnya") }
+            Text("Halaman $safePage / $totalPages", style = MaterialTheme.typography.bodySmall)
+            OutlinedButton(onClick = { if (safePage < totalPages) page = safePage + 1 }, enabled = safePage < totalPages) { Text("Berikutnya") }
+        }
+    }
+
+    detail?.let { row ->
+        CashflowDetail(row, accounts, onDismiss = { detail = null }, onDelete = { detail = null; onDelete(row) })
+    }
+}
+
+@Composable
+private fun CashflowDetail(
+    row: CashflowRow,
+    accounts: List<PersonRow>,
+    onDismiss: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    val isOut = row.mutasi.lowercase() in setOf("out", "keluar")
+    val isTransfer = row.jenis.lowercase().contains("transfer")
+    fun accountName(id: String) = accounts.firstOrNull { it.id == id || it.idLama == id }?.nama?.ifBlank { id } ?: id.ifBlank { "-" }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Detail Transaksi") },
+        text = {
+            Column(
+                Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    (if (isTransfer) "↔ " else if (isOut) "- " else "+ ") + Money.formatRupiah(row.nominal.abs()),
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = if (isOut) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                )
+                HorizontalDivider()
+                DetailLine("ID Transaksi", row.ref.ifBlank { row.id })
+                DetailLine("Waktu Transaksi", row.createdAt)
+                DetailLine("Operator", row.operator.ifBlank { "-" })
+                DetailLine("Kategori/Jenis", row.jenis.ifBlank { "-" })
+                DetailLine("Akun Sumber", accountName(row.account1))
+                if (row.account2.isNotBlank()) DetailLine("Akun Tujuan", accountName(row.account2))
+                DetailLine("Pihak Terkait", row.persontext.ifBlank { row.person }.ifBlank { "-" })
+                DetailLine("Catatan", row.note.ifBlank { "-" })
+                if (row.refBaru.isNotBlank()) DetailLine("Ref Transaksi POS", row.refBaru)
+                if (row.saldoAwal != null || row.saldoAkhir != null) {
+                    HorizontalDivider()
+                    Text("Saldo akun sumber", style = MaterialTheme.typography.labelMedium)
+                    DetailLine("Sebelum", row.saldoAwal?.let(Money::formatRupiah) ?: "-")
+                    DetailLine("Sesudah", row.saldoAkhir?.let(Money::formatRupiah) ?: "-")
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDelete) { Text("Hapus", color = MaterialTheme.colorScheme.error) }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Tutup") } },
+    )
+}
+
+@Composable
+private fun DetailLine(label: String, value: String) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            value,
+            style = MaterialTheme.typography.bodySmall,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.weight(1f),
+            textAlign = androidx.compose.ui.text.style.TextAlign.End,
+        )
     }
 }
 
@@ -349,7 +514,7 @@ private fun AccountsTab(
         item {
             Text("Buku Rekening & Kas", style = MaterialTheme.typography.titleMedium)
         }
-        if (accounts.isEmpty()) item { id.primamotor.pos.ui.EmptyHint() }
+        if (accounts.isEmpty()) item { id.primamotor.pos.ui.EmptyHint(message = "Tidak ada akun kas.") }
         items(active, key = { it.id }) { account ->
             AccountCard(account, balances[account.id] ?: account.number1)
         }
@@ -410,7 +575,7 @@ private fun AccountCard(account: PersonRow, balance: BigDecimal) {
 private fun TempoTab(menu: List<MenuRow>) {
     val unpaid = CashflowFilter.unpaid(menu)
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        if (unpaid.isEmpty()) item { id.primamotor.pos.ui.EmptyHint() }
+        if (unpaid.isEmpty()) item { id.primamotor.pos.ui.EmptyHint(message = "Tidak ada nota jatuh tempo.") }
         items(unpaid, key = { it.id }) { row ->
             Surface(
                 shape = RoundedCornerShape(16.dp),
@@ -440,7 +605,7 @@ private fun CashflowRow.signed(): BigDecimal =
 @Composable
 private fun PeopleTab(rows: List<PersonRow>) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        if (rows.isEmpty()) item { id.primamotor.pos.ui.EmptyHint() }
+        if (rows.isEmpty()) item { id.primamotor.pos.ui.EmptyHint(message = "Tidak ada data untuk kategori ini.") }
         items(rows, key = { it.id }) { person ->
             Surface(
                 shape = RoundedCornerShape(16.dp),
@@ -563,9 +728,10 @@ private fun CashFormSheet(
                 items(kinds, key = { it.id }) { kind ->
                     val arah = kind.arah.ifBlank { "out" }
                     if (arah == "in" != (draft.mutasi == "Masuk")) return@items
+                    val value = kind.idLama.ifBlank { kind.id }
                     FilterChip(
-                        selected = draft.jenis == kind.nama,
-                        onClick = { onChange { it.copy(jenis = kind.nama) } },
+                        selected = draft.jenis == value,
+                        onClick = { onChange { it.copy(jenis = value) } },
                         label = { Text(kind.nama) },
                     )
                 }

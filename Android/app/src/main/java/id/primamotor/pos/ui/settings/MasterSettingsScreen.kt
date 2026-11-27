@@ -140,7 +140,7 @@ fun MasterSettingsScreen(viewModel: MasterSettingsViewModel, container: AppConta
                         modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).testTag("settings_device"),
                     ) { Text("Printer & Sinkron") }
                 }
-                if (items.isEmpty()) item { EmptyHint() }
+                if (items.isEmpty()) item { EmptyHint(message = "Belum ada data master untuk kategori ini.") }
                 val grouped = items.groupBy { it.jenis.ifBlank { "Lainnya" } }
                 grouped.forEach { (jenis, group) ->
                     item(key = "jenis_$jenis") {

@@ -74,6 +74,12 @@ data class CashflowRow(
     val note: String,
     val person: String,
     val createdAt: String,
+    val ref: String = "",
+    val operator: String = "",
+    val persontext: String = "",
+    val refBaru: String = "",
+    val saldoAwal: BigDecimal? = null,
+    val saldoAkhir: BigDecimal? = null,
 )
 
 data class BonRow(
@@ -199,6 +205,12 @@ class Repositories(private val db: AppDatabase) {
                 note = row.text("note"),
                 person = row.text("person"),
                 createdAt = row.text("created_at"),
+                ref = row.text("ref"),
+                operator = row.text("operator"),
+                persontext = row.text("persontext"),
+                refBaru = row.text("ref_baru"),
+                saldoAwal = row.text("saldo_awal").takeIf { it.isNotBlank() }?.toBigDecimalOrNull(),
+                saldoAkhir = row.text("saldo_akhir").takeIf { it.isNotBlank() }?.toBigDecimalOrNull(),
             )
         }
     }

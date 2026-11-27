@@ -39,6 +39,31 @@ class SessionManager(
         Unit
     }
 
+    /**
+     * Ubah profil sendiri: nama, avatar, dan opsional password.
+     * Cermin `handleUpdateProfile` web: password hanya dikirim bila diisi.
+     */
+    suspend fun updateProfile(
+        userId: String,
+        name: String,
+        linkImage: String,
+        oldPassword: String?,
+        password: String?,
+    ) = withContext(Dispatchers.IO) {
+        val body = buildJsonObject {
+            put("name", name)
+            put("link_image", linkImage)
+            if (!password.isNullOrBlank()) {
+                put("oldPassword", oldPassword.orEmpty())
+                put("password", password)
+                put("passwordConfirm", password)
+            }
+        }
+        call("/api/collections/user/records/$userId", "PATCH", body)
+        store.saveName(name)
+        Unit
+    }
+
     /** Minta perubahan email; PocketBase mengirim tautan konfirmasi ke email baru. */
     suspend fun requestEmailChange(newEmail: String) = withContext(Dispatchers.IO) {
         val body = buildJsonObject {
