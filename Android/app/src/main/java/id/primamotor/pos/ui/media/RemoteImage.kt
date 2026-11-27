@@ -38,11 +38,15 @@ object MediaImages {
 
     private val cache = LruCache<String, ImageBitmap>(24)
 
-    fun url(recordId: String, fileName: String, thumb: String? = null): String {
+    fun url(collection: String, recordId: String, fileName: String, thumb: String? = null): String {
         val safe = URLEncoder.encode(fileName, "UTF-8").replace("+", "%20")
-        val base = "${BuildConfig.POS_BASE_URL.trimEnd('/')}/api/files/produk/$recordId/$safe"
+        val base = "${BuildConfig.POS_BASE_URL.trimEnd('/')}/api/files/$collection/$recordId/$safe"
         return if (thumb == null) base else "$base?thumb=$thumb"
     }
+
+    /** Lampiran produk (halaman Produk). */
+    fun url(recordId: String, fileName: String, thumb: String? = null): String =
+        url("produk", recordId, fileName, thumb)
 
     fun cached(url: String?): ImageBitmap? = url?.let(cache::get)
 

@@ -17,6 +17,9 @@ interface LocalRecordDao {
     @Query("SELECT * FROM local_record WHERE collection = :collection AND id = :id")
     suspend fun find(collection: String, id: String): LocalRecordEntity?
 
+    @Query("SELECT COUNT(*) FROM local_record WHERE collection = :collection")
+    suspend fun count(collection: String): Int
+
     /** Cari satu baris berdasarkan nilai field JSON (mis. `id_lama`) tanpa memuat seluruh koleksi. */
     @Query("SELECT * FROM local_record WHERE collection = :collection AND json LIKE '%\"' || :field || '\":\"' || :value || '\"%' LIMIT 1")
     suspend fun findByField(collection: String, field: String, value: String): LocalRecordEntity?

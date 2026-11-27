@@ -38,7 +38,7 @@ class Puller(
         Spec("gaji", null, "person", listOf("person", "id_lama")),
         // Riwayat nota disimpan lebih panjang supaya pelunasan tempo lama tetap bisa dicari.
         Spec("menu", "created_at", "person", listOf("text", "person", "id_lama"), days = 180),
-        Spec("cashflow", "created_at", "account_1", listOf("note", "person", "jenis", "mutasi")),
+        Spec("cashflow", "created_at", "account_1", listOf("note", "person", "jenis", "mutasi"), days = 90),
         Spec("log_stock", "created_at", "item", listOf("item", "id_lama")),
         Spec("ongkos", "created_at", "person", listOf("person")),
         Spec("bon", "created", "user", listOf("note", "person", "operator"), days = 180),
@@ -69,7 +69,28 @@ class Puller(
                 entities.map { it.id }.ifEmpty { listOf("__none__") },
             )
         }
+        // Jatuh tempo bisa lebih tua dari jendela nota, jadi ditarik tanpa batas tanggal.
+        val tempo = fetchTempo().mapNotNull { toEntity(specs.first { it.collection == "menu" }, it) }
+        if (tempo.isNotEmpty()) {
+            db.localRecordDao().upsertAll(tempo)
+            records += tempo.size
+        }
         return Result(records, deleted)
+    }
+
+    private suspend fun fetchTempo(): List<JsonObject> {
+        val result = mutableListOf<JsonObject>()
+        var page = 1
+        while (true) {
+            val path = "/api/collections/menu/records?perPage=200&page=$page" +
+                "&filter=" + "jenis%20~%20%22pembelian%22%20%26%26%20status%20%3D%20%22belum%22%20%26%26%20tempo%20!%3D%20%22%22" +
+                "&sort=tempo"
+            val items = (sessions.call(path) as? JsonObject)?.get("items") as? JsonArray ?: break
+            items.forEach { (it as? JsonObject)?.let(result::add) }
+            if (items.size < 200) break
+            page += 1
+        }
+        return result
     }
 
     private suspend fun fetch(spec: Spec, from: String): List<JsonObject> {

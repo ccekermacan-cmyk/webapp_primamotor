@@ -88,6 +88,8 @@ data class MenuRow(
     val marketplace: String = "",
     val ref: String = "",
     val files: List<String> = emptyList(),
+    /** Tanggal jatuh tempo pembelian (`YYYY-MM-DD`); hanya dipakai tab Jatuh Tempo. */
+    val tempo: String = "",
 )
 
 /** Rincian nota dari `log_stock`, `cashflow`, dan `ongkos`, cermin `loadHistorySubDetails` web. */
@@ -147,6 +149,10 @@ data class CashflowRow(
     val refBaru: String = "",
     val saldoAwal: BigDecimal? = null,
     val saldoAkhir: BigDecimal? = null,
+    /** `acc1`/`acc2` menyimpan `id_lama` akun untuk baris lama. */
+    val acc1: String = "",
+    val acc2: String = "",
+    val files: List<String> = emptyList(),
 )
 
 data class BonRow(
@@ -158,6 +164,9 @@ data class BonRow(
     val userId: String,
     val person: String,
     val created: String,
+    val persontext: String = "",
+    val refCashflow: String = "",
+    val refGaji: String = "",
 )
 
 /** Pilihan jenis cashflow `dropdown`: `text_2` menentukan arah (in/out). */
@@ -245,6 +254,8 @@ data class UserRow(
     val email: String = "",
     val phone: String = "",
     val linkImage: String = "",
+    /** Saldo bon karyawan (`number` di koleksi `user`). */
+    val number1: BigDecimal = BigDecimal.ZERO,
 )
 
 fun LocalRecordEntity.object_(): JsonObject? =
@@ -289,6 +300,9 @@ class Repositories(private val db: AppDatabase) {
                 refBaru = row.text("ref_baru"),
                 saldoAwal = row.text("saldo_awal").takeIf { it.isNotBlank() }?.toBigDecimalOrNull(),
                 saldoAkhir = row.text("saldo_akhir").takeIf { it.isNotBlank() }?.toBigDecimalOrNull(),
+                acc1 = row.text("acc1"),
+                acc2 = row.text("acc2"),
+                files = row.strings("file"),
             )
         }
     }
@@ -305,6 +319,9 @@ class Repositories(private val db: AppDatabase) {
                     userId = row.obj().text("user"),
                     person = row.obj().text("person"),
                     created = row.obj().text("created"),
+                    persontext = row.obj().text("persontext"),
+                    refCashflow = row.obj().text("ref_cashflow"),
+                    refGaji = row.obj().text("ref_gaji"),
                 )
             }
         }
@@ -439,6 +456,10 @@ class Repositories(private val db: AppDatabase) {
     suspend fun accountBalance(id: String): BigDecimal =
         db.localRecordDao().find("dropdown", id)?.obj()?.number("number_1") ?: BigDecimal.ZERO
 
+    /** Ada tidaknya record penanda (`id_lama`), dipakai gate tombol seperti `addbon`. */
+    fun observeFlag(collection: String, idLama: String): Flow<Boolean> =
+        observeRows(collection).map { rows -> rows.any { it.text("id_lama") == idLama } }
+
     fun observeUser(): Flow<List<UserRow>> = observeRows("user").map { rows ->
         rows.map { row ->
             UserRow(
@@ -450,6 +471,7 @@ class Repositories(private val db: AppDatabase) {
                 email = row.text("email"),
                 phone = row.text("phone"),
                 linkImage = row.text("link_image"),
+                number1 = row.number("number"),
             )
         }
     }
@@ -530,6 +552,7 @@ class Repositories(private val db: AppDatabase) {
         marketplace = row.text("marketplace"),
         ref = row.text("ref"),
         files = row.strings("file"),
+        tempo = row.text("tempo"),
     )
 
     /**

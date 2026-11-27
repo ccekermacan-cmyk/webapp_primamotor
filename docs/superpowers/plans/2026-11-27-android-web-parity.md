@@ -102,3 +102,65 @@ Desain: `docs/superpowers/specs/2026-11-27-android-web-parity-design.md`.
 - [x] Printer & sinkron tetap tersedia dari halaman Settings native sebagai tambahan
 - [ ] Belum diport: penjagaan stale `number_1` non-level-1 (`financialPatch` butuh `getOne` server) — native memakai outbox
 - [ ] Belum diport: dialog hasil bergaya `Modal` web (native memakai `AlertDialog`)
+
+## Fase 7 — Cashflow 1:1 web
+
+Sumber: `Frontend/src/pages/cashflow.tsx` + `Frontend/src/components/cashflow/*`. Urutan task dieksekusi satu per satu; tiap task harus kompilasi dan tesnya hijau sebelum lanjut.
+
+### Task 1 — `domain/CashflowFeed.kt`
+
+- [x] `HistoryFilter(terms, mutasi, accountIds, jenisKeys, from, to)` + `apply(rows)`: istilah pencarian AND atas `ref, note, persontext, jenis`; mutasi `masuk` mencakup transfer masuk lewat `account_2` tanpa `account_1`; `keluar` hanya `account_1`; `semua` = `account_1 || account_2`; tanggal inklusif WIB; jenis `id_lama || id`
+- [x] `groupByDate(rows)` -> `List<Pair<String, List<CashflowRow>>>` urut `-created_at`, label `dd MMMM yyyy` id-ID, kosong = `Tanpa Tanggal`
+- [x] `shortCode(row)` = 6 karakter terakhir `id`, fallback `ref`; `sign(row)` = `↔` transfer, `+` masuk, `-` keluar; `signed(row)` BigDecimal
+- [x] `editableBalance(balance, row)` = saldo + nominal lama saat edit (hanya bila baris akun sumber sama)
+- [x] `accountsBySubtab` (`kas`, `customer`, `supplier`, `karyawan`) dari `dropdown`; `subtotal`; pisah saldo `> 0` dan `<= 0`
+- [x] `tempoGroups(menus)`: filter `jenis ~ pembelian`, `status = belum`, `tempo != ""`; grup per tanggal tempo, urut tanggal naik dengan grup `>= hari ini` lebih dulu; `dayText` (`Lewat n Hari` / `Jatuh Tempo Hari Ini` / `Sisa n Hari`), `progressPercent`, `remaining`, status `TERLAMBAT` / `MENUNGGU PELUNASAN`
+- [x] `clockLabel` (`HH:mm`), `dateTimeLabel`, `rupiah` lewat `Money.formatRupiah`
+- [x] Tes `CashflowFeedTest` untuk tiap aturan di atas
+
+### Task 2 — model + parser + puller
+
+- [x] `MenuRow.tempo`; `BonRow.refCashflow`, `refGaji`, `persontext`; `CashflowRow.files`, `acc1`, `acc2`
+- [x] Parser `Repositories` mengisi field baru; `RepositoriesTest` menyesuaikan
+- [x] `Puller`: `cashflow` jendela 90 hari; tarik tambahan `menu` `jenis ~ pembelian && status = belum && tempo != ""` tanpa batas tanggal (di luar `deleteMissing`)
+- [x] `MediaImages.url(collection, id, file, thumb)` untuk lampiran `cashflow`/`bon`
+
+### Task 3 — `CashflowRepository`
+
+- [x] `CashDraft` lengkap (jenis transfer, `account2Id`, `personId`, `personText`, `media`, `createdAtIso`) + `save(draft, operator, previous)` untuk create dan edit; edit menyertakan `atomic_expected` snapshot baris lama (server menolak bila berubah)
+- [x] Validasi urutan web: `Jenis Cashflow wajib dipilih!`, `Akun Pembayaran wajib dipilih!`, `Nominal harus diisi dan lebih dari 0!`, `Keterangan wajib diisi!`, `Akun tujuan transfer harus berbeda dari akun sumber!`, `Saldo tidak cukup! Saldo saat ini: {saldo}, dibutuhkan: {nominal}`
+- [x] Bon dengan `catatCashflow`: satu tulisan `cashflow` saja (server membuat bon otomatis, `atomic_ledger.js:104-109`), sehingga duplikasi bon web tidak dibawa; tanpa cashflow tetap tulis `bon`
+- [x] Hapus: cashflow reverts saldo lokal; bon dengan `ref_gaji` ditolak `Ubah atau hapus melalui transaksi gaji agar perhitungan slip dan pembayaran tetap konsisten.`; bon dengan `ref_cashflow` dihapus lewat cashflow induk
+- [x] Tes `CashflowRepositoryTest` untuk create, edit `atomic_expected`, transfer, bon satu jalur, tolak hapus bon gaji
+
+### Task 4 — `CashflowViewModel`
+
+- [x] State web: `activeTab` (`history` default), `activeAccountTab`, filter (`mutasi`, akun, jenis, tanggal, search debounce 250 ms), `page` 1, `perPage` 20, `showZeroBalances`, `selectedTx`, `modalType`, `formData`, `formDataBon`, `files`, `isProcessing`, `systemAlert`
+- [x] Turunan: `wallets` (akun kas + person customer/supplier + user aktif), `walletsMap`, `availableJenisOptions`, `jenisOptionsIn/Out` dari `text_2`, `configBon` (`dropdown.id_lama = addbon`), `groupedTransactions`, `tempoGroups`
+- [x] Aksi: buka/tutup form, ganti mutasi dengan konfirmasi `Ubah Jenis Mutasi?`, tutup form kotor `Tutup Form?`, simpan, hapus dengan cek `permissions/delete`, `HITUNG ULANG` (online-only, satu batch `recalculate_person`), buka riwayat bon per karyawan
+
+### Task 5 — layar + tab Histori
+
+- [x] Header `Arus Kas` / `Monitoring perputaran modal Prima Motor`, tombol `TAMBAH BON` + `CATAT TRANSAKSI KAS` (lebar), FAB `+ BON` + bulat `Catat Kas Baru` (sempit)
+- [x] Tab `Buku Kas & Saldo`, `Histori Kas`, `Jatuh Tempo` (level 1/2/5/6)
+- [x] Bar filter sticky: chip `semua|masuk|keluar`, panel akun/jenis/tanggal/cari, dialog `Filter Riwayat Kas` untuk layar sempit
+- [x] Baris: grup tanggal, kode 6 karakter, chip jenis, catatan, pihak, akun sumber → tujuan, operator, nominal bertanda, jam, `TRANSFER`, `Saldo Akhir` level 1/2/5
+- [x] Paginasi `Hal. x / y`, kosong `Belum ada data transaksi kas ditemukan.`
+
+### Task 6 — tab Buku Kas & Saldo + Jatuh Tempo
+
+- [x] Subtab `Kas & Bank`, `Piutang Customer`, `Hutang Supplier`, `Bon Karyawan`; `HITUNG ULANG` hanya customer/supplier
+- [x] Kartu dompet: inisial/gambar, badge jenis, nama, saldo; subtotal; daftar saldo `<= 0` bisa disembunyikan; klik kas = filter histori, customer/supplier = buka histori person, karyawan = riwayat bon
+- [x] Jatuh Tempo: 3 kartu metrik (`Lewat Jatuh Tempo`, `Akan Jatuh Tempo`, `Total Sisa Tagihan`), kartu item (kode, status, progress, terbayar, sisa), footer `Tampil x / y`, subtotal halaman, paginasi 10
+
+### Task 7 — dialog
+
+- [x] Detail `Detail Log Transaksi Kas`: badge arah, nominal bertanda, ID/waktu/operator, entitas jurnal, saldo hanya level 1/2/5, catatan, bukti media, tombol hapus (cek `permissions/delete`), `Edit Transaksi`, `TUTUP DETAIL`
+- [x] Form kas `Catat Transaksi Kas Baru` / `Revisi Transaksi Kas`: toggle `KAS MASUK`/`KAS KELUAR`, tanggal-waktu, jenis per arah, akun sumber + saldo, akun tujuan saat transfer, pihak saat bon keluar, nominal + terbilang, catatan, lampiran
+- [x] Form bon `Tambah Bon Karyawan`: checkbox `Catat ke Cashflow`, karyawan, akun asal, nominal, catatan, lampiran
+- [x] Riwayat bon `Riwayat Bon: {nama}`: total saldo bon, tabel waktu/jenis/nominal/keterangan, hapus hanya level 1
+
+### Task 8 — verifikasi
+
+- [x] Unit + instrumented hijau; APK release ≤ 12 MB; cold start ≤ 2000 ms; commit + push `feat/android-native`
+- [x] Catat deviasi: edit kas tetap lewat outbox dengan `atomic_expected` (server yang menolak bila basi), `HITUNG ULANG` online-only, riwayat bon baru muncul setelah sinkron saat bon dicatat bersama kas
