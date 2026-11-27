@@ -135,11 +135,26 @@ data class PersonRow(
     val keterangan: String,
     val jenis: String,
     val kategori: String,
+    val idLama: String = "",
+    val phone: String = "",
+    val alamat: String = "",
+    val number1: BigDecimal = BigDecimal.ZERO,
+    val number2: BigDecimal = BigDecimal.ZERO,
+    val visibilitas: String = "",
 )
 
-data class UserRow(val id: String, val name: String, val username: String, val level: Int, val status: String)
+data class UserRow(
+    val id: String,
+    val name: String,
+    val username: String,
+    val level: Int,
+    val status: String,
+    val email: String = "",
+    val phone: String = "",
+    val linkImage: String = "",
+)
 
-private fun LocalRecordEntity.object_(): JsonObject? =
+fun LocalRecordEntity.object_(): JsonObject? =
     runCatching { kotlinx.serialization.json.Json.parseToJsonElement(json) as JsonObject }.getOrNull()
 
 private fun LocalRecordEntity.obj(): JsonObject =
@@ -226,6 +241,10 @@ class Repositories(private val db: AppDatabase) {
             }
         }
 
+    fun observeMasterRows(): Flow<List<LocalRecordEntity>> = db.localRecordDao().observe("dropdown")
+
+    fun observeRaw(collection: String): Flow<List<LocalRecordEntity>> = db.localRecordDao().observe(collection)
+
     fun observePerson(): Flow<List<PersonRow>> = observeRows("dropdown").map { rows ->
         rows.mapNotNull { row ->
             if (row.text("kategori").lowercase() != "person") return@mapNotNull null
@@ -235,6 +254,12 @@ class Repositories(private val db: AppDatabase) {
                 keterangan = row.text("text_2"),
                 jenis = row.text("jenis"),
                 kategori = row.text("kategori"),
+                idLama = row.text("id_lama"),
+                phone = row.text("phone"),
+                alamat = row.text("alamat"),
+                number1 = row.number("number_1"),
+                number2 = row.number("number_2"),
+                visibilitas = row.text("visibilitas"),
             )
         }
     }
@@ -249,6 +274,12 @@ class Repositories(private val db: AppDatabase) {
                 keterangan = row.text("text_2"),
                 jenis = row.text("jenis"),
                 kategori = row.text("kategori"),
+                idLama = row.text("id_lama"),
+                phone = row.text("phone"),
+                alamat = row.text("alamat"),
+                number1 = row.number("number_1"),
+                number2 = row.number("number_2"),
+                visibilitas = row.text("visibilitas"),
             )
         }
     }
@@ -285,6 +316,9 @@ class Repositories(private val db: AppDatabase) {
                 username = row.text("username"),
                 level = row.int("level"),
                 status = row.text("status"),
+                email = row.text("email"),
+                phone = row.text("phone"),
+                linkImage = row.text("link_image"),
             )
         }
     }

@@ -20,7 +20,7 @@ class ShellTest {
         // Menu utama ada di drawer, sama seperti sidebar web.
         rule.onNodeWithTag("nav_menu").performClick()
         rule.waitForIdle()
-        listOf("pos", "history", "products", "cashflow", "account").forEach { route ->
+        listOf("pos", "products", "person", "cashflow", "report", "account", "settings").forEach { route ->
             rule.onNodeWithTag("tab_$route").assertIsDisplayed()
         }
     }

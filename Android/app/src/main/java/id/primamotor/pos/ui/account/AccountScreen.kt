@@ -37,7 +37,6 @@ import id.primamotor.pos.data.repo.GajiRow
 import id.primamotor.pos.domain.LoanEntry
 import id.primamotor.pos.domain.LoanSummary
 import id.primamotor.pos.domain.Money
-import id.primamotor.pos.ui.settings.SettingsSheet
 
 class AccountViewModel(container: AppContainer) : ViewModel() {
     private val user = container.tokenStore.cachedUser()
@@ -57,7 +56,6 @@ fun AccountRoute(container: AppContainer, onLogout: () -> Unit) {
 
 @Composable
 fun AccountScreen(viewModel: AccountViewModel, container: AppContainer, onLogout: () -> Unit) {
-    var showSettings by remember { mutableStateOf(false) }
     val gaji by viewModel.gaji.collectAsStateWithLifecycle(emptyList())
     val bon by viewModel.bon.collectAsStateWithLifecycle(emptyList())
     val loans = LoanSummary.of(bon.map(BonAdapter::toEntry), gaji.firstOrNull()?.diterima ?: java.math.BigDecimal.ZERO)
@@ -105,18 +103,12 @@ fun AccountScreen(viewModel: AccountViewModel, container: AppContainer, onLogout
             }
         }
 
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(
-                onClick = { showSettings = true },
-                modifier = Modifier.weight(1f).heightIn(min = 52.dp).testTag("open_settings"),
-            ) { Text("Pengaturan") }
-            OutlinedButton(onClick = onLogout, modifier = Modifier.weight(1f).heightIn(min = 52.dp).testTag("logout")) { Text("Keluar") }
-        }
+        OutlinedButton(
+            onClick = onLogout,
+            modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).testTag("logout"),
+        ) { Text("Keluar") }
     }
 
-    if (showSettings) {
-        SettingsSheet(container = container, onLogout = onLogout, onDismiss = { showSettings = false })
-    }
 }
 
 @Composable

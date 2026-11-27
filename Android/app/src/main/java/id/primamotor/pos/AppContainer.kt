@@ -6,6 +6,8 @@ import id.primamotor.pos.data.local.EncryptedTokenStore
 import id.primamotor.pos.data.remote.PocketBaseClient
 import id.primamotor.pos.data.remote.SessionManager
 import id.primamotor.pos.data.repo.CheckoutRepository
+import id.primamotor.pos.data.repo.EmployeeRepository
+import id.primamotor.pos.data.repo.MasterRepository
 import id.primamotor.pos.data.repo.PosEditRepository
 import id.primamotor.pos.data.repo.ProductRepository
 import id.primamotor.pos.data.sync.ConflictResolver
@@ -59,6 +61,10 @@ class AppContainer(context: Context) {
     val settlementRepository: SettlementRepository = SettlementRepository(database)
 
     val productRepository: ProductRepository = ProductRepository(database)
+
+    val masterRepository: MasterRepository = MasterRepository(database)
+
+    val employeeRepository: EmployeeRepository = EmployeeRepository(database)
 
     val conflictResolver: ConflictResolver = ConflictResolver(database)
 }

@@ -16,8 +16,10 @@ import id.primamotor.pos.ui.login.LoginViewModel
 import id.primamotor.pos.ui.nav.AppNav
 import id.primamotor.pos.ui.cashflow.CashflowRoute
 import id.primamotor.pos.ui.account.AccountRoute
-import id.primamotor.pos.ui.history.HistoryRoute
 import id.primamotor.pos.ui.pos.PosRoute
+import id.primamotor.pos.ui.person.PersonRoute
+import id.primamotor.pos.ui.report.ReportRoute
+import id.primamotor.pos.ui.settings.MasterSettingsRoute
 import id.primamotor.pos.ui.products.ProductsRoute
 import id.primamotor.pos.ui.sync.SyncStatusBar
 import id.primamotor.pos.ui.sync.SyncViewModel
@@ -46,11 +48,16 @@ fun AppRoot(container: AppContainer) {
         }
         AppNav(
             onLogout = logout,
+            userName = session?.name.orEmpty().ifBlank { session?.username.orEmpty() },
+            userLevel = session?.level?.toString().orEmpty(),
+            levelNumber = session?.level ?: 0,
             posScreen = { PosRoute(container) },
-            historyScreen = { HistoryRoute(container) },
             productsScreen = { ProductsRoute(container) },
+            personScreen = { PersonRoute(container) },
             cashflowScreen = { CashflowRoute(container) },
+            reportScreen = { ReportRoute(container) },
             accountScreen = { AccountRoute(container, onLogout = logout) },
+            settingsScreen = { MasterSettingsRoute(container) },
             topBar = { SyncStatusBar(syncViewModel) },
         )
     } else {

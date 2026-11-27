@@ -11,7 +11,7 @@ atomik yang sama dengan web.
 | APK rilis `arm64-v8a` | ≤ 12 MB | 2,4 MB |
 | Cold start (`am start -W`, HP CPH2461) | ≤ 2000 ms | 717–1074 ms |
 | Unit test | lulus semua | 54/54 |
-| Instrumented test | lulus semua | 48/48 |
+| Instrumented test | lulus semua | 52/52 |
 
 Naikkan anggaran hanya lewat keputusan sadar; jangan menambah library yang bisa diganti stdlib.
 

@@ -5,9 +5,9 @@ Tanggal mulai: 27-11-2026. Perangkat uji: OPPO CPH2461, Android 14, arm64-v8a.
 ## Sudah diukur otomatis
 
 - [x] APK rilis `arm64-v8a` ≤ 12 MB: **2,4 MB** (`app/build/outputs/apk/release/`)
-- [x] Cold start ≤ 2000 ms, tiga kali berturut: **1190 ms / 987 ms / 1137 ms**
+- [x] Cold start ≤ 2000 ms, tiga kali berturut: **1119 ms / 987 ms / 1137 ms**
 - [x] Unit test JVM: **54/54 lulus**
-- [x] Instrumented test di HP fisik: **48/48 lulus**
+- [x] Instrumented test di HP fisik: **52/52 lulus**
 - [x] Integrasi server (PocketBase + Laravel, data sintetis): **26/26 lulus**, termasuk field `barcode`
 - [x] Migrasi `barcode` aditif: field, backfill dari `id_lama`, indeks `idx_produk_barcode`
 - [x] Aplikasi rilis terpasang dan membuka layar login tanpa crash

@@ -50,6 +50,7 @@ class CashflowViewModel(container: AppContainer) : androidx.lifecycle.ViewModel(
     val people = repos.observePerson()
     val menu = repos.observeMenu()
     val syncState = container.database.syncStateDao().observeAll()
+    val level: Int = container.tokenStore.cachedUser()?.level ?: 0
 }
 
 @Composable
@@ -65,10 +66,18 @@ fun CashflowScreen(viewModel: CashflowViewModel) {
     val people by viewModel.people.collectAsStateWithLifecycle(emptyList())
     val menu by viewModel.menu.collectAsStateWithLifecycle(emptyList())
     val sync by viewModel.syncState.collectAsStateWithLifecycle(emptyList())
+    val level = viewModel.level
+    // Sama seperti web: tab Jatuh Tempo hanya untuk level 1, 2, 5, 6.
+    val showTempo = level in setOf(1, 2, 5, 6)
 
     Column(Modifier.fillMaxSize()) {
         TabRow(selectedTabIndex = tab) {
-            listOf("Kas", "Pelanggan", "Laporan").forEachIndexed { index, label ->
+            val labels = if (showTempo) {
+                listOf("Buku Kas & Saldo", "Histori Kas", "Jatuh Tempo")
+            } else {
+                listOf("Buku Kas & Saldo", "Histori Kas")
+            }
+            labels.forEachIndexed { index, label ->
                 Tab(
                     selected = tab == index,
                     onClick = { tab = index },
@@ -78,9 +87,9 @@ fun CashflowScreen(viewModel: CashflowViewModel) {
             }
         }
         when (tab) {
-            0 -> CashTab(cashflow)
-            1 -> PeopleTab(people)
-            else -> ReportTab(menu, sync.lastOrNull()?.lastSyncAt)
+            0 -> AccountsTab(cashflow, people)
+            1 -> CashTab(cashflow)
+            else -> TempoTab(menu)
         }
     }
 }
@@ -149,6 +158,83 @@ private fun CashTab(rows: List<CashflowRow>) {
         }
     }
 }
+
+@Composable
+private fun AccountsTab(cashflow: List<CashflowRow>, accounts: List<PersonRow>) {
+    val balances = cashflow.groupBy { it.account1 }
+        .mapValues { (_, rows) -> rows.fold(BigDecimal.ZERO) { sum, row -> sum + row.signed() } }
+    val active = accounts.filter { (balances[it.id] ?: it.number1).signum() != 0 }
+    val zero = accounts.filter { (balances[it.id] ?: it.number1).signum() == 0 }
+
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        item {
+            Text("Buku Rekening & Kas", style = MaterialTheme.typography.titleMedium)
+        }
+        if (accounts.isEmpty()) item { id.primamotor.pos.ui.EmptyHint() }
+        items(active, key = { it.id }) { account ->
+            AccountCard(account, balances[account.id] ?: account.number1)
+        }
+        if (zero.isNotEmpty()) {
+            item { Text("Akun Kosong/Minus", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            items(zero, key = { it.id }) { account ->
+                AccountCard(account, balances[account.id] ?: account.number1)
+            }
+        }
+    }
+}
+
+@Composable
+private fun AccountCard(account: PersonRow, balance: BigDecimal) {
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.surfaceVariant),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(account.nama, style = MaterialTheme.typography.titleSmall)
+                Text(account.keterangan, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Text(
+                Money.formatRupiah(balance),
+                style = MaterialTheme.typography.titleSmall,
+                color = if (balance.signum() < 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+            )
+        }
+    }
+}
+
+@Composable
+private fun TempoTab(menu: List<MenuRow>) {
+    val unpaid = CashflowFilter.unpaid(menu)
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        if (unpaid.isEmpty()) item { id.primamotor.pos.ui.EmptyHint() }
+        items(unpaid, key = { it.id }) { row ->
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surface,
+                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.surfaceVariant),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text(row.id, style = MaterialTheme.typography.titleSmall)
+                        Text(Money.formatRupiah(row.total), style = MaterialTheme.typography.titleSmall)
+                    }
+                    Text(
+                        "${row.person.ifBlank { "Pelanggan umum" }} • dibayar ${Money.formatRupiah(row.dibayar)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun CashflowRow.signed(): BigDecimal =
+    if (mutasi.lowercase() in setOf("out", "keluar")) nominal.negate() else nominal
 
 @Composable
 private fun PeopleTab(rows: List<PersonRow>) {

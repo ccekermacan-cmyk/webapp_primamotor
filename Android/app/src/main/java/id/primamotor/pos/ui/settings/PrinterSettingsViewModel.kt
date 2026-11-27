@@ -14,7 +14,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-class SettingsViewModel(container: AppContainer) : ViewModel() {
+class PrinterSettingsViewModel(container: AppContainer) : ViewModel() {
 
     private val engine = container.syncEngine
     private val prefs = PrinterSettings(container.context)

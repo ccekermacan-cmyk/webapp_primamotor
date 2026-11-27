@@ -36,7 +36,7 @@ import java.time.format.DateTimeFormatter
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsSheet(container: AppContainer, onLogout: () -> Unit, onDismiss: () -> Unit) {
-    val viewModel: SettingsViewModel = viewModel { SettingsViewModel(container) }
+    val viewModel: PrinterSettingsViewModel = viewModel { PrinterSettingsViewModel(container) }
     val pending by viewModel.pending.collectAsStateWithLifecycle()
     val sync by viewModel.syncState.collectAsStateWithLifecycle()
     val context = LocalContext.current

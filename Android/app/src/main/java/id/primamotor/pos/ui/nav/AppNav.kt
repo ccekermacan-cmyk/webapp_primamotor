@@ -63,10 +63,12 @@ enum class TopRoute(
     val icon: ImageVector,
 ) {
     POS("pos", "Kasir", "KS", Color(0xFF2563EB), Icons.Filled.ShoppingCart),
-    HISTORY("history", "Riwayat", "RW", Color(0xFF7C3AED), Icons.Filled.DateRange),
     PRODUCTS("products", "Produk", "PR", Color(0xFFEA580C), Icons.Filled.Star),
-    CASHFLOW("cashflow", "Kas", "KA", Color(0xFF059669), Icons.Filled.List),
+    PERSON("person", "Person", "PE", Color(0xFF0891B2), Icons.Filled.Person),
+    CASHFLOW("cashflow", "Cashflow", "CF", Color(0xFF059669), Icons.Filled.List),
+    REPORT("report", "Report", "RP", Color(0xFF7C3AED), Icons.Filled.DateRange),
     ACCOUNT("account", "Akun", "AK", Color(0xFFDB2777), Icons.Filled.Person),
+    SETTINGS("settings", "Settings", "ST", Color(0xFF475569), Icons.Filled.Settings),
 }
 
 @Composable
@@ -74,11 +76,14 @@ fun AppNav(
     onLogout: () -> Unit = {},
     userName: String = "",
     userLevel: String = "",
+    levelNumber: Int = 0,
     posScreen: @Composable () -> Unit = { PlaceholderScreen("Kasir") },
-    historyScreen: @Composable () -> Unit = { PlaceholderScreen("Riwayat") },
     productsScreen: @Composable () -> Unit = { PlaceholderScreen("Produk") },
-    cashflowScreen: @Composable () -> Unit = { PlaceholderScreen("Kas") },
+    personScreen: @Composable () -> Unit = { PlaceholderScreen("Person") },
+    cashflowScreen: @Composable () -> Unit = { PlaceholderScreen("Cashflow") },
+    reportScreen: @Composable () -> Unit = { PlaceholderScreen("Report") },
     accountScreen: @Composable () -> Unit = { AccountPlaceholder(onLogout) },
+    settingsScreen: @Composable () -> Unit = { PlaceholderScreen("Settings") },
     topBar: @Composable () -> Unit = {},
 ) {
     val navController = rememberNavController()
@@ -101,6 +106,7 @@ fun AppNav(
             AppDrawer(
                 userName = userName,
                 userLevel = userLevel,
+                levelNumber = levelNumber,
                 selectedRoute = selected?.hierarchy?.firstOrNull { dest ->
                     TopRoute.entries.any { it.route == dest.route }
                 }?.route,
@@ -159,10 +165,12 @@ fun AppNav(
                     composable(item.route) {
                         when (item) {
                             TopRoute.POS -> posScreen()
-                            TopRoute.HISTORY -> historyScreen()
                             TopRoute.PRODUCTS -> productsScreen()
+                            TopRoute.PERSON -> personScreen()
                             TopRoute.CASHFLOW -> cashflowScreen()
+                            TopRoute.REPORT -> reportScreen()
                             TopRoute.ACCOUNT -> accountScreen()
+                            TopRoute.SETTINGS -> settingsScreen()
                         }
                     }
                 }
@@ -175,6 +183,7 @@ fun AppNav(
 private fun AppDrawer(
     userName: String,
     userLevel: String,
+    levelNumber: Int,
     selectedRoute: String?,
     onNavigate: (String) -> Unit,
     onLogout: () -> Unit,
@@ -237,7 +246,7 @@ private fun AppDrawer(
                 Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                TopRoute.entries.forEach { item ->
+                TopRoute.entries.filter { allowed(it, levelNumber) }.forEach { item ->
                     DrawerItem(item = item, selected = item.route == selectedRoute) { onNavigate(item.route) }
                 }
             }
@@ -249,6 +258,13 @@ private fun AppDrawer(
             ) { Text("Keluar") }
         }
     }
+}
+
+/** Aturan tampil menu sama dengan `components/layout.tsx`. */
+private fun allowed(route: TopRoute, level: Int): Boolean = when (route) {
+    TopRoute.SETTINGS -> level == 1
+    TopRoute.REPORT -> level in 1..6
+    else -> true
 }
 
 @Composable
