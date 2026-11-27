@@ -164,3 +164,6 @@ Sumber: `Frontend/src/pages/cashflow.tsx` + `Frontend/src/components/cashflow/*`
 
 - [x] Unit + instrumented hijau; APK release ≤ 12 MB; cold start ≤ 2000 ms; commit + push `feat/android-native`
 - [x] Catat deviasi: edit kas tetap lewat outbox dengan `atomic_expected` (server yang menolak bila basi), `HITUNG ULANG` online-only, riwayat bon baru muncul setelah sinkron saat bon dicatat bersama kas
+- [x] Catat deviasi: klik kartu customer/supplier belum membuka POS terfilter `?person=...&status=belum` dan klik item jatuh tempo belum membuka POS terfilter `?ref=...` karena POS native belum punya pintu masuk berparameter; keduanya masih tanpa aksi
+- [x] Catat deviasi: tombol hapus bon di riwayat hanya muncul untuk level 1 dan baris non-`ref_gaji`; baris gaji tetap ditolak server
+- [x] Catat deviasi: `Batas` di jatuh tempo memakai label tanggal (`d MMMM yyyy`), bukan datetime dari tanggal-saja seperti web
