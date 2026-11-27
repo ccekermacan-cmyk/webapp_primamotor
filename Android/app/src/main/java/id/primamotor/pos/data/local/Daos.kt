@@ -54,6 +54,12 @@ interface LocalRecordDao {
     @Query("UPDATE local_record SET dirty = 0 WHERE collection = :collection AND id = :id")
     suspend fun clearDirty(collection: String, id: String)
 
+    @Query("SELECT * FROM local_record WHERE collection = :collection AND json LIKE '%' || :needle || '%'")
+    suspend fun byJsonFragment(collection: String, needle: String): List<LocalRecordEntity>
+
+    @Query("DELETE FROM local_record WHERE collection = :collection AND id = :id")
+    suspend fun delete(collection: String, id: String)
+
     @Query("SELECT COUNT(*) FROM local_record WHERE collection = :collection AND dirty = 1")
     suspend fun dirtyCount(collection: String): Int
 }
