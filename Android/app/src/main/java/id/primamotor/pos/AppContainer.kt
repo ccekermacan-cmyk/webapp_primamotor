@@ -7,6 +7,7 @@ import id.primamotor.pos.data.remote.PocketBaseClient
 import id.primamotor.pos.data.remote.SessionManager
 import id.primamotor.pos.data.repo.CheckoutRepository
 import id.primamotor.pos.data.repo.PosEditRepository
+import id.primamotor.pos.data.repo.SettlementRepository
 import id.primamotor.pos.data.repo.Repositories
 import id.primamotor.pos.data.sync.Puller
 import id.primamotor.pos.data.sync.Pusher
@@ -50,4 +51,6 @@ class AppContainer(context: Context) {
     val checkoutRepository: CheckoutRepository = CheckoutRepository(database)
 
     val editRepository: PosEditRepository = PosEditRepository(database)
+
+    val settlementRepository: SettlementRepository = SettlementRepository(database)
 }

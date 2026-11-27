@@ -11,6 +11,7 @@ import id.primamotor.pos.data.remote.UserSession
 import id.primamotor.pos.ui.login.LoginScreen
 import id.primamotor.pos.ui.login.LoginViewModel
 import id.primamotor.pos.ui.nav.AppNav
+import id.primamotor.pos.ui.history.HistoryRoute
 import id.primamotor.pos.ui.pos.PosRoute
 
 /**
@@ -28,6 +29,7 @@ fun AppRoot(container: AppContainer) {
                 container.tokenStore.clear()
             },
             posScreen = { PosRoute(container) },
+            historyScreen = { HistoryRoute(container) },
         )
     } else {
         LoginRoute(container) { loggedIn -> session = loggedIn }

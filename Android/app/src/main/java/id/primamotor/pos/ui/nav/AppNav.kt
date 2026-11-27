@@ -32,7 +32,11 @@ enum class TopRoute(val route: String, val label: String) {
 }
 
 @Composable
-fun AppNav(onLogout: () -> Unit = {}, posScreen: @Composable () -> Unit = { PlaceholderScreen("POS") }) {
+fun AppNav(
+    onLogout: () -> Unit = {},
+    posScreen: @Composable () -> Unit = { PlaceholderScreen("POS") },
+    historyScreen: @Composable () -> Unit = { PlaceholderScreen("Riwayat") },
+) {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val selected = backStackEntry?.destination
@@ -67,6 +71,7 @@ fun AppNav(onLogout: () -> Unit = {}, posScreen: @Composable () -> Unit = { Plac
                 composable(item.route) {
                     when (item) {
                         TopRoute.POS -> posScreen()
+                        TopRoute.HISTORY -> historyScreen()
                         TopRoute.ACCOUNT -> AccountPlaceholder(onLogout)
                         else -> PlaceholderScreen(item.label)
                     }

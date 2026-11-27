@@ -51,6 +51,8 @@ data class MenuRow(
     val person: String,
     val payment: String,
     val total: BigDecimal,
+    val dibayar: BigDecimal,
+    val status: String,
     val cashback: BigDecimal,
     val note: String,
     val operator: String,
@@ -147,6 +149,8 @@ class Repositories(private val db: AppDatabase) {
     fun observeProduk(): Flow<List<Produk>> = observeRows("produk").map { rows ->
         rows.map(::produk).filter { it.id.isNotEmpty() }
     }
+
+    fun observeMenu(): Flow<List<MenuRow>> = observeRows("menu").map { rows -> rows.map(::menu) }
 
     fun observeMenuDay(dateKey: String): Flow<List<MenuRow>> =
         db.localRecordDao().observeDay("menu", dateKey).map { rows -> rows.map { menu(it.obj()) } }
@@ -306,6 +310,8 @@ class Repositories(private val db: AppDatabase) {
         person = row.text("person"),
         payment = row.text("payment"),
         total = row.number("total"),
+        dibayar = row.number("dibayar"),
+        status = row.text("status"),
         cashback = row.number("cashback"),
         note = row.text("note"),
         operator = row.text("operator"),
