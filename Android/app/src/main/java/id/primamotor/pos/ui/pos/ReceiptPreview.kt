@@ -41,9 +41,12 @@ import kotlinx.coroutines.launch
 fun ReceiptPrintSheet(receipt: ReceiptData, onDismiss: () -> Unit) {
     val context = LocalContext.current
     val printer = remember { BluetoothPrinter(context) }
+    val prefs = remember { id.primamotor.pos.hardware.printer.PrinterSettings(context) }
     val scope = rememberCoroutineScope()
     var devices by remember { mutableStateOf(printer.bondedPrinters()) }
-    var selected by remember { mutableStateOf(devices.firstOrNull()?.address) }
+    var selected by remember {
+        mutableStateOf(devices.firstOrNull { it.address == prefs.address }?.address ?: devices.firstOrNull()?.address)
+    }
     var message by remember { mutableStateOf<String?>(null) }
     var printing by remember { mutableStateOf(false) }
 

@@ -25,6 +25,8 @@ import java.util.concurrent.TimeUnit
  */
 class AppContainer(context: Context) {
 
+    val context: Context = context.applicationContext
+
     val database: AppDatabase = AppDatabase.open(context)
 
     val tokenStore: EncryptedTokenStore = EncryptedTokenStore(context)

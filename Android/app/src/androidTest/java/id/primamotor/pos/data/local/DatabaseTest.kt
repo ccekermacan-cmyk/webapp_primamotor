@@ -108,9 +108,14 @@ class DatabaseTest {
             ),
         )
 
+        db.outboxDao().enqueue(
+            id.primamotor.pos.data.local.OutboxEntity("req-keep", id.primamotor.pos.data.local.OutboxStatus.PENDING, 1L, "{}"),
+        )
+
         db.localRecordDao().deleteCleanCollection("gaji")
 
         assertEquals(listOf("g2"), db.localRecordDao().idsInRange("gaji", "0000-01-01", "9999-12-31"))
+        assertEquals(1, db.outboxDao().count())
     }
 
     private fun record(collection: String, id: String, dateKey: String) = LocalRecordEntity(

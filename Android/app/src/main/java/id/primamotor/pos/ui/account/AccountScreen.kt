@@ -14,6 +14,9 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -27,6 +30,7 @@ import id.primamotor.pos.data.repo.GajiRow
 import id.primamotor.pos.domain.LoanEntry
 import id.primamotor.pos.domain.LoanSummary
 import id.primamotor.pos.domain.Money
+import id.primamotor.pos.ui.settings.SettingsSheet
 
 class AccountViewModel(container: AppContainer) : ViewModel() {
     private val user = container.tokenStore.cachedUser()
@@ -41,11 +45,12 @@ class AccountViewModel(container: AppContainer) : ViewModel() {
 @Composable
 fun AccountRoute(container: AppContainer, onLogout: () -> Unit) {
     val vm: AccountViewModel = viewModel { AccountViewModel(container) }
-    AccountScreen(vm, onLogout)
+    AccountScreen(vm, container, onLogout)
 }
 
 @Composable
-fun AccountScreen(viewModel: AccountViewModel, onLogout: () -> Unit) {
+fun AccountScreen(viewModel: AccountViewModel, container: AppContainer, onLogout: () -> Unit) {
+    var showSettings by remember { mutableStateOf(false) }
     val gaji by viewModel.gaji.collectAsStateWithLifecycle(emptyList())
     val bon by viewModel.bon.collectAsStateWithLifecycle(emptyList())
     val loans = LoanSummary.of(bon.map(BonAdapter::toEntry), gaji.firstOrNull()?.diterima ?: java.math.BigDecimal.ZERO)
@@ -73,7 +78,17 @@ fun AccountScreen(viewModel: AccountViewModel, onLogout: () -> Unit) {
             }
         }
 
-        OutlinedButton(onClick = onLogout, modifier = Modifier.testTag("logout")) { Text("Keluar") }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(
+                onClick = { showSettings = true },
+                modifier = Modifier.weight(1f).testTag("open_settings"),
+            ) { Text("Pengaturan") }
+            OutlinedButton(onClick = onLogout, modifier = Modifier.weight(1f).testTag("logout")) { Text("Keluar") }
+        }
+    }
+
+    if (showSettings) {
+        SettingsSheet(container = container, onLogout = onLogout, onDismiss = { showSettings = false })
     }
 }
 
