@@ -100,7 +100,7 @@ class PocketBaseClient(
         val request = Request.Builder()
             .url(url)
             .method("PATCH", body)
-            .apply { if (token != null) header("Authorization", "Bearer ${'$'}token") }
+            .apply { if (token != null) header("Authorization", "Bearer $token") }
             .header("Accept", "application/json")
             .build()
         val response = try {
@@ -112,7 +112,7 @@ class PocketBaseClient(
             if (!it.isSuccessful) {
                 val parsed = runCatching { json.parseToJsonElement(it.body?.string().orEmpty()) }.getOrNull()
                 val message = (parsed as? JsonObject)?.get("message")?.jsonPrimitive?.content
-                    ?: "Unggah media ditolak server (${'$'}{it.code})."
+                    ?: "Unggah media ditolak server (${it.code})."
                 throw PocketBaseException(message)
             }
         }

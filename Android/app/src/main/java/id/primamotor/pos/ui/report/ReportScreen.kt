@@ -1,7 +1,6 @@
 package id.primamotor.pos.ui.report
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -38,12 +37,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -51,6 +48,19 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.patrykandpatrick.vico.compose.cartesian.CartesianChartHost
+import com.patrykandpatrick.vico.compose.cartesian.axis.rememberBottom
+import com.patrykandpatrick.vico.compose.cartesian.axis.rememberStart
+import com.patrykandpatrick.vico.compose.cartesian.layer.continuous
+import com.patrykandpatrick.vico.compose.cartesian.layer.rememberLineCartesianLayer
+import com.patrykandpatrick.vico.compose.cartesian.rememberCartesianChart
+import com.patrykandpatrick.vico.compose.common.fill as vicoFill
+import com.patrykandpatrick.vico.core.cartesian.axis.HorizontalAxis
+import com.patrykandpatrick.vico.core.cartesian.axis.VerticalAxis
+import com.patrykandpatrick.vico.core.cartesian.data.CartesianChartModelProducer
+import com.patrykandpatrick.vico.core.cartesian.data.CartesianValueFormatter
+import com.patrykandpatrick.vico.core.cartesian.data.lineSeries
+import com.patrykandpatrick.vico.core.cartesian.layer.LineCartesianLayer
 import androidx.lifecycle.viewmodel.compose.viewModel
 import id.primamotor.pos.AppContainer
 import id.primamotor.pos.data.repo.ReportRow
@@ -58,6 +68,9 @@ import id.primamotor.pos.domain.ChartPoint
 import id.primamotor.pos.domain.Money
 import id.primamotor.pos.domain.ReportFeed
 import java.math.BigDecimal
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 internal val REPORT_HEADER = Color(0xFF0F172A)
 internal val REPORT_MUTED = Color(0xFF64748B)
@@ -85,6 +98,7 @@ fun ReportScreen(viewModel: ReportViewModel) {
     val detail by viewModel.detailView.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
     LaunchedEffect(state.message, state.error) {
         (state.error ?: state.message)?.let {
@@ -106,6 +120,17 @@ fun ReportScreen(viewModel: ReportViewModel) {
         ) {
             ReportHeader(
                 onGenerate = viewModel::openGenerate,
+                onExport = {
+                    scope.launch {
+                        val result = runCatching {
+                            withContext(Dispatchers.IO) {
+                                ReportExport.write(context, pageRows, summary, state.from, state.to)
+                            }
+                        }
+                        result.onSuccess { ReportExport.share(context, it) }
+                            .onFailure { snackbar.showSnackbar("Ekspor gagal: ${it.message ?: "coba lagi"}") }
+                    }
+                },
                 onPrint = {
                     ReportPrinter.print(
                         context = context,
@@ -253,7 +278,7 @@ fun ReportScreen(viewModel: ReportViewModel) {
 }
 
 @Composable
-private fun ReportHeader(onGenerate: () -> Unit, onPrint: () -> Unit) {
+private fun ReportHeader(onGenerate: () -> Unit, onExport: () -> Unit, onPrint: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Surface(color = Color(0xFFDBEAFE), shape = RoundedCornerShape(14.dp), modifier = Modifier.size(44.dp)) {
@@ -277,6 +302,10 @@ private fun ReportHeader(onGenerate: () -> Unit, onPrint: () -> Unit) {
                 onClick = onPrint,
                 modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("report_print"),
             ) { Text("UNDUH REPORT", fontSize = 11.sp, fontWeight = FontWeight.Black) }
+            OutlinedButton(
+                onClick = onExport,
+                modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("report_export"),
+            ) { Text("XLSX", fontSize = 11.sp, fontWeight = FontWeight.Black) }
         }
     }
 }
@@ -394,6 +423,8 @@ private fun InsightCard(insight: String) {
 
 @Composable
 private fun ChartCard(chart: List<ChartPoint>, selected: Set<ReportMetric>, onToggle: (ReportMetric) -> Unit) {
+    val active = ReportMetric.entries.filter { selected.contains(it) }
+    val modelProducer = rememberChartProducer(chart, active)
     Surface(
         shape = RoundedCornerShape(18.dp),
         color = Color.White,
@@ -412,28 +443,51 @@ private fun ChartCard(chart: List<ChartPoint>, selected: Set<ReportMetric>, onTo
                     )
                 }
             }
-            val active = ReportMetric.entries.filter { selected.contains(it) }
-            val max = chart.maxOfOrNull { point ->
-                active.maxOfOrNull { metric -> metricValue(point, metric).toFloat() } ?: 0f
-            }?.coerceAtLeast(1f) ?: 1f
-            Canvas(Modifier.fillMaxWidth().height(160.dp)) {
-                val step = if (chart.size > 1) size.width / (chart.size - 1) else 0f
-                drawLine(color = Color(0xFFF1F5F9), start = Offset(0f, size.height), end = Offset(size.width, size.height), strokeWidth = 2f)
-                active.forEach { metric ->
-                    val path = Path()
-                    chart.forEachIndexed { index, point ->
-                        val x = if (chart.size > 1) index * step else size.width / 2
-                        val y = size.height - (metricValue(point, metric).toFloat() / max) * (size.height * 0.9f)
-                        if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
-                    }
-                    drawPath(path, color = Color(metric.color), style = Stroke(width = 4f))
-                }
+            if (active.isEmpty() || chart.isEmpty()) {
+                Text(
+                    "Pilih minimal satu metrik untuk menampilkan grafik.",
+                    fontSize = 11.sp,
+                    color = REPORT_MUTED,
+                    modifier = Modifier.padding(vertical = 12.dp),
+                )
+                return@Column
             }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                chart.forEach { point -> Text(point.tanggal, fontSize = 9.sp, color = REPORT_MUTED) }
+            val series = active.map { metric ->
+                LineCartesianLayer.Line(
+                    fill = LineCartesianLayer.LineFill.single(vicoFill(Color(metric.color))),
+                    stroke = LineCartesianLayer.LineStroke.continuous(2.dp),
+                )
+            }
+            CartesianChartHost(
+                chart = rememberCartesianChart(
+                    rememberLineCartesianLayer(
+                        lineProvider = LineCartesianLayer.LineProvider.series(series),
+                    ),
+                    startAxis = VerticalAxis.rememberStart(),
+                    bottomAxis = HorizontalAxis.rememberBottom(
+                        valueFormatter = CartesianValueFormatter { _, x, _ ->
+                            chart.getOrNull(x.toInt())?.tanggal.orEmpty()
+                        },
+                    ),
+                ),
+                modelProducer = modelProducer,
+                modifier = Modifier.fillMaxWidth().height(200.dp).testTag("report_chart"),
+            )
+        }
+    }
+}
+
+@Composable
+private fun rememberChartProducer(chart: List<ChartPoint>, active: List<ReportMetric>): CartesianChartModelProducer {
+    val producer = remember { CartesianChartModelProducer() }
+    LaunchedEffect(chart, active) {
+        producer.runTransaction {
+            lineSeries {
+                active.forEach { metric -> series(chart.map { metricValue(it, metric).toDouble() }) }
             }
         }
     }
+    return producer
 }
 
 private fun metricValue(point: ChartPoint, metric: ReportMetric): BigDecimal = when (metric) {

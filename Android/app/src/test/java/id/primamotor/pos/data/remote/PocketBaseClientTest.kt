@@ -144,7 +144,42 @@ class PocketBaseClientTest {
         assertEquals(1, resolution.results?.size)
         assertEquals("/api/financial/requests/req1/resolve", server.takeRequest().path)
     }
+
+    @Test
+    fun uploadFile_sends_bearer_token_and_multipart_field() {
+        val file = java.io.File.createTempFile("foto", ".jpg").apply { writeBytes(byteArrayOf(1, 2, 3)) }
+        try {
+            server.enqueue(MockResponse().setBody("""{"id":"m1"}"""))
+
+            client.uploadFile("/api/collections/produk/records/m1", "file", file.absolutePath, "token-abc")
+
+            val request = server.takeRequest()
+            assertEquals("PATCH", request.method)
+            assertEquals("/api/collections/produk/records/m1", request.path)
+            assertEquals("Bearer token-abc", request.getHeader("Authorization"))
+            assertTrue(request.body.readUtf8().contains("name=\"file\""))
+        } finally {
+            file.delete()
+        }
+    }
+
+    @Test
+    fun uploadFile_reports_server_message() {
+        val file = java.io.File.createTempFile("foto", ".jpg").apply { writeBytes(byteArrayOf(1)) }
+        try {
+            server.enqueue(MockResponse().setResponseCode(413).setBody("""{"message":"File too large"}"""))
+
+            val error = runCatching {
+                client.uploadFile("/api/collections/produk/records/m1", "file", file.absolutePath, "t")
+            }.exceptionOrNull() as PocketBaseException
+
+            assertEquals("File too large", error.message)
+        } finally {
+            file.delete()
+        }
+    }
 }
+
 class MemoryTokenStore : TokenStore {
     private var session: UserSession? = null
     override fun token(): String? = session?.token

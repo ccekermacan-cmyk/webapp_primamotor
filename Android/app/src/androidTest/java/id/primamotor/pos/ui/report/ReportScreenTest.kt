@@ -125,6 +125,7 @@ class ReportScreenTest {
         rule.onNodeWithText("Overview Mutasi & Performa Bisnis Prima Motor").assertIsDisplayed()
         rule.onNodeWithText("GENERATE OTOMATIS").assertIsDisplayed()
         rule.onNodeWithText("UNDUH REPORT").assertIsDisplayed()
+        rule.onNodeWithTag("report_export").assertIsDisplayed()
         rule.waitUntil(5_000) { rule.onAllNodesWithTag("report_row_r1").fetchSemanticsNodes().size == 1 }
         listOf("Rp 500.000", "Rp 200.000", "Rp 250.000", "Rp 30.000", "Rp 20.000", "Rp 450.000").forEach { value ->
             assertTrue(

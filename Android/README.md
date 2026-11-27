@@ -6,14 +6,25 @@ atomik yang sama dengan web.
 
 ## Anggaran yang dipatok
 
-| Ukuran | Batas | Terukur (27-11-2026) |
+| Ukuran | Batas | Terukur (28-11-2026) |
 | --- | --- | --- |
-| APK rilis `arm64-v8a` | ≤ 12 MB | 2,4 MB |
-| Cold start (`am start -W`, HP CPH2461) | ≤ 2000 ms | 717–1074 ms |
-| Unit test | lulus semua | 54/54 |
-| Instrumented test | lulus semua | 52/52 |
+| APK rilis `arm64-v8a` | ≤ 12 MB | 2,9 MB |
+| Cold start (`am start -W`, HP CPH2461) | ≤ 2000 ms | 424–874 ms |
+| Unit test | lulus semua | 117/117 |
+| Instrumented test | lulus semua | 84/84 |
 
 Naikkan anggaran hanya lewat keputusan sadar; jangan menambah library yang bisa diganti stdlib.
+
+### Library pihak ketiga dan alasannya
+
+| Library | Dipakai untuk | Kenapa bukan stdlib |
+| --- | --- | --- |
+| Coil | foto produk, bukti kasflow, gambar person | cache memori + disk, decode sesuai ukuran slot, batal saat scroll |
+| Vico | grafik tren Report | sumbu, skala, tooltip; Canvas manual tidak punya interaksi |
+| FastExcel | ekspor `.xlsx` halaman Report | menulis OOXML valid tanpa Apache POI (~12 MB) |
+
+OkHttp, Room, WorkManager, ZXing, dan ESC/POS tetap seperti semula; tidak ada Hilt/Koin, Ktor,
+DataStore, atau ML Kit karena yang ada sudah cukup dan lebih ringan.
 
 ## Prasyarat tanpa Android Studio
 

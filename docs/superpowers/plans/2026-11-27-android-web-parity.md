@@ -273,3 +273,26 @@ Sumber kebenaran: `Frontend/src/pages/report.tsx`.
 - Nominal kas di tab Kas ditampilkan dari `nominal.abs()` dengan tanda `+`/`-`, sehingga data negatif tidak pernah muncul sebagai `+-Rp`.
 - `Sesuaikan Harga Beli Hari Ini` (level 1) menulis `price_2` lewat outbox `update`, jadi perubahan terkirim saat online dan tetap aman saat offline.
 - Hapus laporan (level 1–5) masuk outbox `delete`; pemeriksaan akhir tetap di server.
+
+## Audit & penyelarasan stack (28-11-2026)
+
+### Temuan yang diperbaiki
+
+- `PocketBaseClient` menulis header `Authorization: Bearer ${'$'}token` harfiah pada jalur unggah media: token tidak pernah terkirim, jadi unggah lampiran selalu 401. Pesan galat juga mencetak `${'$'}{it.code}`. Keduanya diganti interpolasi biasa dan ditutup tes `uploadFile_*`.
+- Pemuat gambar kustom (OkHttp + `BitmapFactory`, `LruCache` 24 entri, tanpa cache disk) diganti Coil: decode sesuai ukuran slot, cache memori 10% + disk 64 MB, batal saat scroll. `MediaImages.url` tetap, `RemoteImage` tetap signature-nya.
+- `SyncWorker.watchNetwork` sebelumnya tidak pernah dipanggil (hanya didefinisikan), jadi sinkronisasi saat jaringan kembali tidak pernah aktif; `PosApplication` sekarang memasangnya sekali saat start.
+- Izin `BLUETOOTH_SCAN` dihapus: tidak ada pemindaian (hanya printer yang sudah dipasangkan), jadi permintaan izin "perangkat sekitar" tidak perlu muncul.
+- Grafik `Canvas` satu-satunya di Report diganti Vico (sumbu, skala, label tanggal); toggle metrik dan `testTag("report_chart")` dipertahankan.
+- Report mendapat tombol `XLSX`: `ReportExport` menulis `.xlsx` FastExcel lalu membuka share sheet lewat `FileProvider`.
+
+### Yang sengaja tidak diubah
+
+| Kandidat | Keputusan | Alasan |
+| --- | --- | --- |
+| Ktor + Retrofit | tetap OkHttp + kotlinx.serialization | sudah berjalan, 0 dependency baru, `PocketBaseClient` 300 baris |
+| Hilt/Koin | tetap `AppContainer` manual | graf dependensi kecil dan eksplisit; Hilt menambah KSP + ~200 KB |
+| DataStore | tetap `EncryptedSharedPreferences` | sesi butuh enkripsi; DataStore belum punya padanan terenkripsi setara |
+| ML Kit Barcode | tetap ZXing | bundel ZXing ~500 KB vs ML Kit 3–4 MB + model |
+| Room/WorkManager/Compose/ESC-POS | sudah dipakai | tidak ada alasan mengganti |
+
+Diukur ulang setelah perubahan: APK 2,9 MB, cold start 424–874 ms, 117 unit test dan 84 instrumented test hijau.
