@@ -76,7 +76,7 @@ Android/
 **Interfaces:**
 - Produces: aplikasi kosong yang bisa di-build dan dibuka; `AppNav` dengan rute `pos`, `history`, `products`, `cashflow`, `account`, `settings`, `report`, `login`.
 
-- [ ] **Step 1: Tulis tes instrumentasi shell**
+- [x] **Step 1: Tulis tes instrumentasi shell**
 
 ```kotlin
 // app/src/androidTest/java/id/primamotor/pos/ShellTest.kt
@@ -90,12 +90,12 @@ class ShellTest {
 }
 ```
 
-- [ ] **Step 2: Jalankan, pastikan gagal**
+- [x] **Step 2: Jalankan, pastikan gagal** (dijalankan setelah scaffold: gagal karena teks "POS" ada 2 node)
 
 Run: `cd Android && ./gradlew :app:connectedDebugAndroidTest`
 Expected: FAIL karena proyek/bottom bar belum ada.
 
-- [ ] **Step 3: Buat proyek Gradle, tema, manifest, `MainActivity`, `AppNav` dengan bottom bar**
+- [x] **Step 3: Buat proyek Gradle, tema, manifest, `MainActivity`, `AppNav` dengan bottom bar**
 
 `minSdk 26`, `compileSdk`/`targetSdk` versi stabil terbaru yang terpasang lewat SDK CLI. `AndroidManifest` memuat `INTERNET`, `BLUETOOTH_CONNECT`, `BLUETOOTH_SCAN`, `CAMERA`, dan referensi `network_security_config` hanya untuk varian debug.
 
@@ -109,17 +109,17 @@ Konfigurasi ringan yang dipasang sejak Task 1 (bukan menyusul):
 - Ikon: VectorDrawable, bukan bitmap.
 - Signature debug: `debugKeystore` default.
 
-- [ ] **Step 4: Jalankan, pastikan lulus**
+- [x] **Step 4: Jalankan, pastikan lulus**
 
 Run: `cd Android && ./gradlew :app:assembleDebug :app:connectedDebugAndroidTest`
 Expected: BUILD SUCCESSFUL; tes lulus; HP fisik via `adb devices` terlihat (mirror layar dengan `scrcpy`).
 
-- [ ] **Step 4b: Ukur awal anggaran**
+- [x] **Step 4b: Ukur awal anggaran**
 
 Run: `cd Android && ./gradlew :app:assembleRelease && ls -lh app/build/outputs/apk/arm64/release/`
 Expected: APK release `arm64-v8a` ≤ 12 MB. Cold start: `adb shell am start -W id.primamotor.pos/.MainActivity`, catat `TotalTime`; harus < 2000 ms. Catat angka ini di commit message; setiap Task yang menambah ukuran harus menyertakan angka baru.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Android .gitignore
