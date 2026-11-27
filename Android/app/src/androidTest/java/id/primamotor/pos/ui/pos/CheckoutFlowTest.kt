@@ -80,13 +80,18 @@ class CheckoutFlowTest {
         val viewModel = PosViewModel(Repositories(db), CheckoutRepository(db), PosEditRepository(db), SettlementRepository(db), operatorName = "kasir")
         rule.setContent { PrimaMotorTheme { PosScreen(viewModel) } }
 
+        // Menu pilihan paritas web: Overview default, lalu pilih menu transaksi.
+        rule.onNodeWithTag("menu_Penjualan").performClick()
         rule.onNodeWithText("Oli Mesin").assertIsDisplayed()
         rule.onNodeWithText("Oli Mesin").performClick()
         rule.onNodeWithTag("pos_open_cart").performClick()
+        rule.onNodeWithTag("checkout_tab_1").performClick()
         rule.onNodeWithTag("account_acc1").performScrollTo().performClick()
         rule.onNodeWithTag("checkout_nominal").performScrollTo().performTextInput("20000")
         rule.onNodeWithTag("checkout_submit").performScrollTo().performClick()
 
+        // Review wajib sebelum simpan, cermin CheckoutReviewModal web.
+        rule.onNodeWithTag("review_save").performClick()
         rule.waitForIdle()
         val snapshot = viewModel.state.value
         org.junit.Assert.assertNotNull("state=$snapshot", snapshot.saved)

@@ -5,10 +5,14 @@ import id.primamotor.pos.data.local.LocalRecordEntity
 import id.primamotor.pos.domain.GajiDetails
 import id.primamotor.pos.domain.GajiItem
 import id.primamotor.pos.domain.GajiMath
+import id.primamotor.pos.domain.PosFeed
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import java.math.BigDecimal
 
@@ -17,6 +21,16 @@ fun JsonObject.text(field: String): String {
     val element = this[field] ?: return ""
     if (element is JsonNull) return ""
     return runCatching { element.jsonPrimitive.content }.getOrDefault("")
+}
+
+/** Field array string (mis. `file` pada menu). Nilai tunggal diperlakukan sebagai satu elemen. */
+fun JsonObject.strings(field: String): List<String> {
+    val element = this[field] ?: return emptyList()
+    if (element is JsonNull) return emptyList()
+    val array = element as? JsonArray
+        ?: return listOfNotNull(runCatching { element.jsonPrimitive.content }.getOrNull())
+            .filter { it.isNotBlank() }
+    return array.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }.filter { it.isNotBlank() }
 }
 
 fun JsonObject.number(field: String): BigDecimal =
@@ -62,7 +76,55 @@ data class MenuRow(
     val operator: String,
     val createdAt: String,
     val idLama: String,
+    val jenis: String = "",
+    val text: String = "",
+    val qty: BigDecimal = BigDecimal.ZERO,
+    val admin: BigDecimal = BigDecimal.ZERO,
+    val marketplace: String = "",
+    val ref: String = "",
+    val files: List<String> = emptyList(),
 )
+
+/** Rincian nota dari `log_stock`, `cashflow`, dan `ongkos`, cermin `loadHistorySubDetails` web. */
+data class MenuItemDetail(
+    val id: String,
+    /** Kode `item` (id produk) pada log. */
+    val code: String,
+    val label: String,
+    val qty: BigDecimal,
+    val price: BigDecimal,
+    /** Modal total baris (`price_2`), dipakai hitung laba. */
+    val cost: BigDecimal,
+    val direction: String,
+    val stockStart: BigDecimal?,
+    val stockEnd: BigDecimal?,
+)
+
+data class MenuCashflowDetail(
+    val id: String,
+    val accountId: String,
+    val nominal: BigDecimal,
+    val mutasi: String,
+    val note: String,
+    val saldoAwal: BigDecimal?,
+    val saldoAkhir: BigDecimal?,
+)
+
+data class MenuOngkosDetail(val id: String, val person: String, val ongkos: BigDecimal)
+
+data class MenuDetail(
+    val items: List<MenuItemDetail> = emptyList(),
+    val cashflows: List<MenuCashflowDetail> = emptyList(),
+    val ongkos: List<MenuOngkosDetail> = emptyList(),
+) {
+    val totalTransaksi: BigDecimal
+        get() = items.fold(BigDecimal.ZERO) { sum, item -> sum + item.price.multiply(item.qty) }
+
+    val labaKotor: BigDecimal
+        get() = items.fold(BigDecimal.ZERO) { sum, item -> sum + item.price.multiply(item.qty) - item.cost }
+
+    val totalOngkos: BigDecimal get() = ongkos.fold(BigDecimal.ZERO) { sum, row -> sum + row.ongkos }
+}
 
 data class CashflowRow(
     val id: String,
@@ -419,5 +481,81 @@ class Repositories(private val db: AppDatabase) {
         operator = row.text("operator"),
         createdAt = row.text("created_at"),
         idLama = row.text("id_lama"),
+        jenis = row.text("jenis"),
+        text = row.text("text"),
+        qty = row.number("qty"),
+        admin = row.number("admin"),
+        marketplace = row.text("marketplace"),
+        ref = row.text("ref"),
+        files = row.strings("file"),
     )
+
+    /**
+     * Sub-koleksi nota dari cache. Web memakai `ref_baru` untuk `log_stock`/`ongkos`
+     * dan `ref` untuk `cashflow`; pola yang sama dipakai di sini.
+     */
+    suspend fun menuDetail(menuId: String): MenuDetail {
+        val dao = db.localRecordDao()
+        val logs = dao.byJsonFragment("log_stock", "\"ref_baru\":\"$menuId\"")
+        val cashflows = dao.byJsonFragment("cashflow", "\"ref\":\"$menuId\"")
+        val ongkos = dao.byJsonFragment("ongkos", "\"ref_baru\":\"$menuId\"")
+
+        val items = logs.mapNotNull { entity ->
+            val row = entity.object_() ?: return@mapNotNull null
+            val code = row.text("item_baru").ifBlank { row.text("item") }
+            val product = if (code.isNotBlank()) produkById(code) else null
+            MenuItemDetail(
+                id = entity.id,
+                code = code,
+                label = PosFeed.productLabel(product),
+                qty = row.number("qty"),
+                price = row.number("price_1"),
+                cost = row.number("price_2"),
+                direction = row.text("boolean"),
+                stockStart = row.text("stok_awal").takeIf { it.isNotBlank() }?.toBigDecimalOrNull(),
+                stockEnd = row.text("stok_akhir").takeIf { it.isNotBlank() }?.toBigDecimalOrNull(),
+            )
+        }.sortedBy { it.label.lowercase() }
+
+        return MenuDetail(
+            items = items,
+            cashflows = cashflows.mapNotNull { entity ->
+                val row = entity.object_() ?: return@mapNotNull null
+                MenuCashflowDetail(
+                    id = entity.id,
+                    accountId = row.text("account_1"),
+                    nominal = row.number("nominal"),
+                    mutasi = row.text("mutasi"),
+                    note = row.text("note"),
+                    saldoAwal = row.text("saldo_awal").takeIf { it.isNotBlank() }?.toBigDecimalOrNull(),
+                    saldoAkhir = row.text("saldo_akhir").takeIf { it.isNotBlank() }?.toBigDecimalOrNull(),
+                )
+            },
+            ongkos = ongkos.mapNotNull { entity ->
+                val row = entity.object_() ?: return@mapNotNull null
+                MenuOngkosDetail(
+                    id = entity.id,
+                    person = row.text("person"),
+                    ongkos = row.number("ongkos"),
+                )
+            },
+        )
+    }
+
+    /** Nota yang terhubung ke log/ongkos yang cocok dengan pencarian, seperti sub-collection lookup web. */
+    suspend fun searchRefs(query: String): Set<String> {
+        val terms = query.trim().lowercase().split(Regex("\\s+")).filter { it.isNotBlank() }
+        if (terms.isEmpty()) return emptySet()
+        val dao = db.localRecordDao()
+        val refs = mutableSetOf<String>()
+        terms.forEach { term ->
+            dao.search("log_stock", term, 100).forEach { entity ->
+                entity.object_()?.text("ref_baru")?.takeIf { it.isNotBlank() }?.let(refs::add)
+            }
+            dao.search("ongkos", term, 100).forEach { entity ->
+                entity.object_()?.text("ref_baru")?.takeIf { it.isNotBlank() }?.let(refs::add)
+            }
+        }
+        return refs
+    }
 }

@@ -55,3 +55,20 @@ Desain: `docs/superpowers/specs/2026-11-27-android-web-parity-design.md`.
 - Hapus mengikuti aturan server; tidak ada pelonggaran.
 - Gaji hanya untuk pemilik akun.
 - Pengujian memakai data sintetis.
+
+## Fase 4 — rombak Kasir 1:1 web
+
+- [x] Nav tab dinamis dari `dropdown` (`kategori ~ menu && jenis ~ jenis menu`), default `Overview`, level 10 hanya `Overview`
+- [x] Menu Overview = riwayat nota dikelompokkan per tanggal `dd/MM/yyyy`; menu mengandung `gaji` = daftar slip; menu lain = katalog produk
+- [x] Filter Overview: status (semua/lunas/belum), person (`id_lama`/`id`/`text_1`), jenis multi, cari multi kata (termasuk `log_stock`/`ongkos` lewat `ref_baru`), paginasi 6/9/12 per breakpoint
+- [x] Filter produk: `stok_3 > 0` kecuali pembelian/rusak/opname, cari multi kata atas kode/kategori/merk/jenis/keterangan/varian/tipe/barcode, urut `-created`
+- [x] Kartu produk: kode 5 digit, label `getFullLabel`, pill stok, harga `sell_6`; kartu riwayat: badge jenis/status, operator, kutipan nota, total/sisa, qty, `Pelunasan Cepat`
+- [x] Detail nota 3 tab (Ringkasan / Barang & jasa / Pembayaran): laba kotor + margin hanya level 1, saldo jurnal level 1/2/5, tombol Hapus / Pelunasan / Edit / Cetak / Bagikan / Tutup
+- [x] Review checkout (`CheckoutReviewModal`) sebelum simpan: status nota (termasuk `BELUM (Menunggu Bukti Media)`), total/dibayar/sisa, ubah tab, rincian, simpan
+- [x] Keranjang 3 tab: Barang & jasa / Pembayaran / Catatan, tombol `Periksa transaksi`
+- [x] Struk dari `state.savedReceipt` (bukan keranjang kosong) dan cetak ulang dari detail nota
+- [x] Pindah menu dengan keranjang isi meminta konfirmasi `Batalkan Transaksi?`
+- [x] Edit nota memakai jenis dari `menu.jenis`, catatan dari cashflow, jumlah bukti lama dihitung agar pembelian tidak turun ke `belum`
+- [x] Unit 76/76, instrumented 57/57, release APK 2,7 MB, cold start 1091 ms (CPH2461)
+- [ ] Belum diport: galeri media di detail nota (butuh pemuat bitmap ber-autentikasi, tanpa image loader)
+- [ ] Belum diport: pembuatan slip gaji POS (batch `saveGajiBatch`: menu `gaji`, baris `gaji`, bon `cashflow`); daftar slip hanya baca

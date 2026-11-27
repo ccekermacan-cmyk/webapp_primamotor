@@ -8,6 +8,7 @@ import id.primamotor.pos.data.repo.CheckoutRepository
 import id.primamotor.pos.data.repo.CheckoutResult
 import id.primamotor.pos.data.repo.EditSession
 import id.primamotor.pos.data.repo.MekanikInput
+import id.primamotor.pos.data.repo.MenuDetail
 import id.primamotor.pos.data.repo.MenuRow
 import id.primamotor.pos.data.repo.PersonRow
 import id.primamotor.pos.data.repo.PosEditRepository
@@ -16,12 +17,16 @@ import id.primamotor.pos.data.repo.Repositories
 import id.primamotor.pos.data.repo.UserRow
 import id.primamotor.pos.data.repo.number
 import id.primamotor.pos.data.repo.object_
+import id.primamotor.pos.data.repo.strings
 import id.primamotor.pos.data.repo.text
 import id.primamotor.pos.domain.CartLine
 import id.primamotor.pos.domain.Money
+import id.primamotor.pos.domain.PosFeed
 import id.primamotor.pos.domain.PosPricing
 import id.primamotor.pos.domain.PosValidation
 import id.primamotor.pos.domain.WibDate
+import id.primamotor.pos.hardware.printer.ReceiptData
+import id.primamotor.pos.hardware.printer.ReceiptItem
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -79,16 +84,32 @@ data class EditTarget(val menuId: String, val session: EditSession)
 
 data class PosUiState(
     val query: String = "",
-    val historyQuery: String = "",
+    val selectedMenu: String = "Overview",
+    val viewMode: String = "grid",
+    val showFilters: Boolean = false,
+    val filterStatus: String = "all",
+    val filterPerson: String = "",
+    val filterJenis: Set<String> = emptySet(),
+    val page: Int = 1,
+    val perPage: Int = 9,
+    val subRefs: Set<String> = emptySet(),
     val cart: List<CartEntry> = emptyList(),
     val draft: CheckoutDraft = CheckoutDraft(),
+    val cartTab: Int = 0,
     val saving: Boolean = false,
     val error: String? = null,
     val saved: CheckoutResult.Saved? = null,
+    val savedReceipt: ReceiptData? = null,
     val edit: EditTarget? = null,
     val deleteTarget: MenuRow? = null,
     val settleFor: MenuRow? = null,
     val settleAccount: String = "",
+    val pendingMenu: String? = null,
+    val review: Boolean = false,
+    val detail: MenuRow? = null,
+    val detailData: MenuDetail? = null,
+    val detailLoading: Boolean = false,
+    val level: Int = 1,
 ) {
     val lines: List<PricedLine> get() = cart.map { entry ->
         val prices = PosPricing.Prices(
@@ -147,7 +168,23 @@ data class PosUiState(
         get() = draft.payments.fold(BigDecimal.ZERO) { sum, line -> sum + (Money.parse(line.nominal) ?: BigDecimal.ZERO) }
 
     val isOnline: Boolean get() = PosPricing.isOnline(draft.personIdLama, draft.personName)
+
+    /** Sama seperti web: pembelian tanpa bukti selalu `belum`. */
+    val previewStatus: String
+        get() = when {
+            PosPricing.isPembelian(draft.menu) && draft.mediaCount == 0 -> "belum"
+            paid >= total -> "lunas"
+            else -> "belum"
+        }
 }
+
+data class PosFeedState(
+    val tabs: List<PersonRow> = emptyList(),
+    val products: List<Produk> = emptyList(),
+    val groups: List<PosFeed.DateGroup> = emptyList(),
+    val page: Int = 1,
+    val totalPages: Int = 1,
+)
 
 class PosViewModel(
     private val repos: Repositories,
@@ -155,23 +192,16 @@ class PosViewModel(
     private val editRepo: PosEditRepository,
     private val settlement: id.primamotor.pos.data.repo.SettlementRepository,
     val operatorName: String,
+    level: Int = 1,
+    private val username: String = "",
+    private val fullName: String = "",
 ) : ViewModel() {
 
-    private val local = MutableStateFlow(PosUiState())
+    private val local = MutableStateFlow(PosUiState(level = level))
 
     val state: StateFlow<PosUiState> = local
 
-    val products: StateFlow<List<Produk>> = combine(repos.observeProduk(), local) { rows, state ->
-        val query = state.query.trim().lowercase()
-        if (query.isEmpty()) rows else rows.filter { product ->
-            product.nama.lowercase().contains(query) ||
-                product.barcode.contains(query) ||
-                product.idLama.lowercase().contains(query) ||
-                product.merk.lowercase().contains(query)
-        }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-
-    val menus: StateFlow<List<PersonRow>> = repos.observeMenus()
+    val menuOptions: StateFlow<List<PersonRow>> = repos.observeMenus()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val customers: StateFlow<List<PersonRow>> = repos.observeCustomers()
@@ -183,52 +213,186 @@ class PosViewModel(
     val mechanics: StateFlow<List<UserRow>> = repos.observeMekanik()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** Riwayat singkat di halaman Kasir, sama seperti tabel riwayat web. */
-    val history: StateFlow<List<MenuRow>> = combine(repos.observeMenu(), local) { rows, state ->
-        val query = state.historyQuery.trim().lowercase()
-        rows.filter { row ->
-            query.isBlank() || row.id.lowercase().contains(query) ||
-                row.person.lowercase().contains(query) || row.note.lowercase().contains(query)
-        }.take(50)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val persons: StateFlow<List<PersonRow>> = repos.observePerson()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    fun setQuery(value: String) = local.update { it.copy(query = value) }
+    val feed: StateFlow<PosFeedState> = combine(
+        repos.observeProduk(),
+        repos.observeMenu(),
+        repos.observeMenus(),
+        persons,
+        local,
+    ) { products, menus, tabs, persons, snapshot ->
+        val visibleTabs = if (snapshot.level == 10) {
+            tabs.filter { PosFeed.isOverview(it.nama) }
+        } else {
+            tabs
+        }
+        when {
+            PosFeed.isOverview(snapshot.selectedMenu) -> {
+                val rows = PosFeed.history(
+                    rows = menus,
+                    filter = PosFeed.HistoryFilter(
+                        query = snapshot.query,
+                        status = snapshot.filterStatus,
+                        personId = snapshot.filterPerson,
+                        jenis = snapshot.filterJenis,
+                        level = snapshot.level,
+                        username = username,
+                        fullName = fullName,
+                        subRefs = snapshot.subRefs,
+                    ),
+                    persons = persons,
+                )
+                val (pageRows, pages) = PosFeed.slice(rows, snapshot.page, snapshot.perPage)
+                PosFeedState(visibleTabs, emptyList(), PosFeed.groupByDate(pageRows), snapshot.page.coerceIn(1, pages), pages)
+            }
 
-    fun setHistoryQuery(value: String) = local.update { it.copy(historyQuery = value) }
+            PosFeed.isGaji(snapshot.selectedMenu) -> {
+                val rows = PosFeed.history(
+                    rows = menus.filter { it.jenis.contains("gaji", ignoreCase = true) },
+                    filter = PosFeed.HistoryFilter(
+                        query = snapshot.query,
+                        subRefs = snapshot.subRefs,
+                    ),
+                    persons = persons,
+                )
+                val (pageRows, pages) = PosFeed.slice(rows, snapshot.page, snapshot.perPage)
+                PosFeedState(visibleTabs, emptyList(), PosFeed.groupByDate(pageRows), snapshot.page.coerceIn(1, pages), pages)
+            }
 
-    fun setMenu(value: String) = local.update { it.copy(draft = it.draft.copy(menu = value), error = null) }
+            else -> {
+                val rows = PosFeed.products(products, snapshot.selectedMenu, snapshot.query)
+                val (pageRows, pages) = PosFeed.slice(rows, snapshot.page, snapshot.perPage)
+                PosFeedState(visibleTabs, pageRows, emptyList(), snapshot.page.coerceIn(1, pages), pages)
+            }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PosFeedState())
+
+    fun setQuery(value: String) {
+        local.update { it.copy(query = value, page = 1, subRefs = emptySet()) }
+        viewModelScope.launch {
+            val refs = repos.searchRefs(value)
+            local.update { it.copy(subRefs = refs) }
+        }
+    }
+
+    fun setPerPage(value: Int) = local.update {
+        if (it.perPage == value) it else it.copy(perPage = value, page = 1)
+    }
+
+    fun setPage(value: Int) = local.update { it.copy(page = value.coerceAtLeast(1)) }
+
+    fun setViewMode(value: String) = local.update { it.copy(viewMode = value) }
+
+    fun toggleFilters() = local.update { it.copy(showFilters = !it.showFilters) }
+
+    fun setFilterStatus(value: String) = local.update { it.copy(filterStatus = value, page = 1) }
+
+    fun setFilterPerson(value: String) = local.update { it.copy(filterPerson = value, page = 1) }
+
+    fun toggleFilterJenis(value: String) = local.update { state ->
+        val next = if (state.filterJenis.contains(value)) {
+            state.filterJenis - value
+        } else {
+            state.filterJenis + value
+        }
+        state.copy(filterJenis = next, page = 1)
+    }
+
+    fun clearFilters() = local.update {
+        it.copy(filterStatus = "all", filterPerson = "", filterJenis = emptySet(), page = 1)
+    }
+
+    /** Pindah menu seperti `handleMenuChange`: keranjang aktif harus dikonfirmasi dulu. */
+    fun selectMenu(value: String) {
+        val current = local.value
+        if (current.selectedMenu.equals(value, ignoreCase = true)) return
+        if (current.cart.isNotEmpty() || current.edit != null) {
+            local.update { it.copy(pendingMenu = value) }
+        } else {
+            applyMenu(value)
+        }
+    }
+
+    fun confirmMenuChange() {
+        val target = local.value.pendingMenu ?: return
+        applyMenu(target)
+    }
+
+    fun cancelMenuChange() = local.update { it.copy(pendingMenu = null) }
+
+    private fun applyMenu(value: String) {
+        local.update {
+            it.copy(
+                selectedMenu = value,
+                page = 1,
+                pendingMenu = null,
+                cart = emptyList(),
+                edit = null,
+                error = null,
+                query = it.query,
+                draft = CheckoutDraft(menu = if (PosFeed.isOverview(value)) it.draft.menu else value),
+            )
+        }
+    }
+
+    fun setCartTab(value: Int) = local.update { it.copy(cartTab = value, error = null) }
 
     fun updateDraft(block: (CheckoutDraft) -> CheckoutDraft) = local.update { it.copy(draft = block(it.draft)) }
 
     fun setCustomer(person: PersonRow) = local.update {
         it.copy(
-            draft = it.draft.copy(personIdLama = person.idLama.ifBlank { person.id }, personName = person.nama),
+            draft = it.draft.copy(
+                personIdLama = person.idLama.ifBlank { person.id },
+                personName = person.nama,
+                // Web mengisi marketplace untuk pelanggan online dan mengosongkannya lagi saat offline.
+                marketplace = if (PosPricing.isOnline(person.idLama.ifBlank { person.id }, person.nama)) {
+                    it.draft.marketplace.ifBlank { "Shopee" }
+                } else {
+                    ""
+                },
+            ),
             error = null,
         )
     }
 
-    fun add(product: Produk, qty: BigDecimal = BigDecimal.ONE) = local.update { state ->
-        if (qty.signum() <= 0) return@update state
-        val existing = state.cart.firstOrNull { it.produk.id == product.id }
+    /** Tambah produk dengan batas stok realtime seperti `addToCart` web. */
+    fun add(product: Produk, qty: BigDecimal = BigDecimal.ONE) {
+        val snapshot = local.value
+        if (qty.signum() <= 0) return
+        val existing = snapshot.cart.firstOrNull { it.produk.id == product.id }
         val next = (existing?.qty ?: BigDecimal.ZERO) + qty
-        val cart = if (existing == null) {
-            state.cart + CartEntry(product, next)
-        } else {
-            state.cart.map { if (it.produk.id == product.id) it.copy(qty = next) else it }
+        if (!PosFeed.isPembelian(snapshot.draft.menu) && next > product.stok) {
+            local.update {
+                it.copy(
+                    error = "Sisa pasokan fisik untuk barang ini hanya tersisa " +
+                        "${product.stok.stripTrailingZeros().toPlainString()} ${product.unit}.",
+                )
+            }
+            return
         }
-        val check = PosValidation.stockError(
-            cart.map { CartLine(it.produk.id, it.produk.nama, it.qty, it.produk.sell1) },
-            cart.map { it.produk.id to it.produk.stok }.toMap(),
-            PosValidation.directionOf(state.draft.menu),
-        )
-        if (check != null) state.copy(error = check) else state.copy(cart = cart, error = null)
+        val cart = if (existing == null) {
+            snapshot.cart + CartEntry(product, next)
+        } else {
+            snapshot.cart.map { if (it.produk.id == product.id) it.copy(qty = next) else it }
+        }
+        local.update { it.copy(cart = cart, error = null) }
     }
 
     fun setQty(productId: String, qty: BigDecimal) = local.update { state ->
+        val entry = state.cart.firstOrNull { it.produk.id == productId } ?: return@update state
         if (qty.signum() <= 0) {
-            state.copy(cart = state.cart.filterNot { it.produk.id == productId })
+            state.copy(cart = state.cart.filterNot { it.produk.id == productId }, error = null)
+        } else if (!PosFeed.isPembelian(state.draft.menu) && qty > entry.produk.stok) {
+            state.copy(
+                error = "Maksimal gudang (${entry.produk.stok.stripTrailingZeros().toPlainString()} unit).",
+            )
         } else {
-            state.copy(cart = state.cart.map { if (it.produk.id == productId) it.copy(qty = qty) else it })
+            state.copy(
+                cart = state.cart.map { if (it.produk.id == productId) it.copy(qty = qty) else it },
+                error = null,
+            )
         }
     }
 
@@ -270,21 +434,45 @@ class PosViewModel(
 
     fun clearError() = local.update { it.copy(error = null) }
 
+    /** Hasil simpan ditutup: keranjang dan mode edit selesai. */
     fun dismissSaved() = local.update {
-        it.copy(saved = null, cart = emptyList(), edit = null, draft = CheckoutDraft(menu = it.draft.menu))
+        it.copy(
+            saved = null,
+            savedReceipt = null,
+            review = false,
+            cart = emptyList(),
+            cartTab = 0,
+            edit = null,
+            error = null,
+            draft = CheckoutDraft(menu = if (PosFeed.isOverview(it.selectedMenu)) it.draft.menu else it.selectedMenu),
+        )
+    }
+
+    fun cancelEdit() = local.update {
+        it.copy(
+            edit = null,
+            cart = emptyList(),
+            cartTab = 0,
+            error = null,
+            draft = CheckoutDraft(menu = if (PosFeed.isOverview(it.selectedMenu)) it.draft.menu else it.selectedMenu),
+        )
     }
 
     fun askDelete(row: MenuRow) = local.update { it.copy(deleteTarget = row) }
 
     fun openSettle(row: MenuRow) = local.update {
-        it.copy(settleFor = row, settleAccount = it.settleAccount.ifBlank { "kasir" }, error = null)
+        it.copy(
+            settleFor = row,
+            settleAccount = it.settleAccount.ifBlank { accounts.value.firstOrNull()?.id.orEmpty() },
+            error = null,
+        )
     }
 
-    fun closeSettle() = local.update { it.copy(settleFor = null) }
+    fun closeSettle() = local.update { it.copy(settleFor = null, error = null) }
 
     fun setSettleAccount(value: String) = local.update { it.copy(settleAccount = value) }
 
-    /** Pelunasan cepat dari halaman Kasir, sama seperti quick settle web. */
+    /** Pelunasan cepat dari kartu riwayat atau detail nota. */
     fun settle() {
         val row = local.value.settleFor ?: return
         val account = local.value.settleAccount
@@ -296,7 +484,9 @@ class PosViewModel(
         local.update { it.copy(saving = true, error = null) }
         viewModelScope.launch {
             when (val result = settlement.settle(row.id, sisa, account, operatorName)) {
-                is CheckoutResult.Saved -> local.update { it.copy(saving = false, settleFor = null, saved = result) }
+                is CheckoutResult.Saved -> local.update {
+                    it.copy(saving = false, settleFor = null, detail = null, saved = result)
+                }
                 is CheckoutResult.Rejected -> local.update { it.copy(saving = false, error = result.message) }
             }
         }
@@ -315,12 +505,22 @@ class PosViewModel(
             }
             when (val result = editRepo.delete(session)) {
                 is CheckoutResult.Saved ->
-                    local.update { it.copy(saved = result, edit = null) }
+                    local.update { it.copy(saved = result, detail = null, edit = null) }
                 is CheckoutResult.Rejected ->
                     local.update { it.copy(error = result.message) }
             }
         }
     }
+
+    fun openDetail(row: MenuRow) {
+        local.update { it.copy(detail = row, detailData = null, detailLoading = true, error = null) }
+        viewModelScope.launch {
+            val detail = repos.menuDetail(row.id)
+            local.update { it.copy(detailData = detail, detailLoading = false) }
+        }
+    }
+
+    fun closeDetail() = local.update { it.copy(detail = null, detailData = null, detailLoading = false, error = null) }
 
     /** Muat nota ke keranjang untuk diedit, sama seperti `handleEditHistoryToCart` web. */
     fun loadForEdit(row: MenuRow) {
@@ -329,6 +529,10 @@ class PosViewModel(
             if (session == null) {
                 local.update { it.copy(error = "Item transaksi tidak dapat dimuat. Sinkronkan dulu.") }
                 return@launch
+            }
+            val menu = session.menu
+            val jenis = menu.text("jenis").ifBlank { row.jenis }.ifBlank {
+                local.value.draft.menu
             }
             val cart = session.logs.mapNotNull { entity ->
                 val log = entity.object_() ?: return@mapNotNull null
@@ -343,7 +547,7 @@ class PosViewModel(
                         idLama = log.text("item"),
                         kategori = "Umum",
                         merk = "",
-                        jenis = row.note,
+                        jenis = jenis,
                         varian = "",
                         tipe = "",
                         unit = "Pcs",
@@ -359,24 +563,45 @@ class PosViewModel(
                     CartEntry(product, qty, manualPrice = price)
                 }
             }
-            val firstCash = session.cashflows.firstOrNull()?.object_()
+            val personId = menu.text("person").ifBlank { "umum1" }
+            val person = persons.value.firstOrNull { it.idLama == personId || it.id == personId }
+            val files = menu.get("file")?.let { menu.strings("file") }.orEmpty()
             local.update {
                 it.copy(
                     cart = cart,
+                    review = false,
+                    cartTab = 0,
                     edit = EditTarget(row.id, session),
-                    draft = it.draft.copy(
-                        menu = row.note.ifBlank { it.draft.menu },
-                        personIdLama = session.menu.text("person").ifBlank { "umum1" },
-                        payment = if (session.menu.text("payment") == "cash") "Tunai" else "Tempo",
-                        tempoDate = session.menu.text("tempo"),
-                        noteMenu = session.menu.text("text"),
-                        marketplace = session.menu.text("marketplace"),
-                        adminFee = session.menu.number("admin").stripTrailingZeros().toPlainString(),
-                        cashback = session.menu.number("cashback").stripTrailingZeros().toPlainString(),
+                    detail = null,
+                    draft = CheckoutDraft(
+                        menu = jenis,
+                        personIdLama = personId,
+                        personName = person?.nama.orEmpty().ifBlank { personId },
+                        payment = if (menu.text("payment") == "cash") "Tunai" else "Tempo",
+                        nominalBayar = row.dibayar.stripTrailingZeros().toPlainString(),
                         payments = session.cashflows.map { cf ->
-                            val rowJson = cf.object_()
-                            PaymentLine(rowJson?.text("account_1").orEmpty(), rowJson?.number("nominal")?.stripTrailingZeros()?.toPlainString().orEmpty())
-                        }.ifEmpty { listOf(PaymentLine(firstCash?.text("account_1").orEmpty())) },
+                            val cash = cf.object_()
+                            PaymentLine(
+                                cash?.text("account_1").orEmpty(),
+                                cash?.number("nominal")?.stripTrailingZeros()?.toPlainString().orEmpty(),
+                            )
+                        }.ifEmpty { listOf(PaymentLine()) },
+                        mechanics = session.ongkos.map { fee ->
+                            val rowJson = fee.object_()
+                            MechanicLine(
+                                rowJson?.text("person").orEmpty(),
+                                rowJson?.number("ongkos")?.stripTrailingZeros()?.toPlainString().orEmpty(),
+                            )
+                        }.ifEmpty { listOf(MechanicLine()) },
+                        note = session.cashflows.firstNotNullOfOrNull { cf ->
+                            cf.object_()?.text("note")?.takeIf { value -> value.isNotBlank() }
+                        }.orEmpty(),
+                        noteMenu = menu.text("text"),
+                        tempoDate = menu.text("tempo"),
+                        marketplace = menu.text("marketplace"),
+                        adminFee = menu.number("admin").stripTrailingZeros().toPlainString(),
+                        cashback = menu.number("cashback").stripTrailingZeros().toPlainString(),
+                        mediaCount = files.size,
                     ),
                     error = null,
                 )
@@ -384,21 +609,53 @@ class PosViewModel(
         }
     }
 
+    /** Validasi checkout, lalu buka review. Pesan pertama langsung ditampilkan. */
+    fun review() {
+        val snapshot = local.value
+        if (snapshot.saving) return
+        val error = validationError(snapshot)
+        if (error != null) {
+            local.update { it.copy(error = error) }
+            return
+        }
+        local.update { it.copy(review = true, error = null) }
+    }
+
+    fun cancelReview() = local.update { it.copy(review = false) }
+
+    private fun validationError(snapshot: PosUiState): String? {
+        val draft = snapshot.draft
+        val errors = PosValidation.checkoutErrors(
+            menu = draft.menu,
+            cartCount = snapshot.cart.size,
+            mechanics = draft.mechanics
+                .filter { it.idLama.isNotBlank() }
+                .map { PosValidation.MechanicLine(it.idLama, Money.parse(it.ongkos) ?: BigDecimal.ZERO) },
+            payments = draft.payments.map { PosValidation.PaymentLine(it.accountId, Money.parse(it.nominal) ?: BigDecimal.ZERO) },
+            isOnline = snapshot.isOnline,
+            marketplace = draft.marketplace,
+            adminFee = Money.parse(draft.adminFee) ?: BigDecimal.ZERO,
+            noteMenu = draft.noteMenu,
+            payment = draft.payment,
+            tempoDate = draft.tempoDate,
+        )
+        return errors.firstOrNull()
+    }
+
     fun commit() {
         val snapshot = local.value
         if (snapshot.saving) return
         val draft = snapshot.draft
-        val payments = draft.payments.map { PaymentLine(it.accountId, it.nominal) }
-        val mechanics = draft.mechanics
+        val senderName = snapshot.draft.personName
         val form = CheckoutForm(
             personIdLama = draft.personIdLama,
             personName = draft.personName,
             payment = draft.payment,
             nominalBayar = Money.parse(draft.nominalBayar) ?: BigDecimal.ZERO,
-            cashflow = payments
+            cashflow = draft.payments
                 .filter { it.accountId.isNotBlank() }
                 .map { CashflowInput(it.accountId, Money.parse(it.nominal) ?: BigDecimal.ZERO) },
-            mekanik = mechanics
+            mekanik = draft.mechanics
                 .filter { it.idLama.isNotBlank() }
                 .map { MekanikInput(it.idLama, Money.parse(it.ongkos) ?: BigDecimal.ZERO) },
             note = draft.note,
@@ -412,24 +669,12 @@ class PosViewModel(
             createdAtIso = WibDate.nowIso(),
         )
 
-        val errors = PosValidation.checkoutErrors(
-            menu = draft.menu,
-            cartCount = snapshot.cart.size,
-            mechanics = form.mekanik.map { PosValidation.MechanicLine(it.idLama, it.ongkos) },
-            payments = payments.map { PosValidation.PaymentLine(it.accountId, Money.parse(it.nominal) ?: BigDecimal.ZERO) },
-            isOnline = snapshot.isOnline,
-            marketplace = draft.marketplace,
-            adminFee = form.adminFee,
-            noteMenu = draft.noteMenu,
-            payment = draft.payment,
-            tempoDate = draft.tempoDate,
-        )
-        errors.firstOrNull()?.let { message ->
-            local.update { it.copy(error = message) }
+        validationError(snapshot)?.let { message ->
+            local.update { it.copy(error = message, review = false) }
             return
         }
 
-        local.update { it.copy(saving = true, error = null) }
+        local.update { it.copy(saving = true, review = false, error = null) }
         val cart = snapshot.lines.map { line ->
             CartLine(
                 productId = line.produk.id,
@@ -449,8 +694,24 @@ class PosViewModel(
                 editRepo.update(edit.session, draft.menu, cart, form, operatorName)
             }
             when (result) {
-                is CheckoutResult.Saved ->
-                    local.update { it.copy(saving = false, saved = result, error = null) }
+                is CheckoutResult.Saved -> {
+                    val receipt = ReceiptData(
+                        notaId = result.notaId,
+                        waktu = WibDate.nowIso().take(16).replace('T', ' '),
+                        kasir = operatorName,
+                        pelanggan = senderName,
+                        jenis = draft.menu,
+                        items = snapshot.lines.map { ReceiptItem(it.produk.nama, it.qty, it.price) },
+                        total = result.total,
+                        bayar = snapshot.paid,
+                        kembali = (snapshot.paid - result.total).max(BigDecimal.ZERO),
+                        payment = draft.payment,
+                        mekanik = draft.mechanics
+                            .filter { it.idLama.isNotBlank() }
+                            .map { it.idLama to (Money.parse(it.ongkos) ?: BigDecimal.ZERO) },
+                    )
+                    local.update { it.copy(saving = false, saved = result, savedReceipt = receipt, error = null) }
+                }
                 is CheckoutResult.Rejected ->
                     local.update { it.copy(saving = false, error = result.message) }
             }
