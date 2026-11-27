@@ -79,6 +79,9 @@ interface OutboxDao {
         insertOperations(operations)
     }
 
+    @Query("SELECT * FROM outbox ORDER BY createdAt ASC, requestId ASC")
+    suspend fun all(): List<OutboxEntity>
+
     @Query("SELECT * FROM outbox WHERE status = 'pending' ORDER BY createdAt ASC LIMIT 1")
     suspend fun oldestPending(): OutboxEntity?
 

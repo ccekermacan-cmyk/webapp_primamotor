@@ -36,6 +36,8 @@ fun AppNav(
     onLogout: () -> Unit = {},
     posScreen: @Composable () -> Unit = { PlaceholderScreen("POS") },
     historyScreen: @Composable () -> Unit = { PlaceholderScreen("Riwayat") },
+    productsScreen: @Composable () -> Unit = { PlaceholderScreen("Produk") },
+    cashflowScreen: @Composable () -> Unit = { PlaceholderScreen("Kas") },
 ) {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
@@ -72,6 +74,8 @@ fun AppNav(
                     when (item) {
                         TopRoute.POS -> posScreen()
                         TopRoute.HISTORY -> historyScreen()
+                        TopRoute.PRODUCTS -> productsScreen()
+                        TopRoute.CASHFLOW -> cashflowScreen()
                         TopRoute.ACCOUNT -> AccountPlaceholder(onLogout)
                         else -> PlaceholderScreen(item.label)
                     }
