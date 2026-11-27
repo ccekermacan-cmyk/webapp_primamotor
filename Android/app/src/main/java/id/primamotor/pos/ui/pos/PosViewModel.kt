@@ -50,7 +50,7 @@ data class PosUiState(
 class PosViewModel(
     private val repos: Repositories,
     private val checkout: CheckoutRepository,
-    private val operator: String,
+    val operatorName: String,
 ) : ViewModel() {
 
     private val local = MutableStateFlow(PosUiState())
@@ -145,7 +145,7 @@ class PosViewModel(
             val cart = snapshot.cart.map {
                 CartLine(productId = it.produk.id, nama = it.produk.nama, qty = it.qty, price = it.produk.sell1)
             }
-            when (val result = checkout.commit(draft.menu, cart, form, operator)) {
+            when (val result = checkout.commit(draft.menu, cart, form, operatorName)) {
                 is CheckoutResult.Saved ->
                     local.update { it.copy(saving = false, saved = result, error = null) }
                 is CheckoutResult.Rejected ->

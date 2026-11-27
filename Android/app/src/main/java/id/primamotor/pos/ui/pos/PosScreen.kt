@@ -38,7 +38,7 @@ fun PosRoute(container: id.primamotor.pos.AppContainer) {
         PosViewModel(
             repos = container.repositories,
             checkout = container.checkoutRepository,
-            operator = container.tokenStore.cachedUser()?.username ?: "kasir",
+            operatorName = container.tokenStore.cachedUser()?.username ?: "kasir",
         )
     }
     PosScreen(viewModel)
@@ -50,6 +50,7 @@ fun PosScreen(viewModel: PosViewModel) {
     val products by viewModel.products.collectAsStateWithLifecycle()
     val menus by viewModel.menus.collectAsStateWithLifecycle()
     var cartOpen by remember { mutableStateOf(false) }
+    var showReceipt by remember { mutableStateOf(false) }
 
     Column(Modifier.fillMaxSize()) {
         OutlinedTextField(
@@ -127,11 +128,31 @@ fun PosScreen(viewModel: PosViewModel) {
     }
 
     val saved = state.saved
+    if (showReceipt && saved != null) {
+        ReceiptPrintSheet(
+            receipt = id.primamotor.pos.hardware.printer.ReceiptData(
+                notaId = saved.notaId,
+                waktu = id.primamotor.pos.domain.WibDate.nowIso(),
+                kasir = viewModel.operatorName,
+                items = state.cart.map { entry ->
+                    id.primamotor.pos.hardware.printer.ReceiptItem(entry.produk.nama, entry.qty, entry.produk.sell1)
+                },
+                total = saved.total,
+                bayar = saved.total + saved.change,
+                kembali = saved.change,
+                payment = state.draft.payment,
+            ),
+            onDismiss = { showReceipt = false },
+        )
+    }
     if (saved != null) {
         AlertDialog(
             onDismissRequest = viewModel::dismissSaved,
             confirmButton = {
                 TextButton(onClick = viewModel::dismissSaved) { Text("Tutup") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showReceipt = true }) { Text("Cetak struk") }
             },
             title = { Text("Transaksi tersimpan") },
             text = {

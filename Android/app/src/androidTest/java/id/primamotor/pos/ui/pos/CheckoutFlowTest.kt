@@ -74,7 +74,7 @@ class CheckoutFlowTest {
 
     @Test
     fun cashier_can_checkout_offline_and_outbox_holds_transaction() {
-        val viewModel = PosViewModel(Repositories(db), CheckoutRepository(db), operator = "kasir")
+        val viewModel = PosViewModel(Repositories(db), CheckoutRepository(db), operatorName = "kasir")
         rule.setContent { PrimaMotorTheme { PosScreen(viewModel) } }
 
         rule.onNodeWithText("Oli Mesin").assertIsDisplayed()
