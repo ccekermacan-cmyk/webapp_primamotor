@@ -10,3 +10,9 @@ dist/
 obsidian/.obsidian/
 preview-ui/
 
+
+# Android build artifacts
+Android/.gradle/
+Android/build/
+Android/app/build/
+Android/local.properties

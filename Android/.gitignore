@@ -1,0 +1,19 @@
+# Gradle
+.gradle/
+build/
+app/build/
+captures/
+
+# Android Studio / IntelliJ
+*.iml
+.idea/
+local.properties
+
+# Keystore
+*.jks
+*.keystore
+
+# OS
+.DS_Store
+# Kotlin incremental session files
+.kotlin/
