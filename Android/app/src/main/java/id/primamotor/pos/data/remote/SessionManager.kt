@@ -3,6 +3,8 @@ package id.primamotor.pos.data.remote
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 /**
  * Lapisan sesi: menyimpan token, dan memperbarui token sekali saat server menjawab 401.
@@ -18,6 +20,34 @@ class SessionManager(
         client.auth(identity, password).also(store::save)
     }
 
+    /**
+     * Verifikasi ulang password tanpa mengganti sesi aktif.
+     * Dipakai untuk aksi sensitif seperti hapus produk, sama seperti web.
+     */
+    suspend fun verifyPassword(identity: String, password: String): Boolean = withContext(Dispatchers.IO) {
+        runCatching { client.auth(identity, password) }.isSuccess
+    }
+
+    /** Ubah password akun sendiri. Wajib online; server menolak bila password lama salah. */
+    suspend fun changePassword(userId: String, oldPassword: String, password: String) = withContext(Dispatchers.IO) {
+        val body = buildJsonObject {
+            put("oldPassword", oldPassword)
+            put("password", password)
+            put("passwordConfirm", password)
+        }
+        call("/api/collections/user/records/$userId", "PATCH", body)
+        Unit
+    }
+
+    /** Minta perubahan email; PocketBase mengirim tautan konfirmasi ke email baru. */
+    suspend fun requestEmailChange(newEmail: String) = withContext(Dispatchers.IO) {
+        val body = buildJsonObject {
+            put("newEmail", newEmail)
+        }
+        call("/api/collections/user/request-email-change", "POST", body)
+        Unit
+    }
+
     suspend fun restore(): UserSession? = withContext(Dispatchers.IO) {
         val token = store.token() ?: return@withContext null
         runCatching { client.refresh(token) }.getOrNull()?.also(store::save)
@@ -30,6 +60,11 @@ class SessionManager(
 
     suspend fun batch(requestId: String, operations: List<BatchOperation>): List<BatchResult> =
         authorized { client.batch(requestId, operations, it) }
+
+    suspend fun upload(path: String, field: String, filePath: String) = withContext(Dispatchers.IO) {
+        val token = store.token() ?: throw PocketBaseException("Sesi berakhir. Login ulang untuk unggah media.")
+        client.uploadFile(path, field, filePath, token)
+    }
 
     suspend fun resolve(requestId: String): Resolution = authorized { client.resolveRequest(requestId, it) }
 

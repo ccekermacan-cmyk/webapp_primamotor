@@ -14,16 +14,23 @@ class BarcodeLookupTest {
         idLama = idLama,
         kategori = "",
         merk = "",
+        jenis = "",
         varian = "",
         tipe = "",
         unit = "",
         barcode = barcode,
+        keterangan = "",
         stok = BigDecimal.ONE,
         beli = BigDecimal.ONE,
         sell1 = BigDecimal.ONE,
         sell2 = BigDecimal.ONE,
         sell3 = BigDecimal.ONE,
+        sell4 = BigDecimal.ONE,
+        sell5 = BigDecimal.ONE,
+        sell6 = BigDecimal.ONE,
         min1 = BigDecimal.ZERO,
+        min2 = BigDecimal.ZERO,
+        min3 = BigDecimal.ZERO,
     )
 
     @Test

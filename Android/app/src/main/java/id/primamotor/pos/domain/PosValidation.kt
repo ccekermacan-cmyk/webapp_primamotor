@@ -10,6 +10,8 @@ data class CartLine(
     val price: BigDecimal,
     /** Harga normal (sell_6) untuk laporan; default sama dengan harga jual. */
     val normalPrice: BigDecimal = price,
+    /** Harga beli (beli) untuk kolom `price_2` log_stock, sama seperti web. */
+    val cost: BigDecimal = BigDecimal.ZERO,
 )
 
 /**
@@ -52,7 +54,10 @@ object PosValidation {
         return null
     }
 
-    /** Tunai wajib menutup total; tempo wajib tanggal jatuh tempo yang valid. */
+    /**
+     * Sama dengan web: tunai tidak harus menutup total (status menjadi `belum`),
+     * tempo wajib tanggal jatuh tempo yang valid.
+     */
     fun paymentError(
         payment: String,
         nominalBayar: BigDecimal,
@@ -61,7 +66,7 @@ object PosValidation {
         today: LocalDate = LocalDate.now(WibDate.WIB),
     ): String? {
         return when (payment) {
-            "Tunai" -> if (nominalBayar < total) "Nominal bayar kurang dari total." else null
+            "Tunai" -> null
             "Tempo" -> {
                 if (tempoDate.isBlank()) return "Tanggal tempo wajib diisi."
                 val date = runCatching { LocalDate.parse(tempoDate) }.getOrNull()
@@ -74,4 +79,64 @@ object PosValidation {
 
     fun statusOf(totalDibayar: BigDecimal, total: BigDecimal): String =
         if (totalDibayar >= total) "lunas" else "belum"
+
+    data class MechanicLine(val idLama: String, val ongkos: BigDecimal)
+
+    data class PaymentLine(val accountId: String, val nominal: BigDecimal)
+
+    /**
+     * Cermin `validateCheckout` di `Frontend/src/lib/posValidation.ts`.
+     * Urutan pesan mengikuti urutan tab web: items, payment, notes.
+     */
+    fun checkoutErrors(
+        menu: String,
+        cartCount: Int,
+        mechanics: List<MechanicLine>,
+        payments: List<PaymentLine>,
+        isOnline: Boolean,
+        marketplace: String,
+        adminFee: BigDecimal,
+        noteMenu: String,
+        payment: String,
+        tempoDate: String,
+    ): List<String> {
+        val errors = mutableListOf<String>()
+        val lower = menu.lowercase()
+        val service = lower.contains("service") || lower.contains("servis")
+        val pembelian = lower.contains("pembelian")
+
+        if (cartCount == 0 && !service) {
+            errors += "Isi keranjang dengan item terlebih dahulu!"
+        }
+        if (service) {
+            val valid = mechanics.filter { it.idLama.isNotBlank() && it.ongkos.signum() > 0 }
+            if (valid.isEmpty()) {
+                errors += "Untuk menu SERVICE, minimal 1 mekanik harus diisi dengan ongkos yang valid (> 0)."
+            }
+            if (mechanics.any { it.idLama.isNotBlank() && it.ongkos.signum() == 0 }) {
+                errors += "Mekanik yang dipilih harus memiliki ongkos kerja yang valid (harus > 0). Silakan isi ongkos untuk semua mekanik."
+            }
+        }
+        if (payments.any { it.accountId.isNotBlank() && it.nominal.signum() == 0 }) {
+            errors += "Akun kas yang dipilih harus memiliki nominal pembayaran yang valid (harus > 0)."
+        }
+        if (payments.any { it.accountId.isBlank() && it.nominal.signum() > 0 }) {
+            errors += "Nominal pembayaran dimasukkan tetapi akun kas belum dipilih. Silakan pilih akun kas terlebih dahulu."
+        }
+        if (isOnline) {
+            if (marketplace.isBlank()) errors += "Marketplace wajib diisi untuk pelanggan online."
+            if (adminFee.signum() < 0) errors += "Admin fee tidak boleh bernilai negatif."
+        }
+        if (service && noteMenu.isBlank()) {
+            errors += "Isi jenis motor service pada catatan nota!"
+        }
+        if (pembelian) {
+            if (payment == "Tempo" && tempoDate.isBlank()) {
+                errors += "Tanggal jatuh tempo wajib diisi untuk pembelian dengan pembayaran Tempo."
+            } else if (noteMenu.isBlank() && !(payment == "Tempo" && tempoDate.isNotBlank())) {
+                errors += "Isi nota dari customer pada catatan nota!"
+            }
+        }
+        return errors
+    }
 }

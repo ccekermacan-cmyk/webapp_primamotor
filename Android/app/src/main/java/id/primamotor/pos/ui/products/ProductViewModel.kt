@@ -2,6 +2,7 @@ package id.primamotor.pos.ui.products
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import id.primamotor.pos.data.remote.SessionManager
 import id.primamotor.pos.data.repo.ProductDraft
 import id.primamotor.pos.data.repo.ProductRepository
 import id.primamotor.pos.data.repo.ProductSave
@@ -19,15 +20,22 @@ import kotlinx.coroutines.launch
 data class ProductsUiState(
     val query: String = "",
     val draft: ProductDraft? = null,
+    val detail: Produk? = null,
     val scanning: Boolean = false,
     val saving: Boolean = false,
     val error: String? = null,
     val message: String? = null,
+    val deleteTarget: Produk? = null,
+    val deletePassword: String = "",
+    val deleteError: String? = null,
+    val verifying: Boolean = false,
 )
 
 class ProductViewModel(
     private val repos: Repositories,
     private val writer: ProductRepository,
+    private val sessions: SessionManager,
+    private val identity: String,
 ) : ViewModel() {
 
     private val local = MutableStateFlow(ProductsUiState())
@@ -46,39 +54,63 @@ class ProductViewModel(
                 product.nama.lowercase().contains(query) ||
                     product.barcode.contains(query) ||
                     product.idLama.lowercase().contains(query) ||
-                    product.merk.lowercase().contains(query)
+                    product.merk.lowercase().contains(query) ||
+                    product.kategori.lowercase().contains(query)
             }
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     fun setQuery(value: String) = local.update { it.copy(query = value) }
 
+    fun show(product: Produk) = local.update { it.copy(detail = product) }
+
+    fun closeDetail() = local.update { it.copy(detail = null) }
+
     fun edit(product: Produk?) = local.update {
-        it.copy(
-            draft = if (product == null) {
-                ProductDraft()
-            } else {
-                ProductDraft(
-                    id = product.id,
-                    nama = product.nama,
-                    barcode = product.barcode,
-                    idLama = product.idLama,
-                    kategori = product.kategori,
-                    merk = product.merk,
-                    varian = product.varian,
-                    tipe = product.tipe,
-                    unit = product.unit,
-                    beli = product.beli,
-                    sell1 = product.sell1,
-                    sell2 = product.sell2,
-                    sell3 = product.sell3,
-                    stok = product.stok,
-                    min1 = product.min1,
+        it.copy(draft = product?.let(::draftOf) ?: ProductDraft(), detail = null, error = null, message = null)
+    }
+
+    fun copy(product: Produk) = local.update {
+        it.copy(draft = writer.copyOf(product), detail = null, error = null, message = null)
+    }
+
+    fun askDelete(product: Produk) = local.update {
+        it.copy(deleteTarget = product, deletePassword = "", deleteError = null)
+    }
+
+    fun setDeletePassword(value: String) = local.update { it.copy(deletePassword = value, deleteError = null) }
+
+    fun cancelDelete() = local.update { it.copy(deleteTarget = null, deletePassword = "", deleteError = null) }
+
+    /**
+     * Hapus produk wajib verifikasi password seperti web. Verifikasi butuh jaringan;
+     * penghapusan sendiri tetap masuk outbox agar dieksekusi atomik oleh server.
+     */
+    fun confirmDelete() {
+        val target = local.value.deleteTarget ?: return
+        val password = local.value.deletePassword
+        if (password.isBlank()) {
+            local.update { it.copy(deleteError = "Password wajib diisi") }
+            return
+        }
+        local.update { it.copy(verifying = true, deleteError = null) }
+        viewModelScope.launch {
+            val ok = sessions.verifyPassword(identity, password)
+            if (!ok) {
+                local.update { it.copy(verifying = false, deleteError = "Verifikasi gagal. Periksa password dan koneksi.") }
+                return@launch
+            }
+            val deleted = writer.delete(target.id)
+            local.update {
+                it.copy(
+                    verifying = false,
+                    deleteTarget = null,
+                    deletePassword = "",
+                    detail = null,
+                    message = if (deleted) "Produk dihapus. Server mengeksekusi saat tersambung." else "Produk tidak ditemukan di cache.",
                 )
-            },
-            error = null,
-            message = null,
-        )
+            }
+        }
     }
 
     fun closeForm() = local.update { it.copy(draft = null) }
@@ -120,4 +152,29 @@ class ProductViewModel(
     }
 
     fun clearMessage() = local.update { it.copy(message = null) }
+
+    private fun draftOf(product: Produk) = ProductDraft(
+        id = product.id,
+        nama = product.nama,
+        barcode = product.barcode,
+        idLama = product.idLama,
+        kategori = product.kategori,
+        merk = product.merk,
+        jenis = product.jenis,
+        varian = product.varian,
+        keterangan = product.keterangan,
+        tipe = product.tipe,
+        unit = product.unit,
+        beli = product.beli,
+        sell1 = product.sell1,
+        sell2 = product.sell2,
+        sell3 = product.sell3,
+        sell4 = product.sell4,
+        sell5 = product.sell5,
+        sell6 = product.sell6,
+        stok = product.stok,
+        min1 = product.min1,
+        min2 = product.min2,
+        min3 = product.min3,
+    )
 }

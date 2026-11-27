@@ -6,7 +6,9 @@ import id.primamotor.pos.data.local.LocalRecordEntity
 import id.primamotor.pos.data.local.OutboxEntity
 import id.primamotor.pos.data.local.OutboxOperationEntity
 import id.primamotor.pos.data.local.OutboxStatus
+import id.primamotor.pos.data.local.PendingMediaEntity
 import id.primamotor.pos.domain.CartLine
+import id.primamotor.pos.domain.PosPricing
 import id.primamotor.pos.domain.PosValidation
 import id.primamotor.pos.domain.RecordId
 import id.primamotor.pos.domain.WibDate
@@ -26,6 +28,7 @@ data class MekanikInput(val idLama: String, val ongkos: BigDecimal)
 
 data class CheckoutForm(
     val personIdLama: String = "umum1",
+    val personName: String = "Umum",
     val payment: String = "Tunai",
     val nominalBayar: BigDecimal = BigDecimal.ZERO,
     val cashflow: List<CashflowInput> = emptyList(),
@@ -36,6 +39,10 @@ data class CheckoutForm(
     val marketplace: String = "",
     val adminFee: BigDecimal = BigDecimal.ZERO,
     val cashback: BigDecimal = BigDecimal.ZERO,
+    /** Bukti pembelian. Belum ada media -> status paksa `belum`, sama seperti web. */
+    val mediaCount: Int = 0,
+    /** Path foto bukti yang diunggah setelah nota dibuat. */
+    val mediaPath: String? = null,
     /** Waktu perangkat dalam ISO UTC; dipakai sebagai `created_at`. */
     val createdAtIso: String = WibDate.nowIso(),
 )
@@ -48,8 +55,9 @@ sealed interface CheckoutResult {
 /**
  * Menulis satu transaksi POS ke Room dan antrean outbox dalam SATU transaksi Room.
  *
- * Efek stok dan saldo diterapkan lokal agar transaksi berikutnya saat offline melihat angka terbaru.
- * Server tetap menghitung ulang saat push; nilai lokal hanya untuk pencegahan dini.
+ * Payload cermin `Frontend/src/services/posCheckout.ts`: kolom menu, log_stock, cashflow,
+ * dan ongkos sama nama dan artinya. Efek stok/saldo diterapkan lokal agar transaksi berikutnya
+ * saat offline melihat angka terbaru; server tetap menghitung ulang saat push.
  */
 class CheckoutRepository(
     private val db: AppDatabase,
@@ -62,7 +70,13 @@ class CheckoutRepository(
         form: CheckoutForm,
         operator: String,
     ): CheckoutResult = db.withTransaction {
-        PosValidation.cartError(cart)?.let { return@withTransaction CheckoutResult.Rejected(it) }
+        val service = PosPricing.isService(jenis)
+        if (cart.isEmpty() && !service) {
+            return@withTransaction CheckoutResult.Rejected("Isi keranjang dengan item terlebih dahulu!")
+        }
+        if (cart.isNotEmpty()) {
+            PosValidation.cartError(cart)?.let { return@withTransaction CheckoutResult.Rejected(it) }
+        }
 
         val direction = PosValidation.directionOf(jenis)
         val stocks = cart.map { it.productId }.distinct().associateWith { productId ->
@@ -71,7 +85,14 @@ class CheckoutRepository(
         }
         PosValidation.stockError(cart, stocks, direction)?.let { return@withTransaction CheckoutResult.Rejected(it) }
 
-        val total = cart.fold(BigDecimal.ZERO) { sum, line -> sum + line.price.multiply(line.qty) }
+        val subtotal = cart.fold(BigDecimal.ZERO) { sum, line -> sum + line.price.multiply(line.qty) }
+        val ongkosTotal = if (service) {
+            form.mekanik.filter { it.idLama.isNotBlank() && it.ongkos.signum() > 0 }
+                .fold(BigDecimal.ZERO) { sum, line -> sum + line.ongkos }
+        } else {
+            BigDecimal.ZERO
+        }
+        val total = PosPricing.grandTotal(jenis, subtotal, ongkosTotal, form.adminFee, form.cashback)
         PosValidation.paymentError(form.payment, form.nominalBayar, total, form.tempoDate)
             ?.let { return@withTransaction CheckoutResult.Rejected(it) }
 
@@ -93,26 +114,33 @@ class CheckoutRepository(
         }
 
         val dibayar = cashflows.fold(BigDecimal.ZERO) { sum, entry -> sum + entry.nominal }
-        val status = PosValidation.statusOf(dibayar, total)
+        // Web memaksa `belum` untuk pembelian tanpa bukti, walau dibayar penuh.
+        val status = if (PosPricing.isPembelian(jenis) && form.mediaCount == 0) {
+            "belum"
+        } else {
+            PosValidation.statusOf(dibayar, total)
+        }
         val notaId = idGenerator()
         val createdAt = form.createdAtIso
         val dateKey = WibDate.dayOf(createdAt)?.toString() ?: LocalDate.now(WibDate.WIB).toString()
-        val personNama = form.personIdLama
         val lower = jenis.lowercase()
         val isService = lower.contains("service") || lower.contains("servis")
+        val online = PosPricing.isOnline(form.personIdLama, form.personName)
+        val personBaru = dropdownIdByLama(form.personIdLama)
 
         val menuJson = buildJsonObject {
             put("id", notaId)
             put("jenis", jenis)
-            put("person", personNama)
+            put("person", form.personIdLama)
+            put("person_baru", personBaru)
             put("text", form.noteMenu)
             put("payment", if (form.payment == "Tunai") "cash" else "tempo")
             put("operator", operator)
             put("created_at", createdAt)
             put("qty", cart.fold(BigDecimal.ZERO) { sum, line -> sum + line.qty })
-            put("cashback", if (form.personIdLama == "umum1") BigDecimal.ZERO else form.cashback)
-            put("admin", if (form.personIdLama == "umum1") BigDecimal.ZERO else form.adminFee)
-            put("marketplace", if (form.personIdLama == "umum1") "" else form.marketplace)
+            put("cashback", if (online) form.cashback else BigDecimal.ZERO)
+            put("admin", if (online) form.adminFee else BigDecimal.ZERO)
+            put("marketplace", if (online) form.marketplace else "")
             put("status", status)
             put("total", total)
             put("dibayar", dibayar)
@@ -121,7 +149,7 @@ class CheckoutRepository(
         }
 
         val records = mutableListOf(
-            local("menu", notaId, menuJson, dateKey, personNama, text = "$jenis $personNama ${form.noteMenu}".lowercase(), dirty = 1),
+            local("menu", notaId, menuJson, dateKey, form.personIdLama, text = "$jenis ${form.personIdLama} ${form.noteMenu}".lowercase(), dirty = 1),
         )
         val operations = mutableListOf(
             OutboxOperationEntity(
@@ -146,7 +174,7 @@ class CheckoutRepository(
                 put("qty", line.qty)
                 put("item_baru", line.productId)
                 put("price_1", line.price)
-                put("price_2", if (direction == "in") BigDecimal.ZERO else line.price.multiply(line.qty))
+                put("price_2", if (direction == "in") BigDecimal.ZERO else line.cost.multiply(line.qty))
                 put("normal", if (direction == "in") BigDecimal.ZERO else line.normalPrice.multiply(line.qty))
                 put("boolean", direction)
                 put("ref", notaId)
@@ -181,6 +209,7 @@ class CheckoutRepository(
                 put("acc2", "")
                 put("note", form.note.ifBlank { "POS System: Nota $notaId" })
                 put("ref_baru", notaId)
+                put("person", personBaru)
                 put("persontext", form.personIdLama)
             }
             records += local("cashflow", cashflowId, json, dateKey, entry.accountId, text = "nota $notaId", dirty = 1)
@@ -225,12 +254,29 @@ class CheckoutRepository(
             operations.map { it.copy(requestId = requestId) },
         )
 
+        form.mediaPath?.let { path ->
+            db.mediaDao().add(
+                PendingMediaEntity(
+                    collection = "menu",
+                    recordId = notaId,
+                    field = "file",
+                    filePath = path,
+                ),
+            )
+        }
+
         CheckoutResult.Saved(
             notaId = notaId,
             total = total,
             change = form.nominalBayar - total,
             status = status,
         )
+    }
+
+    /** `person_baru` web = record id hasil cari `id_lama`. */
+    private suspend fun dropdownIdByLama(idLama: String): String {
+        if (idLama.isBlank()) return ""
+        return db.localRecordDao().findByField("dropdown", "id_lama", idLama)?.id.orEmpty()
     }
 
     private suspend fun updateProductStock(productId: String, stock: BigDecimal) {

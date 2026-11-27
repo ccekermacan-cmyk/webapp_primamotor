@@ -41,7 +41,7 @@ class RepositoriesTest {
                 record(
                     "produk",
                     "p1",
-                    """{"id":"p1","nama":"Oli Mesin","stok_3":4,"sell_1":55000,"sell_2":50000,"sell_3":45000}""",
+                    """{"id":"p1","nama":"Oli Mesin","stok_3":4,"sell_1":55000,"sell_2":50000,"sell_3":45000,"sell_6":45000}""",
                 ),
             ),
         )
@@ -51,7 +51,7 @@ class RepositoriesTest {
         assertEquals(1, rows.size)
         assertEquals("Oli Mesin", rows[0].nama)
         assertEquals(BigDecimal("4"), rows[0].stok)
-        assertEquals(0, BigDecimal("45000").compareTo(rows[0].price(3)))
+        assertEquals(0, BigDecimal("45000").compareTo(rows[0].sell6))
     }
 
     @Test

@@ -75,6 +75,49 @@ class PocketBaseClient(
     fun request(path: String, method: String = "GET", body: JsonElement? = null, token: String? = null): JsonElement =
         execute(path, method, body, token)
 
+    /**
+     * Unggah media ke record yang sudah ada (multipart PATCH).
+     * Dipakai pipeline media tertunda setelah batch keuangan dikonfirmasi server.
+     */
+    fun uploadFile(path: String, field: String, filePath: String, token: String?) {
+        val url = if (path.startsWith("http")) path else base + path
+        val file = java.io.File(filePath)
+        if (!file.exists()) throw PocketBaseException("File media tidak ditemukan.")
+        val mime = when (file.extension.lowercase()) {
+            "png" -> "image/png"
+            "webp" -> "image/webp"
+            "mp4" -> "video/mp4"
+            else -> "image/jpeg"
+        }
+        val body = okhttp3.MultipartBody.Builder()
+            .setType(okhttp3.MultipartBody.FORM)
+            .addFormDataPart(
+                field,
+                file.name,
+                okhttp3.RequestBody.create(mime.toMediaType(), file),
+            )
+            .build()
+        val request = Request.Builder()
+            .url(url)
+            .method("PATCH", body)
+            .apply { if (token != null) header("Authorization", "Bearer ${'$'}token") }
+            .header("Accept", "application/json")
+            .build()
+        val response = try {
+            http.newCall(request).execute()
+        } catch (error: IOException) {
+            throw PocketBaseException("Unggah media gagal karena jaringan.", cause = error)
+        }
+        response.use {
+            if (!it.isSuccessful) {
+                val parsed = runCatching { json.parseToJsonElement(it.body?.string().orEmpty()) }.getOrNull()
+                val message = (parsed as? JsonObject)?.get("message")?.jsonPrimitive?.content
+                    ?: "Unggah media ditolak server (${'$'}{it.code})."
+                throw PocketBaseException(message)
+            }
+        }
+    }
+
     private fun execute(path: String, method: String, body: JsonElement?, token: String?): JsonElement {
         val url = if (path.startsWith("http")) path else base + path
         val requestBody = when {

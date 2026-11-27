@@ -15,18 +15,30 @@ Desain: `docs/superpowers/specs/2026-11-27-android-web-parity-design.md`.
 
 ## Fase 2 — transaksi penuh
 
-- [ ] POS: harga tier, mekanik + ongkos, cashback, biaya admin, marketplace, media
-- [ ] POS: edit/hapus nota dengan pembalikan efek
-- [ ] Produk: media, salin, hapus berpassword, stok realtime
-- [ ] Cashflow: catat kas, bon, filter tanggal/akun/jenis
-- [ ] Verifikasi payload vs `Frontend/src/services/posCheckout.ts`
+- [x] POS: harga tier, mekanik + ongkos, cashback, biaya admin, marketplace, media
+- [x] POS: edit/hapus nota dengan pembalikan efek + pelunasan cepat dari Kasir
+- [x] Produk: media, salin, hapus berpassword, field harga lengkap
+- [x] Cashflow: catat kas, bon karyawan, hapus dengan pembalikan saldo
+- [x] Verifikasi payload vs `Frontend/src/services/posCheckout.ts`
+- [ ] Cashflow: filter tanggal/akun/jenis di tab Histori (baru filter mutasi)
+- [ ] Produk: stok realtime dari server (masih cache + mutasi lokal)
 
 ## Fase 3 — akun & laporan
 
-- [ ] Akun: ubah email/password, slip gaji, paginasi
-- [ ] Report: filter tanggal, tabel sortable, ekspor
+- [x] Akun: ubah email/password, slip gaji
+- [x] Report: filter tanggal, urutan naik/turun
+- [ ] Akun: paginasi riwayat gaji
+- [ ] Report: ekspor
 - [ ] Penyamaan label/empty state/error seluruh layar
 - [ ] Uji parity manual per layar + uji lapangan printer/barcode/offline
+
+## Catatan implementasi Fase 2–3
+
+- Media memakai kamera sistem + `FileProvider`; file diunggah `MediaUploader` setelah batch keuangan dikonfirmasi server (tabel `pending_media`, migrasi Room 1→2).
+- Hapus produk wajib verifikasi password online (`SessionManager.verifyPassword`); hapus tetap dieksekusi batch atomik server.
+- Cashflow dan bon menulis outbox + menyesuaikan saldo lokal; server menghitung ulang.
+- Edit nota mempertahankan tanggal lama dan mengirim `atomic_expected`.
+- Bukti: unit 54/54, instrumented 52/52, release APK 2,5 MB, cold start 1413 ms di CPH2461.
 
 ## Aturan tetap
 

@@ -5,6 +5,7 @@ import id.primamotor.pos.data.local.AppDatabase
 import id.primamotor.pos.data.local.EncryptedTokenStore
 import id.primamotor.pos.data.remote.PocketBaseClient
 import id.primamotor.pos.data.remote.SessionManager
+import id.primamotor.pos.data.repo.CashflowRepository
 import id.primamotor.pos.data.repo.CheckoutRepository
 import id.primamotor.pos.data.repo.EmployeeRepository
 import id.primamotor.pos.data.repo.MasterRepository
@@ -13,6 +14,7 @@ import id.primamotor.pos.data.repo.ProductRepository
 import id.primamotor.pos.data.sync.ConflictResolver
 import id.primamotor.pos.data.repo.SettlementRepository
 import id.primamotor.pos.data.repo.Repositories
+import id.primamotor.pos.data.sync.MediaUploader
 import id.primamotor.pos.data.sync.Puller
 import id.primamotor.pos.data.sync.Pusher
 import id.primamotor.pos.data.sync.SyncEngine
@@ -50,7 +52,9 @@ class AppContainer(context: Context) {
 
     val puller: Puller = Puller(database, sessions)
 
-    val syncEngine: SyncEngine = SyncEngine(database, sessions, pusher, puller)
+    val mediaUploader: MediaUploader = MediaUploader(database, sessions)
+
+    val syncEngine: SyncEngine = SyncEngine(database, sessions, pusher, puller, mediaUploader)
 
     val repositories: Repositories = Repositories(database)
 
@@ -61,6 +65,8 @@ class AppContainer(context: Context) {
     val settlementRepository: SettlementRepository = SettlementRepository(database)
 
     val productRepository: ProductRepository = ProductRepository(database)
+
+    val cashflowRepository: CashflowRepository = CashflowRepository(database)
 
     val masterRepository: MasterRepository = MasterRepository(database)
 

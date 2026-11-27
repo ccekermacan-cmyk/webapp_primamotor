@@ -44,11 +44,11 @@ class PosValidationTest {
     }
 
     @Test
-    fun cash_must_cover_total() {
-        assertTrue(
-            PosValidation.paymentError("Tunai", BigDecimal("9000"), BigDecimal("10000"), "")!!.contains("kurang"),
-        )
-        assertNull(PosValidation.paymentError("Tunai", BigDecimal("10000"), BigDecimal("10000"), ""))
+    fun cash_partial_is_allowed_like_web() {
+        // Web tidak menolak tunai kurang; status nota menjadi belum lunas.
+        assertNull(PosValidation.paymentError("Tunai", BigDecimal("9000"), BigDecimal("10000"), ""))
+        assertEquals("belum", PosValidation.statusOf(BigDecimal("9000"), BigDecimal("10000")))
+        assertEquals("lunas", PosValidation.statusOf(BigDecimal("10000"), BigDecimal("10000")))
     }
 
     @Test

@@ -72,6 +72,20 @@ data class ConflictEntity(
     val resolved: Int = 0,
 )
 
+/**
+ * Bukti media yang menunggu jaringan. File disimpan di penyimpanan aplikasi dan
+ * diunggah ke record yang sudah dibuat setelah server mengonfirmasi batch.
+ */
+@Entity(tableName = "pending_media")
+data class PendingMediaEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val collection: String,
+    val recordId: String,
+    val field: String = "file",
+    val filePath: String,
+    val createdAt: Long = System.currentTimeMillis(),
+)
+
 object OutboxStatus {
     const val PENDING = "pending"
     const val SENDING = "sending"

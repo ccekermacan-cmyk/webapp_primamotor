@@ -44,7 +44,7 @@ class SyncEngineTest {
             http = OkHttpClient(),
         )
         val sessions = SessionManager(client, store)
-        engine = SyncEngine(db, sessions, Pusher(db, sessions), Puller(db, sessions))
+        engine = SyncEngine(db, sessions, Pusher(db, sessions), Puller(db, sessions), MediaUploader(db, sessions))
     }
 
     @After

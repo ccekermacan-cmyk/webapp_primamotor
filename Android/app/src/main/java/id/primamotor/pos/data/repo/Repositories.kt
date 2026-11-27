@@ -24,30 +24,31 @@ fun JsonObject.number(field: String): BigDecimal =
 
 fun JsonObject.int(field: String): Int = number(field).toInt()
 
+/** Field produk yang dipakai web: `beli`, `sell_1..6`, `min_1..3`, `stok_3`. */
 data class Produk(
     val id: String,
     val nama: String,
     val idLama: String,
     val kategori: String,
     val merk: String,
+    val jenis: String,
     val varian: String,
     val tipe: String,
     val unit: String,
     val barcode: String,
+    val keterangan: String,
     val stok: BigDecimal,
     val beli: BigDecimal,
     val sell1: BigDecimal,
     val sell2: BigDecimal,
     val sell3: BigDecimal,
+    val sell4: BigDecimal,
+    val sell5: BigDecimal,
+    val sell6: BigDecimal,
     val min1: BigDecimal,
-) {
-    /** Harga dasar sesuai tingkat pelanggan (1..3), sama seperti web. */
-    fun price(tier: Int): BigDecimal = when (tier) {
-        2 -> sell2
-        3 -> sell3
-        else -> sell1
-    }
-}
+    val min2: BigDecimal,
+    val min3: BigDecimal,
+)
 
 data class MenuRow(
     val id: String,
@@ -84,6 +85,14 @@ data class BonRow(
     val userId: String,
     val person: String,
     val created: String,
+)
+
+/** Pilihan jenis cashflow `dropdown`: `text_2` menentukan arah (in/out). */
+data class CashflowKind(
+    val id: String,
+    val idLama: String,
+    val nama: String,
+    val arah: String,
 )
 
 /** Cermin `salaryDetails` di Frontend/src/lib/account.ts. */
@@ -264,6 +273,24 @@ class Repositories(private val db: AppDatabase) {
         }
     }
 
+    /** Pilihan pelanggan POS: semua baris `kategori = Person` (Umum, Customer, Supplier, Online). */
+    fun observeCustomers(): Flow<List<PersonRow>> = observeRows("dropdown").map { rows ->
+        rows.mapNotNull { row ->
+            if (row.text("kategori").lowercase() != "person") return@mapNotNull null
+            PersonRow(
+                id = row.text("id"),
+                nama = row.text("text_1"),
+                keterangan = row.text("text_2"),
+                jenis = row.text("jenis"),
+                kategori = row.text("kategori"),
+                idLama = row.text("id_lama"),
+                phone = row.text("phone"),
+                number1 = row.number("number_1"),
+                number2 = row.number("number_2"),
+            )
+        }.sortedBy { it.nama.lowercase() }
+    }
+
     /** Pilihan akun kas/bank untuk pembayaran. */
     fun observeAccounts(): Flow<List<PersonRow>> = observeRows("dropdown").map { rows ->
         rows.mapNotNull { row ->
@@ -298,6 +325,20 @@ class Repositories(private val db: AppDatabase) {
                 kategori = kategori,
             )
         }
+    }
+
+    /** Jenis cashflow, dipisah arah `text_2` (in/out) seperti `fetchDropdowns` web. */
+    fun observeCashflowJenis(): Flow<List<CashflowKind>> = observeRows("dropdown").map { rows ->
+        rows.mapNotNull { row ->
+            if (!row.text("kategori").lowercase().contains("cashflow")) return@mapNotNull null
+            if (!row.text("jenis").lowercase().contains("jenis")) return@mapNotNull null
+            CashflowKind(
+                id = row.text("id"),
+                idLama = row.text("id_lama"),
+                nama = row.text("text_1"),
+                arah = row.text("text_2").lowercase(),
+            )
+        }.sortedBy { it.nama.lowercase() }
     }
 
     /** Mekanik = user level 10 aktif, sama seperti filter web. */
@@ -335,16 +376,23 @@ class Repositories(private val db: AppDatabase) {
         idLama = row.text("id_lama"),
         kategori = row.text("kategori"),
         merk = row.text("merk"),
+        jenis = row.text("jenis"),
         varian = row.text("varian"),
         tipe = row.text("tipe"),
         unit = row.text("unit"),
         barcode = row.text("barcode"),
+        keterangan = row.text("keterangan"),
         stok = row.number("stok_3"),
         beli = row.number("beli"),
         sell1 = row.number("sell_1"),
         sell2 = row.number("sell_2"),
         sell3 = row.number("sell_3"),
+        sell4 = row.number("sell_4"),
+        sell5 = row.number("sell_5"),
+        sell6 = row.number("sell_6"),
         min1 = row.number("min_1"),
+        min2 = row.number("min_2"),
+        min3 = row.number("min_3"),
     )
 
     private fun menu(row: JsonObject) = MenuRow(

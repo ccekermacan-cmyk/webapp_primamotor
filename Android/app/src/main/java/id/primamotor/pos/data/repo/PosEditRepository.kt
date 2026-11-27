@@ -6,10 +6,12 @@ import id.primamotor.pos.data.local.LocalRecordEntity
 import id.primamotor.pos.data.local.OutboxEntity
 import id.primamotor.pos.data.local.OutboxOperationEntity
 import id.primamotor.pos.data.local.OutboxStatus
+import id.primamotor.pos.data.local.PendingMediaEntity
 import id.primamotor.pos.data.ledger.CashflowEntry
 import id.primamotor.pos.data.ledger.LocalLedger
 import id.primamotor.pos.data.ledger.StockEntry
 import id.primamotor.pos.domain.CartLine
+import id.primamotor.pos.domain.PosPricing
 import id.primamotor.pos.domain.PosValidation
 import id.primamotor.pos.domain.RecordId
 import id.primamotor.pos.domain.WibDate
@@ -78,13 +80,25 @@ class PosEditRepository(
         form: CheckoutForm,
         operator: String,
     ): CheckoutResult = db.withTransaction {
-        PosValidation.cartError(cart)?.let { return@withTransaction CheckoutResult.Rejected(it) }
+        if (cart.isEmpty() && !PosPricing.isService(jenis)) {
+            return@withTransaction CheckoutResult.Rejected("Isi keranjang dengan item terlebih dahulu!")
+        }
+        if (cart.isNotEmpty()) {
+            PosValidation.cartError(cart)?.let { return@withTransaction CheckoutResult.Rejected(it) }
+        }
 
         val direction = PosValidation.directionOf(jenis)
         val stocks = movingStocks(session, cart)
         PosValidation.stockError(cart, stocks, direction)?.let { return@withTransaction CheckoutResult.Rejected(it) }
 
-        val total = cart.fold(BigDecimal.ZERO) { sum, line -> sum + line.price.multiply(line.qty) }
+        val subtotal = cart.fold(BigDecimal.ZERO) { sum, line -> sum + line.price.multiply(line.qty) }
+        val ongkosTotal = if (PosPricing.isService(jenis)) {
+            form.mekanik.filter { it.idLama.isNotBlank() && it.ongkos.signum() > 0 }
+                .fold(BigDecimal.ZERO) { sum, line -> sum + line.ongkos }
+        } else {
+            BigDecimal.ZERO
+        }
+        val total = PosPricing.grandTotal(jenis, subtotal, ongkosTotal, form.adminFee, form.cashback)
         PosValidation.paymentError(form.payment, form.nominalBayar, total, form.tempoDate)
             ?.let { return@withTransaction CheckoutResult.Rejected(it) }
 
@@ -103,21 +117,31 @@ class PosEditRepository(
         }
 
         val dibayar = cashflows.fold(BigDecimal.ZERO) { sum, entry -> sum + entry.nominal }
-        val status = PosValidation.statusOf(dibayar, total)
+        val status = if (PosPricing.isPembelian(jenis) && form.mediaCount == 0) {
+            "belum"
+        } else {
+            PosValidation.statusOf(dibayar, total)
+        }
         val createdAt = session.menu.text("created_at").ifBlank { form.createdAtIso }
         val dateKey = session.dateKey.ifBlank { WibDate.dayOf(createdAt)?.toString().orEmpty() }
         val personNama = form.personIdLama
         val lower = jenis.lowercase()
         val isService = lower.contains("service") || lower.contains("servis")
+        val online = PosPricing.isOnline(form.personIdLama, form.personName)
+        val personBaru = db.localRecordDao().findByField("dropdown", "id_lama", form.personIdLama)?.id.orEmpty()
 
         val menuJson = buildJsonObject {
             session.menu.forEach { (key, value) -> put(key, value) }
             put("jenis", jenis)
             put("person", personNama)
+            put("person_baru", personBaru)
             put("text", form.noteMenu)
             put("payment", if (form.payment == "Tunai") "cash" else "tempo")
             put("operator", operator)
             put("qty", cart.fold(BigDecimal.ZERO) { sum, line -> sum + line.qty })
+            put("cashback", if (online) form.cashback else BigDecimal.ZERO)
+            put("admin", if (online) form.adminFee else BigDecimal.ZERO)
+            put("marketplace", if (online) form.marketplace else "")
             put("status", status)
             put("total", total)
             put("dibayar", dibayar)
@@ -159,7 +183,7 @@ class PosEditRepository(
                 put("qty", line.qty)
                 put("item_baru", line.productId)
                 put("price_1", line.price)
-                put("price_2", if (direction == "in") BigDecimal.ZERO else line.price.multiply(line.qty))
+                put("price_2", if (direction == "in") BigDecimal.ZERO else line.cost.multiply(line.qty))
                 put("normal", if (direction == "in") BigDecimal.ZERO else line.normalPrice.multiply(line.qty))
                 put("boolean", direction)
                 put("ref", session.menuId)
@@ -186,6 +210,7 @@ class PosEditRepository(
                 put("acc2", "")
                 put("note", form.note.ifBlank { "POS System: Nota ${session.menuId}" })
                 put("ref_baru", session.menuId)
+                put("person", personBaru)
                 put("persontext", form.personIdLama)
             }
             records += LocalRecordEntity("cashflow", cashflowId, dateKey, entry.accountId, "nota ${session.menuId}", json.toString(), 1, System.currentTimeMillis())
@@ -238,6 +263,18 @@ class PosEditRepository(
             OutboxEntity(requestId, OutboxStatus.PENDING, System.currentTimeMillis(), "{}"),
             operations,
         )
+
+        val mediaField = if (form.mediaCount > 0) "file+" else "file"
+        form.mediaPath?.let { path ->
+            db.mediaDao().add(
+                PendingMediaEntity(
+                    collection = "menu",
+                    recordId = session.menuId,
+                    field = mediaField,
+                    filePath = path,
+                ),
+            )
+        }
 
         CheckoutResult.Saved(session.menuId, total, form.nominalBayar - total, status)
     }

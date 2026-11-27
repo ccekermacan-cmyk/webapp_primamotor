@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -21,6 +22,20 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -36,21 +51,109 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.update
 import id.primamotor.pos.AppContainer
+import id.primamotor.pos.data.repo.BonDraft
+import id.primamotor.pos.data.repo.BonRow
+import id.primamotor.pos.data.repo.CashDraft
+import id.primamotor.pos.data.repo.CashSave
+import id.primamotor.pos.data.repo.CashflowKind
 import id.primamotor.pos.data.repo.CashflowRow
+import id.primamotor.pos.data.repo.UserRow
 import id.primamotor.pos.data.repo.MenuRow
 import id.primamotor.pos.data.repo.PersonRow
 import id.primamotor.pos.domain.CashflowFilter
 import id.primamotor.pos.domain.Money
 import java.math.BigDecimal
 
-class CashflowViewModel(container: AppContainer) : androidx.lifecycle.ViewModel() {
+data class CashflowUiState(
+    val cashOpen: Boolean = false,
+    val bonOpen: Boolean = false,
+    val cash: CashDraft = CashDraft(),
+    val bon: BonDraft = BonDraft(),
+    val saving: Boolean = false,
+    val error: String? = null,
+    val message: String? = null,
+    val deleteCash: CashflowRow? = null,
+    val deleteBon: BonRow? = null,
+)
+
+class CashflowViewModel(private val container: AppContainer) : androidx.lifecycle.ViewModel() {
     val repos = container.repositories
     val cashflow = repos.observeCashflow()
     val people = repos.observePerson()
     val menu = repos.observeMenu()
+    val accounts = repos.observeAccounts()
+    val kinds = repos.observeCashflowJenis()
+    val users = repos.observeUser()
     val syncState = container.database.syncStateDao().observeAll()
     val level: Int = container.tokenStore.cachedUser()?.level ?: 0
+    val operator: String = container.tokenStore.cachedUser()?.let { it.name.ifBlank { it.username } }.orEmpty().ifBlank { "Admin" }
+    val userId: String = container.tokenStore.cachedUser()?.id.orEmpty()
+
+    private val local = kotlinx.coroutines.flow.MutableStateFlow(CashflowUiState())
+    val state: kotlinx.coroutines.flow.StateFlow<CashflowUiState> = local
+
+    val bonHistory: kotlinx.coroutines.flow.Flow<List<BonRow>> = repos.observeBon(userId)
+
+    fun openCash() = local.update { it.copy(cashOpen = true, error = null) }
+    fun openBon() = local.update { it.copy(bonOpen = true, error = null) }
+    fun closeForms() = local.update { it.copy(cashOpen = false, bonOpen = false, error = null) }
+    fun updateCash(block: (CashDraft) -> CashDraft) = local.update { it.copy(cash = block(it.cash)) }
+    fun updateBon(block: (BonDraft) -> BonDraft) = local.update { it.copy(bon = block(it.bon)) }
+    fun clearMessage() = local.update { it.copy(message = null) }
+
+    fun askDeleteCash(row: CashflowRow) = local.update { it.copy(deleteCash = row) }
+    fun askDeleteBon(row: BonRow) = local.update { it.copy(deleteBon = row) }
+    fun cancelDelete() = local.update { it.copy(deleteCash = null, deleteBon = null) }
+
+    fun saveCash() {
+        val snapshot = local.value
+        if (snapshot.saving) return
+        local.update { it.copy(saving = true, error = null) }
+        viewModelScope.launch {
+            when (val result = container.cashflowRepository.catatKas(snapshot.cash, operator)) {
+                is CashSave.Saved -> local.update {
+                    it.copy(saving = false, cashOpen = false, cash = CashDraft(), message = "Transaksi kas tersimpan. Menunggu sinkron.")
+                }
+                is CashSave.Rejected -> local.update { it.copy(saving = false, error = result.message) }
+            }
+        }
+    }
+
+    fun saveBon() {
+        val snapshot = local.value
+        if (snapshot.saving) return
+        local.update { it.copy(saving = true, error = null) }
+        viewModelScope.launch {
+            when (val result = container.cashflowRepository.catatBon(snapshot.bon, operator)) {
+                is CashSave.Saved -> local.update {
+                    it.copy(saving = false, bonOpen = false, bon = BonDraft(), message = "Bon tersimpan. Menunggu sinkron.")
+                }
+                is CashSave.Rejected -> local.update { it.copy(saving = false, error = result.message) }
+            }
+        }
+    }
+
+    fun confirmDelete() {
+        val snapshot = local.value
+        local.update { it.copy(saving = true, error = null) }
+        viewModelScope.launch {
+            val ok = snapshot.deleteCash?.let { container.cashflowRepository.deleteCashflow(it.id) }
+                ?: snapshot.deleteBon?.let { container.cashflowRepository.deleteBon(it.id) }
+                ?: false
+            local.update {
+                it.copy(
+                    saving = false,
+                    deleteCash = null,
+                    deleteBon = null,
+                    message = if (ok) "Data dihapus. Server membalik nilai lama saat tersambung." else "Data tidak ditemukan di cache.",
+                )
+            }
+        }
+    }
 }
 
 @Composable
@@ -62,15 +165,33 @@ fun CashflowRoute(container: AppContainer) {
 @Composable
 fun CashflowScreen(viewModel: CashflowViewModel) {
     var tab by remember { mutableIntStateOf(0) }
+    val state by viewModel.state.collectAsStateWithLifecycle()
     val cashflow by viewModel.cashflow.collectAsStateWithLifecycle(emptyList())
     val people by viewModel.people.collectAsStateWithLifecycle(emptyList())
     val menu by viewModel.menu.collectAsStateWithLifecycle(emptyList())
+    val accounts by viewModel.accounts.collectAsStateWithLifecycle(emptyList())
+    val kinds by viewModel.kinds.collectAsStateWithLifecycle(emptyList())
+    val users by viewModel.users.collectAsStateWithLifecycle(emptyList())
+    val bonHistory by viewModel.bonHistory.collectAsStateWithLifecycle(emptyList())
     val sync by viewModel.syncState.collectAsStateWithLifecycle(emptyList())
     val level = viewModel.level
+    val snackbarHost = remember { androidx.compose.material3.SnackbarHostState() }
+    LaunchedEffect(state.message) {
+        state.message?.let { snackbarHost.showSnackbar(it); viewModel.clearMessage() }
+    }
     // Sama seperti web: tab Jatuh Tempo hanya untuk level 1, 2, 5, 6.
     val showTempo = level in setOf(1, 2, 5, 6)
 
-    Column(Modifier.fillMaxSize()) {
+    androidx.compose.material3.Scaffold(
+        snackbarHost = { androidx.compose.material3.SnackbarHost(snackbarHost) },
+        floatingActionButton = {
+            Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = viewModel::openBon, modifier = Modifier.testTag("cashflow_add_bon")) { Text("Bon") }
+                Button(onClick = viewModel::openCash, modifier = Modifier.testTag("cashflow_add")) { Text("Catat Kas") }
+            }
+        },
+    ) { padding ->
+    Column(Modifier.fillMaxSize().padding(padding)) {
         TabRow(selectedTabIndex = tab) {
             val labels = if (showTempo) {
                 listOf("Buku Kas & Saldo", "Histori Kas", "Jatuh Tempo")
@@ -87,15 +208,65 @@ fun CashflowScreen(viewModel: CashflowViewModel) {
             }
         }
         when (tab) {
-            0 -> AccountsTab(cashflow, people)
-            1 -> CashTab(cashflow)
+            0 -> AccountsTab(cashflow, people, bonHistory, onDeleteBon = viewModel::askDeleteBon)
+            1 -> CashTab(cashflow, onDelete = viewModel::askDeleteCash)
             else -> TempoTab(menu)
         }
+    }
+    }
+
+    if (state.cashOpen) {
+        CashFormSheet(
+            draft = state.cash,
+            kinds = kinds,
+            accounts = accounts,
+            people = people,
+            saving = state.saving,
+            error = state.error,
+            onChange = viewModel::updateCash,
+            onSave = viewModel::saveCash,
+            onDismiss = viewModel::closeForms,
+        )
+    }
+
+    if (state.bonOpen) {
+        BonFormSheet(
+            draft = state.bon,
+            accounts = accounts,
+            people = people,
+            users = users,
+            saving = state.saving,
+            error = state.error,
+            onChange = viewModel::updateBon,
+            onSave = viewModel::saveBon,
+            onDismiss = viewModel::closeForms,
+        )
+    }
+
+    (state.deleteCash ?: state.deleteBon)?.let { target ->
+        AlertDialog(
+            onDismissRequest = viewModel::cancelDelete,
+            title = { Text("Hapus Data") },
+            text = {
+                Text(
+                    when (target) {
+                        is CashflowRow -> "Hapus transaksi ${target.jenis} ${Money.formatRupiah(target.nominal)}? Saldo dikembalikan saat server mengeksekusi."
+                        else -> "Hapus bon ini? Cashflow terkait ikut dibatalkan."
+                    },
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = viewModel::confirmDelete, enabled = !state.saving) {
+                    Text("Hapus", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = { TextButton(onClick = viewModel::cancelDelete) { Text("Batal") } },
+        )
     }
 }
 
 @Composable
-private fun CashTab(rows: List<CashflowRow>) {
+private fun CashTab(rows: List<CashflowRow>, onDelete: (CashflowRow) -> Unit) {
     var filter by remember { mutableStateOf(CashflowFilter.SEMUA) }
     val filtered = CashflowFilter.byMutation(rows, filter)
     Column(Modifier.fillMaxSize()) {
@@ -142,16 +313,19 @@ private fun CashTab(rows: List<CashflowRow>) {
                                 maxLines = 2,
                             )
                         }
-                        Text(
-                            (if (row.mutasi.lowercase() in setOf("out", "keluar")) "-" else "+") +
-                                Money.formatRupiah(row.nominal.abs()),
-                            style = MaterialTheme.typography.titleSmall,
-                            color = if (row.mutasi.lowercase() in setOf("out", "keluar")) {
-                                MaterialTheme.colorScheme.error
-                            } else {
-                                MaterialTheme.colorScheme.primary
-                            },
-                        )
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text(
+                                (if (row.mutasi.lowercase() in setOf("out", "keluar")) "-" else "+") +
+                                    Money.formatRupiah(row.nominal.abs()),
+                                style = MaterialTheme.typography.titleSmall,
+                                color = if (row.mutasi.lowercase() in setOf("out", "keluar")) {
+                                    MaterialTheme.colorScheme.error
+                                } else {
+                                    MaterialTheme.colorScheme.primary
+                                },
+                            )
+                            TextButton(onClick = { onDelete(row) }) { Text("Hapus", style = MaterialTheme.typography.labelSmall) }
+                        }
                     }
                 }
             }
@@ -160,7 +334,12 @@ private fun CashTab(rows: List<CashflowRow>) {
 }
 
 @Composable
-private fun AccountsTab(cashflow: List<CashflowRow>, accounts: List<PersonRow>) {
+private fun AccountsTab(
+    cashflow: List<CashflowRow>,
+    accounts: List<PersonRow>,
+    bonHistory: List<BonRow> = emptyList(),
+    onDeleteBon: (BonRow) -> Unit = {},
+) {
     val balances = cashflow.groupBy { it.account1 }
         .mapValues { (_, rows) -> rows.fold(BigDecimal.ZERO) { sum, row -> sum + row.signed() } }
     val active = accounts.filter { (balances[it.id] ?: it.number1).signum() != 0 }
@@ -178,6 +357,28 @@ private fun AccountsTab(cashflow: List<CashflowRow>, accounts: List<PersonRow>) 
             item { Text("Akun Kosong/Minus", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             items(zero, key = { it.id }) { account ->
                 AccountCard(account, balances[account.id] ?: account.number1)
+            }
+        }
+        item { Text("Riwayat Bon", style = MaterialTheme.typography.titleSmall) }
+        if (bonHistory.isEmpty()) item { Text("Belum ada bon.", style = MaterialTheme.typography.bodySmall) }
+        items(bonHistory, key = { it.id }) { bon ->
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surface,
+                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.surfaceVariant),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(bon.note.ifBlank { "Bon karyawan" }, style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            "Bon ${Money.formatRupiah(bon.nominal)} • ${bon.operator}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    TextButton(onClick = { onDeleteBon(bon) }) { Text("Hapus", color = MaterialTheme.colorScheme.error) }
+                }
             }
         }
     }
@@ -320,4 +521,246 @@ private object WibLabel {
         java.time.Instant.ofEpochMilli(epochMillis)
             .atZone(id.primamotor.pos.domain.WibDate.WIB)
             .format(java.time.format.DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm"))
+}
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CashFormSheet(
+    draft: CashDraft,
+    kinds: List<CashflowKind>,
+    accounts: List<PersonRow>,
+    people: List<PersonRow>,
+    saving: Boolean,
+    error: String?,
+    onChange: ((CashDraft) -> CashDraft) -> Unit,
+    onSave: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val capture = id.primamotor.pos.ui.media.rememberPhotoCapture { path -> onChange { it.copy(mediaPath = path) } }
+    val transfer = draft.jenis.lowercase().contains("transfer")
+    val showPerson = draft.mutasi.equals("Keluar", true) && draft.jenis.lowercase() == "bonkaryawan"
+
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet) {
+        Column(
+            Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text("Catat Kas", style = MaterialTheme.typography.titleLarge)
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("Masuk", "Keluar").forEach { mutasi ->
+                    FilterChip(
+                        selected = draft.mutasi == mutasi,
+                        onClick = { onChange { it.copy(mutasi = mutasi) } },
+                        label = { Text(if (mutasi == "Masuk") "Kas Masuk" else "Kas Keluar") },
+                        modifier = Modifier.heightIn(min = 44.dp).testTag("cash_mutasi_$mutasi"),
+                    )
+                }
+            }
+
+            Text("Jenis Cashflow", style = MaterialTheme.typography.labelLarge)
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                items(kinds, key = { it.id }) { kind ->
+                    val arah = kind.arah.ifBlank { "out" }
+                    if (arah == "in" != (draft.mutasi == "Masuk")) return@items
+                    FilterChip(
+                        selected = draft.jenis == kind.nama,
+                        onClick = { onChange { it.copy(jenis = kind.nama) } },
+                        label = { Text(kind.nama) },
+                    )
+                }
+            }
+
+            Text("Akun Sumber", style = MaterialTheme.typography.labelLarge)
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                items(accounts, key = { it.id }) { account ->
+                    FilterChip(
+                        selected = draft.accountId == account.id,
+                        onClick = { onChange { it.copy(accountId = account.id) } },
+                        label = { Text("${account.nama} (${Money.formatRupiah(account.number1)})") },
+                    )
+                }
+            }
+
+            if (transfer) {
+                Text("Akun Tujuan", style = MaterialTheme.typography.labelLarge)
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    items(accounts, key = { it.id }) { account ->
+                        FilterChip(
+                            selected = draft.account2Id == account.id,
+                            onClick = { onChange { it.copy(account2Id = account.id) } },
+                            label = { Text(account.nama) },
+                        )
+                    }
+                }
+            }
+
+            if (showPerson) {
+                Text("Pihak (Customer / Karyawan)", style = MaterialTheme.typography.labelLarge)
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    items(people, key = { it.id }) { person ->
+                        FilterChip(
+                            selected = draft.personId == person.id,
+                            onClick = {
+                                onChange {
+                                    it.copy(
+                                        personId = person.id,
+                                        personText = person.idLama.ifBlank { person.nama },
+                                    )
+                                }
+                            },
+                            label = { Text(person.nama) },
+                        )
+                    }
+                }
+            }
+
+            OutlinedTextField(
+                value = draft.nominal.stripTrailingZeros().toPlainString().takeIf { it != "0" }.orEmpty(),
+                onValueChange = { raw -> onChange { it.copy(nominal = Money.parse(raw) ?: BigDecimal.ZERO) } },
+                label = { Text("Nominal Rupiah") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth().testTag("cash_nominal"),
+            )
+            OutlinedTextField(
+                value = draft.note,
+                onValueChange = { value -> onChange { it.copy(note = value) } },
+                label = { Text("Catatan") },
+                modifier = Modifier.fillMaxWidth().testTag("cash_note"),
+            )
+            OutlinedButton(onClick = capture, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                Text(if (draft.mediaPath == null) "Lampiran bukti (unggah saat online)" else "Bukti siap diunggah")
+            }
+            if (error != null) Text(error, color = MaterialTheme.colorScheme.error)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = onDismiss) { Text("Batal") }
+                Button(onClick = onSave, enabled = !saving, modifier = Modifier.testTag("cash_save")) {
+                    Text(if (saving) "Menyimpan..." else "Simpan transaksi")
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun BonFormSheet(
+    draft: BonDraft,
+    accounts: List<PersonRow>,
+    people: List<PersonRow>,
+    users: List<UserRow>,
+    saving: Boolean,
+    error: String?,
+    onChange: ((BonDraft) -> BonDraft) -> Unit,
+    onSave: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val capture = id.primamotor.pos.ui.media.rememberPhotoCapture { path -> onChange { it.copy(mediaPath = path) } }
+    var search by remember { mutableStateOf("") }
+
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet) {
+        Column(
+            Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text("Tambah Bon Karyawan", style = MaterialTheme.typography.titleLarge)
+
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                androidx.compose.material3.Checkbox(
+                    checked = draft.catatCashflow,
+                    onCheckedChange = { checked -> onChange { it.copy(catatCashflow = checked) } },
+                )
+                Text("Catat ke Cashflow (pengeluaran kas)")
+            }
+
+            if (draft.catatCashflow) {
+                Text("Akun asal", style = MaterialTheme.typography.labelLarge)
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    items(accounts, key = { it.id }) { account ->
+                        FilterChip(
+                            selected = draft.accountId == account.id,
+                            onClick = { onChange { it.copy(accountId = account.id) } },
+                            label = { Text(account.nama) },
+                        )
+                    }
+                }
+            }
+
+            OutlinedTextField(
+                value = search,
+                onValueChange = { search = it },
+                label = { Text("Cari nama pihak") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Text("Pihak (Customer / Karyawan)", style = MaterialTheme.typography.labelLarge)
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                val needle = search.trim().lowercase()
+                items(
+                    people.filter { needle.isBlank() || it.nama.lowercase().contains(needle) },
+                    key = { "p_${it.id}" },
+                ) { person ->
+                    FilterChip(
+                        selected = draft.personRecordId == person.id,
+                        onClick = {
+                            onChange {
+                                it.copy(
+                                    personRecordId = person.id,
+                                    personUserId = "",
+                                    personText = person.idLama.ifBlank { person.nama },
+                                )
+                            }
+                        },
+                        label = { Text(person.nama) },
+                    )
+                }
+                items(
+                    users.filter { needle.isBlank() || it.name.lowercase().contains(needle) },
+                    key = { "u_${it.id}" },
+                ) { user ->
+                    FilterChip(
+                        selected = draft.personUserId == user.id,
+                        onClick = {
+                            onChange {
+                                it.copy(
+                                    personUserId = user.id,
+                                    personRecordId = "",
+                                    personText = user.username.ifBlank { user.name },
+                                )
+                            }
+                        },
+                        label = { Text("${user.name.ifBlank { user.username }} (Karyawan)") },
+                    )
+                }
+            }
+            if (draft.personText.isNotBlank()) Text("Dipilih: ${draft.personText}")
+
+            OutlinedTextField(
+                value = draft.nominal.stripTrailingZeros().toPlainString().takeIf { it != "0" }.orEmpty(),
+                onValueChange = { raw -> onChange { it.copy(nominal = Money.parse(raw) ?: BigDecimal.ZERO) } },
+                label = { Text("Nominal") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth().testTag("bon_nominal"),
+            )
+            OutlinedTextField(
+                value = draft.note,
+                onValueChange = { value -> onChange { it.copy(note = value) } },
+                label = { Text("Catatan") },
+                modifier = Modifier.fillMaxWidth().testTag("bon_note"),
+            )
+            OutlinedButton(onClick = capture, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                Text(if (draft.mediaPath == null) "Lampiran bukti (unggah saat online)" else "Bukti siap diunggah")
+            }
+            if (error != null) Text(error, color = MaterialTheme.colorScheme.error)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = onDismiss) { Text("Batal") }
+                Button(onClick = onSave, enabled = !saving, modifier = Modifier.testTag("bon_save")) {
+                    Text(if (saving) "Menyimpan..." else "Simpan bon")
+                }
+            }
+        }
+    }
 }

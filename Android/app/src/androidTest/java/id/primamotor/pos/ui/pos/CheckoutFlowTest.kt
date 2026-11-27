@@ -6,6 +6,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
@@ -13,6 +14,8 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import id.primamotor.pos.data.local.AppDatabase
 import id.primamotor.pos.data.local.LocalRecordEntity
 import id.primamotor.pos.data.repo.CheckoutRepository
+import id.primamotor.pos.data.repo.PosEditRepository
+import id.primamotor.pos.data.repo.SettlementRepository
 import id.primamotor.pos.data.repo.Repositories
 import id.primamotor.pos.ui.theme.PrimaMotorTheme
 import kotlinx.coroutines.runBlocking
@@ -74,15 +77,19 @@ class CheckoutFlowTest {
 
     @Test
     fun cashier_can_checkout_offline_and_outbox_holds_transaction() {
-        val viewModel = PosViewModel(Repositories(db), CheckoutRepository(db), operatorName = "kasir")
+        val viewModel = PosViewModel(Repositories(db), CheckoutRepository(db), PosEditRepository(db), SettlementRepository(db), operatorName = "kasir")
         rule.setContent { PrimaMotorTheme { PosScreen(viewModel) } }
 
         rule.onNodeWithText("Oli Mesin").assertIsDisplayed()
         rule.onNodeWithText("Oli Mesin").performClick()
         rule.onNodeWithTag("pos_open_cart").performClick()
-        rule.onNodeWithTag("checkout_nominal").performTextInput("20000")
-        rule.onNodeWithTag("checkout_submit").performClick()
+        rule.onNodeWithTag("account_acc1").performScrollTo().performClick()
+        rule.onNodeWithTag("checkout_nominal").performScrollTo().performTextInput("20000")
+        rule.onNodeWithTag("checkout_submit").performScrollTo().performClick()
 
+        rule.waitForIdle()
+        val snapshot = viewModel.state.value
+        org.junit.Assert.assertNotNull("state=$snapshot", snapshot.saved)
         rule.onNodeWithTag("pos_saved_dialog").assertIsDisplayed()
         assertEquals(1, runBlocking { db.outboxDao().count() })
     }

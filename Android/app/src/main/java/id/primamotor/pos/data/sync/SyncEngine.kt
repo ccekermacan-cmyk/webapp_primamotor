@@ -16,6 +16,7 @@ class SyncEngine(
     private val sessions: SessionManager,
     private val pusher: Pusher,
     private val puller: Puller,
+    private val media: MediaUploader,
 ) {
     private val gate = Mutex()
 
@@ -40,6 +41,8 @@ class SyncEngine(
         if (sessions.currentToken() == null) {
             return Outcome(pushed, 0, blocked, error = "Sesi berakhir. Login ulang untuk sinkronisasi.")
         }
+        // Media menunggu jaringan: hanya dicoba setelah batch keuangan terkirim dan sesi ada.
+        val uploaded = runCatching { media.uploadPending() }.getOrDefault(0)
         val result = runCatching { puller.pull() }
         val pulled = result.getOrNull()
         if (pulled != null) {

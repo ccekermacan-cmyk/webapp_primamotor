@@ -18,12 +18,16 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ScrollableTabRow
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -53,6 +57,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import java.math.BigDecimal
+import java.time.LocalDate
 
 /** Cermin `pages/report.tsx`: Overview + rincian Menu, Log Stock, Kas, Ongkos. */
 class ReportViewModel(container: AppContainer) : ViewModel() {
@@ -79,8 +84,57 @@ fun ReportRoute(container: AppContainer) {
 fun ReportScreen(viewModel: ReportViewModel, container: AppContainer) {
     var tab by remember { mutableIntStateOf(0) }
     val labels = listOf("Overview", "\uD83D\uDCCB Menu", "\uD83D\uDCE6 Log Stock", "\uD83D\uDCB0 Kas", "\uD83D\uDD27 Ongkos")
+    var from by remember { mutableStateOf("") }
+    var to by remember { mutableStateOf("") }
+    var ascending by remember { mutableStateOf(false) }
+    var appliedFrom by remember { mutableStateOf("") }
+    var appliedTo by remember { mutableStateOf("") }
+
+    fun inRange(date: String): Boolean {
+        val day = date.take(10)
+        if (day.length < 10) return appliedFrom.isBlank() && appliedTo.isBlank()
+        if (appliedFrom.isNotBlank() && day < appliedFrom) return false
+        if (appliedTo.isNotBlank() && day > appliedTo) return false
+        return true
+    }
 
     Column(Modifier.fillMaxSize()) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            OutlinedTextField(
+                value = from,
+                onValueChange = { from = it },
+                label = { Text("Dari") },
+                singleLine = true,
+                modifier = Modifier.weight(1f).testTag("report_from"),
+            )
+            OutlinedTextField(
+                value = to,
+                onValueChange = { to = it },
+                label = { Text("Sampai") },
+                singleLine = true,
+                modifier = Modifier.weight(1f).testTag("report_to"),
+            )
+        }
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            OutlinedButton(
+                onClick = { appliedFrom = from.trim(); appliedTo = to.trim() },
+                modifier = Modifier.weight(1f),
+            ) { Text("Terapkan") }
+            OutlinedButton(onClick = { from = ""; to = ""; appliedFrom = ""; appliedTo = "" }, modifier = Modifier.weight(1f)) {
+                Text("Reset")
+            }
+            FilterChip(
+                selected = ascending,
+                onClick = { ascending = !ascending },
+                label = { Text(if (ascending) "Terlama" else "Terbaru") },
+            )
+        }
         ScrollableTabRow(selectedTabIndex = tab, edgePadding = 8.dp) {
             labels.forEachIndexed { index, label ->
                 Tab(
@@ -92,24 +146,46 @@ fun ReportScreen(viewModel: ReportViewModel, container: AppContainer) {
             }
         }
         when (tab) {
-            0 -> OverviewTab(viewModel)
+            0 -> OverviewTab(
+                viewModel,
+                menuFilter = { row -> inRange(row.createdAt) },
+                cashFilter = { row -> inRange(row.createdAt) },
+                ascending = ascending,
+            )
             1 -> HistoryRoute(container)
-            2 -> RawTab(viewModel.logs.collectAsStateWithLifecycle().value, "item", "qty", "note")
-            3 -> CashTab(viewModel.cashflow.collectAsStateWithLifecycle().value)
-            else -> RawTab(viewModel.ongkos.collectAsStateWithLifecycle().value, "person", "ongkos", "keterangan")
+            2 -> RawTab(
+                viewModel.logs.collectAsStateWithLifecycle().value.filter { inRange(it.dateKey) },
+                "item", "qty", "note", ascending,
+            )
+            3 -> CashTab(
+                viewModel.cashflow.collectAsStateWithLifecycle().value.filter { inRange(it.createdAt) },
+                ascending,
+            )
+            else -> RawTab(
+                viewModel.ongkos.collectAsStateWithLifecycle().value.filter { inRange(it.dateKey) },
+                "person", "ongkos", "keterangan", ascending,
+            )
         }
     }
 }
 
 @Composable
-private fun OverviewTab(viewModel: ReportViewModel) {
-    val menu by viewModel.menu.collectAsStateWithLifecycle()
-    val cashflow by viewModel.cashflow.collectAsStateWithLifecycle()
+private fun OverviewTab(
+    viewModel: ReportViewModel,
+    menuFilter: (MenuRow) -> Boolean = { true },
+    cashFilter: (CashflowRow) -> Boolean = { true },
+    ascending: Boolean = false,
+) {
+    val allMenu by viewModel.menu.collectAsStateWithLifecycle()
+    val menu = if (ascending) allMenu.reversed() else allMenu
+    val filteredMenu = menu.filter(menuFilter)
+    val allCash by viewModel.cashflow.collectAsStateWithLifecycle()
+    val cashflow = allCash.filter(cashFilter)
     val lastSync by viewModel.syncAt.collectAsStateWithLifecycle()
-    val total = menu.fold(BigDecimal.ZERO) { sum, row -> sum + row.total }
-    val unpaid = CashflowFilter.unpaid(menu)
+    val total = filteredMenu.fold(BigDecimal.ZERO) { sum, row -> sum + row.total }
+    val unpaid = CashflowFilter.unpaid(filteredMenu)
     val net = CashflowFilter.net(cashflow)
-    val daily = CashflowFilter.dailyTotals(menu)
+    val daily = CashflowFilter.dailyTotals(filteredMenu)
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
@@ -169,10 +245,17 @@ private fun MetricCard(title: String, value: String, note: String) {
 }
 
 @Composable
-private fun RawTab(rows: List<LocalRecordEntity>, field1: String, field2: String, field3: String) {
+private fun RawTab(
+    rows: List<LocalRecordEntity>,
+    field1: String,
+    field2: String,
+    field3: String,
+    ascending: Boolean = false,
+) {
+    val sorted = if (ascending) rows.reversed() else rows
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        if (rows.isEmpty()) item { EmptyHint() }
-        items(rows, key = { it.id }) { entity ->
+        if (sorted.isEmpty()) item { EmptyHint() }
+        items(sorted, key = { it.id }) { entity ->
             val row = entity.object_() ?: return@items
             Surface(
                 shape = RoundedCornerShape(14.dp),
@@ -198,10 +281,11 @@ private fun RawTab(rows: List<LocalRecordEntity>, field1: String, field2: String
 }
 
 @Composable
-private fun CashTab(rows: List<CashflowRow>) {
+private fun CashTab(rows: List<CashflowRow>, ascending: Boolean = false) {
+    val sorted = if (ascending) rows.reversed() else rows
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        if (rows.isEmpty()) item { EmptyHint() }
-        items(rows, key = { it.id }) { row ->
+        if (sorted.isEmpty()) item { EmptyHint() }
+        items(sorted, key = { it.id }) { row ->
             Surface(
                 shape = RoundedCornerShape(14.dp),
                 color = MaterialTheme.colorScheme.surface,

@@ -17,6 +17,10 @@ interface LocalRecordDao {
     @Query("SELECT * FROM local_record WHERE collection = :collection AND id = :id")
     suspend fun find(collection: String, id: String): LocalRecordEntity?
 
+    /** Cari satu baris berdasarkan nilai field JSON (mis. `id_lama`) tanpa memuat seluruh koleksi. */
+    @Query("SELECT * FROM local_record WHERE collection = :collection AND json LIKE '%\"' || :field || '\":\"' || :value || '\"%' LIMIT 1")
+    suspend fun findByField(collection: String, field: String, value: String): LocalRecordEntity?
+
     @Query("SELECT * FROM local_record WHERE collection = :collection ORDER BY dateKey DESC, id DESC")
     fun observe(collection: String): Flow<List<LocalRecordEntity>>
 
@@ -124,6 +128,22 @@ interface SyncStateDao {
 
     @Query("SELECT * FROM sync_state")
     fun observeAll(): Flow<List<SyncStateEntity>>
+}
+
+@Dao
+interface MediaDao {
+
+    @Insert
+    suspend fun add(media: PendingMediaEntity): Long
+
+    @Query("SELECT * FROM pending_media ORDER BY id ASC")
+    suspend fun all(): List<PendingMediaEntity>
+
+    @Query("DELETE FROM pending_media WHERE id = :id")
+    suspend fun remove(id: Long)
+
+    @Query("SELECT COUNT(*) FROM pending_media")
+    fun observeCount(): Flow<Int>
 }
 
 @Dao

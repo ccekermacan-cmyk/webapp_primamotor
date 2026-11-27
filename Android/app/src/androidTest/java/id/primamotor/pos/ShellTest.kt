@@ -16,7 +16,7 @@ class ShellTest {
 
     @Test
     fun bottom_bar_shows_all_tabs() {
-        rule.setContent { PrimaMotorTheme { AppNav() } }
+        rule.setContent { PrimaMotorTheme { AppNav(levelNumber = 1) } }
         // Menu utama ada di drawer, sama seperti sidebar web.
         rule.onNodeWithTag("nav_menu").performClick()
         rule.waitForIdle()
