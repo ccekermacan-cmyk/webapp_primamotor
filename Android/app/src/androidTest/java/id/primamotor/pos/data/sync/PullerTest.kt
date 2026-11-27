@@ -77,7 +77,8 @@ class PullerTest {
         puller.pull()
 
         val cashflowRequest = paths.first { it.contains("/collections/cashflow/") }
-        assertTrue("filter tanggal hilang: $cashflowRequest", cashflowRequest.contains("created_at"))
+        assertTrue("filter tanggal hilang: $cashflowRequest", cashflowRequest.contains("created_at%3E%3D%22"))
+        assertTrue("filter bukan string terkutip: $cashflowRequest", cashflowRequest.contains("%22&") || cashflowRequest.endsWith("%22"))
     }
 
     @Test

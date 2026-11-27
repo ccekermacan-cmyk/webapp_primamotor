@@ -1,12 +1,10 @@
 package id.primamotor.pos.ui.theme
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 
-private val LightColors = lightColorScheme(
+private val Colors = lightColorScheme(
     primary = Primary,
     onPrimary = OnPrimary,
     primaryContainer = PrimaryContainer,
@@ -15,24 +13,17 @@ private val LightColors = lightColorScheme(
     background = Background,
     surface = Surface,
     onSurface = OnSurface,
+    surfaceVariant = SurfaceVariant,
+    onSurfaceVariant = OnSurfaceVariant,
+    outline = Outline,
     error = Error,
 )
 
-private val DarkColors = darkColorScheme(
-    primary = PrimaryContainer,
-    onPrimary = OnPrimaryContainer,
-    secondary = Secondary,
-    error = Error,
-)
-
+/** Web hanya punya tampilan terang; POS mengikuti agar warna dan kontras sama. */
 @Composable
 fun PrimaMotorTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
+    @Suppress("UNUSED_PARAMETER") darkTheme: Boolean = false,
     content: @Composable () -> Unit,
 ) {
-    MaterialTheme(
-        colorScheme = if (darkTheme) DarkColors else LightColors,
-        typography = Typography,
-        content = content,
-    )
+    MaterialTheme(colorScheme = Colors, typography = Typography, content = content)
 }

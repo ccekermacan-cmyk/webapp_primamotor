@@ -12,9 +12,11 @@ import id.primamotor.pos.hardware.printer.PrinterSettings
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 
 class SettingsViewModel(container: AppContainer) : ViewModel() {
 
+    private val engine = container.syncEngine
     private val prefs = PrinterSettings(container.context)
     private val printer = BluetoothPrinter(container.context)
 
@@ -24,6 +26,12 @@ class SettingsViewModel(container: AppContainer) : ViewModel() {
         private set
 
     var selectedAddress by mutableStateOf(prefs.address)
+        private set
+
+    var syncing by mutableStateOf(false)
+        private set
+
+    var syncMessage by mutableStateOf<String?>(null)
         private set
 
     val pending: StateFlow<Int> = container.conflictResolver.pendingCount()
@@ -43,4 +51,24 @@ class SettingsViewModel(container: AppContainer) : ViewModel() {
     }
 
     fun hasBluetoothPermission(): Boolean = printer.hasPermission()
+
+    fun syncNow() {
+        if (syncing) return
+        syncing = true
+        syncMessage = null
+        viewModelScope.launch {
+            val outcome = runCatching { engine.run() }
+            outcome.fold(
+                onSuccess = { result ->
+                    syncing = false
+                    syncMessage = result.error?.let { "Gagal: $it" }
+                        ?: "Selesai: ${result.pushed} terkirim, ${result.pulled} diterima."
+                },
+                onFailure = { error ->
+                    syncing = false
+                    syncMessage = "Gagal: ${error.message ?: "tidak diketahui"}"
+                },
+            )
+        }
+    }
 }

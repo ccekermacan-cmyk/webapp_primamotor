@@ -79,6 +79,7 @@ fun ProductsScreen(viewModel: ProductViewModel) {
                 modifier = Modifier.fillMaxWidth().padding(12.dp).testTag("products_search"),
             )
             LazyColumn(Modifier.fillMaxSize()) {
+                if (products.isEmpty()) item { id.primamotor.pos.ui.EmptyHint() }
                 items(products, key = { it.id }) { product ->
                     ProdukRow(product) { viewModel.edit(product) }
                     HorizontalDivider()

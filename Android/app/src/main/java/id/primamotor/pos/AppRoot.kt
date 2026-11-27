@@ -1,6 +1,7 @@
 package id.primamotor.pos
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -40,6 +41,9 @@ fun AppRoot(container: AppContainer) {
 
     if (session != null) {
         val syncViewModel: SyncViewModel = viewModel { SyncViewModel(container) }
+        LaunchedEffect(session?.id) {
+            if (session != null) syncViewModel.syncNow()
+        }
         AppNav(
             onLogout = logout,
             posScreen = { PosRoute(container) },

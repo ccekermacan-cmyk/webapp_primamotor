@@ -75,7 +75,8 @@ class Puller(
         while (true) {
             val filter = spec.dateField?.let { field ->
                 val start = WibDate.startOfDayIso(LocalDate.parse(from))
-                "%22$field%22%20%3E%3D%20%22${start}%22"
+                // Sintaks PocketBase: nama field tanpa kutip, nilai string dikutip.
+                "$field%3E%3D%22${start.replace(" ", "%20")}%22"
             }
             val path = buildString {
                 append("/api/collections/").append(spec.collection).append("/records?perPage=200&page=")

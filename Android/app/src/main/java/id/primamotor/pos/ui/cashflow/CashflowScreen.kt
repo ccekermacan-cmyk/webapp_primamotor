@@ -101,6 +101,7 @@ private fun CashTab(rows: List<CashflowRow>) {
             modifier = Modifier.padding(horizontal = 12.dp),
         )
         LazyColumn(Modifier.fillMaxSize()) {
+            if (filtered.isEmpty()) item { id.primamotor.pos.ui.EmptyHint() }
             items(filtered, key = { it.id }) { row ->
                 Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -126,6 +127,7 @@ private fun CashTab(rows: List<CashflowRow>) {
 @Composable
 private fun PeopleTab(rows: List<PersonRow>) {
     LazyColumn(Modifier.fillMaxSize()) {
+        if (rows.isEmpty()) item { id.primamotor.pos.ui.EmptyHint() }
         items(rows, key = { it.id }) { person ->
             Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
                 Text(person.nama, fontWeight = FontWeight.SemiBold)

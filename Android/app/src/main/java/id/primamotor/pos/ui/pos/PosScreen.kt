@@ -78,6 +78,7 @@ fun PosScreen(viewModel: PosViewModel) {
         }
 
         LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp)) {
+            if (products.isEmpty()) item { id.primamotor.pos.ui.EmptyHint() }
             items(products, key = { it.id }) { product ->
                 ProductRow(product = product, onAdd = { viewModel.add(product) })
                 HorizontalDivider()

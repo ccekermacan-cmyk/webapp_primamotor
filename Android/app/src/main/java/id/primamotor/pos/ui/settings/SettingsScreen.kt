@@ -82,6 +82,14 @@ fun SettingsSheet(container: AppContainer, onLogout: () -> Unit, onDismiss: () -
             HorizontalDivider()
             Text("Sinkronisasi", fontWeight = FontWeight.Bold)
             Text("$pending transaksi menunggu", modifier = Modifier.testTag("settings_pending"))
+            Button(
+                onClick = viewModel::syncNow,
+                enabled = !viewModel.syncing,
+                modifier = Modifier.testTag("settings_sync_now"),
+            ) { Text(if (viewModel.syncing) "Menyinkronkan..." else "Sinkron sekarang") }
+            viewModel.syncMessage?.let { message ->
+                Text(message, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("settings_sync_message"))
+            }
             Text(
                 if (lastSync == 0L) {
                     "Data terakhir: belum pernah sinkron"

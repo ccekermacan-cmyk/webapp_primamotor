@@ -2,7 +2,10 @@ package id.primamotor.pos.data.sync
 
 import id.primamotor.pos.data.local.AppDatabase
 import id.primamotor.pos.data.local.OutboxStatus
+import id.primamotor.pos.data.local.SyncStateEntity
 import id.primamotor.pos.data.remote.SessionManager
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Satu siklus sinkron: **push dulu, lalu pull**.
@@ -14,7 +17,12 @@ class SyncEngine(
     private val pusher: Pusher,
     private val puller: Puller,
 ) {
-    suspend fun run(): Outcome {
+    private val gate = Mutex()
+
+    /** Satu siklus pada satu waktu; worker latar dan tombol manual tidak saling menimpa. */
+    suspend fun run(): Outcome = gate.withLock { runLocked() }
+
+    private suspend fun runLocked(): Outcome {
         db.outboxDao().requeueInterrupted()
 
         var pushed = 0
@@ -30,13 +38,35 @@ class SyncEngine(
         }
 
         if (sessions.currentToken() == null) {
-            return Outcome(pushed, 0, blocked)
+            return Outcome(pushed, 0, blocked, error = "Sesi berakhir. Login ulang untuk sinkronisasi.")
         }
-        val pulled = runCatching { puller.pull() }.getOrNull()
-        return Outcome(pushed, pulled?.records ?: 0, blocked)
+        val result = runCatching { puller.pull() }
+        val pulled = result.getOrNull()
+        if (pulled != null) {
+            db.syncStateDao().upsert(
+                SyncStateEntity(
+                    collection = SYNC_STATE,
+                    lastSyncAt = System.currentTimeMillis(),
+                    status = "ok",
+                ),
+            )
+        } else {
+            db.syncStateDao().upsert(
+                SyncStateEntity(
+                    collection = SYNC_STATE,
+                    lastSyncAt = db.syncStateDao().find(SYNC_STATE)?.lastSyncAt ?: 0L,
+                    status = "error",
+                ),
+            )
+        }
+        return Outcome(pushed, pulled?.records ?: 0, blocked, result.exceptionOrNull()?.message)
     }
 
-    data class Outcome(val pushed: Int, val pulled: Int, val blocked: PushOutcome?)
+    data class Outcome(val pushed: Int, val pulled: Int, val blocked: PushOutcome?, val error: String? = null)
+
+    companion object {
+        const val SYNC_STATE = "sync"
+    }
 
     suspend fun pendingCount(): Int = db.outboxDao().count()
 

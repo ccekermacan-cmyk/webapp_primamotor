@@ -31,8 +31,35 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
+data class SyncUiState(
+    val running: Boolean = false,
+    val pushed: Int = 0,
+    val pulled: Int = 0,
+    val error: String? = null,
+)
+
 class SyncViewModel(container: AppContainer) : ViewModel() {
     private val resolver = container.conflictResolver
+    private val engine = container.syncEngine
+    private val local = kotlinx.coroutines.flow.MutableStateFlow(SyncUiState())
+
+    val state: StateFlow<SyncUiState> = local
+
+    fun syncNow() {
+        if (local.value.running) return
+        local.value = local.value.copy(running = true, error = null)
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val outcome = runCatching { engine.run() }
+            local.value = outcome.fold(
+                onSuccess = { SyncUiState(running = false, pushed = it.pushed, pulled = it.pulled, error = it.error) },
+                onFailure = { SyncUiState(running = false, error = it.message ?: "Sinkron gagal.") },
+            )
+        }
+    }
+
+    fun clearMessage() {
+        local.value = local.value.copy(error = null, pushed = 0, pulled = 0)
+    }
 
     val pending: StateFlow<Int> = resolver.pendingCount()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
@@ -50,9 +77,10 @@ class SyncViewModel(container: AppContainer) : ViewModel() {
 fun SyncStatusBar(viewModel: SyncViewModel, modifier: Modifier = Modifier) {
     val pending by viewModel.pending.collectAsStateWithLifecycle()
     val open by viewModel.open.collectAsStateWithLifecycle()
+    val state by viewModel.state.collectAsStateWithLifecycle()
     var showConflicts by remember { mutableStateOf(false) }
 
-    if (pending == 0 && open.isEmpty()) return
+    if (pending == 0 && open.isEmpty() && !state.running && state.error == null) return
 
     Surface(
         modifier = modifier.fillMaxWidth(),
@@ -65,7 +93,12 @@ fun SyncStatusBar(viewModel: SyncViewModel, modifier: Modifier = Modifier) {
                 .padding(horizontal = 12.dp, vertical = 4.dp),
         ) {
             Text(
-                if (open.isEmpty()) "$pending transaksi menunggu sinkron" else "$pending menunggu • ${open.size} perlu ditinjau",
+                when {
+                    state.running -> "Menyinkronkan..."
+                    state.error != null -> "Sinkron gagal: ${state.error}"
+                    open.isNotEmpty() -> "$pending menunggu • ${open.size} perlu ditinjau"
+                    else -> "$pending transaksi menunggu sinkron"
+                },
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.testTag("sync_status"),
             )

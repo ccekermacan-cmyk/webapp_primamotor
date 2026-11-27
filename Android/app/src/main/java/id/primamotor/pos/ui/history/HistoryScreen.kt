@@ -72,6 +72,7 @@ fun HistoryScreen(viewModel: HistoryViewModel) {
         }
 
         LazyColumn(Modifier.fillMaxSize()) {
+            if (rows.isEmpty()) item { id.primamotor.pos.ui.EmptyHint() }
             items(rows, key = { it.id }) { row ->
                 Column(Modifier.fillMaxWidth().clickable { viewModel.openSettle(row) }.padding(horizontal = 12.dp, vertical = 8.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
