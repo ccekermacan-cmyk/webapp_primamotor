@@ -18,6 +18,8 @@ import id.primamotor.pos.ui.account.AccountRoute
 import id.primamotor.pos.ui.history.HistoryRoute
 import id.primamotor.pos.ui.pos.PosRoute
 import id.primamotor.pos.ui.products.ProductsRoute
+import id.primamotor.pos.ui.sync.SyncStatusBar
+import id.primamotor.pos.ui.sync.SyncViewModel
 
 /**
  * Gerbang sesi: sesi tersimpan (cache terenkripsi) langsung membuka POS tanpa jaringan.
@@ -37,6 +39,7 @@ fun AppRoot(container: AppContainer) {
     }
 
     if (session != null) {
+        val syncViewModel: SyncViewModel = viewModel { SyncViewModel(container) }
         AppNav(
             onLogout = logout,
             posScreen = { PosRoute(container) },
@@ -44,6 +47,7 @@ fun AppRoot(container: AppContainer) {
             productsScreen = { ProductsRoute(container) },
             cashflowScreen = { CashflowRoute(container) },
             accountScreen = { AccountRoute(container, onLogout = logout) },
+            topBar = { SyncStatusBar(syncViewModel) },
         )
     } else {
         LoginRoute(container) { loggedIn -> session = loggedIn }

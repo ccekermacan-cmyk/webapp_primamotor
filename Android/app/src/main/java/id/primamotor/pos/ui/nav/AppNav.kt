@@ -39,12 +39,14 @@ fun AppNav(
     productsScreen: @Composable () -> Unit = { PlaceholderScreen("Produk") },
     cashflowScreen: @Composable () -> Unit = { PlaceholderScreen("Kas") },
     accountScreen: @Composable () -> Unit = { AccountPlaceholder(onLogout) },
+    topBar: @Composable () -> Unit = {},
 ) {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val selected = backStackEntry?.destination
 
     Scaffold(
+        topBar = topBar,
         bottomBar = {
             NavigationBar {
                 TopRoute.entries.forEach { item ->

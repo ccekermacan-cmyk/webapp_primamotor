@@ -8,6 +8,7 @@ import id.primamotor.pos.data.remote.SessionManager
 import id.primamotor.pos.data.repo.CheckoutRepository
 import id.primamotor.pos.data.repo.PosEditRepository
 import id.primamotor.pos.data.repo.ProductRepository
+import id.primamotor.pos.data.sync.ConflictResolver
 import id.primamotor.pos.data.repo.SettlementRepository
 import id.primamotor.pos.data.repo.Repositories
 import id.primamotor.pos.data.sync.Puller
@@ -56,4 +57,6 @@ class AppContainer(context: Context) {
     val settlementRepository: SettlementRepository = SettlementRepository(database)
 
     val productRepository: ProductRepository = ProductRepository(database)
+
+    val conflictResolver: ConflictResolver = ConflictResolver(database)
 }

@@ -78,4 +78,5 @@ object OutboxStatus {
     const val SENT = "sent"
     const val FAILED = "failed"
     const val NEEDS_REVIEW = "needs_review"
+    const val VOID = "void"
 }
