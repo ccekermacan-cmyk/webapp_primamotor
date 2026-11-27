@@ -60,6 +60,9 @@ interface LocalRecordDao {
     @Query("DELETE FROM local_record WHERE collection = :collection AND id = :id")
     suspend fun delete(collection: String, id: String)
 
+    @Query("DELETE FROM local_record WHERE collection = :collection AND dirty = 0")
+    suspend fun deleteCleanCollection(collection: String)
+
     @Query("SELECT COUNT(*) FROM local_record WHERE collection = :collection AND dirty = 1")
     suspend fun dirtyCount(collection: String): Int
 }

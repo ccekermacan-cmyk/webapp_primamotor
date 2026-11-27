@@ -2,6 +2,9 @@ package id.primamotor.pos.data.repo
 
 import id.primamotor.pos.data.local.AppDatabase
 import id.primamotor.pos.data.local.LocalRecordEntity
+import id.primamotor.pos.domain.GajiDetails
+import id.primamotor.pos.domain.GajiItem
+import id.primamotor.pos.domain.GajiMath
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.JsonNull
@@ -104,21 +107,26 @@ data class GajiRow(
     val total: BigDecimal?,
     val createdAt: String,
 ) {
-    val total1: BigDecimal get() = pokok + tunjangan + bonus + lembur
+    private val item: GajiItem
+        get() = GajiItem(
+            pokok = pokok,
+            tunjangan = tunjangan,
+            bonus1 = bonus,
+            lembur = lembur,
+            alfa = alfa,
+            setengahHari = setengahHari,
+            sakit = sakit,
+            telat = telat,
+            bpjs = bpjs,
+            bonDiambil = bonDiambil,
+            bonDibayar = bonDibayar,
+            qty = qty,
+            total = total,
+        )
 
-    val total2: BigDecimal
-        get() {
-            val hari = if (qty.signum() > 0) qty else BigDecimal.ONE
-            val dasar = pokok.add(tunjangan).divide(hari, java.math.MathContext.DECIMAL64)
-            return dasar.multiply(alfa) +
-                dasar.multiply(setengahHari).divide(BigDecimal(2), java.math.MathContext.DECIMAL64) +
-                dasar.multiply(BigDecimal("0.9")).multiply(sakit) +
-                telat.multiply(BigDecimal(1000))
-        }
+    val details: GajiDetails get() = GajiMath.details(item)
 
-    val total3: BigDecimal get() = bpjs + bonDiambil + bonDibayar
-
-    val diterima: BigDecimal get() = total ?: (total1 - total2 - total3)
+    val diterima: BigDecimal get() = details.grandTotal
 }
 
 data class PersonRow(

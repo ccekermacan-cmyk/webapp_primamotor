@@ -99,6 +99,20 @@ class DatabaseTest {
         assertEquals("sent", db.outboxDao().find("r1")?.status)
     }
 
+    @Test
+    fun logout_cleanup_keeps_dirty_gaji_rows() = runBlocking {
+        db.localRecordDao().upsertAll(
+            listOf(
+                record("gaji", "g1", "2026-10-18"),
+                record("gaji", "g2", "2026-10-18").copy(dirty = 1),
+            ),
+        )
+
+        db.localRecordDao().deleteCleanCollection("gaji")
+
+        assertEquals(listOf("g2"), db.localRecordDao().idsInRange("gaji", "0000-01-01", "9999-12-31"))
+    }
+
     private fun record(collection: String, id: String, dateKey: String) = LocalRecordEntity(
         collection = collection,
         id = id,
