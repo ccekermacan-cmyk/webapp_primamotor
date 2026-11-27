@@ -62,6 +62,11 @@ data class Produk(
     val min1: BigDecimal,
     val min2: BigDecimal,
     val min3: BigDecimal,
+    /** Field tambahan halaman Produk web: `stok_1`, `stok_2`, `file`, `created`. */
+    val stok1: BigDecimal = BigDecimal.ZERO,
+    val stok2: BigDecimal = BigDecimal.ZERO,
+    val files: List<String> = emptyList(),
+    val createdAt: String = "",
 )
 
 data class MenuRow(
@@ -205,6 +210,17 @@ data class GajiRow(
 
     val diterima: BigDecimal get() = details.grandTotal
 }
+
+/** Baris `log_stock` untuk tab riwayat stok di detail produk, cermin tabel web. */
+data class ProductLog(
+    val id: String,
+    val createdAt: String,
+    val operator: String,
+    val direction: String,
+    val qty: BigDecimal,
+    val price: BigDecimal,
+    val refBaru: String,
+)
 
 data class PersonRow(
     val id: String,
@@ -444,6 +460,28 @@ class Repositories(private val db: AppDatabase) {
     suspend fun searchProduk(query: String): List<Produk> =
         db.localRecordDao().search("produk", query.lowercase()).map { produk(it.obj()) }
 
+    /** Riwayat stok produk (5 per halaman, terbaru dulu), sama seperti `fetchLogHistory` web. */
+    suspend fun productLogs(productId: String, page: Int, perPage: Int = 5): Pair<List<ProductLog>, Int> {
+        val rows = db.localRecordDao()
+            .byJsonFragment("log_stock", "\"item_baru\":\"$productId\"")
+            .mapNotNull { entity ->
+                val row = entity.object_() ?: return@mapNotNull null
+                ProductLog(
+                    id = entity.id,
+                    createdAt = row.text("created_at").ifBlank { row.text("created") },
+                    operator = row.text("operator"),
+                    direction = row.text("boolean"),
+                    qty = row.number("qty"),
+                    price = row.number("price_1"),
+                    refBaru = row.text("ref_baru"),
+                )
+            }
+            .sortedByDescending { it.createdAt }
+        val pages = if (perPage <= 0) 1 else maxOf(1, (rows.size + perPage - 1) / perPage)
+        val current = page.coerceIn(1, pages)
+        return rows.drop((current - 1) * perPage).take(perPage) to pages
+    }
+
     private fun produk(row: JsonObject) = Produk(
         id = row.text("id"),
         nama = row.text("nama"),
@@ -467,6 +505,10 @@ class Repositories(private val db: AppDatabase) {
         min1 = row.number("min_1"),
         min2 = row.number("min_2"),
         min3 = row.number("min_3"),
+        stok1 = row.number("stok_1"),
+        stok2 = row.number("stok_2"),
+        files = row.strings("file"),
+        createdAt = row.text("created"),
     )
 
     private fun menu(row: JsonObject) = MenuRow(

@@ -31,6 +31,7 @@ data class MasterDraft(
     val text7: String = "",
     val text8: String = "",
     val text9: String = "",
+    val text10: String = "",
     val number1: String = "0",
     val number2: String = "0",
     val number3: String = "0",
@@ -42,6 +43,7 @@ data class MasterDraft(
     val enum4: String = "",
     val alamat: String = "",
     val phone: String = "",
+    val latlong: String = "",
     val linkImage: String = "",
     val linkDokumen: String = "",
     val visibilitas: String = "1,2,3,4,5,6,7",
@@ -53,6 +55,8 @@ sealed interface MasterSave {
     data class Saved(val id: String, val created: Boolean) : MasterSave
     data class Rejected(val message: String) : MasterSave
 }
+
+private val MASTER_SYSTEM_FIELDS = setOf("created", "updated", "collectionId", "collectionName", "expand")
 
 class MasterRepository(
     private val db: AppDatabase,
@@ -72,7 +76,9 @@ class MasterRepository(
         val previous = existing?.json?.let(::parse)
 
         val json = buildJsonObject {
-            previous?.forEach { (key, value) -> put(key, value) }
+            previous?.forEach { (key, value) ->
+                if (key !in MASTER_SYSTEM_FIELDS) put(key, value)
+            }
             put("id", id)
             put("kategori", draft.kategori.trim())
             put("jenis", draft.jenis.trim())
@@ -85,6 +91,7 @@ class MasterRepository(
             put("text_7", draft.text7.trim())
             put("text_8", draft.text8.trim())
             put("text_9", draft.text9.trim())
+            put("text_10", draft.text10.trim())
             put("number_1", draft.number1.toBigDecimalOrNull() ?: 0)
             put("number_2", draft.number2.toBigDecimalOrNull() ?: 0)
             put("number_3", draft.number3.toBigDecimalOrNull() ?: 0)
@@ -95,11 +102,13 @@ class MasterRepository(
             put("enum_3", draft.enum3.trim())
             put("enum_4", draft.enum4.trim())
             put("address", draft.alamat.trim())
-            put("phone", draft.phone.trim())
+            put("phone", draft.phone.filter { it.isDigit() }.toBigDecimalOrNull() ?: 0)
+            put("latlong", draft.latlong.trim())
             put("link_image", draft.linkImage.trim())
             put("doc", draft.linkDokumen.trim())
             put("visibilitas", draft.visibilitas.trim())
-            put("id_lama", draft.idLama.trim().ifBlank { draft.text1.trim() })
+            // Web mengirim id_lama kosong (bertabrakan dengan unique index). Native membuat unik.
+            put("id_lama", draft.idLama.trim().ifBlank { uniqueCode() })
             put("operator", draft.operator.trim())
         }
 
@@ -134,6 +143,8 @@ class MasterRepository(
         enqueue("dropdown", "delete", id, existing.json)
         true
     }
+
+    private fun uniqueCode(): String = "m" + RecordId.create(14)
 
     private suspend fun enqueue(collection: String, method: String, recordId: String, json: String) {
         val requestId = RecordId.create(24)

@@ -72,3 +72,33 @@ Desain: `docs/superpowers/specs/2026-11-27-android-web-parity-design.md`.
 - [x] Unit 76/76, instrumented 57/57, release APK 2,7 MB, cold start 1091 ms (CPH2461)
 - [ ] Belum diport: galeri media di detail nota (butuh pemuat bitmap ber-autentikasi, tanpa image loader)
 - [ ] Belum diport: pembuatan slip gaji POS (batch `saveGajiBatch`: menu `gaji`, baris `gaji`, bon `cashflow`); daftar slip hanya baca
+
+## Fase 5 — Produk 1:1 web
+
+- [x] Header `Manajemen Produk` + `Total N produk terdaftar`; tombol tambah di header (lebar) dan FAB (sempit)
+- [x] Pencarian multi kata AND atas `id_lama, kategori, merk, jenis, varian, keterangan, tipe` + kode numerik exact
+- [x] Grid/List + urutan kolom (kode, nama, stok, harga pelanggan, harga retail) dengan arah asc/desc
+- [x] Filter kategori exact + stok `menipis` (`stok_3 <= stok_2 && stok_3 > 0`) dan `habis` (`stok_3 <= 0`), panel filter khusus layar sempit
+- [x] perPage mengikuti breakpoint kolom×6: `<640→12`, `<768→18`, `<1024→24`, `<1280→30`, else 36; ganti perPage reset halaman 1
+- [x] Kartu: kode 5 digit (`displayCode`), nama `kategori merk jenis varian keterangan tipe`, badge HABIS/MENIPIS, stok + satuan, harga retail, margin kartu level 1/2/5/6, tombol Edit/Salin/Hapus, stok cepat +/-
+- [x] Detail: gambar + navigasi lampiran, salin nama, skema tier (min/sell/profit), riwayat `log_stock` per 5 baris, produk terkait (skor Levenshtein), aksi Edit/Salin/Hapus/Tutup
+- [x] Form: `id_lama` 5 digit nonaktif saat edit, satuan `pcs`/`m`, tipe chip, validasi `kategori/merk/unit wajib diisi.`, `... harus bilangan bulat nol atau lebih.`, `Harga retail harus lebih dari nol.`
+- [x] Stok hanya lewat `log_stock`: create `stok_3=0` + log masuk, edit diff + `expected_stock`, satu request outbox atomik
+- [x] Salin: `id_lama` acak, `stok_1`/`stok_3` nol, `stok_2` ikut, foto tidak ikut; hapus hanya level 1 + `permissions/delete` + verifikasi password
+- [x] Pemuat gambar minimal (OkHttp + BitmapFactory + cache memori) untuk thumbnail/detail/lampiran, fallback teks saat offline
+- [x] Unit 87/87, instrumented 62/62, release APK 2,79 MB, cold start 502–1052 ms (CPH2461)
+
+## Fase 6 — Settings 1:1 web
+
+- [x] Hanya level 1 membuka halaman; master data satu koleksi `dropdown`
+- [x] Pill jenis: `Semua Jenis (N)` + `{JENIS} ({count})` dari seluruh data, bukan hasil cari
+- [x] Cari `Cari jenis, kategori, atau label master data...` atas jenis/kategori/text_1, AND dengan pill
+- [x] Kartu per jenis lalu per kategori, badge `N Item`, tombol tambah per jenis
+- [x] Baris item: label + text_2, badge `number_1` (Rupiah untuk cashflow/akun), Detail/Edit/Hapus (`id_lama != umum1` + `permissions/delete`)
+- [x] Form 3 tab (Utama / Nilai & Extra / Enum & Akses) dengan label dinamis `getFieldLabel` dan combobox jenis/kategori
+- [x] Detail: jenis • kategori, text_2, number_1, alamat, telepon, visibilitas (chip level, kosong = `Global (Semua Level)`), Edit/Hapus/Tutup
+- [x] Hapus tanpa password; dialek hasil `Tersimpan` / `Berhasil Dihapus` / `Kendala: ...`
+- [x] `id_lama` dibuat unik saat create (web mengirim kosong dan menabrak unique index), `phone` numerik, enum CSV dinormalisasi trim
+- [x] Printer & sinkron tetap tersedia dari halaman Settings native sebagai tambahan
+- [ ] Belum diport: penjagaan stale `number_1` non-level-1 (`financialPatch` butuh `getOne` server) — native memakai outbox
+- [ ] Belum diport: dialog hasil bergaya `Modal` web (native memakai `AlertDialog`)
