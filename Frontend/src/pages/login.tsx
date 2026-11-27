@@ -82,8 +82,8 @@ export default function Login({ setAuth }: { setAuth: (status: boolean) => void 
           <div className="absolute inset-0 w-full h-full opacity-10 pointer-events-none flex items-center justify-center lg:justify-end">
             <Wrench size={240} className="-rotate-12 translate-x-10 lg:translate-x-24" />
           </div>
-          <div className="mx-auto lg:mx-0 bg-white w-20 h-20 lg:w-24 lg:h-24 rounded-3xl flex items-center justify-center mb-6 shadow-xl rotate-3 relative z-10">
-            <Wrench className="text-red-600" size={40} />
+          <div className="mx-auto lg:mx-0 bg-white w-20 h-20 lg:w-24 lg:h-24 rounded-3xl flex items-center justify-center mb-6 shadow-xl rotate-3 relative z-10 overflow-hidden">
+            <img src="/favicon.png" alt="Logo Prima Motor" className="w-full h-full object-contain p-1.5" />
           </div>
           {/* Tag br disembunyikan di HP agar tidak patah, tampilkan di PC */}
           <h1 className="text-3xl lg:text-5xl font-black text-white tracking-tighter relative z-10 leading-tight mb-2">PRIMA <br className="hidden lg:block"/>MOTOR</h1>
