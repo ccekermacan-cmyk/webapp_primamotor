@@ -57,6 +57,7 @@ try:
  shutil.copy(root/'Backend/pb_migrations/1792358200_preserve_admin_balance_correction.js',tmp/'migrations')
  shutil.copy(root/'Backend/pb_migrations/1792400000_stock_override_via_api.js',tmp/'migrations')
  shutil.copy(root/'Backend/pb_migrations/1792500000_atomic_changes_retention.js',tmp/'migrations')
+ shutil.copy(root/'Backend/pb_migrations/1792600000_add_product_barcode.js',tmp/'migrations')
  subprocess.run([str(root/'Backend/pocketbase'),'migrate','up',*pbflags],check=True,stdout=subprocess.DEVNULL)
  processes[0]=subprocess.Popen([str(root/'Backend/pocketbase'),'serve','--http','127.0.0.1:18090',*pbflags],stdout=f,stderr=subprocess.STDOUT);wait(pb+'/api/health')
  # Enable atomic batch requests in the isolated PocketBase instance.
@@ -80,6 +81,18 @@ try:
  api(pb,'/api/collections/user/auth-refresh','POST',{},token)
  print('PASS: PocketBase accepts user token refresh')
  _,product=api(pb,'/api/collections/produk/records','POST',{'id_lama':'tprod','stok_3':0,'beli':100,'kategori':'Sparepart'},admin)
+ _,productDetail=api(pb,'/api/collections/produk',token=admin)
+ assert any(f['name']=='barcode' for f in productDetail['fields']), productDetail
+ conn=sqlite3.connect(f'file:{data}/data.db?mode=ro',uri=True)
+ assert conn.execute("SELECT 1 FROM sqlite_master WHERE type='index' AND name='idx_produk_barcode'").fetchone()
+ conn.close()
+ api(pb,'/api/collections/produk/records/'+product['id'],'PATCH',{'barcode':'8991002101234'},admin)
+ scanCode=urllib.parse.quote("(barcode='8991002101234')")
+ _,scan=api(pb,'/api/collections/produk/records?filter='+scanCode,token=admin)
+ assert scan['items'] and scan['items'][0]['id']==product['id'],scan
+ _,scan=api(pb,'/api/collections/produk/records?filter='+scanCode,token=staff_auth['token'])
+ assert scan['items'] and scan['items'][0]['id']==product['id'],scan
+ print('PASS: product barcode field, backfill index and filter lookup')
  _,wallet=api(pb,'/api/collections/dropdown/records','POST',{'text_1':'integrationwallet','jenis':'Cashflow Account','kategori':'Cashflow','number_1':1000},admin)
  assert api(pb,'/api/collections/dropdown/records')[1]['items'] == []
  denied('/api/collections/dropdown/records/'+wallet['id'])
