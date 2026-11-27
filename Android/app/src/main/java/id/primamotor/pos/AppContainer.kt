@@ -5,6 +5,8 @@ import id.primamotor.pos.data.local.AppDatabase
 import id.primamotor.pos.data.local.EncryptedTokenStore
 import id.primamotor.pos.data.remote.PocketBaseClient
 import id.primamotor.pos.data.remote.SessionManager
+import id.primamotor.pos.data.repo.CheckoutRepository
+import id.primamotor.pos.data.repo.Repositories
 import id.primamotor.pos.data.sync.Puller
 import id.primamotor.pos.data.sync.Pusher
 import id.primamotor.pos.data.sync.SyncEngine
@@ -41,4 +43,8 @@ class AppContainer(context: Context) {
     val puller: Puller = Puller(database, sessions)
 
     val syncEngine: SyncEngine = SyncEngine(database, sessions, pusher, puller)
+
+    val repositories: Repositories = Repositories(database)
+
+    val checkoutRepository: CheckoutRepository = CheckoutRepository(database)
 }

@@ -227,6 +227,44 @@ class Repositories(private val db: AppDatabase) {
         }
     }
 
+    /** Pilihan akun kas/bank untuk pembayaran. */
+    fun observeAccounts(): Flow<List<PersonRow>> = observeRows("dropdown").map { rows ->
+        rows.mapNotNull { row ->
+            if (!row.text("jenis").lowercase().contains("cashflow account")) return@mapNotNull null
+            PersonRow(
+                id = row.text("id"),
+                nama = row.text("text_1"),
+                keterangan = row.text("text_2"),
+                jenis = row.text("jenis"),
+                kategori = row.text("kategori"),
+            )
+        }
+    }
+
+    /** Jenis menu POS (Penjualan, Pembelian, Service, ...). */
+    fun observeMenus(): Flow<List<PersonRow>> = observeRows("dropdown").map { rows ->
+        rows.mapNotNull { row ->
+            val kategori = row.text("kategori").lowercase()
+            val jenis = row.text("jenis").lowercase()
+            if (!kategori.contains("menu") || !jenis.contains("jenis menu")) return@mapNotNull null
+            PersonRow(
+                id = row.text("id"),
+                nama = row.text("text_1"),
+                keterangan = row.text("text_2"),
+                jenis = row.text("jenis"),
+                kategori = kategori,
+            )
+        }
+    }
+
+    /** Mekanik = user level 10 aktif, sama seperti filter web. */
+    fun observeMekanik(): Flow<List<UserRow>> = observeUser().map { rows ->
+        rows.filter { it.level == 10 && it.status.equals("active", ignoreCase = true) }
+    }
+
+    suspend fun accountBalance(id: String): BigDecimal =
+        db.localRecordDao().find("dropdown", id)?.obj()?.number("number_1") ?: BigDecimal.ZERO
+
     fun observeUser(): Flow<List<UserRow>> = observeRows("user").map { rows ->
         rows.map { row ->
             UserRow(

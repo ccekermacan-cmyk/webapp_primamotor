@@ -8,6 +8,8 @@ data class CartLine(
     val nama: String,
     val qty: BigDecimal,
     val price: BigDecimal,
+    /** Harga normal (sell_6) untuk laporan; default sama dengan harga jual. */
+    val normalPrice: BigDecimal = price,
 )
 
 /**

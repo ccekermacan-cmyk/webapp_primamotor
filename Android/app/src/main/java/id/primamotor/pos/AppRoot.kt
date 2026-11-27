@@ -11,6 +11,7 @@ import id.primamotor.pos.data.remote.UserSession
 import id.primamotor.pos.ui.login.LoginScreen
 import id.primamotor.pos.ui.login.LoginViewModel
 import id.primamotor.pos.ui.nav.AppNav
+import id.primamotor.pos.ui.pos.PosRoute
 
 /**
  * Gerbang sesi: sesi tersimpan (cache terenkripsi) langsung membuka POS tanpa jaringan.
@@ -21,10 +22,13 @@ fun AppRoot(container: AppContainer) {
     var session by remember { mutableStateOf(container.tokenStore.cachedUser()) }
 
     if (session != null) {
-        AppNav(onLogout = {
-            session = null
-            container.tokenStore.clear()
-        })
+        AppNav(
+            onLogout = {
+                session = null
+                container.tokenStore.clear()
+            },
+            posScreen = { PosRoute(container) },
+        )
     } else {
         LoginRoute(container) { loggedIn -> session = loggedIn }
     }
