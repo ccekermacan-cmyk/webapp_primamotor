@@ -17,6 +17,9 @@ interface LocalRecordDao {
     @Query("SELECT * FROM local_record WHERE collection = :collection AND id = :id")
     suspend fun find(collection: String, id: String): LocalRecordEntity?
 
+    @Query("SELECT * FROM local_record WHERE collection = :collection")
+    suspend fun all(collection: String): List<LocalRecordEntity>
+
     @Query("SELECT COUNT(*) FROM local_record WHERE collection = :collection")
     suspend fun count(collection: String): Int
 

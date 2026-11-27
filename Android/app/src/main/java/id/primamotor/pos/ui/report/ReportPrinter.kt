@@ -5,18 +5,14 @@ import android.print.PrintAttributes
 import android.print.PrintManager
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import id.primamotor.pos.data.local.LocalRecordEntity
-import id.primamotor.pos.data.repo.CashflowRow
-import id.primamotor.pos.data.repo.MenuRow
-import id.primamotor.pos.data.repo.number
-import id.primamotor.pos.data.repo.object_
-import id.primamotor.pos.data.repo.text
+import id.primamotor.pos.data.repo.ReportRow
 import id.primamotor.pos.domain.Money
-import java.math.BigDecimal
+import id.primamotor.pos.domain.ReportFeed
+import id.primamotor.pos.domain.ReportSummary
 
 /**
  * Cetak/unduh report lewat print service Android, cermin tombol `window.print()` web.
- * HTML dirender WebView lalu diteruskan ke PrintManager; pengguna memilih PDF atau printer.
+ * Isi sama dengan tabel riwayat laporan: ringkasan periode + kolom Tanggal sampai Kasir Final.
  */
 object ReportPrinter {
     // PrintManager butuh WebView tetap hidup sampai dialog print selesai.
@@ -27,10 +23,8 @@ object ReportPrinter {
         title: String,
         from: String,
         to: String,
-        menu: List<MenuRow>,
-        cashflow: List<CashflowRow>,
-        logs: List<LocalRecordEntity>,
-        ongkos: List<LocalRecordEntity>,
+        rows: List<ReportRow>,
+        summary: ReportSummary,
     ) {
         val web = WebView(context)
         keepAlive = web
@@ -41,65 +35,38 @@ object ReportPrinter {
                 manager.print(title, adapter, PrintAttributes.Builder().build())
             }
         }
-        web.loadDataWithBaseURL(null, html(title, from, to, menu, cashflow, logs, ongkos), "text/html", "utf-8", null)
+        web.loadDataWithBaseURL(null, html(title, from, to, rows, summary), "text/html", "utf-8", null)
     }
 
     private fun html(
         title: String,
         from: String,
         to: String,
-        menu: List<MenuRow>,
-        cashflow: List<CashflowRow>,
-        logs: List<LocalRecordEntity>,
-        ongkos: List<LocalRecordEntity>,
+        rows: List<ReportRow>,
+        summary: ReportSummary,
     ): String {
         val period = listOf(from, to).filter { it.isNotBlank() }.joinToString(" s/d ")
-        val menuTotal = menu.fold(BigDecimal.ZERO) { sum, row -> sum + row.total }
-        val net = cashflow.fold(BigDecimal.ZERO) { sum, row ->
-            sum + if (row.mutasi.lowercase() in setOf("out", "keluar")) row.nominal.negate() else row.nominal
-        }
         val body = StringBuilder()
-        body.append("<h1>Report Prima Motor</h1>")
-        body.append("<p>Periode: ${period.ifBlank { "semua data cache" }}</p>")
-        body.append("<h2>Ringkasan</h2><table><tr><th>Total nota</th><td>${Money.formatRupiah(menuTotal)}</td></tr>")
-        body.append("<tr><th>Arus kas bersih</th><td>${Money.formatRupiah(net)}</td></tr>")
-        body.append("<tr><th>Nota</th><td>${menu.size}</td></tr></table>")
-
-        body.append("<h2>Menu</h2><table><tr><th>ID</th><th>Pelanggan</th><th>Jenis</th><th>Status</th><th>Total</th><th>Dibayar</th></tr>")
-        menu.forEach { row ->
-            body.append(
-                "<tr><td>${escape(row.id)}</td><td>${escape(row.person)}</td><td>${escape(row.note)}</td>" +
-                    "<td>${escape(row.status)}</td><td>${Money.formatRupiah(row.total)}</td><td>${Money.formatRupiah(row.dibayar)}</td></tr>",
-            )
-        }
+        body.append("<h1>${escape(title)}</h1>")
+        body.append("<p>Periode: ${escape(period.ifBlank { "semua data" })}</p>")
+        body.append("<h2>Ringkasan</h2><table>")
+        body.append("<tr><th>Total Omset Kotor</th><td>${Money.formatRupiah(summary.totalOmset)}</td></tr>")
+        body.append("<tr><th>Laba Penjualan</th><td>${Money.formatRupiah(summary.totalLaba)}</td></tr>")
+        body.append("<tr><th>Total Pengeluaran</th><td>${Money.formatRupiah(summary.totalPengeluaran)}</td></tr>")
+        body.append("<tr><th>Estimasi Laba Bersih</th><td>${Money.formatRupiah(summary.labaBersih)}</td></tr>")
         body.append("</table>")
 
-        body.append("<h2>Kas</h2><table><tr><th>Tanggal</th><th>Jenis</th><th>Catatan</th><th>Mutasi</th><th>Nominal</th></tr>")
-        cashflow.forEach { row ->
+        body.append("<h2>Detail Riwayat Laporan</h2><table>")
+        body.append(
+            "<tr><th>Tanggal</th><th>Keterangan</th><th>Omset</th><th>Laba</th>" +
+                "<th>Keluar</th><th>Piutang</th><th>Hutang</th><th>Kasir Final</th></tr>",
+        )
+        rows.forEach { row ->
             body.append(
-                "<tr><td>${escape(row.createdAt)}</td><td>${escape(row.jenis)}</td><td>${escape(row.note)}</td>" +
-                    "<td>${escape(row.mutasi)}</td><td>${Money.formatRupiah(row.nominal)}</td></tr>",
-            )
-        }
-        body.append("</table>")
-
-        body.append("<h2>Log Stock</h2><table><tr><th>Tanggal</th><th>Item</th><th>Qty</th><th>Arah</th><th>Ref</th></tr>")
-        logs.forEach { entity ->
-            val row = entity.object_() ?: return@forEach
-            body.append(
-                "<tr><td>${escape(entity.dateKey)}</td><td>${escape(row.text("item_baru").ifBlank { row.text("item") })}</td>" +
-                    "<td>${row.number("qty").stripTrailingZeros().toPlainString()}</td><td>${escape(row.text("boolean"))}</td>" +
-                    "<td>${escape(row.text("ref_baru").ifBlank { row.text("ref") })}</td></tr>",
-            )
-        }
-        body.append("</table>")
-
-        body.append("<h2>Ongkos</h2><table><tr><th>Tanggal</th><th>Mekanik</th><th>Ongkos</th><th>Ref</th></tr>")
-        ongkos.forEach { entity ->
-            val row = entity.object_() ?: return@forEach
-            body.append(
-                "<tr><td>${escape(entity.dateKey)}</td><td>${escape(row.text("person"))}</td>" +
-                    "<td>${Money.formatRupiah(row.number("ongkos"))}</td><td>${escape(row.text("ref_baru").ifBlank { row.text("ref") })}</td></tr>",
+                "<tr><td>${ReportFeed.formatDate(row.createdAt)}</td><td>${escape(row.text.ifBlank { "-" })}</td>" +
+                    "<td>${Money.formatRupiah(row.omset)}</td><td>${Money.formatRupiah(row.labaKotor)}</td>" +
+                    "<td>${Money.formatRupiah(row.pengeluaran)}</td><td>${Money.formatRupiah(row.piutang)}</td>" +
+                    "<td>${Money.formatRupiah(row.hutang)}</td><td>${Money.formatRupiah(row.kasirToko)}</td></tr>",
             )
         }
         body.append("</table>")

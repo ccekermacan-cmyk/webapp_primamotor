@@ -20,6 +20,14 @@ object Money {
         return if (value.signum() < 0) "-Rp $body" else "Rp $body"
     }
 
+    /** Angka bergrup tanpa prefix, tanda minus di depan. Dipakai kalimat insight web. */
+    fun formatNumber(value: BigDecimal): String {
+        val abs = value.abs()
+        val integral = abs.stripTrailingZeros().scale() <= 0
+        val body = formatter(integral).format(abs)
+        return if (value.signum() < 0) "-$body" else body
+    }
+
     /** Titik = pemisah ribuan, koma = desimal. Input lain diabaikan. */
     fun parse(input: String?): BigDecimal? {
         if (input.isNullOrBlank()) return null

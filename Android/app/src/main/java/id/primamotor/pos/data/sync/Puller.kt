@@ -42,7 +42,8 @@ class Puller(
         Spec("log_stock", "created_at", "item", listOf("item", "id_lama")),
         Spec("ongkos", "created_at", "person", listOf("person")),
         Spec("bon", "created", "user", listOf("note", "person", "operator"), days = 180),
-        Spec("report", "created_at", null, listOf("kasir_toko")),
+        // Daftar laporan web tidak dibatasi 30 hari; setahun cukup untuk riwayat yang dipakai.
+        Spec("report", "created_at", null, listOf("kasir_toko"), days = 365),
     )
 
     data class Result(val records: Int, val deleted: Int)

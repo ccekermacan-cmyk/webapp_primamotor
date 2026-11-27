@@ -90,6 +90,8 @@ data class MenuRow(
     val files: List<String> = emptyList(),
     /** Tanggal jatuh tempo pembelian (`YYYY-MM-DD`); hanya dipakai tab Jatuh Tempo. */
     val tempo: String = "",
+    /** `person_baru` dipakai detail Report saat `person` kosong. */
+    val personBaru: String = "",
 )
 
 /** Rincian nota dari `log_stock`, `cashflow`, dan `ongkos`, cermin `loadHistorySubDetails` web. */
@@ -590,6 +592,7 @@ class Repositories(private val db: AppDatabase) {
         ref = row.text("ref"),
         files = row.strings("file"),
         tempo = row.text("tempo"),
+        personBaru = row.text("person_baru"),
     )
 
     /**

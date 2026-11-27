@@ -229,38 +229,47 @@ Sumber kebenaran: `Frontend/src/pages/report.tsx`.
 
 ### Task 1 — `domain/ReportFeed.kt`
 
-- [ ] `summary(rows)` -> omset toko/servis/minuman, laba kotor, pengeluaran, pemasukan lain, omset total, laba bersih, insight persis web (termasuk `penyumbangTerbesar`)
-- [ ] `chartPoints(rows)` urut naik; `ReportSummaryRow`
-- [ ] `filterRows(rows, query, from, to)` web: `text`/`id`, tanggal inklusif
-- [ ] `menuStats(menus)`, `logStats(logs, menus)` (in/out, penjualan, laba dengan pengecualian pembelian/rusak/opname), `cashStats(cashflows)`, `ongkosStats(ongkos)`
-- [ ] Pencarian tiap tab persis daftar field web; sort default `created_at desc`
-- [ ] `formatDate` (`d MMM yyyy` id) dan format nominal negatif piutang/hutang
-- [ ] Tes `ReportFeedTest`
+- [x] `summary(rows)` -> omset toko/servis/minuman, laba kotor, pengeluaran, pemasukan lain, omset total, laba bersih, insight persis web (termasuk `penyumbangTerbesar`)
+- [x] `chartPoints(rows)` urut naik; `ReportSummaryRow`
+- [x] `filterRows(rows, query, from, to)` web: `text`/`id`, tanggal inklusif
+- [x] `menuStats(menus)`, `logStats(logs, menus)` (in/out, penjualan, laba dengan pengecualian pembelian/rusak/opname), `cashStats(cashflows)`, `ongkosStats(ongkos)`
+- [x] Pencarian tiap tab persis daftar field web; sort default `created_at desc`
+- [x] `formatDate` (`d MMM yyyy` id) dan format nominal negatif piutang/hutang
+- [x] Tes `ReportFeedTest`
 
 ### Task 2 — repo + puller
 
-- [ ] `Puller`: `report` 365 hari agar daftar laporan tidak terpotong 30 hari
-- [ ] `ReportRepository.details(dateKey)`: baca cache per hari; saat online tarik `menu`, `log_stock`, `cashflow`, `ongkos` satu hari (filter `created_at`/`date` rentang WIB) lalu simpan
-- [ ] `ReportRepository.fixHargaBeli(dateKey)`: `log_stock` mutasi `out` -> `price_2 = produk.beli x qty` lewat outbox; kembalikan jumlah baris berubah
-- [ ] `ReportPrinter` mencetak ringkasan + tabel riwayat laporan (kolom sama web)
+- [x] `Puller`: `report` 365 hari agar daftar laporan tidak terpotong 30 hari
+- [x] `ReportRepository.details(dateKey)`: baca cache per hari; saat online tarik `menu`, `log_stock`, `cashflow`, `ongkos` satu hari (filter `created_at`/`date` rentang WIB) lalu simpan
+- [x] `ReportRepository.fixHargaBeli(dateKey)`: `log_stock` mutasi `out` -> `price_2 = produk.beli x qty` lewat outbox; kembalikan jumlah baris berubah
+- [x] `ReportPrinter` mencetak ringkasan + tabel riwayat laporan (kolom sama web)
 
 ### Task 3 — `ReportViewModel`
 
-- [ ] State: `query`, `from`, `to`, `page`, `perPage = 31`, `selectedMetrics`, `generateDate`, `selectedReport`, `detailTab`, `detailSearch`, `menuFilterJenis`, `menuFilterStatus`, filter log/kas, sort per tab
-- [ ] Aksi: reset filter, generate (online-only, default hari ini), hapus (level 1–5), buka/tutup detail, refresh detail, pindah tab menu -> log dengan `ref`
-- [ ] Ringkasan, grafik, insight, statistik detail dari `ReportFeed`
+- [x] State: `query`, `from`, `to`, `page`, `perPage = 31`, `selectedMetrics`, `generateDate`, `selectedReport`, `detailTab`, `detailSearch`, `menuFilterJenis`, `menuFilterStatus`, filter log/kas, sort per tab
+- [x] Aksi: reset filter, generate (online-only, default hari ini), hapus (level 1–5), buka/tutup detail, refresh detail, pindah tab menu -> log dengan `ref`
+- [x] Ringkasan, grafik, insight, statistik detail dari `ReportFeed`
 
 ### Task 4 — layar + dialog
 
-- [ ] Header `Analitik Laporan` / `Overview Mutasi & Performa Bisnis Prima Motor`; tombol `GENERATE OTOMATIS` + `UNDUH REPORT`
-- [ ] Pencarian `Cari keterangan mutasi...`, rentang tanggal, `RESET`
-- [ ] 6 kartu metrik (`Total Omset Kotor`, `Laba Penjualan`, `Total Pengeluaran`, `Estimasi Laba Bersih`, `Piutang Penjualan`, `Hutang Pembelian`) + kartu `Insight Sistem`
-- [ ] Grafik tren dengan toggle `Omset`, `Pengeluaran`, `Laba`, `Piutang`, `Hutang`
-- [ ] Tabel laporan (`Tanggal`, `Keterangan`, `Omset`, `Laba`, `Keluar`, `Piutang`, `Hutang`, `Kasir Final`), paginasi `Hal. x / y`, empty state web
-- [ ] Dialog generate + dialog detail 5 tab (`Overview`, `Menu`, `Log`, `Kas`, `Ongkos`) dengan filter/pencarian/sort/ringkasan; footer `HAPUS LAPORAN` (level 1–5) + `TUTUP`
-- [ ] Tombol `Sesuaikan Harga Beli Hari Ini` hanya level 1
+- [x] Header `Analitik Laporan` / `Overview Mutasi & Performa Bisnis Prima Motor`; tombol `GENERATE OTOMATIS` + `UNDUH REPORT`
+- [x] Pencarian `Cari keterangan mutasi...`, rentang tanggal, `RESET`
+- [x] 6 kartu metrik (`Total Omset Kotor`, `Laba Penjualan`, `Total Pengeluaran`, `Estimasi Laba Bersih`, `Piutang Penjualan`, `Hutang Pembelian`) + kartu `Insight Sistem`
+- [x] Grafik tren dengan toggle `Omset`, `Pengeluaran`, `Laba`, `Piutang`, `Hutang`
+- [x] Tabel laporan (`Tanggal`, `Keterangan`, `Omset`, `Laba`, `Keluar`, `Piutang`, `Hutang`, `Kasir Final`), paginasi `Hal. x / y`, empty state web
+- [x] Dialog generate + dialog detail 5 tab (`Overview`, `Menu`, `Log`, `Kas`, `Ongkos`) dengan filter/pencarian/sort/ringkasan; footer `HAPUS LAPORAN` (level 1–5) + `TUTUP`
+- [x] Tombol `Sesuaikan Harga Beli Hari Ini` hanya level 1
 
 ### Task 5 — verifikasi
 
-- [ ] Unit + instrumented hijau; build release; ukur APK dan cold start; install ulang
-- [ ] Catat deviasi yang tersisa di plan ini
+- [x] Unit + instrumented hijau; build release; ukur APK dan cold start; install ulang
+- [x] Catat deviasi yang tersisa di plan ini
+
+### Catatan implementasi Fase 9
+
+- Detail satu hari dibaca dari cache Room (`menu`, `log_stock`, `cashflow`, `ongkos`, `report`); saat detail dibuka, `ReportRepository.pullDay` menarik kelima koleksi untuk hari itu (filter rentang WIB) dan melewati baris yang masih `dirty`. Offline tetap menampilkan cache terakhir.
+- Grafik hanya memakai baris halaman aktif (`perPage = 31`) dibalik, sama seperti web; default metrik `Omset`, `Pengeluaran`, `Piutang`, `Hutang` (`Laba` mati).
+- Kartu `Omset Servis (Jasa)` di tab Overview memakai total `ongkos` hari itu; bila belum ada baris ongkos tersinkron, nilai jatuh ke `omset_servis` laporan.
+- Nominal kas di tab Kas ditampilkan dari `nominal.abs()` dengan tanda `+`/`-`, sehingga data negatif tidak pernah muncul sebagai `+-Rp`.
+- `Sesuaikan Harga Beli Hari Ini` (level 1) menulis `price_2` lewat outbox `update`, jadi perubahan terkirim saat online dan tetap aman saat offline.
+- Hapus laporan (level 1–5) masuk outbox `delete`; pemeriksaan akhir tetap di server.

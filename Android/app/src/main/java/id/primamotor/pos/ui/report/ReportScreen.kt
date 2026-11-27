@@ -2,406 +2,595 @@ package id.primamotor.pos.ui.report
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Button
-import androidx.compose.material3.ScrollableTabRow
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.ViewModel
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import id.primamotor.pos.AppContainer
-import id.primamotor.pos.data.local.LocalRecordEntity
-import id.primamotor.pos.data.repo.CashflowRow
-import id.primamotor.pos.data.repo.MenuRow
-import id.primamotor.pos.data.repo.Repositories
 import id.primamotor.pos.data.repo.ReportRow
-import id.primamotor.pos.data.repo.number
-import id.primamotor.pos.data.repo.object_
-import id.primamotor.pos.data.repo.text
-import id.primamotor.pos.domain.CashflowFilter
+import id.primamotor.pos.domain.ChartPoint
 import id.primamotor.pos.domain.Money
-import id.primamotor.pos.ui.EmptyHint
-import id.primamotor.pos.ui.history.HistoryRoute
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.stateIn
+import id.primamotor.pos.domain.ReportFeed
 import java.math.BigDecimal
-import java.time.LocalDate
 
-/** Cermin `pages/report.tsx`: Overview + rincian Menu, Log Stock, Kas, Ongkos. */
-class ReportViewModel(container: AppContainer) : ViewModel() {
-    val menu: StateFlow<List<MenuRow>> = container.repositories.observeMenu()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-    val cashflow: StateFlow<List<CashflowRow>> = container.repositories.observeCashflow()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-    val logs: StateFlow<List<LocalRecordEntity>> = container.repositories.observeRaw("log_stock")
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-    val ongkos: StateFlow<List<LocalRecordEntity>> = container.repositories.observeRaw("ongkos")
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-    val reports: StateFlow<List<ReportRow>> = container.reportRepository.observe()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-    val syncAt: StateFlow<Long> = container.database.syncStateDao().observeAll()
-        .map { list -> list.lastOrNull()?.lastSyncAt ?: 0L }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0L)
-}
+internal val REPORT_HEADER = Color(0xFF0F172A)
+internal val REPORT_MUTED = Color(0xFF64748B)
+internal val REPORT_CANVAS = Color(0xFFF8FAFC)
+private val BORDER = Color(0xFFE2E8F0)
+private val EMERALD = Color(0xFF047857)
+private val ROSE = Color(0xFFBE123C)
+private val AMBER = Color(0xFFB45309)
+private val PURPLE = Color(0xFF7E22CE)
 
 @Composable
 fun ReportRoute(container: AppContainer) {
-    val vm: ReportViewModel = viewModel { ReportViewModel(container) }
-    ReportScreen(vm, container)
+    val vm: ReportViewModel = viewModel { ReportViewModel.from(container) }
+    ReportScreen(vm)
 }
 
 @Composable
-fun ReportScreen(viewModel: ReportViewModel, container: AppContainer) {
-    var tab by remember { mutableIntStateOf(0) }
-    val labels = listOf("Overview", "\uD83D\uDCCB Menu", "\uD83D\uDCE6 Log Stock", "\uD83D\uDCB0 Kas", "\uD83D\uDD27 Ongkos")
-    var from by remember { mutableStateOf("") }
-    var to by remember { mutableStateOf("") }
-    var ascending by remember { mutableStateOf(false) }
-    var appliedFrom by remember { mutableStateOf("") }
-    var appliedTo by remember { mutableStateOf("") }
+fun ReportScreen(viewModel: ReportViewModel) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    val summary by viewModel.summary.collectAsStateWithLifecycle()
+    val chart by viewModel.chart.collectAsStateWithLifecycle()
+    val pageRows by viewModel.pageRows.collectAsStateWithLifecycle()
+    val filtered by viewModel.filtered.collectAsStateWithLifecycle()
+    val totalPages by viewModel.totalPages.collectAsStateWithLifecycle()
+    val detail by viewModel.detailView.collectAsStateWithLifecycle()
+    val snackbar = remember { SnackbarHostState() }
     val context = LocalContext.current
-    val allMenuPrint by viewModel.menu.collectAsStateWithLifecycle()
-    val allCashPrint by viewModel.cashflow.collectAsStateWithLifecycle()
-    val allLogsPrint by viewModel.logs.collectAsStateWithLifecycle()
-    val allOngkosPrint by viewModel.ongkos.collectAsStateWithLifecycle()
 
-    fun inRange(date: String): Boolean {
-        val day = date.take(10)
-        if (day.length < 10) return appliedFrom.isBlank() && appliedTo.isBlank()
-        if (appliedFrom.isNotBlank() && day < appliedFrom) return false
-        if (appliedTo.isNotBlank() && day > appliedTo) return false
-        return true
+    LaunchedEffect(state.message, state.error) {
+        (state.error ?: state.message)?.let {
+            snackbar.showSnackbar(it)
+            viewModel.clearMessage()
+        }
     }
 
-    Column(Modifier.fillMaxSize()) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            OutlinedTextField(
-                value = from,
-                onValueChange = { from = it },
-                label = { Text("Dari") },
-                singleLine = true,
-                modifier = Modifier.weight(1f).testTag("report_from"),
-            )
-            OutlinedTextField(
-                value = to,
-                onValueChange = { to = it },
-                label = { Text("Sampai") },
-                singleLine = true,
-                modifier = Modifier.weight(1f).testTag("report_to"),
-            )
-        }
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            OutlinedButton(
-                onClick = { appliedFrom = from.trim(); appliedTo = to.trim() },
-                modifier = Modifier.weight(1f),
-            ) { Text("Terapkan") }
-            OutlinedButton(onClick = { from = ""; to = ""; appliedFrom = ""; appliedTo = "" }, modifier = Modifier.weight(1f)) {
-                Text("Reset")
-            }
-            FilterChip(
-                selected = ascending,
-                onClick = { ascending = !ascending },
-                label = { Text(if (ascending) "Terlama" else "Terbaru") },
-            )
-        }
-        ScrollableTabRow(selectedTabIndex = tab, edgePadding = 8.dp) {
-            labels.forEachIndexed { index, label ->
-                Tab(
-                    selected = tab == index,
-                    onClick = { tab = index },
-                    text = { Text(label) },
-                    modifier = Modifier.testTag("report_tab_$index"),
-                )
-            }
-        }
-        Button(
-            onClick = {
-                ReportPrinter.print(
-                    context = context,
-                    title = "Report Prima Motor",
-                    from = appliedFrom,
-                    to = appliedTo,
-                    menu = allMenuPrint.filter { inRange(it.createdAt) },
-                    cashflow = allCashPrint.filter { inRange(it.createdAt) },
-                    logs = allLogsPrint.filter { inRange(it.dateKey) },
-                    ongkos = allOngkosPrint.filter { inRange(it.dateKey) },
-                )
-            },
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp).heightIn(min = 48.dp).testTag("report_print"),
-        ) { Text("Cetak / Unduh Report") }
+    val piutang = pageRows.fold(BigDecimal.ZERO) { sum, row -> sum + row.piutang }
+    val hutang = pageRows.fold(BigDecimal.ZERO) { sum, row -> sum + row.hutang }
 
-        when (tab) {
-            0 -> OverviewTab(
-                viewModel = viewModel,
-                container = container,
-                from = appliedFrom,
-                to = appliedTo,
+    Scaffold(
+        containerColor = REPORT_CANVAS,
+        snackbarHost = { SnackbarHost(snackbar) },
+    ) { padding ->
+        Column(
+            Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            ReportHeader(
+                onGenerate = viewModel::openGenerate,
+                onPrint = {
+                    ReportPrinter.print(
+                        context = context,
+                        title = "Analitik Laporan Prima Motor",
+                        from = state.from,
+                        to = state.to,
+                        rows = pageRows,
+                        summary = summary,
+                    )
+                },
             )
-            1 -> HistoryRoute(container)
-            2 -> RawTab(
-                viewModel.logs.collectAsStateWithLifecycle().value.filter { inRange(it.dateKey) },
-                "item", "qty", "note", ascending,
+
+            FilterCard(
+                query = state.queryInput,
+                from = state.from,
+                to = state.to,
+                onQuery = viewModel::setQueryInput,
+                onFrom = viewModel::setFrom,
+                onTo = viewModel::setTo,
+                onReset = viewModel::resetFilter,
             )
-            3 -> CashTab(
-                viewModel.cashflow.collectAsStateWithLifecycle().value.filter { inRange(it.createdAt) },
-                ascending,
+
+            KpiGrid(
+                totalOmset = summary.totalOmset,
+                totalLaba = summary.totalLaba,
+                totalPengeluaran = summary.totalPengeluaran,
+                labaBersih = summary.labaBersih,
+                piutang = piutang,
+                hutang = hutang,
             )
-            else -> RawTab(
-                viewModel.ongkos.collectAsStateWithLifecycle().value.filter { inRange(it.dateKey) },
-                "person", "ongkos", "keterangan", ascending,
+
+            InsightCard(summary.insight)
+
+            if (chart.isNotEmpty()) {
+                ChartCard(chart = chart, selected = state.metrics, onToggle = viewModel::toggleMetric)
+            }
+
+            Text(
+                "DETAIL RIWAYAT LAPORAN",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Black,
+                color = REPORT_MUTED,
+            )
+
+            if (filtered.isEmpty()) {
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = Color.White,
+                    border = BorderStroke(1.dp, BORDER),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        "Tidak ada data laporan ditemukan untuk filter ini.",
+                        fontSize = 13.sp,
+                        color = REPORT_MUTED,
+                        modifier = Modifier.padding(28.dp),
+                    )
+                }
+            } else {
+                ReportTable(
+                    headers = listOf("Tanggal", "Keterangan", "Omset", "Laba", "Keluar", "Piutang", "Hutang", "Kasir Final"),
+                    widths = listOf(96.dp, 150.dp, 108.dp, 100.dp, 96.dp, 96.dp, 96.dp, 108.dp),
+                    rows = pageRows.map { row ->
+                        listOf(
+                            ReportFeed.formatDate(row.createdAt),
+                            row.text.ifBlank { "-" },
+                            Money.formatRupiah(row.omset),
+                            Money.formatRupiah(row.labaKotor),
+                            Money.formatRupiah(row.pengeluaran),
+                            Money.formatRupiah(row.piutang),
+                            Money.formatRupiah(row.hutang),
+                            Money.formatRupiah(row.kasirToko),
+                        )
+                    },
+                    tags = pageRows.map { "report_row_${it.id}" },
+                    onRowClick = { index -> pageRows.getOrNull(index)?.let(viewModel::openDetail) },
+                )
+
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "Hal. ${state.page} / ${totalPages.coerceAtLeast(1)}",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Black,
+                        color = REPORT_MUTED,
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            onClick = { viewModel.setPage(state.page - 1) },
+                            enabled = state.page > 1,
+                            modifier = Modifier.heightIn(min = 44.dp).testTag("report_prev"),
+                        ) { Text("Prev") }
+                        OutlinedButton(
+                            onClick = { viewModel.setPage(state.page + 1) },
+                            enabled = state.page < totalPages,
+                            modifier = Modifier.heightIn(min = 44.dp).testTag("report_next"),
+                        ) { Text("Next") }
+                    }
+                }
+            }
+        }
+    }
+
+    if (state.generateOpen) {
+        GenerateDialog(
+            date = state.generateDate,
+            busy = state.busy,
+            onDate = viewModel::setGenerateDate,
+            onConfirm = viewModel::generate,
+            onDismiss = viewModel::closeGenerate,
+        )
+    }
+
+    state.detail?.let { row ->
+        ReportDetailSheet(
+            row = row,
+            state = state,
+            view = detail,
+            viewModel = viewModel,
+        )
+    }
+
+    if (state.askDelete) {
+        val target = state.detail
+        if (target != null) {
+            AlertDialog(
+                onDismissRequest = viewModel::cancelDelete,
+                title = { Text("Hapus Laporan") },
+                text = {
+                    Text("Yakin ingin menghapus laporan tanggal ${ReportFeed.formatDate(target.createdAt)} secara permanen?")
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = viewModel::confirmDelete,
+                        modifier = Modifier.testTag("report_delete_confirm"),
+                    ) { Text("YA, LANJUTKAN PROSES", color = MaterialTheme.colorScheme.error) }
+                },
+                dismissButton = { TextButton(onClick = viewModel::cancelDelete) { Text("BATALKAN") } },
             )
         }
     }
 }
 
 @Composable
-private fun OverviewTab(
-    viewModel: ReportViewModel,
-    container: AppContainer,
-    from: String,
-    to: String,
-) {
-    val reports by viewModel.reports.collectAsStateWithLifecycle()
-    val scope = androidx.compose.runtime.rememberCoroutineScope()
-    var busy by remember { mutableStateOf(false) }
-    var message by remember { mutableStateOf<String?>(null) }
-    val filtered = reports.filter { row ->
-        val day = row.createdAt.take(10)
-        (from.isBlank() || day >= from) && (to.isBlank() || day <= to)
-    }
-    val totalOmset = filtered.fold(BigDecimal.ZERO) { sum, r -> sum + r.omset }
-    val totalLaba = filtered.fold(BigDecimal.ZERO) { sum, r -> sum + r.labaBersih }
-    val totalPengeluaran = filtered.fold(BigDecimal.ZERO) { sum, r -> sum + r.pengeluaran }
-    val totalPiutang = filtered.fold(BigDecimal.ZERO) { sum, r -> sum + r.piutang }
-    val insight = if (filtered.isEmpty()) {
-        "Belum ada data cukup untuk dianalisa."
-    } else {
-        val status = if (totalLaba.signum() > 0) "positif (menguntungkan)" else "negatif (merugi)"
-        "Berdasarkan data periode ini, performa bisnis menunjukkan tren $status dengan estimasi laba bersih mencapai " +
-            Money.formatRupiah(totalLaba) + ". " +
-            if (totalPengeluaran > totalLaba) {
-                "Perhatian: Total pengeluaran saat ini lebih tinggi dari laba penjualan kotor."
-            } else {
-                "Pengeluaran operasional masih dalam batas aman di bawah laba kotor."
+private fun ReportHeader(onGenerate: () -> Unit, onPrint: () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Surface(color = Color(0xFFDBEAFE), shape = RoundedCornerShape(14.dp), modifier = Modifier.size(44.dp)) {
+                Box(contentAlignment = Alignment.Center) { Text("AN", fontWeight = FontWeight.Black, color = Color(0xFF2563EB)) }
             }
-    }
-
-    Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
+            Column(Modifier.weight(1f)) {
+                Text("Analitik Laporan", fontSize = 22.sp, fontWeight = FontWeight.Black, color = REPORT_HEADER)
+                Text(
+                    "Overview Mutasi & Performa Bisnis Prima Motor",
+                    fontSize = 12.sp,
+                    color = REPORT_MUTED,
+                )
+            }
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(
-                enabled = !busy,
-                onClick = {
-                    busy = true
-                    message = null
-                    scope.launch {
-                        val date = from.ifBlank { LocalDate.now().toString() }
-                        val result = runCatching { container.reportRepository.recalculate(date) }
-                        message = result.fold(
-                            onSuccess = { "Laporan $date berhasil direkalkulasi." },
-                            onFailure = { it.message ?: "Perhitungan laporan belum berhasil." },
-                        )
-                        busy = false
-                    }
-                },
-                modifier = Modifier.heightIn(min = 44.dp).testTag("report_recalculate"),
-            ) { Text(if (busy) "Menghitung..." else "Hitung ulang laporan") }
-        }
-        message?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-
-        MetricCard("Total omset", Money.formatRupiah(totalOmset), "${filtered.size} rekap laporan")
-        MetricCard("Laba bersih", Money.formatRupiah(totalLaba), "Laba kotor + pemasukan lain - pengeluaran")
-        MetricCard("Pengeluaran", Money.formatRupiah(totalPengeluaran), "Operasional toko + pengeluaran lain")
-        MetricCard("Piutang", Money.formatRupiah(totalPiutang), "Belum tertagih pada periode ini")
-
-        Surface(
-            shape = RoundedCornerShape(18.dp),
-            color = MaterialTheme.colorScheme.secondaryContainer,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text(insight, modifier = Modifier.padding(16.dp), style = MaterialTheme.typography.bodyMedium)
-        }
-
-        Text("Penjualan per hari", style = MaterialTheme.typography.titleMedium)
-        val barColor = MaterialTheme.colorScheme.primary
-        val daily = filtered.sortedBy { it.createdAt }.map { it.createdAt.take(10) to it.omset }
-        Canvas(Modifier.fillMaxWidth().height(180.dp)) {
-            if (daily.isEmpty()) return@Canvas
-            val max = daily.maxOf { it.second }.toFloat().coerceAtLeast(1f)
-            val slot = size.width / daily.size
-            daily.forEachIndexed { index, (_, value) ->
-                val barHeight = size.height * (value.toFloat() / max) * 0.9f
-                drawRect(
-                    color = barColor,
-                    topLeft = Offset(index * slot + slot * 0.15f, size.height - barHeight),
-                    size = Size(slot * 0.7f, barHeight),
-                )
-            }
-        }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            daily.forEach { (day, _) -> Text(day.takeLast(5), style = MaterialTheme.typography.bodySmall) }
-        }
-
-        Text("Rekap laporan", style = MaterialTheme.typography.titleMedium)
-        if (filtered.isEmpty()) {
-            EmptyHint(message = "Tidak ada data laporan ditemukan untuk filter ini.")
-        }
-        filtered.forEach { row ->
-            Surface(
-                shape = RoundedCornerShape(14.dp),
-                color = MaterialTheme.colorScheme.surface,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.surfaceVariant),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text(row.createdAt.take(10), style = MaterialTheme.typography.titleSmall)
-                        Text(Money.formatRupiah(row.labaBersih), fontWeight = FontWeight.Bold)
-                    }
-                    Text(
-                        "Omset ${Money.formatRupiah(row.omset)} • laba ${Money.formatRupiah(row.labaKotor)} • keluar ${Money.formatRupiah(row.pengeluaran)}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Text(
-                        "Piutang ${Money.formatRupiah(row.piutang)} • hutang ${Money.formatRupiah(row.hutang)}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    TextButton(
-                        onClick = {
-                            scope.launch {
-                                val ok = runCatching { container.reportRepository.delete(row.id) }.getOrDefault(false)
-                                if (!ok) message = "Hapus rekap gagal."
-                            }
-                        },
-                    ) { Text("Hapus rekap", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error) }
-                }
-            }
+                onClick = onGenerate,
+                modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("report_generate"),
+            ) { Text("GENERATE OTOMATIS", fontSize = 11.sp, fontWeight = FontWeight.Black) }
+            OutlinedButton(
+                onClick = onPrint,
+                modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("report_print"),
+            ) { Text("UNDUH REPORT", fontSize = 11.sp, fontWeight = FontWeight.Black) }
         }
     }
 }
 
-private fun formatSync(epochMillis: Long): String =
-    java.time.Instant.ofEpochMilli(epochMillis)
-        .atZone(id.primamotor.pos.domain.WibDate.WIB)
-        .format(java.time.format.DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm"))
-
 @Composable
-private fun MetricCard(title: String, value: String, note: String) {
+private fun FilterCard(
+    query: String,
+    from: String,
+    to: String,
+    onQuery: (String) -> Unit,
+    onFrom: (String) -> Unit,
+    onTo: (String) -> Unit,
+    onReset: () -> Unit,
+) {
     Surface(
-        shape = RoundedCornerShape(18.dp),
-        color = MaterialTheme.colorScheme.surface,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.surfaceVariant),
+        shape = RoundedCornerShape(20.dp),
+        color = Color.White,
+        border = BorderStroke(1.dp, BORDER),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(title, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(value, style = MaterialTheme.typography.headlineSmall)
-            Text(note, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(
+                value = query,
+                onValueChange = onQuery,
+                placeholder = { Text("Cari keterangan mutasi...", fontSize = 13.sp) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth().testTag("report_search"),
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = from,
+                    onValueChange = onFrom,
+                    label = { Text("Dari", fontSize = 11.sp) },
+                    placeholder = { Text("yyyy-MM-dd", fontSize = 12.sp) },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f).testTag("report_from"),
+                )
+                OutlinedTextField(
+                    value = to,
+                    onValueChange = onTo,
+                    label = { Text("Sampai", fontSize = 11.sp) },
+                    placeholder = { Text("yyyy-MM-dd", fontSize = 12.sp) },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f).testTag("report_to"),
+                )
+            }
+            OutlinedButton(
+                onClick = onReset,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp).testTag("report_reset"),
+            ) { Text("RESET", fontSize = 11.sp, fontWeight = FontWeight.Black) }
         }
     }
 }
 
 @Composable
-private fun RawTab(
-    rows: List<LocalRecordEntity>,
-    field1: String,
-    field2: String,
-    field3: String,
-    ascending: Boolean = false,
+private fun KpiGrid(
+    totalOmset: BigDecimal,
+    totalLaba: BigDecimal,
+    totalPengeluaran: BigDecimal,
+    labaBersih: BigDecimal,
+    piutang: BigDecimal,
+    hutang: BigDecimal,
 ) {
-    var sortKey by remember { mutableStateOf("tanggal") }
-    var sortAsc by remember { mutableStateOf(ascending) }
-    val sorted = remember(rows, sortKey, sortAsc) {
-        val comparator: Comparator<LocalRecordEntity> = when (sortKey) {
-            field1 -> compareBy { it.object_()?.text(field1).orEmpty() }
-            field2 -> compareBy { it.object_()?.number(field2) ?: BigDecimal.ZERO }
-            else -> compareBy { it.dateKey }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            KpiCard("Total Omset Kotor", Money.formatRupiah(totalOmset), REPORT_HEADER, Modifier.weight(1f), "report_kpi_omset")
+            KpiCard("Laba Penjualan", Money.formatRupiah(totalLaba), REPORT_HEADER, Modifier.weight(1f), "report_kpi_laba")
         }
-        rows.sortedWith(if (sortAsc) comparator else comparator.reversed())
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            KpiCard("Total Pengeluaran", Money.formatRupiah(totalPengeluaran), REPORT_HEADER, Modifier.weight(1f), "report_kpi_pengeluaran")
+            KpiCard(
+                "Estimasi Laba Bersih",
+                Money.formatRupiah(labaBersih),
+                if (labaBersih.signum() < 0) ROSE else EMERALD,
+                Modifier.weight(1f),
+                "report_kpi_bersih",
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            KpiCard("Piutang Penjualan", Money.formatRupiah(piutang), AMBER, Modifier.weight(1f), "report_kpi_piutang")
+            KpiCard("Hutang Pembelian", Money.formatRupiah(hutang), PURPLE, Modifier.weight(1f), "report_kpi_hutang")
+        }
     }
-    Column(Modifier.fillMaxSize()) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            listOf("tanggal" to "Tanggal", field1 to field1, field2 to field2).forEach { (value, label) ->
-                FilterChip(
-                    selected = sortKey == value,
-                    onClick = { if (sortKey == value) sortAsc = !sortAsc else { sortKey = value; sortAsc = true } },
-                    label = { Text(label) },
-                )
+}
+
+@Composable
+private fun KpiCard(title: String, value: String, valueColor: Color, modifier: Modifier = Modifier, tag: String) {
+    Surface(
+        shape = RoundedCornerShape(18.dp),
+        color = Color.White,
+        border = BorderStroke(1.dp, BORDER),
+        modifier = modifier.testTag(tag),
+    ) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(title.uppercase(), fontSize = 9.sp, fontWeight = FontWeight.Black, color = REPORT_MUTED)
+            Text(value, fontSize = 16.sp, fontWeight = FontWeight.Black, color = valueColor, maxLines = 1)
+        }
+    }
+}
+
+@Composable
+private fun InsightCard(insight: String) {
+    Surface(
+        shape = RoundedCornerShape(18.dp),
+        color = Color(0xFFFFFBEB),
+        border = BorderStroke(1.dp, Color(0xFFFDE68A)),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("INSIGHT SISTEM", fontSize = 10.sp, fontWeight = FontWeight.Black, color = AMBER)
+            Text("\"$insight\"", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF78350F))
+        }
+    }
+}
+
+@Composable
+private fun ChartCard(chart: List<ChartPoint>, selected: Set<ReportMetric>, onToggle: (ReportMetric) -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(18.dp),
+        color = Color.White,
+        border = BorderStroke(1.dp, BORDER),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("GRAFIK TREN KEUANGAN", fontSize = 10.sp, fontWeight = FontWeight.Black, color = REPORT_MUTED)
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                ReportMetric.entries.forEach { metric ->
+                    FilterChip(
+                        selected = selected.contains(metric),
+                        onClick = { onToggle(metric) },
+                        label = { Text(metric.label, fontSize = 10.sp, color = Color(metric.color)) },
+                        modifier = Modifier.heightIn(min = 40.dp).testTag("report_metric_${metric.name.lowercase()}"),
+                    )
+                }
+            }
+            val active = ReportMetric.entries.filter { selected.contains(it) }
+            val max = chart.maxOfOrNull { point ->
+                active.maxOfOrNull { metric -> metricValue(point, metric).toFloat() } ?: 0f
+            }?.coerceAtLeast(1f) ?: 1f
+            Canvas(Modifier.fillMaxWidth().height(160.dp)) {
+                val step = if (chart.size > 1) size.width / (chart.size - 1) else 0f
+                drawLine(color = Color(0xFFF1F5F9), start = Offset(0f, size.height), end = Offset(size.width, size.height), strokeWidth = 2f)
+                active.forEach { metric ->
+                    val path = Path()
+                    chart.forEachIndexed { index, point ->
+                        val x = if (chart.size > 1) index * step else size.width / 2
+                        val y = size.height - (metricValue(point, metric).toFloat() / max) * (size.height * 0.9f)
+                        if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                    }
+                    drawPath(path, color = Color(metric.color), style = Stroke(width = 4f))
+                }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                chart.forEach { point -> Text(point.tanggal, fontSize = 9.sp, color = REPORT_MUTED) }
             }
         }
-        LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            if (sorted.isEmpty()) item { EmptyHint(message = "Tidak ada data ${field1}.") }
-            items(sorted, key = { it.id }) { entity ->
-                val row = entity.object_() ?: return@items
-                Surface(
-                    shape = RoundedCornerShape(14.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.surfaceVariant),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text(
-                                row.text(field1).ifBlank { entity.id },
-                                style = MaterialTheme.typography.titleSmall,
-                                modifier = Modifier.weight(1f),
-                            )
-                            Text(row.number(field2).stripTrailingZeros().toPlainString(), fontWeight = FontWeight.Bold)
-                        }
-                        Text(row.text(field3), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text(entity.dateKey, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
+    }
+}
+
+private fun metricValue(point: ChartPoint, metric: ReportMetric): BigDecimal = when (metric) {
+    ReportMetric.OMSET -> point.omset
+    ReportMetric.PENGELUARAN -> point.pengeluaran
+    ReportMetric.LABA -> point.laba
+    ReportMetric.PIUTANG -> point.piutang
+    ReportMetric.HUTANG -> point.hutang
+}
+
+@Composable
+private fun GenerateDialog(
+    date: String,
+    busy: Boolean,
+    onDate: (String) -> Unit,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Generate Laporan Otomatis") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                OutlinedTextField(
+                    value = date,
+                    onValueChange = onDate,
+                    label = { Text("Tanggal Laporan", fontSize = 11.sp) },
+                    placeholder = { Text("yyyy-MM-dd", fontSize = 13.sp) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().testTag("report_generate_date"),
+                )
+                Text("Kosongkan untuk hari ini", fontSize = 10.sp, color = REPORT_MUTED)
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = onConfirm,
+                enabled = !busy,
+                modifier = Modifier.testTag("report_generate_confirm"),
+            ) { Text(if (busy) "GENERATING..." else "GENERATE SEKARANG", fontSize = 11.sp, fontWeight = FontWeight.Black) }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("BATALKAN") } },
+    )
+}
+
+/** Tabel horizontal dengan lebar kolom tetap; `tags` dipakai tes untuk mengklik baris. */
+@Composable
+internal fun ReportTable(
+    headers: List<String>,
+    widths: List<Dp>,
+    rows: List<List<String>>,
+    tags: List<String> = emptyList(),
+    onRowClick: ((Int) -> Unit)? = null,
+    maxHeight: Dp? = null,
+) {
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = Color.White,
+        border = BorderStroke(1.dp, BORDER),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.horizontalScroll(rememberScrollState())) {
+            Row(Modifier.background(Color(0xFFF1F5F9)).padding(vertical = 6.dp)) {
+                headers.forEachIndexed { index, header ->
+                    Text(
+                        header.uppercase(),
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Black,
+                        color = REPORT_MUTED,
+                        maxLines = 1,
+                        modifier = Modifier.width(widths.getOrElse(index) { 100.dp }).padding(horizontal = 6.dp),
+                    )
+                }
+            }
+            HorizontalDivider(color = BORDER)
+            if (maxHeight != null) {
+                LazyColumn(Modifier.height(maxHeight)) {
+                    itemsIndexed(rows) { index, cells -> TableRow(cells, widths, tags.getOrNull(index), onRowClick, index) }
+                }
+            } else {
+                rows.forEachIndexed { index, cells -> TableRow(cells, widths, tags.getOrNull(index), onRowClick, index) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TableRow(
+    cells: List<String>,
+    widths: List<Dp>,
+    tag: String?,
+    onRowClick: ((Int) -> Unit)?,
+    index: Int,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .let { base ->
+                var modifier = base
+                if (tag != null) modifier = modifier.testTag(tag)
+                if (onRowClick != null) modifier = modifier.clickable { onRowClick(index) }
+                modifier
+            }
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        cells.forEachIndexed { cellIndex, cell ->
+            Text(
+                cell,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Medium,
+                color = REPORT_HEADER,
+                maxLines = 1,
+                modifier = Modifier.width(widths.getOrElse(cellIndex) { 100.dp }).padding(horizontal = 6.dp),
+            )
+        }
+    }
+    HorizontalDivider(color = Color(0xFFF1F5F9))
+}
+
+@Composable
+internal fun SectionLabel(text: String) {
+    Text(text, fontSize = 10.sp, fontWeight = FontWeight.Black, color = REPORT_MUTED)
+}
+
+@Composable
+internal fun FilterChipRow(
+    options: List<Pair<String, String>>,
+    selected: String,
+    tagPrefix: String,
+    onSelect: (String) -> Unit,
+) {
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        options.forEach { (value, label) ->
+            FilterChip(
+                selected = selected == value,
+                onClick = { onSelect(value) },
+                label = { Text(label, fontSize = 10.sp) },
+                modifier = Modifier.heightIn(min = 40.dp).testTag("${tagPrefix}_$value"),
+            )
+        }
+    }
+}
+
+/** Daftar chip ringkasan detail; hanya nilai > 0 yang ditampilkan seperti web. */
+@Composable
+internal fun SummaryChips(items: List<Pair<String, String>>) {
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        items.forEach { (label, value) ->
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = Color(0xFFF8FAFC),
+                border = BorderStroke(1.dp, BORDER),
+            ) {
+                Column(Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
+                    Text(label.uppercase(), fontSize = 8.sp, fontWeight = FontWeight.Black, color = REPORT_MUTED)
+                    Text(value, fontSize = 11.sp, fontWeight = FontWeight.Black, color = REPORT_HEADER)
                 }
             }
         }
@@ -409,60 +598,6 @@ private fun RawTab(
 }
 
 @Composable
-private fun CashTab(rows: List<CashflowRow>, ascending: Boolean = false) {
-    var sortKey by remember { mutableStateOf("tanggal") }
-    var sortAsc by remember { mutableStateOf(ascending) }
-    val sorted = remember(rows, sortKey, sortAsc) {
-        val comparator: Comparator<CashflowRow> = when (sortKey) {
-            "jenis" -> compareBy { it.jenis.lowercase() }
-            "nominal" -> compareBy { it.nominal }
-            "mutasi" -> compareBy { it.mutasi.lowercase() }
-            else -> compareBy { it.createdAt }
-        }
-        rows.sortedWith(if (sortAsc) comparator else comparator.reversed())
-    }
-    Column(Modifier.fillMaxSize()) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            listOf("tanggal" to "Tanggal", "jenis" to "Jenis", "nominal" to "Nominal", "mutasi" to "Mutasi").forEach { (value, label) ->
-                FilterChip(
-                    selected = sortKey == value,
-                    onClick = { if (sortKey == value) sortAsc = !sortAsc else { sortKey = value; sortAsc = true } },
-                    label = { Text(label) },
-                )
-            }
-        }
-        LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            if (sorted.isEmpty()) item { EmptyHint(message = "Tidak ada data cashflow.") }
-            items(sorted, key = { it.id }) { row ->
-                Surface(
-                    shape = RoundedCornerShape(14.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.surfaceVariant),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text(row.jenis.ifBlank { row.note }, style = MaterialTheme.typography.titleSmall)
-                            Text(
-                                (if (row.mutasi.lowercase() in setOf("out", "keluar")) "-" else "+") +
-                                    Money.formatRupiah(row.nominal.abs()),
-                                fontWeight = FontWeight.Bold,
-                                color = if (row.mutasi.lowercase() in setOf("out", "keluar")) {
-                                    MaterialTheme.colorScheme.error
-                                } else {
-                                    MaterialTheme.colorScheme.primary
-                                },
-                            )
-                        }
-                        Text(row.note, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        HorizontalDivider()
-                        Text(row.createdAt, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-            }
-        }
-    }
+internal fun MissingRow(text: String) {
+    Text(text, fontSize = 11.sp, color = REPORT_MUTED, modifier = Modifier.fillMaxWidth().padding(16.dp))
 }
