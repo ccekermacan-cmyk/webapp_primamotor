@@ -1,5 +1,10 @@
 package id.primamotor.pos.ui.cashflow
 
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Surface
+import androidx.compose.ui.Alignment
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -85,30 +90,53 @@ private fun CashTab(rows: List<CashflowRow>) {
     var filter by remember { mutableStateOf(CashflowFilter.SEMUA) }
     val filtered = CashflowFilter.byMutation(rows, filter)
     Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf(CashflowFilter.SEMUA, CashflowFilter.MASUK, CashflowFilter.KELUAR).forEach { option ->
                 FilterChip(
                     selected = filter == option,
                     onClick = { filter = option },
                     label = { Text(option) },
-                    modifier = Modifier.testTag("cashflow_filter_$option"),
+                    modifier = Modifier.heightIn(min = 44.dp).testTag("cashflow_filter_$option"),
                 )
             }
         }
-        Text(
-            "Selisih: ${Money.formatRupiah(CashflowFilter.net(filtered))}",
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(horizontal = 12.dp),
-        )
-        LazyColumn(Modifier.fillMaxSize()) {
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.primaryContainer,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+        ) {
+            Column(Modifier.padding(18.dp)) {
+                Text("Selisih kas", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                Text(
+                    Money.formatRupiah(CashflowFilter.net(filtered)),
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+            }
+        }
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             if (filtered.isEmpty()) item { id.primamotor.pos.ui.EmptyHint() }
             items(filtered, key = { it.id }) { row ->
-                Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text(row.jenis.ifBlank { row.note.ifBlank { "Kas" } })
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.surfaceVariant),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(row.jenis.ifBlank { row.note.ifBlank { "Kas" } }, style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                row.note.ifBlank { row.person },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 2,
+                            )
+                        }
                         Text(
                             (if (row.mutasi.lowercase() in setOf("out", "keluar")) "-" else "+") +
                                 Money.formatRupiah(row.nominal.abs()),
+                            style = MaterialTheme.typography.titleSmall,
                             color = if (row.mutasi.lowercase() in setOf("out", "keluar")) {
                                 MaterialTheme.colorScheme.error
                             } else {
@@ -116,9 +144,7 @@ private fun CashTab(rows: List<CashflowRow>) {
                             },
                         )
                     }
-                    Text(row.note, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                HorizontalDivider()
             }
         }
     }
@@ -126,18 +152,24 @@ private fun CashTab(rows: List<CashflowRow>) {
 
 @Composable
 private fun PeopleTab(rows: List<PersonRow>) {
-    LazyColumn(Modifier.fillMaxSize()) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         if (rows.isEmpty()) item { id.primamotor.pos.ui.EmptyHint() }
         items(rows, key = { it.id }) { person ->
-            Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
-                Text(person.nama, fontWeight = FontWeight.SemiBold)
-                Text(
-                    listOf(person.jenis, person.keterangan).filter { it.isNotBlank() }.joinToString(" • "),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surface,
+                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.surfaceVariant),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(person.nama, style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        listOf(person.jenis, person.keterangan).filter { it.isNotBlank() }.joinToString(" • "),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
-            HorizontalDivider()
         }
     }
 }
@@ -148,9 +180,19 @@ private fun ReportTab(menu: List<MenuRow>, lastSyncAt: Long?) {
     val total = menu.fold(BigDecimal.ZERO) { sum, row -> sum + row.total }
     val unpaid = CashflowFilter.unpaid(menu)
 
-    Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Total nota: ${Money.formatRupiah(total)}", fontWeight = FontWeight.Bold)
-        Text("Nota belum lunas: ${unpaid.size}")
+    Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surface,
+            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.surfaceVariant),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Total nota", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(Money.formatRupiah(total), style = MaterialTheme.typography.headlineSmall)
+                Text("Nota belum lunas: ${unpaid.size}", style = MaterialTheme.typography.bodyMedium)
+            }
+        }
         Text(
             if (lastSyncAt == null || lastSyncAt == 0L) {
                 "Data terakhir: belum pernah sinkron"
@@ -183,6 +225,7 @@ private fun ReportTab(menu: List<MenuRow>, lastSyncAt: Long?) {
             }
         }
         Text("Grafik dari cache; server tetap sumber angka final.", style = MaterialTheme.typography.bodySmall)
+        Text("Data disegarkan otomatis saat jaringan tersambung.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

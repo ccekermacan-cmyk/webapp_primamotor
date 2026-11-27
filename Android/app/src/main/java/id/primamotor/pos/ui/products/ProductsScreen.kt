@@ -1,5 +1,8 @@
 package id.primamotor.pos.ui.products
 
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Surface
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -76,13 +79,13 @@ fun ProductsScreen(viewModel: ProductViewModel) {
                 onValueChange = viewModel::setQuery,
                 label = { Text("Cari nama / barcode") },
                 singleLine = true,
-                modifier = Modifier.fillMaxWidth().padding(12.dp).testTag("products_search"),
+                textStyle = MaterialTheme.typography.bodyLarge,
+                modifier = Modifier.fillMaxWidth().padding(16.dp).testTag("products_search"),
             )
             LazyColumn(Modifier.fillMaxSize()) {
                 if (products.isEmpty()) item { id.primamotor.pos.ui.EmptyHint() }
                 items(products, key = { it.id }) { product ->
                     ProdukRow(product) { viewModel.edit(product) }
-                    HorizontalDivider()
                 }
             }
         }
@@ -108,21 +111,28 @@ fun ProductsScreen(viewModel: ProductViewModel) {
 
 @Composable
 private fun ProdukRow(product: Produk, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(12.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.surfaceVariant),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 5.dp).clickable(onClick = onClick),
     ) {
-        Column(Modifier.weight(1f)) {
-            Text(product.nama, style = MaterialTheme.typography.bodyLarge)
-            Text(
-                listOf(product.merk, product.barcode).filter { it.isNotBlank() }.joinToString(" • ") +
-                    " • stok ${product.stok.stripTrailingZeros().toPlainString()}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+        Row(
+            modifier = Modifier.padding(16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(product.nama, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                Text(
+                    listOf(product.merk, product.barcode).filter { it.isNotBlank() }.joinToString(" • ") +
+                        " • stok ${product.stok.stripTrailingZeros().toPlainString()}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Text(Money.formatRupiah(product.sell1), style = MaterialTheme.typography.titleSmall)
         }
-        Text(Money.formatRupiah(product.sell1))
     }
 }
 

@@ -1,5 +1,11 @@
 package id.primamotor.pos.ui.history
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Surface
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -55,37 +61,65 @@ fun HistoryScreen(viewModel: HistoryViewModel) {
     val rows by viewModel.menu.collectAsStateWithLifecycle()
 
     Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             OutlinedTextField(
                 value = state.query,
                 onValueChange = viewModel::setQuery,
                 label = { Text("Cari nota / pelanggan") },
                 singleLine = true,
+                textStyle = MaterialTheme.typography.bodyLarge,
                 modifier = Modifier.weight(1f).testTag("history_search"),
             )
             FilterChip(
                 selected = state.onlyUnpaid,
                 onClick = viewModel::toggleUnpaid,
                 label = { Text("Tempo") },
-                modifier = Modifier.align(Alignment.CenterVertically).testTag("history_unpaid"),
+                modifier = Modifier.align(Alignment.CenterVertically).heightIn(min = 48.dp).testTag("history_unpaid"),
             )
         }
 
-        LazyColumn(Modifier.fillMaxSize()) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             if (rows.isEmpty()) item { id.primamotor.pos.ui.EmptyHint() }
             items(rows, key = { it.id }) { row ->
-                Column(Modifier.fillMaxWidth().clickable { viewModel.openSettle(row) }.padding(horizontal = 12.dp, vertical = 8.dp)) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text(row.id, style = MaterialTheme.typography.bodySmall)
-                        Text(Money.formatRupiah(row.total), fontWeight = FontWeight.SemiBold)
+                val sisa = Settlement.remaining(row.total, row.dibayar)
+                Surface(
+                    shape = RoundedCornerShape(18.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.surfaceVariant),
+                    modifier = Modifier.fillMaxWidth().clickable { viewModel.openSettle(row) },
+                ) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(row.id, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(
+                                    row.person.ifBlank { "Pelanggan umum" },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            Text(Money.formatRupiah(row.total), style = MaterialTheme.typography.titleMedium)
+                        }
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                "${if (row.payment == "cash") "Tunai" else "Tempo"} • dibayar ${Money.formatRupiah(row.dibayar)}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Surface(
+                                shape = RoundedCornerShape(999.dp),
+                                color = if (sisa > java.math.BigDecimal.ZERO) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                            ) {
+                                Text(
+                                    if (sisa > java.math.BigDecimal.ZERO) "Sisa ${Money.formatRupiah(sisa)}" else "Lunas",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (sisa > java.math.BigDecimal.ZERO) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                )
+                            }
+                        }
                     }
-                    Text(
-                        "${if (row.payment == "cash") "Tunai" else "Tempo"} • dibayar ${Money.formatRupiah(row.dibayar)} • sisa ${Money.formatRupiah(Settlement.remaining(row.total, row.dibayar))}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
                 }
-                HorizontalDivider()
             }
         }
     }

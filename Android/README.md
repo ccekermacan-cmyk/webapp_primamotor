@@ -8,10 +8,10 @@ atomik yang sama dengan web.
 
 | Ukuran | Batas | Terukur (27-11-2026) |
 | --- | --- | --- |
-| APK rilis `arm64-v8a` | ≤ 12 MB | 2,3 MB |
+| APK rilis `arm64-v8a` | ≤ 12 MB | 2,4 MB |
 | Cold start (`am start -W`, HP CPH2461) | ≤ 2000 ms | 717–1074 ms |
 | Unit test | lulus semua | 54/54 |
-| Instrumented test | lulus semua | 45/45 |
+| Instrumented test | lulus semua | 48/48 |
 
 Naikkan anggaran hanya lewat keputusan sadar; jangan menambah library yang bisa diganti stdlib.
 

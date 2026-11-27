@@ -1,5 +1,12 @@
 package id.primamotor.pos.ui.account
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Surface
+import androidx.compose.ui.Alignment
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -55,14 +62,34 @@ fun AccountScreen(viewModel: AccountViewModel, container: AppContainer, onLogout
     val bon by viewModel.bon.collectAsStateWithLifecycle(emptyList())
     val loans = LoanSummary.of(bon.map(BonAdapter::toEntry), gaji.firstOrNull()?.diterima ?: java.math.BigDecimal.ZERO)
 
-    Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(viewModel.nama.ifBlank { "Akun" }, style = MaterialTheme.typography.titleLarge)
-        Text(viewModel.username, style = MaterialTheme.typography.bodySmall)
-        HorizontalDivider()
+    Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surface,
+            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.surfaceVariant),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier.size(56.dp).background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(18.dp)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        viewModel.nama.trim().take(2).uppercase().ifBlank { "AK" },
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+                Column(Modifier.weight(1f).padding(start = 14.dp)) {
+                    Text(viewModel.nama.ifBlank { "Akun" }, style = MaterialTheme.typography.titleLarge)
+                    Text(viewModel.username, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
 
-        Text("Gaji saya", fontWeight = FontWeight.Bold)
+        Text("Gaji saya", style = MaterialTheme.typography.titleMedium)
         if (gaji.isEmpty()) {
-            Text("Belum ada data gaji di cache.", style = MaterialTheme.typography.bodySmall)
+            Text("Belum ada data gaji di cache. Data muncul setelah sinkron berhasil.", style = MaterialTheme.typography.bodyMedium)
         } else {
             LazyColumn(Modifier.weight(1f)) {
                 items(gaji, key = { it.id }) { row -> GajiRowItem(row) }
@@ -81,9 +108,9 @@ fun AccountScreen(viewModel: AccountViewModel, container: AppContainer, onLogout
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(
                 onClick = { showSettings = true },
-                modifier = Modifier.weight(1f).testTag("open_settings"),
+                modifier = Modifier.weight(1f).heightIn(min = 52.dp).testTag("open_settings"),
             ) { Text("Pengaturan") }
-            OutlinedButton(onClick = onLogout, modifier = Modifier.weight(1f).testTag("logout")) { Text("Keluar") }
+            OutlinedButton(onClick = onLogout, modifier = Modifier.weight(1f).heightIn(min = 52.dp).testTag("logout")) { Text("Keluar") }
         }
     }
 

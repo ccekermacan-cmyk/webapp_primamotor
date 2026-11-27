@@ -3,6 +3,7 @@ package id.primamotor.pos
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performClick
 import org.junit.Rule
 import org.junit.Test
 import id.primamotor.pos.ui.nav.AppNav
@@ -16,6 +17,9 @@ class ShellTest {
     @Test
     fun bottom_bar_shows_all_tabs() {
         rule.setContent { PrimaMotorTheme { AppNav() } }
+        // Menu utama ada di drawer, sama seperti sidebar web.
+        rule.onNodeWithTag("nav_menu").performClick()
+        rule.waitForIdle()
         listOf("pos", "history", "products", "cashflow", "account").forEach { route ->
             rule.onNodeWithTag("tab_$route").assertIsDisplayed()
         }

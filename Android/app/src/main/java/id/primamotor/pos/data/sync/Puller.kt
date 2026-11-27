@@ -28,6 +28,7 @@ class Puller(
         val dateField: String?,
         val groupField: String?,
         val textFields: List<String>,
+        val days: Int = 30,
     )
 
     private val specs = listOf(
@@ -35,11 +36,12 @@ class Puller(
         Spec("dropdown", null, "jenis", listOf("text_1", "text_2", "id_lama")),
         Spec("user", null, null, listOf("name", "username")),
         Spec("gaji", null, "person", listOf("person", "id_lama")),
-        Spec("menu", "created_at", "person", listOf("text", "person", "id_lama")),
+        // Riwayat nota disimpan lebih panjang supaya pelunasan tempo lama tetap bisa dicari.
+        Spec("menu", "created_at", "person", listOf("text", "person", "id_lama"), days = 180),
         Spec("cashflow", "created_at", "account_1", listOf("note", "person", "jenis", "mutasi")),
         Spec("log_stock", "created_at", "item", listOf("item", "id_lama")),
         Spec("ongkos", "created_at", "person", listOf("person")),
-        Spec("bon", "created", "user", listOf("note", "person", "operator")),
+        Spec("bon", "created", "user", listOf("note", "person", "operator"), days = 180),
         Spec("report", "created_at", null, listOf("kasir_toko")),
     )
 
@@ -47,12 +49,13 @@ class Puller(
 
     suspend fun pull(): Result {
         val today = LocalDate.now(WibDate.WIB)
-        val from = today.minusDays(windowDays.toLong()).toString()
         val to = today.toString()
 
         var records = 0
         var deleted = 0
         for (spec in specs) {
+            val days = spec.days.coerceAtLeast(windowDays)
+            val from = today.minusDays(days.toLong()).toString()
             val entities = fetch(spec, from).mapNotNull { toEntity(spec, it) }
             if (entities.isNotEmpty()) {
                 db.localRecordDao().upsertAll(entities)

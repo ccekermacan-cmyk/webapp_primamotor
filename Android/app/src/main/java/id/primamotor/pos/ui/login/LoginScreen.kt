@@ -1,6 +1,10 @@
 package id.primamotor.pos.ui.login
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -11,6 +15,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -38,15 +43,29 @@ fun LoginScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text(text = "Prima Motor POS", style = MaterialTheme.typography.headlineSmall)
+        Box(
+            Modifier
+                .size(80.dp)
+                .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(24.dp)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("PM", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary)
+        }
+        Text(text = "PRIMA MOTOR", style = MaterialTheme.typography.headlineSmall)
+        Text(
+            "Sistem kasir toko",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
 
         OutlinedTextField(
             value = username,
             onValueChange = { username = it },
             label = { Text("Username") },
             singleLine = true,
+            textStyle = MaterialTheme.typography.bodyLarge,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-            modifier = Modifier.fillMaxWidth().testTag("login_username"),
+            modifier = Modifier.fillMaxWidth().heightIn(min = 60.dp).testTag("login_username"),
         )
 
         OutlinedTextField(
@@ -55,8 +74,9 @@ fun LoginScreen(
             label = { Text("Password") },
             singleLine = true,
             visualTransformation = PasswordVisualTransformation(),
+            textStyle = MaterialTheme.typography.bodyLarge,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
-            modifier = Modifier.fillMaxWidth().testTag("login_password"),
+            modifier = Modifier.fillMaxWidth().heightIn(min = 60.dp).testTag("login_password"),
         )
 
         if (state.error != null) {
@@ -71,7 +91,7 @@ fun LoginScreen(
         Button(
             onClick = { onLogin(username, password) },
             enabled = !state.loading,
-            modifier = Modifier.fillMaxWidth().testTag("login_submit"),
+            modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).testTag("login_submit"),
         ) {
             if (state.loading) {
                 CircularProgressIndicator(modifier = Modifier.padding(2.dp))
@@ -81,8 +101,9 @@ fun LoginScreen(
         }
 
         Text(
-            text = "Login pertama butuh internet. Setelah itu POS tetap bisa dibuka saat offline.",
+            text = "Login pertama butuh internet. Setelah itu POS tetap bisa dibuka saat offline, dan data tersinkron otomatis ketika jaringan kembali.",
             style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }

@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -46,7 +47,6 @@ fun CheckoutSheet(
     onDismiss: () -> Unit,
 ) {
     val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val direction = PosValidation.directionOf(state.draft.menu)
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet) {
         Column(
@@ -54,6 +54,40 @@ fun CheckoutSheet(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text("Keranjang", style = MaterialTheme.typography.titleLarge)
+            CheckoutContent(
+                state = state,
+                accounts = accounts,
+                onQty = onQty,
+                onRemove = onRemove,
+                onDraft = onDraft,
+                onSubmit = onSubmit,
+            )
+        }
+    }
+}
+
+/** Isi keranjang dipakai di bottom sheet (HP) dan panel kanan (tablet/lanskap). */
+@Composable
+fun CheckoutContent(
+    state: PosUiState,
+    accounts: List<PersonRow>,
+    onQty: (String, BigDecimal) -> Unit,
+    onRemove: (String) -> Unit,
+    onDraft: ((CheckoutDraft) -> CheckoutDraft) -> Unit,
+    onSubmit: () -> Unit,
+) {
+    val direction = PosValidation.directionOf(state.draft.menu)
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        if (state.cart.isEmpty()) {
+            Text(
+                "Keranjang kosong. Ketuk produk untuk menambah.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
 
             state.cart.forEach { entry ->
                 Row(
@@ -148,10 +182,9 @@ fun CheckoutSheet(
             Button(
                 onClick = onSubmit,
                 enabled = !state.saving && state.cart.isNotEmpty(),
-                modifier = Modifier.fillMaxWidth().testTag("checkout_submit"),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).testTag("checkout_submit"),
             ) {
-                Text(if (state.saving) "Menyimpan..." else "Simpan transaksi")
+                Text(if (state.saving) "Menyimpan..." else "Simpan transaksi", style = MaterialTheme.typography.labelLarge)
             }
-        }
     }
 }

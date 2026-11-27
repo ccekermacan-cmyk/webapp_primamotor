@@ -12,5 +12,6 @@ class PosApplication : Application() {
         super.onCreate()
         container = AppContainer(this)
         SyncWorker.schedule(this)
+        SyncWorker.watchNetwork(this)
     }
 }
