@@ -23,6 +23,10 @@ val posBaseUrl: String = (findProperty("posBaseUrl") as String?)
     ?: datasourceValue("PB_PUBLIC_URL")
     ?: "http://localhost:8090"
 
+val posApiUrl: String = (findProperty("posApiUrl") as String?)
+    ?: datasourceValue("API_PUBLIC_URL")
+    ?: ""
+
 /**
  * Keystore rilis dari `Android/keystore.properties` (tidak masuk git).
  * Tanpa file itu, APK rilis ditandatangani debug key supaya tetap bisa diuji di HP toko.
@@ -45,6 +49,7 @@ android {
         versionName = "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "POS_BASE_URL", "\"$posBaseUrl\"")
+        buildConfigField("String", "POS_API_URL", "\"$posApiUrl\"")
     }
 
     signingConfigs {

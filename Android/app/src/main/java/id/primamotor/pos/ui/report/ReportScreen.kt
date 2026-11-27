@@ -26,6 +26,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -48,6 +49,7 @@ import id.primamotor.pos.data.local.LocalRecordEntity
 import id.primamotor.pos.data.repo.CashflowRow
 import id.primamotor.pos.data.repo.MenuRow
 import id.primamotor.pos.data.repo.Repositories
+import id.primamotor.pos.data.repo.ReportRow
 import id.primamotor.pos.data.repo.number
 import id.primamotor.pos.data.repo.object_
 import id.primamotor.pos.data.repo.text
@@ -55,6 +57,7 @@ import id.primamotor.pos.domain.CashflowFilter
 import id.primamotor.pos.domain.Money
 import id.primamotor.pos.ui.EmptyHint
 import id.primamotor.pos.ui.history.HistoryRoute
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.StateFlow
@@ -71,6 +74,8 @@ class ReportViewModel(container: AppContainer) : ViewModel() {
     val logs: StateFlow<List<LocalRecordEntity>> = container.repositories.observeRaw("log_stock")
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val ongkos: StateFlow<List<LocalRecordEntity>> = container.repositories.observeRaw("ongkos")
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val reports: StateFlow<List<ReportRow>> = container.reportRepository.observe()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val syncAt: StateFlow<Long> = container.database.syncStateDao().observeAll()
         .map { list -> list.lastOrNull()?.lastSyncAt ?: 0L }
@@ -171,10 +176,10 @@ fun ReportScreen(viewModel: ReportViewModel, container: AppContainer) {
 
         when (tab) {
             0 -> OverviewTab(
-                viewModel,
-                menuFilter = { row -> inRange(row.createdAt) },
-                cashFilter = { row -> inRange(row.createdAt) },
-                ascending = ascending,
+                viewModel = viewModel,
+                container = container,
+                from = appliedFrom,
+                to = appliedTo,
             )
             1 -> HistoryRoute(container)
             2 -> RawTab(
@@ -196,35 +201,76 @@ fun ReportScreen(viewModel: ReportViewModel, container: AppContainer) {
 @Composable
 private fun OverviewTab(
     viewModel: ReportViewModel,
-    menuFilter: (MenuRow) -> Boolean = { true },
-    cashFilter: (CashflowRow) -> Boolean = { true },
-    ascending: Boolean = false,
+    container: AppContainer,
+    from: String,
+    to: String,
 ) {
-    val allMenu by viewModel.menu.collectAsStateWithLifecycle()
-    val menu = if (ascending) allMenu.reversed() else allMenu
-    val filteredMenu = menu.filter(menuFilter)
-    val allCash by viewModel.cashflow.collectAsStateWithLifecycle()
-    val cashflow = allCash.filter(cashFilter)
-    val lastSync by viewModel.syncAt.collectAsStateWithLifecycle()
-    val total = filteredMenu.fold(BigDecimal.ZERO) { sum, row -> sum + row.total }
-    val unpaid = CashflowFilter.unpaid(filteredMenu)
-    val net = CashflowFilter.net(cashflow)
-    val daily = CashflowFilter.dailyTotals(filteredMenu)
+    val reports by viewModel.reports.collectAsStateWithLifecycle()
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var busy by remember { mutableStateOf(false) }
+    var message by remember { mutableStateOf<String?>(null) }
+    val filtered = reports.filter { row ->
+        val day = row.createdAt.take(10)
+        (from.isBlank() || day >= from) && (to.isBlank() || day <= to)
+    }
+    val totalOmset = filtered.fold(BigDecimal.ZERO) { sum, r -> sum + r.omset }
+    val totalLaba = filtered.fold(BigDecimal.ZERO) { sum, r -> sum + r.labaBersih }
+    val totalPengeluaran = filtered.fold(BigDecimal.ZERO) { sum, r -> sum + r.pengeluaran }
+    val totalPiutang = filtered.fold(BigDecimal.ZERO) { sum, r -> sum + r.piutang }
+    val insight = if (filtered.isEmpty()) {
+        "Belum ada data cukup untuk dianalisa."
+    } else {
+        val status = if (totalLaba.signum() > 0) "positif (menguntungkan)" else "negatif (merugi)"
+        "Berdasarkan data periode ini, performa bisnis menunjukkan tren $status dengan estimasi laba bersih mencapai " +
+            Money.formatRupiah(totalLaba) + ". " +
+            if (totalPengeluaran > totalLaba) {
+                "Perhatian: Total pengeluaran saat ini lebih tinggi dari laba penjualan kotor."
+            } else {
+                "Pengeluaran operasional masih dalam batas aman di bawah laba kotor."
+            }
+    }
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        MetricCard("Total nota", Money.formatRupiah(total), "Nota belum lunas: ${unpaid.size}")
-        MetricCard("Arus kas bersih", Money.formatRupiah(net), "Masuk dikurangi keluar dari cache")
-        MetricCard(
-            "Sinkron terakhir",
-            if (lastSync == 0L) "Belum pernah" else formatSync(lastSync),
-            "Data mengikuti server setiap jaringan tersambung",
-        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(
+                enabled = !busy,
+                onClick = {
+                    busy = true
+                    message = null
+                    scope.launch {
+                        val date = from.ifBlank { LocalDate.now().toString() }
+                        val result = runCatching { container.reportRepository.recalculate(date) }
+                        message = result.fold(
+                            onSuccess = { "Laporan $date berhasil direkalkulasi." },
+                            onFailure = { it.message ?: "Perhitungan laporan belum berhasil." },
+                        )
+                        busy = false
+                    }
+                },
+                modifier = Modifier.heightIn(min = 44.dp).testTag("report_recalculate"),
+            ) { Text(if (busy) "Menghitung..." else "Hitung ulang laporan") }
+        }
+        message?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+
+        MetricCard("Total omset", Money.formatRupiah(totalOmset), "${filtered.size} rekap laporan")
+        MetricCard("Laba bersih", Money.formatRupiah(totalLaba), "Laba kotor + pemasukan lain - pengeluaran")
+        MetricCard("Pengeluaran", Money.formatRupiah(totalPengeluaran), "Operasional toko + pengeluaran lain")
+        MetricCard("Piutang", Money.formatRupiah(totalPiutang), "Belum tertagih pada periode ini")
+
+        Surface(
+            shape = RoundedCornerShape(18.dp),
+            color = MaterialTheme.colorScheme.secondaryContainer,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(insight, modifier = Modifier.padding(16.dp), style = MaterialTheme.typography.bodyMedium)
+        }
 
         Text("Penjualan per hari", style = MaterialTheme.typography.titleMedium)
         val barColor = MaterialTheme.colorScheme.primary
+        val daily = filtered.sortedBy { it.createdAt }.map { it.createdAt.take(10) to it.omset }
         Canvas(Modifier.fillMaxWidth().height(180.dp)) {
             if (daily.isEmpty()) return@Canvas
             val max = daily.maxOf { it.second }.toFloat().coerceAtLeast(1f)
@@ -239,11 +285,46 @@ private fun OverviewTab(
             }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            daily.forEach { (day, _) ->
-                Text(day.takeLast(5), style = MaterialTheme.typography.bodySmall)
+            daily.forEach { (day, _) -> Text(day.takeLast(5), style = MaterialTheme.typography.bodySmall) }
+        }
+
+        Text("Rekap laporan", style = MaterialTheme.typography.titleMedium)
+        if (filtered.isEmpty()) {
+            EmptyHint(message = "Tidak ada data laporan ditemukan untuk filter ini.")
+        }
+        filtered.forEach { row ->
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = MaterialTheme.colorScheme.surface,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.surfaceVariant),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text(row.createdAt.take(10), style = MaterialTheme.typography.titleSmall)
+                        Text(Money.formatRupiah(row.labaBersih), fontWeight = FontWeight.Bold)
+                    }
+                    Text(
+                        "Omset ${Money.formatRupiah(row.omset)} • laba ${Money.formatRupiah(row.labaKotor)} • keluar ${Money.formatRupiah(row.pengeluaran)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        "Piutang ${Money.formatRupiah(row.piutang)} • hutang ${Money.formatRupiah(row.hutang)}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    TextButton(
+                        onClick = {
+                            scope.launch {
+                                val ok = runCatching { container.reportRepository.delete(row.id) }.getOrDefault(false)
+                                if (!ok) message = "Hapus rekap gagal."
+                            }
+                        },
+                    ) { Text("Hapus rekap", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error) }
+                }
             }
         }
-        Text("Grafik dari cache; server tetap sumber angka final.", style = MaterialTheme.typography.bodySmall)
     }
 }
 

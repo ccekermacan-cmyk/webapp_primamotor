@@ -86,6 +86,12 @@ class SessionManager(
     suspend fun batch(requestId: String, operations: List<BatchOperation>): List<BatchResult> =
         authorized { client.batch(requestId, operations, it) }
 
+    /** POST ke backend Laravel (bukan PocketBase) memakai token sesi yang sama seperti web. */
+    suspend fun laravelPost(apiUrl: String, path: String, body: JsonElement) = withContext(Dispatchers.IO) {
+        val token = store.token() ?: throw PocketBaseException("Sesi berakhir. Silakan login ulang.", 401)
+        client.request(apiUrl.trimEnd('/') + path, "POST", body, token)
+    }
+
     suspend fun upload(path: String, field: String, filePath: String) = withContext(Dispatchers.IO) {
         val token = store.token() ?: throw PocketBaseException("Sesi berakhir. Login ulang untuk unggah media.")
         client.uploadFile(path, field, filePath, token)

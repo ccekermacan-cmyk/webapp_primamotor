@@ -11,6 +11,7 @@ import id.primamotor.pos.data.repo.EmployeeRepository
 import id.primamotor.pos.data.repo.MasterRepository
 import id.primamotor.pos.data.repo.PosEditRepository
 import id.primamotor.pos.data.repo.ProductRepository
+import id.primamotor.pos.data.repo.ReportRepository
 import id.primamotor.pos.data.sync.ConflictResolver
 import id.primamotor.pos.data.repo.SettlementRepository
 import id.primamotor.pos.data.repo.Repositories
@@ -67,6 +68,8 @@ class AppContainer(context: Context) {
     val productRepository: ProductRepository = ProductRepository(database)
 
     val cashflowRepository: CashflowRepository = CashflowRepository(database)
+
+    val reportRepository: ReportRepository = ReportRepository(database, sessions, BuildConfig.POS_API_URL)
 
     val masterRepository: MasterRepository = MasterRepository(database)
 

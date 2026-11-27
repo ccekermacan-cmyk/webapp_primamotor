@@ -30,6 +30,7 @@ Desain: `docs/superpowers/specs/2026-11-27-android-web-parity-design.md`.
 - [x] Akun: ubah email/password, slip gaji, privasi nominal, paginasi gaji & bon (5/halaman)
 - [x] Akun: update profil (nama + URL avatar + password opsional) dan verifikasi password untuk membuka nominal
 - [x] Report: filter tanggal, sort per kolom, cetak/unduh lewat PrintManager
+- [x] Report: Overview dari koleksi `report` (omset, laba, pengeluaran, piutang, hutang, insight), rekalkulasi via API Laravel, hapus rekap lewat outbox
 - [x] Penyamaan label/empty state/error tiap tab (pesan kosong per layar, label menu = web)
 - [ ] Uji parity manual login nyata per layar + uji lapangan printer/barcode/offline
 
@@ -44,7 +45,8 @@ Desain: `docs/superpowers/specs/2026-11-27-android-web-parity-design.md`.
 - Report: sort kolom (tanggal, item/jenis/mekanik, qty/nominal) dan cetak/unduh PDF via print service Android.
 - Produk: filter stok memakai `stok_3 <= min_3` (menipis) dan `stok_3 <= 0` (habis), sama dengan query web; +/- menulis `log_stock` ke outbox.
 - Akun: nominal gaji/bon tersembunyi sampai password diverifikasi online, sama seperti web.
-- Bukti: unit 65/65, instrumented 57/57, release APK 2,5 MB, cold start 1041 ms di CPH2461.
+- Report: alamat API Laravel diambil dari `API_PUBLIC_URL` di file `datasource` (`BuildConfig.POS_API_URL`), dipakai hanya untuk rekalkulasi laporan.
+- Bukti: unit 65/65, instrumented 57/57, release APK 2,5 MB, cold start 1155 ms di CPH2461.
 
 ## Aturan tetap
 
