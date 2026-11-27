@@ -1,76 +1,130 @@
-# Prima Motor POS — Android
+# Prima Motor POS Android
 
-Aplikasi POS Android native (Kotlin + Compose). Tanpa Android Studio, tanpa emulator.
+Aplikasi POS native (Kotlin + Compose) untuk kasir toko. Server tetap sumber kebenaran;
+aplikasi menyimpan salinan lokal, menerima transaksi saat offline, lalu mengirim lewat outbox
+atomik yang sama dengan web.
 
-## Environment (sudah terpasang di mesin ini)
+## Anggaran yang dipatok
 
-| Komponen | Lokasi |
-| --- | --- |
-| JDK 17 (Temurin) | `~/jdk/jdk-17` |
-| Android SDK | `~/android-sdk` (`platforms;android-35`, `build-tools;35.0.0`, `platform-tools`) |
-| Gradle | wrapper proyek (`./gradlew`), distribusi 8.9 |
-| HP uji | fisik via USB; mirror layar dengan `scrcpy` |
+| Ukuran | Batas | Terukur (27-11-2026) |
+| --- | --- | --- |
+| APK rilis `arm64-v8a` | ≤ 12 MB | 2,3 MB |
+| Cold start (`am start -W`, HP CPH2461) | ≤ 2000 ms | 717–1074 ms |
+| Unit test | lulus semua | 54/54 |
+| Instrumented test | lulus semua | 45/45 |
 
-Semua dipasang ulang kapan saja dengan `../scripts/android-env.sh` (idempoten, tanpa root).
+Naikkan anggaran hanya lewat keputusan sadar; jangan menambah library yang bisa diganti stdlib.
 
-`~/.bashrc` sudah memuat:
+## Prasyarat tanpa Android Studio
 
-```bash
+```sh
+./scripts/android-env.sh          # JDK 17 + Android SDK di $HOME, idempoten
+sudo apt install scrcpy           # mirror layar, butuh root
+```
+
+Udev untuk adb (butuh root, sekali):
+
+```sh
+sudo curl -fsSL https://raw.githubusercontent.com/M0Rf30/android-udev-rules/main/51-android.rules \
+  -o /etc/udev/rules.d/51-android.rules
+sudo udevadm control --reload-rules && sudo udevadm trigger
+adb kill-server
+```
+
+`Android/local.properties` berisi `sdk.dir`; file itu tidak masuk git.
+
+## Alamat server
+
+Alamat dibaca saat build dari `datasource` di root repo (`PB_PUBLIC_URL`) dan ditanam sebagai
+`BuildConfig.POS_BASE_URL`. Jangan menaruh alamat produksi di kode atau file .env frontend.
+
+- Ganti server: ubah `PB_PUBLIC_URL` di `datasource`, lalu build ulang. Tidak ada perubahan kode.
+- Build ke server lain tanpa mengubah file: `./gradlew :app:assembleDebug -PposBaseUrl=https://staging.example/api`.
+- Untuk staging, jalankan PocketBase/Laravel terpisah dan arahkan HP ke alamat itu; jangan memakai
+  record bisnis nyata untuk pengujian mutasi.
+
+## Build, pasang, ukur
+
+```sh
 export JAVA_HOME=$HOME/jdk/jdk-17
 export ANDROID_HOME=$HOME/android-sdk
-export PATH=$JAVA_HOME/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/cmdline-tools/latest/bin:$PATH
-```
+export PATH=$ANDROID_HOME/platform-tools:$PATH
 
-`Android/local.properties` berisi `sdk.dir=$HOME/android-sdk` (tidak di-commit).
-
-## Izin USB (butuh root, sekali saja)
-
-```bash
-sudo curl -fsSL https://raw.githubusercontent.com/M0Rf30/android-udev-rules/main/51-android.rules -o /etc/udev/rules.d/51-android.rules
-sudo udevadm control --reload-rules && sudo udevadm trigger
-```
-
-Cabut-colok kabel, lalu `adb devices` harus menampilkan `device` (bukan `no permissions`). Di HP: *Allow USB debugging*.
-
-## Perintah
-
-```bash
 cd Android
-./gradlew :app:assembleDebug          # APK debug
-./gradlew :app:assembleRelease        # APK release (R8 + shrink + split arm64)
-./gradlew :app:lintDebug              # lint
-./gradlew :app:testDebugUnitTest      # unit test (JVM)
-./gradlew :app:connectedDebugAndroidTest   # uji di HP fisik
-
+./gradlew :app:assembleDebug
 adb install -r app/build/outputs/apk/debug/app-arm64-v8a-debug.apk
-adb shell am start -W id.primamotor.pos/.MainActivity   # ukur cold start
-adb logcat -s PrimaMotor:* AndroidRuntime:E
-adb exec-out screencap -p > /tmp/s.png                  # screenshot
-scrcpy                                                  # mirror + kontrol layar
+
+./gradlew :app:assembleRelease      # R8 full mode, resource shrink, split arm64-v8a
+adb install -r app/build/outputs/apk/release/app-arm64-v8a-release.apk
+adb shell am force-stop id.primamotor.pos
+adb shell am start -W id.primamotor.pos/.MainActivity
 ```
 
-## Anggaran (dipatok, diukur)
+`scrcpy` untuk melihat layar HP dari laptop tanpa emulator.
 
-| Metrik | Target | Sekarang |
-| --- | --- | --- |
-| APK release arm64 | ≤ 12 MB | 0,8 MB (unsigned, Task 1) |
-| Cold start (debug, Pixel/CPH2461 Android 14) | ≤ 2000 ms | 1535 ms |
-| Query Room POS | < 50 ms | belum ada Room |
+## Tanda tangan rilis
 
-Naikkan angka di tabel saat task selesai; jangan naikkan target.
+- Tanpa `Android/keystore.properties`, APK rilis memakai debug keystore supaya bisa diuji di HP toko.
+  **Jangan distribusikan APK itu ke luar toko.**
+- Untuk rilis nyata, buat `Android/keystore.properties` (tidak masuk git):
 
-## Catatan
+  ```properties
+  storeFile=/path/di/luar/repo/prima-release.jks
+  storePassword=...
+  keyAlias=prima
+  keyPassword=...
+  ```
 
-- `minSdk 26`, `compileSdk`/`targetSdk 35`, hanya `arm64-v8a` (tambah `armeabi-v7a` kalau HP toko 32-bit).
-- HTTP cleartext hanya di varian debug (`app/src/debug/res/xml/network_security_config.xml`).
-- Base URL layanan mengikuti `datasource` di root repo saat build (Task 4); jangan hardcode.
-- Tanpa Hilt, tanpa Retrofit/Ktor, tanpa SQLCipher, tanpa library chart.
-- Rencana lengkap: `docs/superpowers/plans/2026-11-27-android-pos-native.md`.
+- Simpan keystore dan kata sandinya di luar repo. Kehilangan keystore berarti tidak bisa memperbarui
+  aplikasi yang sudah terpasang.
 
-## Uji di HP fisik (checklist fase 0)
+## Tes
 
-- [x] `adb devices` menampilkan `device`
-- [x] `./gradlew :app:connectedDebugAndroidTest` lulus (ShellTest)
-- [x] `adb shell am start -W` ≤ 2000 ms (1535 ms, debug)
-- [x] `scrcpy` bisa mengontrol layar
-- [ ] Mode pesawat: aplikasi tetap terbuka
+```sh
+cd Android
+./gradlew :app:testDebugUnitTest            # JVM, cepat
+./gradlew :app:connectedDebugAndroidTest    # butuh HP fisik via USB
+```
+
+Catatan perangkat:
+
+- `connectedDebugAndroidTest` mencopot aplikasi setelah selesai. Jalankan `:app:installDebug` lagi
+  sebelum mengukur cold start.
+- Layar HP harus tetap menyala. Kalau layar tidur di tengah suite, Compose test gagal dengan
+  "No compose hierarchies found". Sebelum menjalankan:
+  `adb shell svc power stayon true` dan `adb shell locksettings set-disabled true`
+  (atau nyalakan layar berkala).
+- Hasil XML: `app/build/outputs/androidTest-results/connected/debug/`.
+
+Tes server yang menyentuh migrasi:
+
+```sh
+python3 Backend/tests/integration/pocketbase_transactions.py
+```
+
+## Perilaku offline yang disengaja
+
+- Sesi tersimpan membuka POS tanpa jaringan; login pertama tetap butuh server.
+- Transaksi masuk outbox lokal lebih dulu, lalu dikirim FIFO. Kegagalan yang tidak pasti ditanyakan
+  ke server (`resolve`), bukan dikirim ulang buta.
+- Stok atau saldo kurang **ditolak** saat offline; tidak ada transaksi yang menunggu koreksi saldo.
+- Transaksi yang ditolak server berhenti di `needs_review` dan muncul di strip atas. Kasir memilih
+  kirim ulang atau batalkan; pembatalan membalik efek stok/kas lokal.
+- Hapus data tetap mengikuti aturan server. Administrasi pengguna tetap di web.
+- Gaji hanya untuk pengguna login dan cache-nya dibuang saat logout; outbox tidak disentuh.
+- Cetak struk gagal tidak menggagalkan transaksi: transaksi sudah tersimpan, cetak bisa diulang.
+
+## Struktur singkat
+
+```
+app/src/main/java/id/primamotor/pos/
+  data/local/     Room: local_record (JSON per record), outbox, sync_state
+  data/sync/      Pusher (batch + receipt), Puller, SyncEngine, ConflictResolver
+  data/ledger/    Cermin aturan atomic_ledger server untuk cek dini offline
+  data/repo/      Checkout, edit/hapus, pelunasan, produk, pembacaan cache
+  hardware/       Printer ESC/POS Bluetooth, pemindai barcode ZXing
+  ui/             Compose: POS, riwayat, produk, kas, akun, pengaturan
+```
+
+Satu tabel `local_record` menyimpan JSON utuh per record server. Skema server yang sering berubah
+tidak memaksa migrasi Room; kolom typed hanya ditambah saat query membutuhkannya.

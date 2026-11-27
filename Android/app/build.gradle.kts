@@ -23,6 +23,16 @@ val posBaseUrl: String = (findProperty("posBaseUrl") as String?)
     ?: datasourceValue("PB_PUBLIC_URL")
     ?: "http://localhost:8090"
 
+/**
+ * Keystore rilis dari `Android/keystore.properties` (tidak masuk git).
+ * Tanpa file itu, APK rilis ditandatangani debug key supaya tetap bisa diuji di HP toko.
+ * Untuk distribusi nyata, isi keystore.properties dan simpan keystore di luar repo.
+ */
+val keystoreProperties = Properties().apply {
+    val file = rootProject.projectDir.resolve("keystore.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
+}
+
 android {
     namespace = "id.primamotor.pos"
     compileSdk = 35
@@ -37,8 +47,25 @@ android {
         buildConfigField("String", "POS_BASE_URL", "\"$posBaseUrl\"")
     }
 
+    signingConfigs {
+        create("release") {
+            if (keystoreProperties.isEmpty) {
+                storeFile = File(System.getProperty("user.home"), ".android/debug.keystore")
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            } else {
+                storeFile = rootProject.projectDir.resolve(keystoreProperties.getProperty("storeFile"))
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
+            signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
